@@ -1,0 +1,109 @@
+# TypeScript
+
+## Strictness
+
+`tsconfig.json` runs `"strict": true`. Don't relax it. Specifically:
+
+- `strictNullChecks` — handle `null`/`undefined` explicitly
+- `noImplicitAny` — type every parameter and return
+- `strictFunctionTypes` — function parameter variance enforced
+
+## No `any`
+
+If you find yourself wanting `any`:
+1. Try `unknown` and narrow with `typeof` / `instanceof` / Zod
+2. Try `Awaited<ReturnType<typeof fn>>` for inferred async types
+3. Try a generic
+4. If the library is genuinely untyped, write a minimal local `.d.ts` in `src/types/<lib>.d.ts`
+
+Exceptions, all rare:
+- `as any` to satisfy a Supabase RPC call's loose Record type — narrow to a typed variable immediately after
+- `any` in a `catch (e: any)` block — prefer `catch (e)` (implicit unknown) and check `e instanceof Error`
+
+## Generated Supabase types
+
+`src/lib/supabase/types.ts` is regenerated after every migration. Import from it:
+
+```ts
+import type { Database } from '@/lib/supabase/types';
+
+type Order = Database['public']['Tables']['orders']['Row'];
+type OrderInsert = Database['public']['Tables']['orders']['Insert'];
+type FulfilmentStatus = Database['public']['Enums']['fulfilment_status'];
+type FabricType = Database['public']['Enums']['fabric_type'];
+```
+
+For complex selects with joins, the inferred shape can be ugly — define a clean local type:
+
+```ts
+type OrderWithRooms = Order & {
+  customers: Database['public']['Tables']['customers']['Row'];
+  rooms: Array<Database['public']['Tables']['rooms']['Row'] & {
+    windows: Database['public']['Tables']['windows']['Row'][];
+  }>;
+};
+```
+
+## Imports
+
+- Absolute imports via `@/*` (configured in `tsconfig.json`)
+- `import type { ... }` for type-only imports
+- `import 'server-only';` at the top of any file in `src/lib/` that must not be reachable from the client (Server Actions files, server-only DB helpers, the admin Supabase client)
+- `import 'client-only';` is rarely needed (the `'use client'` directive already pins a component to client; reserve `'client-only'` for client-only helper libraries you import elsewhere)
+
+## Money
+
+**Always integer cents** (SGD has no sub-cent). Helpers live in `src/lib/money.ts`:
+
+```ts
+import { dollarsToCents, centsToDisplay, formatSGD } from '@/lib/money';
+
+const cents = dollarsToCents('1234.50');   // 123450
+const display = centsToDisplay(123450);    // '1234.50'
+const formatted = formatSGD(123450);       // 'S$1,234.50'
+```
+
+In schemas: `price_quoted_cents: z.number().int().min(0)`. In forms: convert the user's `<input type="number">` value with `dollarsToCents` before passing to the action.
+
+## Dates
+
+- DB columns are `timestamptz` (UTC) or `date` (no TZ)
+- In JS, treat them as ISO strings or `Date` objects; never store with `toLocaleString()` round-trips
+- For display, use `Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })` — gives "15 Jun 2026" which matches the prototype
+- Centralise formatters in `src/lib/format.ts`
+
+## Enums
+
+Use Postgres enums (mirrored in generated types) over string unions in app code. The schema enforces correctness; you get the type for free.
+
+## Errors
+
+```ts
+try {
+  await something();
+} catch (e) {
+  const msg = e instanceof Error ? e.message : 'Unknown error';
+  // ...
+}
+```
+
+Don't `throw 'a string'` — always throw `Error` instances so stack traces work.
+
+## File-level conventions
+
+- `'use server';` or `'use client';` if applicable, as line 1
+- `import 'server-only';` (if a server-only file), line 2
+- Other imports
+- Type definitions
+- Constants
+- Exported functions
+- Default export last (if any)
+
+## Forbidden
+
+- `any` (with documented narrow exceptions above)
+- `// @ts-ignore` / `// @ts-expect-error` without a comment explaining why
+- Casting with `as Type` to bypass real type errors
+- `Number(...)` / `parseInt(...)` on user input without validation — go through Zod (`z.coerce.number()`)
+- Storing money as `number` floats
+- Hand-editing `src/lib/supabase/types.ts`

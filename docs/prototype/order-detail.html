@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drapeworks CRM — Order DW-2026-0142</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>[x-cloak] { display: none !important; }</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <nav class="bg-white border-b border-slate-200" x-data="{ navOpen: false }">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-4 md:gap-8">
+        <a href="index.html" class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded bg-teal-600 flex items-center justify-center text-white font-bold">D</div>
+          <span class="font-semibold text-slate-900 text-sm sm:text-base">Drapeworks CRM</span>
+        </a>
+        <div class="hidden md:flex items-center gap-1 text-sm">
+          <a href="index.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">Orders</a>
+          <a href="consultation.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">New Consultation</a>
+          <a href="fabrics.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">Fabrics</a>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3 text-sm">
+        <span class="hidden sm:inline text-slate-500">Sarah Lim</span>
+        <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-semibold">SL</div>
+        <button @click="navOpen = !navOpen" class="md:hidden p-1.5 text-slate-600 hover:bg-slate-100 rounded" aria-label="Menu">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div x-show="navOpen" x-cloak class="md:hidden border-t border-slate-200 px-4 py-2 space-y-1">
+      <a href="index.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">Orders</a>
+      <a href="consultation.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">New Consultation</a>
+      <a href="fabrics.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">Fabrics</a>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8" x-data="orderDetail()">
+    <!-- Breadcrumb -->
+    <div class="text-xs text-slate-500 mb-3">
+      <a href="index.html" class="hover:text-slate-700">Orders</a> <span class="mx-1">/</span> <span class="text-slate-700">DW-2026-0142</span>
+    </div>
+
+    <!-- Header -->
+    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-6">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+          <h1 class="text-xl sm:text-2xl font-bold text-slate-900">Tan Wei Ming</h1>
+          <span class="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700" x-text="currentStatus().label"></span>
+        </div>
+        <div class="text-sm text-slate-500 mt-1">Parc Esta · 4-room · Move-in 15 Jun 2026 · Order DW-2026-0142</div>
+      </div>
+      <div class="grid grid-cols-3 sm:flex sm:flex-row gap-2 sm:items-center">
+        <button class="px-2 sm:px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white">Edit</button>
+        <button class="px-2 sm:px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white">Print</button>
+        <button @click="advance()" :disabled="atEnd()" class="px-2 sm:px-3 py-1.5 text-xs sm:text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium">
+          <span x-text="atEnd() ? 'Completed' : 'Advance →'"></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+      <!-- Left: details -->
+      <div class="lg:col-span-2 space-y-4 order-2 lg:order-1">
+        <!-- Status timeline -->
+        <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+          <h2 class="text-base font-semibold text-slate-900 mb-4">Fulfilment status</h2>
+          <ol class="relative">
+            <template x-for="(s, i) in statuses" :key="s.key">
+              <li class="flex gap-4 pb-5 last:pb-0 relative">
+                <!-- Vertical line -->
+                <div x-show="i < statuses.length - 1" class="absolute left-3 top-6 bottom-0 w-px" :class="i < currentIdx ? 'bg-emerald-300' : 'bg-slate-200'"></div>
+                <!-- Dot -->
+                <div class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold z-10"
+                     :class="i < currentIdx ? 'bg-emerald-500 text-white' : (i === currentIdx ? 'bg-teal-500 text-white ring-4 ring-teal-100' : 'bg-slate-200 text-slate-500')">
+                  <span x-show="i < currentIdx">✓</span>
+                  <span x-show="i >= currentIdx" x-text="i+1"></span>
+                </div>
+                <div class="flex-1 min-w-0 pt-0.5">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="font-medium text-slate-900 text-sm" x-text="s.label"></div>
+                    <div class="text-xs text-slate-500" x-text="s.date || (i === currentIdx ? 'In progress' : 'Pending')"></div>
+                  </div>
+                  <div x-show="s.note" class="text-xs text-slate-600 mt-1" x-text="s.note"></div>
+                  <div x-show="s.by" class="text-xs text-slate-400 mt-0.5" x-text="'by ' + s.by"></div>
+                </div>
+              </li>
+            </template>
+          </ol>
+          <!-- Add note to current status -->
+          <div class="mt-4 pt-4 border-t border-slate-100">
+            <label class="block text-xs font-medium text-slate-600 mb-1">Add note to current status</label>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input type="text" placeholder="e.g. installation booked for 18 Jun, 9am" class="flex-1 px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+              <button class="px-3 py-2 text-sm border border-slate-300 rounded hover:bg-slate-100">Add note</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Rooms summary -->
+        <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+          <h2 class="text-base font-semibold text-slate-900 mb-4">Rooms & measurements <span class="text-xs font-normal text-slate-500">(cm)</span></h2>
+
+          <!-- Living Room -->
+          <div class="border border-slate-200 rounded mb-3 overflow-hidden">
+            <div class="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">Living Room</div>
+            <div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
+              <thead class="text-slate-500">
+                <tr>
+                  <th class="text-left px-4 py-2 font-medium">Day Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">Night Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">W × H</th>
+                  <th class="text-left px-4 py-2 font-medium">Install W</th>
+                  <th class="text-left px-4 py-2 font-medium">Draw</th>
+                  <th class="text-left px-4 py-2 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody class="text-slate-700">
+                <tr class="border-t border-slate-100">
+                  <td class="px-4 py-2">DW-D-115 Voile Champagne</td>
+                  <td class="px-4 py-2">DW-N-201 Velvet Blackout Charcoal</td>
+                  <td class="px-4 py-2">280 × 240</td>
+                  <td class="px-4 py-2">300</td>
+                  <td class="px-4 py-2">Double</td>
+                  <td class="px-4 py-2 text-slate-500">Ceiling mount, beam clearance 15cm</td>
+                </tr>
+              </tbody>
+            </table></div>
+            <div class="border-t border-slate-100 px-4 py-3 bg-white">
+              <div class="text-xs font-medium text-slate-600 mb-2">Reference photos (2)</div>
+              <div class="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                <div class="aspect-square bg-gradient-to-br from-slate-100 to-slate-200 rounded border border-slate-200 flex items-end p-1.5 text-[10px] text-slate-500">living-bay.jpg</div>
+                <div class="aspect-square bg-gradient-to-br from-slate-200 to-slate-100 rounded border border-slate-200 flex items-end p-1.5 text-[10px] text-slate-500">living-corner.jpg</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Master Bedroom -->
+          <div class="border border-slate-200 rounded mb-3 overflow-hidden">
+            <div class="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">Master Bedroom</div>
+            <div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
+              <thead class="text-slate-500">
+                <tr>
+                  <th class="text-left px-4 py-2 font-medium">Day Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">Night Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">W × H</th>
+                  <th class="text-left px-4 py-2 font-medium">Install W</th>
+                  <th class="text-left px-4 py-2 font-medium">Draw</th>
+                  <th class="text-left px-4 py-2 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody class="text-slate-700">
+                <tr class="border-t border-slate-100">
+                  <td class="px-4 py-2">DW-D-101 Linen Sheer Ivory</td>
+                  <td class="px-4 py-2">DW-N-202 Cotton Blackout Beige</td>
+                  <td class="px-4 py-2">220 × 240</td>
+                  <td class="px-4 py-2">240</td>
+                  <td class="px-4 py-2">Double</td>
+                  <td class="px-4 py-2 text-slate-500">—</td>
+                </tr>
+              </tbody>
+            </table></div>
+            <div class="border-t border-slate-100 px-4 py-3 bg-white">
+              <div class="text-xs font-medium text-slate-600 mb-2">Reference photos (1)</div>
+              <div class="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                <div class="aspect-square bg-gradient-to-br from-teal-50 to-teal-100 rounded border border-slate-200 flex items-end p-1.5 text-[10px] text-slate-500">master-window.jpg</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bedroom 1 -->
+          <div class="border border-slate-200 rounded mb-3 overflow-hidden">
+            <div class="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">Bedroom 1 (Nearest from Living)</div>
+            <div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
+              <thead class="text-slate-500">
+                <tr>
+                  <th class="text-left px-4 py-2 font-medium">Day Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">Night Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">W × H</th>
+                  <th class="text-left px-4 py-2 font-medium">Install W</th>
+                  <th class="text-left px-4 py-2 font-medium">Draw</th>
+                  <th class="text-left px-4 py-2 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody class="text-slate-700">
+                <tr class="border-t border-slate-100">
+                  <td class="px-4 py-2">DW-D-102 Cotton Sheer White</td>
+                  <td class="px-4 py-2">DW-N-210 Dimout Navy</td>
+                  <td class="px-4 py-2">180 × 230</td>
+                  <td class="px-4 py-2">200</td>
+                  <td class="px-4 py-2">Single Left</td>
+                  <td class="px-4 py-2 text-slate-500">Aircon trunking on right</td>
+                </tr>
+              </tbody>
+            </table></div>
+            <div class="border-t border-slate-100 px-4 py-3 bg-white">
+              <div class="text-xs font-medium text-slate-600 mb-2">Reference photos (1)</div>
+              <div class="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                <div class="aspect-square bg-gradient-to-br from-slate-100 to-slate-300 rounded border border-slate-200 flex items-end p-1.5 text-[10px] text-slate-500">bedroom1.jpg</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Master Toilet -->
+          <div class="border border-slate-200 rounded mb-3 overflow-hidden">
+            <div class="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">Master Toilet</div>
+            <div class="overflow-x-auto"><table class="w-full text-xs min-w-[640px]">
+              <thead class="text-slate-500">
+                <tr>
+                  <th class="text-left px-4 py-2 font-medium">Curtain</th>
+                  <th class="text-left px-4 py-2 font-medium">W × H</th>
+                  <th class="text-left px-4 py-2 font-medium">Install W</th>
+                  <th class="text-left px-4 py-2 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody class="text-slate-700">
+                <tr class="border-t border-slate-100">
+                  <td class="px-4 py-2">DW-T-301 Waterproof Roller White</td>
+                  <td class="px-4 py-2">90 × 140</td>
+                  <td class="px-4 py-2">100</td>
+                  <td class="px-4 py-2 text-slate-500">Frosted glass already, just trim window</td>
+                </tr>
+              </tbody>
+            </table></div>
+            <div class="border-t border-slate-100 px-4 py-3 bg-white">
+              <div class="text-xs font-medium text-slate-600 mb-2">Reference photos (1)</div>
+              <div class="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                <div class="aspect-square bg-gradient-to-br from-slate-200 to-slate-100 rounded border border-slate-200 flex items-end p-1.5 text-[10px] text-slate-500">m-toilet.jpg</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- General notes -->
+        <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+          <h2 class="text-base font-semibold text-slate-900 mb-2">General notes</h2>
+          <p class="text-sm text-slate-700">Customer prefers neutral tones. Lift access only between 10am–5pm on weekdays. Owner contact for site access: Mr Tan, +65 9123 4567.</p>
+        </section>
+      </div>
+
+      <!-- Right: sidebar -->
+      <div class="space-y-4 order-1 lg:order-2">
+        <section class="bg-white rounded-lg border border-slate-200 p-5">
+          <h3 class="text-sm font-semibold text-slate-900 mb-3">Customer</h3>
+          <dl class="space-y-2 text-sm">
+            <div><dt class="text-xs text-slate-500">Mobile</dt><dd class="text-slate-800">+65 9123 4567</dd></div>
+            <div><dt class="text-xs text-slate-500">Email</dt><dd class="text-slate-800">tanwm@email.com</dd></div>
+            <div><dt class="text-xs text-slate-500">Property</dt><dd class="text-slate-800">Condo · Parc Esta</dd></div>
+            <div><dt class="text-xs text-slate-500">Unit Type</dt><dd class="text-slate-800">4-room</dd></div>
+            <div><dt class="text-xs text-slate-500">Move-in</dt><dd class="text-slate-800">15 Jun 2026</dd></div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-lg border border-slate-200 p-5">
+          <h3 class="text-sm font-semibold text-slate-900 mb-3">Payment</h3>
+          <dl class="space-y-2 text-sm">
+            <div class="flex justify-between"><dt class="text-slate-500">Quoted</dt><dd class="font-medium text-slate-900">$4,280.00</dd></div>
+            <div class="flex justify-between"><dt class="text-slate-500">Deposit paid</dt><dd class="font-medium text-emerald-700">$1,500.00</dd></div>
+            <div class="flex justify-between pt-2 border-t border-slate-100"><dt class="text-slate-500">Balance due</dt><dd class="font-semibold text-teal-700">$2,780.00</dd></div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-lg border border-slate-200 p-5">
+          <h3 class="text-sm font-semibold text-slate-900 mb-3">Consultation</h3>
+          <dl class="space-y-2 text-sm">
+            <div><dt class="text-xs text-slate-500">Consultant</dt><dd class="text-slate-800">Sarah Lim</dd></div>
+            <div><dt class="text-xs text-slate-500">Created</dt><dd class="text-slate-800">12 May 2026</dd></div>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function orderDetail() {
+      return {
+        statuses: [
+          { key: 'order_made', label: 'Order Made', date: '12 May 2026', by: 'Sarah Lim', note: 'Order created from site consultation, deposit collected.' },
+          { key: 'sent_logistic', label: 'Sent to Logistic Partner', date: '14 May 2026', by: 'Daniel Tan', note: 'Handed over to KH Logistics for export from supplier.' },
+          { key: 'shipping_sg', label: 'Shipping to SG', date: '20 May 2026', by: 'Daniel Tan', note: 'ETA 27 May. Tracking #KH-88273.' },
+          { key: 'delivered_checked', label: 'Delivered & Checked', date: '', by: '', note: '' },
+          { key: 'fulfilment', label: 'Fulfilment Arrangement', date: '', by: '', note: '' },
+          { key: 'completed', label: 'Completed', date: '', by: '', note: '' },
+        ],
+        currentIdx: 3,
+        currentStatus() { return this.statuses[this.currentIdx]; },
+        atEnd() { return this.currentIdx >= this.statuses.length - 1; },
+        advance() {
+          if (this.atEnd()) return;
+          const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+          this.statuses[this.currentIdx].date = today;
+          this.statuses[this.currentIdx].by = 'Sarah Lim';
+          this.currentIdx++;
+        }
+      }
+    }
+  </script>
+</body>
+</html>

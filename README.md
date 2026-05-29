@@ -1,36 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Drapeworks CRM
 
-## Getting Started
+A CRM for a Singapore curtain company. Sales consultants capture on-site measurements, ops track fulfilment, admins manage the fabric catalog and team.
 
-First, run the development server:
+## Stack
+
+- **Framework**: Next.js 15+ App Router, TypeScript, Tailwind (`src/`)
+- **UI**: shadcn/ui + Tailwind (`teal-600` accent on `slate` base)
+- **Forms**: React Hook Form + Zod
+- **Backend**: Supabase (Postgres + Auth + Storage + RLS) — Singapore region
+- **Server access**: `@supabase/ssr` cookie-based clients
+- **Hosting**: Railway via multi-stage Dockerfile (Next.js `output: 'standalone'`)
+
+## Local development
+
+1. Install Node 20+ and npm.
+2. Copy env vars: `cp .env.example .env.local` then fill in the Supabase URL, anon key, service role key, and `NEXT_PUBLIC_SITE_URL=http://localhost:3000`.
+3. Install dependencies: `npm install`.
+4. Start the dev server: `npm run dev` → http://localhost:3000.
+
+Health check: `curl http://localhost:3000/api/health` → `{"ok":true,...}`.
+
+## Database workflow
+
+We use **Kysely** for migrations and type generation. The Supabase Postgres database is still the source of truth; Kysely is just how we talk to it.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# create a new migration — name the file YYYYMMDDHHMM_<descriptive_name>.ts under data/migrations/
+# (use the existing files as a template; export up(db) and down(db))
+
+# apply all pending migrations against the database in DATABASE_URL
+npm run db:migrate
+
+# regenerate the Kysely schema types after a migration
+npm run db:codegen
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Migrations live in `data/migrations/`. Apply the migration to the remote DB **before** deploying app code that references the new columns.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`DATABASE_URL` should point at the Supabase **session pooler** (port 5432), not the deprecated direct hostname:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+postgresql://postgres.<PROJECT_REF>:<DB_PASSWORD>@aws-1-ap-southeast-1.pooler.supabase.com:5432/postgres
+```
 
-## Learn More
+## Deploy (Railway)
 
-To learn more about Next.js, take a look at the following resources:
+Push to `main` → Railway picks up the Dockerfile, builds, and serves. Build-time env vars must be marked as build-time in Railway:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SITE_URL`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Runtime only:
 
-## Deploy on Vercel
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Healthcheck path: `/api/health`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Verify the Docker image locally
+
+```bash
+docker build \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
+  --build-arg NEXT_PUBLIC_SITE_URL=http://localhost:3000 \
+  -t drapeworks-crm:test .
+
+docker run --rm -p 3000:3000 --env-file .env.local drapeworks-crm:test
+```
+
+## Documentation
+
+- `docs/specs/README.md` — implementation phases and global conventions
+- `docs/prototype/*.html` — UX source of truth (open in a browser)
+- `rules/` — short rule files Claude (and humans) should consult before writing code
+- `CLAUDE.md` — quick-start instructions for Claude Code sessions

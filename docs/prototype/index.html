@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drapeworks CRM — Orders</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <!-- Top nav -->
+  <nav class="bg-white border-b border-slate-200" x-data="{ navOpen: false }">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-4 md:gap-8">
+        <a href="index.html" class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded bg-teal-600 flex items-center justify-center text-white font-bold">D</div>
+          <span class="font-semibold text-slate-900 text-sm sm:text-base">Drapeworks CRM</span>
+        </a>
+        <div class="hidden md:flex items-center gap-1 text-sm">
+          <a href="index.html" class="px-3 py-1.5 rounded bg-slate-100 text-slate-900 font-medium">Orders</a>
+          <a href="consultation.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">New Consultation</a>
+          <a href="fabrics.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">Fabrics</a>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3 text-sm">
+        <span class="hidden sm:inline text-slate-500">Sarah Lim</span>
+        <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-semibold">SL</div>
+        <button @click="navOpen = !navOpen" class="md:hidden p-1.5 text-slate-600 hover:bg-slate-100 rounded" aria-label="Menu">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div x-show="navOpen" x-cloak class="md:hidden border-t border-slate-200 px-4 py-2 space-y-1">
+      <a href="index.html" class="block px-3 py-2 rounded bg-slate-100 text-slate-900 font-medium text-sm">Orders</a>
+      <a href="consultation.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">New Consultation</a>
+      <a href="fabrics.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">Fabrics</a>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8" x-data="ordersList()">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-900">Orders</h1>
+        <p class="text-sm text-slate-500 mt-1">Consultations and fulfilment in progress</p>
+      </div>
+      <a href="consultation.html" class="inline-flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm">
+        <span>+</span> New Consultation
+      </a>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <div class="bg-white rounded-lg border border-slate-200 p-3 sm:p-4">
+        <div class="text-xs sm:text-sm text-slate-500">Active orders</div>
+        <div class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">14</div>
+      </div>
+      <div class="bg-white rounded-lg border border-slate-200 p-3 sm:p-4">
+        <div class="text-xs sm:text-sm text-slate-500">Awaiting shipment</div>
+        <div class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">6</div>
+      </div>
+      <div class="bg-white rounded-lg border border-slate-200 p-3 sm:p-4">
+        <div class="text-xs sm:text-sm text-slate-500">Ready for installation</div>
+        <div class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">3</div>
+      </div>
+      <div class="bg-white rounded-lg border border-slate-200 p-3 sm:p-4">
+        <div class="text-xs sm:text-sm text-slate-500">Completed this month</div>
+        <div class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">8</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white rounded-lg border border-slate-200 mb-4 p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+      <input type="text" placeholder="Search by customer, development, or order #" class="flex-1 px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+      <div class="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
+        <select class="px-3 py-2 border border-slate-200 rounded text-sm">
+          <option>All statuses</option>
+          <option>Order Made</option>
+          <option>Sent to Logistic Partner</option>
+          <option>Shipping to SG</option>
+          <option>Delivered & Checked</option>
+          <option>Fulfilment Arrangement</option>
+          <option>Completed</option>
+        </select>
+        <select class="px-3 py-2 border border-slate-200 rounded text-sm">
+          <option>All consultants</option>
+          <option>Sarah Lim</option>
+          <option>Daniel Tan</option>
+          <option>Priya Raj</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Orders table (md+) -->
+    <div class="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium">Order #</th>
+            <th class="text-left px-4 py-3 font-medium">Customer</th>
+            <th class="text-left px-4 py-3 font-medium">Development</th>
+            <th class="text-left px-4 py-3 font-medium">Move-in</th>
+            <th class="text-left px-4 py-3 font-medium">Status</th>
+            <th class="text-right px-4 py-3 font-medium">Price</th>
+            <th class="text-left px-4 py-3 font-medium">Consultant</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <template x-for="o in orders" :key="o.id">
+            <tr class="hover:bg-slate-50 cursor-pointer" onclick="window.location='order-detail.html'">
+              <td class="px-4 py-3 font-mono text-xs text-slate-500" x-text="o.id"></td>
+              <td class="px-4 py-3 font-medium text-slate-900" x-text="o.customer"></td>
+              <td class="px-4 py-3 text-slate-600" x-text="o.dev"></td>
+              <td class="px-4 py-3 text-slate-600" x-text="o.movein"></td>
+              <td class="px-4 py-3">
+                <span class="inline-block px-2 py-0.5 rounded text-xs font-medium" :class="o.statusClass" x-text="o.status"></span>
+              </td>
+              <td class="px-4 py-3 text-right font-medium" x-text="'$' + o.price.toLocaleString()"></td>
+              <td class="px-4 py-3 text-slate-600" x-text="o.consultant"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Orders cards (mobile) -->
+    <div class="md:hidden space-y-3">
+      <template x-for="o in orders" :key="o.id">
+        <a href="order-detail.html" class="block bg-white rounded-lg border border-slate-200 p-4 active:bg-slate-50">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            <div class="min-w-0 flex-1">
+              <div class="font-semibold text-slate-900 truncate" x-text="o.customer"></div>
+              <div class="text-xs text-slate-500 mt-0.5" x-text="o.dev + ' · ' + o.id"></div>
+            </div>
+            <div class="font-semibold text-slate-900 text-sm" x-text="'$' + o.price.toLocaleString()"></div>
+          </div>
+          <div class="flex items-center justify-between gap-2 mt-3">
+            <span class="inline-block px-2 py-0.5 rounded text-xs font-medium" :class="o.statusClass" x-text="o.status"></span>
+            <div class="text-xs text-slate-500">Move-in <span x-text="o.movein"></span></div>
+          </div>
+          <div class="text-xs text-slate-400 mt-2" x-text="o.consultant"></div>
+        </a>
+      </template>
+    </div>
+  </main>
+
+  <script>
+    function ordersList() {
+      return {
+        orders: [
+          { id: 'DW-2026-0142', customer: 'Tan Wei Ming', dev: 'Parc Esta', movein: '15 Jun 2026', status: 'Fulfilment Arrangement', statusClass: 'bg-purple-100 text-purple-700', price: 4280, consultant: 'Sarah Lim' },
+          { id: 'DW-2026-0141', customer: 'Aisha Rahman', dev: 'Pinetree Hill', movein: '20 Jun 2026', status: 'Shipping to SG', statusClass: 'bg-blue-100 text-blue-700', price: 6150, consultant: 'Daniel Tan' },
+          { id: 'DW-2026-0140', customer: 'Chen Mei Ling', dev: 'The Continuum', movein: '02 Jul 2026', status: 'Order Made', statusClass: 'bg-slate-100 text-slate-700', price: 3890, consultant: 'Sarah Lim' },
+          { id: 'DW-2026-0139', customer: 'Raj Kumar', dev: 'Lentor Modern', movein: '28 May 2026', status: 'Delivered & Checked', statusClass: 'bg-emerald-100 text-emerald-700', price: 5420, consultant: 'Priya Raj' },
+          { id: 'DW-2026-0138', customer: 'Goh Jia Hui', dev: 'Tembusu Grand', movein: '12 Jun 2026', status: 'Sent to Logistic Partner', statusClass: 'bg-indigo-100 text-indigo-700', price: 4750, consultant: 'Daniel Tan' },
+          { id: 'DW-2026-0137', customer: 'Linda Koh', dev: 'Sceneca Residence', movein: '18 May 2026', status: 'Completed', statusClass: 'bg-green-100 text-green-700', price: 3210, consultant: 'Sarah Lim' },
+          { id: 'DW-2026-0136', customer: 'Marcus Yeo', dev: 'Hillock Green', movein: '08 Jul 2026', status: 'Order Made', statusClass: 'bg-slate-100 text-slate-700', price: 5980, consultant: 'Priya Raj' },
+        ]
+      }
+    }
+  </script>
+</body>
+</html>

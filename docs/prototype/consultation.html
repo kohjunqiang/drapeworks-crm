@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drapeworks CRM — New Consultation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    input, select, textarea { background: white; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <!-- Top nav -->
+  <nav class="bg-white border-b border-slate-200" x-data="{ navOpen: false }">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-4 md:gap-8">
+        <a href="index.html" class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded bg-teal-600 flex items-center justify-center text-white font-bold">D</div>
+          <span class="font-semibold text-slate-900 text-sm sm:text-base">Drapeworks CRM</span>
+        </a>
+        <div class="hidden md:flex items-center gap-1 text-sm">
+          <a href="index.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">Orders</a>
+          <a href="consultation.html" class="px-3 py-1.5 rounded bg-slate-100 text-slate-900 font-medium">New Consultation</a>
+          <a href="fabrics.html" class="px-3 py-1.5 rounded text-slate-600 hover:bg-slate-100">Fabrics</a>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-3 text-sm">
+        <span class="hidden sm:inline text-slate-500">Sarah Lim</span>
+        <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-semibold">SL</div>
+        <button @click="navOpen = !navOpen" class="md:hidden p-1.5 text-slate-600 hover:bg-slate-100 rounded" aria-label="Menu">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div x-show="navOpen" x-cloak class="md:hidden border-t border-slate-200 px-4 py-2 space-y-1">
+      <a href="index.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">Orders</a>
+      <a href="consultation.html" class="block px-3 py-2 rounded bg-slate-100 text-slate-900 font-medium text-sm">New Consultation</a>
+      <a href="fabrics.html" class="block px-3 py-2 rounded text-slate-600 hover:bg-slate-100 text-sm">Fabrics</a>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8" x-data="consultationForm()">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-900">New Consultation</h1>
+        <p class="text-sm text-slate-500 mt-1">Capture measurements and fabric details on-site</p>
+      </div>
+      <div class="text-xs text-slate-500 bg-white border border-slate-200 rounded px-3 py-2 sm:text-right">
+        <div>Consultant: <span class="font-medium text-slate-700">Sarah Lim</span></div>
+        <div>Date: <span class="font-medium text-slate-700">28 May 2026</span></div>
+      </div>
+    </div>
+
+    <!-- Customer section -->
+    <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
+      <h2 class="text-base font-semibold text-slate-900 mb-4">Customer details</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Customer Name <span class="text-red-500">*</span></label>
+          <input type="text" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. Tan Wei Ming" />
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Mobile <span class="text-red-500">*</span></label>
+            <input type="tel" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="+65" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Email</label>
+            <input type="email" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="name@email.com" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Property Type</label>
+          <select class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500">
+            <option>HDB</option>
+            <option>Condo</option>
+            <option>Landed</option>
+            <option>Commercial</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Development</label>
+          <input type="text" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. Parc Esta" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Unit Type</label>
+          <input type="text" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. 4-room, 3 Bedroom" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Expected Move-in Date</label>
+          <input type="date" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing -->
+    <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
+      <h2 class="text-base font-semibold text-slate-900 mb-4">Pricing & payment</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Price quoted (SGD)</label>
+          <div class="relative">
+            <span class="absolute left-3 top-2 text-slate-400 text-sm">$</span>
+            <input type="number" x-model.number="pricing.quoted" class="w-full pl-7 pr-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="0.00" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Deposit collected</label>
+          <div class="relative">
+            <span class="absolute left-3 top-2 text-slate-400 text-sm">$</span>
+            <input type="number" x-model.number="pricing.deposit" class="w-full pl-7 pr-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="0.00" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Balance due</label>
+          <div class="relative">
+            <span class="absolute left-3 top-2 text-slate-400 text-sm">$</span>
+            <input type="text" readonly :value="(Math.max((pricing.quoted||0) - (pricing.deposit||0), 0)).toFixed(2)" class="w-full pl-7 pr-3 py-2 border border-slate-200 rounded text-sm bg-slate-50 text-slate-700" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Rooms -->
+    <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
+      <div class="flex items-center justify-between mb-4 gap-2">
+        <div>
+          <h2 class="text-base font-semibold text-slate-900">Rooms & measurements</h2>
+          <p class="text-xs text-slate-500 mt-0.5">All measurements in centimetres (cm)</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500" x-text="rooms.length + ' room' + (rooms.length===1?'':'s')"></span>
+        </div>
+      </div>
+
+      <!-- Quick add room buttons -->
+      <div class="border border-dashed border-slate-300 rounded p-3 mb-4 bg-slate-50">
+        <div class="text-xs font-medium text-slate-600 mb-2">Quick add:</div>
+        <div class="flex flex-wrap gap-2">
+          <template x-for="t in roomTemplates" :key="t.label">
+            <button type="button" @click="addRoom(t)" class="text-xs bg-white border border-slate-200 hover:border-teal-500 hover:text-teal-700 px-2.5 py-1 rounded">
+              + <span x-text="t.label"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Room cards -->
+      <div class="space-y-4">
+        <template x-for="(room, rIdx) in rooms" :key="room.uid">
+          <div class="border border-slate-200 rounded-lg p-3 sm:p-4 bg-slate-50/50">
+            <!-- Room header -->
+            <div class="flex items-start justify-between gap-2 sm:gap-3 mb-3">
+              <div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">Room Type</label>
+                  <select x-model="room.type" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500">
+                    <option>Living Room</option>
+                    <option>Master Bedroom</option>
+                    <option>Bedroom</option>
+                    <option>Master Toilet</option>
+                    <option>Common Toilet</option>
+                    <option>Kitchen</option>
+                    <option>Study Room</option>
+                    <option>Balcony</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">Room Label</label>
+                  <input type="text" x-model="room.label" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. Bedroom 1 (Nearest from Living)" />
+                </div>
+              </div>
+              <button type="button" @click="removeRoom(rIdx)" class="text-slate-400 hover:text-red-600 text-xs sm:text-sm mt-6 whitespace-nowrap">Remove</button>
+            </div>
+
+            <!-- Windows in room -->
+            <div class="space-y-3">
+              <template x-for="(win, wIdx) in room.windows" :key="win.uid">
+                <div class="bg-white border border-slate-200 rounded p-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-semibold text-slate-700" x-text="room.windows.length > 1 ? ('Window ' + (wIdx+1)) : 'Window'"></span>
+                    <button type="button" x-show="room.windows.length > 1" @click="room.windows.splice(wIdx, 1)" class="text-xs text-slate-400 hover:text-red-600">Remove window</button>
+                  </div>
+
+                  <!-- Toilet variant -->
+                  <template x-if="isToilet(room.type)">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div class="col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Curtain Type / Code</label>
+                        <select x-model="win.curtainCode" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500">
+                          <option value="">— Select —</option>
+                          <template x-for="f in fabrics" :key="f.code">
+                            <option :value="f.code" x-text="f.code + ' — ' + f.name"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Width (cm)</label>
+                        <input type="number" x-model="win.width" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Height (cm)</label>
+                        <input type="number" x-model="win.height" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+                      </div>
+                      <div class="col-span-2 sm:col-span-1">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Installation Width (cm)</label>
+                        <input type="number" x-model="win.installWidth" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+                      </div>
+                      <div class="col-span-2 sm:col-span-3">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Special Notes</label>
+                        <input type="text" x-model="win.notes" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. corner window, no rod possible..." />
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- Regular room variant (day + night) -->
+                  <template x-if="!isToilet(room.type)">
+                    <div class="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                      <div class="col-span-2 sm:col-span-3">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Day Curtain</label>
+                        <select x-model="win.dayCurtain" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500">
+                          <option value="">— None —</option>
+                          <template x-for="f in fabrics.filter(f => f.type === 'Day' || f.type === 'Both')" :key="f.code">
+                            <option :value="f.code" x-text="f.code + ' — ' + f.name"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <div class="col-span-2 sm:col-span-3">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Night Curtain</label>
+                        <select x-model="win.nightCurtain" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500">
+                          <option value="">— None —</option>
+                          <template x-for="f in fabrics.filter(f => f.type === 'Night' || f.type === 'Both')" :key="f.code">
+                            <option :value="f.code" x-text="f.code + ' — ' + f.name"></option>
+                          </template>
+                        </select>
+                      </div>
+                      <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Width (cm)</label>
+                        <input type="number" x-model="win.width" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+                      </div>
+                      <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Height (cm)</label>
+                        <input type="number" x-model="win.height" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+                      </div>
+                      <div class="col-span-2 sm:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Installation Width (cm)</label>
+                        <input type="number" x-model="win.installWidth" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
+                      </div>
+                      <div class="col-span-2 sm:col-span-2">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Draw</label>
+                        <select x-model="win.draw" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500">
+                          <option>Double</option>
+                          <option>Single Left</option>
+                          <option>Single Right</option>
+                        </select>
+                      </div>
+                      <div class="col-span-2 sm:col-span-4">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Special Notes</label>
+                        <input type="text" x-model="win.notes" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. ceiling mount, beam clearance..." />
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <button type="button" @click="addWindow(room)" class="text-xs text-teal-700 hover:text-teal-800 font-medium">+ Add another window in this room</button>
+            </div>
+
+            <!-- Per-room photos -->
+            <div class="mt-4 pt-3 border-t border-slate-200">
+              <div class="flex items-center justify-between mb-2">
+                <label class="text-xs font-medium text-slate-600">Reference photos for this room</label>
+                <span class="text-xs text-slate-400" x-text="(room.photos?.length || 0) + ' uploaded'"></span>
+              </div>
+              <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                <template x-for="(p, pIdx) in (room.photos || [])" :key="pIdx">
+                  <div class="relative aspect-square bg-slate-100 rounded border border-slate-200 group">
+                    <div class="absolute inset-0 flex items-end p-1.5 text-[10px] text-slate-500 truncate" x-text="p"></div>
+                    <button type="button" @click="room.photos.splice(pIdx, 1)" class="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/90 text-slate-600 hover:text-red-600 text-xs leading-none flex items-center justify-center shadow">×</button>
+                  </div>
+                </template>
+                <button type="button" @click="addPhotoMock(room)" class="aspect-square border-2 border-dashed border-slate-300 rounded flex flex-col items-center justify-center text-slate-400 hover:border-teal-500 hover:text-teal-600 transition-colors">
+                  <span class="text-2xl leading-none">+</span>
+                  <span class="text-[10px] mt-1">Add photo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div x-show="rooms.length === 0" class="text-center py-8 text-sm text-slate-500">
+        No rooms added yet. Use the quick add buttons above.
+      </div>
+    </section>
+
+    <!-- General notes -->
+    <section class="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
+      <h2 class="text-base font-semibold text-slate-900 mb-3">General notes</h2>
+      <textarea rows="3" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="Site access instructions, customer preferences, delivery constraints..."></textarea>
+    </section>
+
+    <!-- Actions -->
+    <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pb-12">
+      <button type="button" class="px-4 py-2 text-sm text-slate-600 hover:text-slate-900">Cancel</button>
+      <button type="button" class="px-4 py-2 text-sm border border-slate-300 rounded hover:bg-slate-100">Save as draft</button>
+      <button type="button" class="px-5 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded font-medium">Create order</button>
+    </div>
+  </main>
+
+  <script>
+    function consultationForm() {
+      let _id = 0;
+      const uid = () => ++_id;
+
+      const isToilet = (t) => t && t.toLowerCase().includes('toilet');
+
+      const newWindow = (type) => isToilet(type)
+        ? { uid: uid(), curtainCode: '', width: '', height: '', installWidth: '', notes: '' }
+        : { uid: uid(), dayCurtain: '', nightCurtain: '', width: '', height: '', installWidth: '', draw: 'Double', notes: '' };
+
+      const fabrics = [
+        { code: 'DW-D-101', name: 'Linen Sheer Ivory', type: 'Day' },
+        { code: 'DW-D-102', name: 'Cotton Sheer White', type: 'Day' },
+        { code: 'DW-D-115', name: 'Voile Champagne', type: 'Day' },
+        { code: 'DW-N-201', name: 'Velvet Blackout Charcoal', type: 'Night' },
+        { code: 'DW-N-202', name: 'Cotton Blackout Beige', type: 'Night' },
+        { code: 'DW-N-210', name: 'Dimout Navy', type: 'Night' },
+        { code: 'DW-T-301', name: 'Waterproof Roller White', type: 'Both' },
+        { code: 'DW-T-302', name: 'PVC Roller Grey', type: 'Both' },
+      ];
+
+      return {
+        pricing: { quoted: 0, deposit: 0 },
+        fabrics,
+        rooms: [
+          // Start with Living Room pre-added for convenience
+          { uid: uid(), type: 'Living Room', label: 'Living Room', windows: [newWindow('Living Room')], photos: [] }
+        ],
+        roomTemplates: [
+          { label: 'Living Room', type: 'Living Room' },
+          { label: 'Master Bedroom', type: 'Master Bedroom' },
+          { label: 'Bedroom', type: 'Bedroom' },
+          { label: 'Master Toilet', type: 'Master Toilet' },
+          { label: 'Common Toilet', type: 'Common Toilet' },
+          { label: 'Kitchen', type: 'Kitchen' },
+          { label: 'Study Room', type: 'Study Room' },
+          { label: 'Balcony', type: 'Balcony' },
+        ],
+        isToilet(t) { return isToilet(t); },
+        addRoom(t) {
+          const sameTypeCount = this.rooms.filter(r => r.type === t.type).length;
+          const label = sameTypeCount > 0 && t.type === 'Bedroom' ? `Bedroom ${sameTypeCount + 1}` : t.label;
+          this.rooms.push({ uid: uid(), type: t.type, label, windows: [newWindow(t.type)], photos: [] });
+        },
+        removeRoom(i) { this.rooms.splice(i, 1); },
+        addWindow(room) { room.windows.push(newWindow(room.type)); },
+        addPhotoMock(room) {
+          if (!room.photos) room.photos = [];
+          const stamp = String(Date.now()).slice(-4);
+          room.photos.push(`photo-${stamp}.jpg`);
+        },
+      };
+    }
+  </script>
+</body>
+</html>

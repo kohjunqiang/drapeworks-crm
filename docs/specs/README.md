@@ -38,21 +38,23 @@ The prototype uses **deep teal** as the accent colour (`teal-600` / `#0d9488`). 
 
 ## Phases
 
-Linear dependency chain: each phase requires the previous ones.
+> **Reordered 2026-05-29.** Auth is deferred to the end of the milestone. We build the feature set first, validate it in a live environment, then retrofit auth + admin user management as the final phase. File numbers are kept intact (so `phase-3-fabrics.md` is still `phase-3-fabrics.md`), but the execution order is no longer monotonic. See the **Execution override** block at the top of each phase-3..7 spec for the no-auth posture, and the **Deferred** banner at the top of `phase-2-auth.md` for what the final auth phase now covers.
+
+**Execution order:**
 
 ```
-1. Scaffold ──▶ 2. Auth ──▶ 3. Fabrics ──▶ 4. Consultation ──▶ 5. Photos ──▶ 6. Orders Dashboard ──▶ 7. Admin + Polish
+1. Scaffold ──▶ 3. Fabrics ──▶ 4. Consultation ──▶ 5. Photos ──▶ 6. Orders Dashboard ──▶ 7. Polish ──▶ 2. Auth + Admin (retrofit)
 ```
 
-| Phase | Spec file | Deliverable |
+| Order | Phase file | Deliverable |
 |---|---|---|
-| 1 | `phase-1-scaffold.md` | Next.js scaffold + Supabase project + Railway deploy of a hello-world page with healthcheck |
-| 2 | `phase-2-auth.md` | Magic-link login + profiles + app shell + role helpers |
-| 3 | `phase-3-fabrics.md` | Fabric catalog CRUD (full vertical slice, de-risks RLS/forms/actions) |
-| 4 | `phase-4-consultation.md` | New consultation form + order creation (rooms/windows, no photos yet) |
-| 5 | `phase-5-photos.md` | Per-room photo upload + display via Supabase Storage |
-| 6 | `phase-6-orders-dashboard.md` | Orders dashboard with stats/filters + status workflow (advance + notes) + edit |
-| 7 | `phase-7-admin-polish.md` | Admin user management + polish (toasts, empty states, mobile QA) |
+| 1 | `phase-1-scaffold.md` | ✅ Next.js scaffold + Supabase project + Kysely migrator + Railway deploy with healthcheck |
+| 2 | `phase-3-fabrics.md` | Fabric catalog CRUD (full vertical slice — de-risks Kysely/forms/Server Actions) |
+| 3 | `phase-4-consultation.md` | New consultation form + order creation (rooms/windows, no photos yet) |
+| 4 | `phase-5-photos.md` | Per-room photo upload + display via Supabase Storage (service-role for now) |
+| 5 | `phase-6-orders-dashboard.md` | Orders dashboard with stats/filters + status workflow (advance + notes) + edit |
+| 6 | `phase-7-admin-polish.md` | Polish only — empty states, loading skeletons, mobile QA. (Admin user management migrates to the auth phase.) |
+| 7 | `phase-2-auth.md` | **Auth retrofit (last)** — magic-link login, `(auth)`/`(app)` route groups, `lib/auth/*` helpers, RLS policies on every existing table, `requireRole/requireSession` insertion pass through every Server Action, admin user invite + role management UI. |
 
 ## How to use a spec in a fresh chat
 
@@ -78,9 +80,9 @@ If anything is genuinely ambiguous, the spec is incomplete — fix the spec rath
 - After each phase, push to Railway and verify the deploy.
 
 ### TypeScript
-- `strict: true`. No `any` unless escaping into untyped library territory (rare with Supabase generated types).
-- Generate DB types after every migration: `supabase gen types typescript --linked > src/lib/supabase/types.ts`.
-- Import types via `import type { Database } from '@/lib/supabase/types'`.
+- `strict: true`. No `any` unless escaping into untyped library territory.
+- Generate DB types after every migration: `npm run db:codegen` (writes `src/lib/db/schema.ts` via `kysely-codegen`).
+- Import the Kysely DB type via `import type { DB } from '@/lib/db/schema'`.
 
 ### File naming
 - kebab-case for files (`status-badge.tsx`, `consultation-form/`)
@@ -88,12 +90,12 @@ If anything is genuinely ambiguous, the spec is incomplete — fix the spec rath
 - camelCase for functions and variables
 - SCREAMING_SNAKE for env vars
 
-### Supabase migrations
-- Live in `supabase/migrations/`
-- Named `YYYYMMDDHHMM_descriptive_name.sql` (UTC)
+### Migrations
+- Live in `data/migrations/` as TypeScript files using Kysely's migrator.
+- Named `YYYYMMDDHHMM_descriptive_name.ts` (UTC). Export `up(db)` and `down(db)`.
 - One migration = one logical change. Don't pile changes.
-- Phase 1 creates `supabase/` and the first migration (`profiles` only). Subsequent phases add their own migrations.
-- After writing a migration: `supabase db push --linked` then regenerate types.
+- Phase 1 creates `data/` and the first migration (`init_profiles`). Subsequent phases add their own migrations.
+- After writing a migration: `npm run db:migrate` (applies via `data/migrate.ts` against `DATABASE_URL`, which points at the Supabase session pooler), then `npm run db:codegen`.
 
 ### Components
 - **Default to React Server Components.** Add `'use client'` only when the subtree needs state, effects, or browser APIs.
@@ -102,17 +104,17 @@ If anything is genuinely ambiguous, the spec is incomplete — fix the spec rath
 
 ### Server Actions
 - Live in `src/lib/actions/<feature>.ts` with `'use server'` at file top.
-- First line of every action: `await requireRole([...])` (or `requireSession()` for non-role-gated reads).
+- **During the no-auth window (Phases 3-7):** no `requireRole`/`requireSession` calls. Mutations run open. The auth retrofit phase inserts guards in a single pass.
 - Validate inputs with the matching Zod schema before touching the DB.
-- Use the RLS-respecting server client. The service-role admin client is **only** for `inviteUser` in Phase 7.
+- Query through the **Kysely** singleton (`src/lib/db/kysely.ts`), not the `@supabase/ssr` clients. The Supabase clients are reserved for auth, which doesn't exist yet.
 - Throw on error (don't return error envelopes). Use `useFormState` on the client for form-level error display.
 - Call `revalidatePath(...)` after mutations; don't return data that the page can re-fetch.
 
 ### Forbidden
-- Hard-coded `role === 'admin'` checks scattered in pages. Use `requireRole(['admin'])` or `currentRole()` helper.
-- Bypassing RLS with the service-role client anywhere except the documented admin user invite flow.
 - Storing money as floats or `numeric(_,2)` — always integer cents.
 - Mutating the fabric `code` after a fabric exists.
+- Hard deletes — use status toggles / archive flags.
+- Adding `requireRole`/`requireSession` calls *before* the auth retrofit phase. They will all be added in a single pass at the end so we can audit coverage.
 
 ### Critical references (every phase)
 

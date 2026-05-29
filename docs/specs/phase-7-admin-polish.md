@@ -1,5 +1,23 @@
 # Phase 7 — Admin (User Management) + Polish
 
+> ## Execution override (2026-05-29) — read this before the rest of the spec
+>
+> Phase 2 (auth) has been **deferred to the end of the milestone**. This phase has been **split**:
+>
+> - **Admin user management** (invite user, edit role, deactivate, the `/admin/*` routes, the service-role `admin.ts` client, `inviteUser`/`updateUserRole`/`setUserActive` actions) **moves to the auth retrofit phase** (`phase-2-auth.md`). Skip those sections here.
+> - **Polish work** (empty states, loading skeletons, mobile QA, accessibility pass, active link state, button loading states, optional `revertOrderStatus` minus the role gate) **stays in this phase**. Implement it now against the no-auth posture.
+>
+> No-auth posture for the polish work that stays:
+>
+> - **Drop the auth prerequisite.** Phases 1, 3, 4, 5, 6 are the only prerequisites; `lib/auth` does not exist yet.
+> - **No `requireRole` / `requireSession` in Server Actions.** `revertOrderStatus` runs open — the auth retrofit will add the admin guard.
+> - **No role-based UI gating.** Render every action regardless of viewer.
+> - **Skip the `users_status` RLS policy migration.** It's part of the auth retrofit.
+> - **Migrations use Kysely** (`data/migrations/*.ts`); apply with `npm run db:migrate`; regenerate types with `npm run db:codegen` → `src/lib/db/schema.ts`.
+> - **Verification skips role tests** (impersonating consultant/ops/admin to test access).
+>
+> **Execution order:** Phase 1 (done) → 3 → 4 → 5 → 6 → **Phase 7 (this, polish only)** → 2 (auth retrofit + admin user mgmt, last).
+
 ## Context for a fresh chat
 
 Drapeworks CRM — a Next.js + Supabase app for a Singapore curtain company. A static prototype lives at `docs/prototype/` showing the target UX.

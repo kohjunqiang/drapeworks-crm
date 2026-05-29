@@ -1,5 +1,20 @@
 # Phase 5 — Per-Room Photos via Supabase Storage
 
+> ## Execution override (2026-05-29) — read this before the rest of the spec
+>
+> Phase 2 (auth) has been **deferred to the end of the milestone**. Implement this phase against the no-auth posture below. The rest of the spec was written assuming auth exists; reinterpret it through this lens:
+>
+> - **Drop the auth prerequisite.** Phase 1 + Phases 3-4 are the only prerequisites; `lib/auth` does not exist yet.
+> - **No `requireRole` / `requireSession` in Server Actions.** Mutations run open until the auth retrofit.
+> - **No role-based UI gating.** Treat every viewer as an admin.
+> - **Storage bucket**: still create a **private** bucket (matches production posture), but **skip the per-user Storage RLS policies**. Generate signed upload + read URLs from the server using the **service-role** Supabase client (`SUPABASE_SERVICE_ROLE_KEY` from `.env`). The auth retrofit will swap to user-scoped policies + signed URLs minted from the user session.
+> - **`uploaded_by` / `created_by` columns**: keep them as `uuid null`, no FK while there's no auth; leave null on insert.
+> - **Migrations use Kysely** (`data/migrations/*.ts`); apply with `npm run db:migrate`; regenerate types with `npm run db:codegen` → `src/lib/db/schema.ts`.
+> - **DB queries use Kysely** (`src/lib/db/kysely.ts`). The `@supabase/ssr` clients stay reserved for the auth retrofit; the service-role client (`src/lib/supabase/admin.ts`) is fine to use for Storage operations.
+> - **Verification skips role tests.** Ignore "RLS denial", "test as consultant / ops / admin".
+>
+> **Execution order:** Phase 1 (done) → 3 → 4 → **Phase 5 (this)** → 6 → 7 → 2 (auth retrofit, last).
+
 ## Context for a fresh chat
 
 Drapeworks CRM — a Next.js + Supabase app for a Singapore curtain company. A static prototype lives at `docs/prototype/` showing the target UX.

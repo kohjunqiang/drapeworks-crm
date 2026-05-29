@@ -1,5 +1,20 @@
 # Phase 6 — Orders Dashboard + Status Workflow
 
+> ## Execution override (2026-05-29) — read this before the rest of the spec
+>
+> Phase 2 (auth) has been **deferred to the end of the milestone**. Implement this phase against the no-auth posture below. The rest of the spec was written assuming auth exists; reinterpret it through this lens:
+>
+> - **Drop the auth prerequisite.** Phase 1 + Phases 3-5 are the only prerequisites; `lib/auth` does not exist yet.
+> - **No `requireRole` / `requireSession` in Server Actions.** All status transitions and edits run open until the auth retrofit. The role-based transition matrix in this spec (consultant can only X, ops can advance Y, admin can revert) still defines the *target* state, but enforce nothing in code yet — the auth retrofit will add the role checks in one pass.
+> - **No role-based UI gating.** Render every action button regardless of viewer.
+> - **No RLS policies.** Keep `enable row level security` on tables but skip every `create policy ...` block. Kysely connects as `postgres` and bypasses RLS.
+> - **`changed_by` / `created_by` columns** on status events and orders: keep them as `uuid null`, no FK to `profiles`. Leave null on insert. The auth retrofit will tighten the FK and start populating from the session.
+> - **Migrations use Kysely** (`data/migrations/*.ts`); apply with `npm run db:migrate`; regenerate types with `npm run db:codegen` → `src/lib/db/schema.ts`.
+> - **Queries use Kysely** (`src/lib/db/kysely.ts`), not `supabase.from(...)`.
+> - **Verification skips role tests.** Ignore "test as consultant", "as ops", "verify RLS denial", "as admin revert one step".
+>
+> **Execution order:** Phase 1 (done) → 3 → 4 → 5 → **Phase 6 (this)** → 7 → 2 (auth retrofit, last).
+
 ## Context for a fresh chat
 
 Drapeworks CRM — a Next.js + Supabase app for a Singapore curtain company. A static prototype lives at `docs/prototype/` showing the target UX.

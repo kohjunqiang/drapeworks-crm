@@ -1,5 +1,25 @@
 # Phase 2 — Auth + Profile + App Shell + Role Helpers
 
+> ## Deferred — runs LAST in the milestone (2026-05-29)
+>
+> This phase has been **deferred to the end** of the milestone. Execution order is now: Phase 1 → 3 → 4 → 5 → 6 → 7 (polish only) → **Phase 2 (this, auth retrofit)**.
+>
+> When this phase runs, it retrofits auth onto a working feature set. It now covers everything below **plus** the admin user management work that originally lived in Phase 7:
+>
+> - Magic-link login + `(auth)` and `(app)` route groups + middleware redirect
+> - `lib/auth/` helpers: `getSession`, `requireSession`, `requireRole`, `currentRole`, `currentProfile`
+> - App shell: top nav, mobile menu, "logged in as" indicator, sign-out
+> - RLS policies on **every existing table** (`profiles`, `fabrics`, `customers`, `orders`, `rooms`, `windows`, `order_status_events`, `room_photos`, etc.) — the helper functions `is_admin()` / `is_ops()` / `is_consultant()`
+> - Storage policies on the photos bucket (replace the service-role posture from Phase 5)
+> - **Audit pass through every Server Action** added in Phases 3-7 to insert `await requireRole([...])` / `await requireSession()` calls at the top
+> - **Audit pass through every UI** added in Phases 3-7 to hide actions the viewer's role can't perform
+> - Tighten nullable `created_by` / `consultant_id` / `changed_by` / `uploaded_by` columns: re-add the FK to `profiles(id)`, backfill from session-aware actions going forward (existing rows can stay null)
+> - Admin user management (was Phase 7): `src/lib/supabase/admin.ts` (service-role), `/admin/users` page, `inviteUser` / `updateUserRole` / `setUserActive` Server Actions, "Invite user" dialog, `revertOrderStatus` admin gate
+> - Update Supabase Auth → URL Configuration with the Railway domain (Site URL + redirect allow-list)
+> - Update Railway `NEXT_PUBLIC_SITE_URL` to the live domain
+>
+> The original spec body below describes only the original-Phase-2 scope (magic link, profiles, app shell, role helpers). Treat the items above as **additions on top** of it when executing this phase.
+
 ## Context for a fresh chat
 
 Drapeworks CRM — a Next.js + Supabase app for a Singapore curtain company. The CRM has 3 roles: `consultant`, `ops`, `admin`. A static prototype lives at `docs/prototype/` showing the target UX.

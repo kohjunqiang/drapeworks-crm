@@ -1,5 +1,20 @@
 # Phase 4 — Consultation Form + Order Creation (No Photos Yet)
 
+> ## Execution override (2026-05-29) — read this before the rest of the spec
+>
+> Phase 2 (auth) has been **deferred to the end of the milestone**. Implement this phase against the no-auth posture below. The rest of the spec was written assuming auth exists; reinterpret it through this lens:
+>
+> - **Drop the auth prerequisite.** Anywhere this spec references Phase 2 / `requireRole` / `requireSession` / `lib/auth`, treat that part as deferred. Phase 1 + Phase 3 (fabrics) are the only true prerequisites.
+> - **No role guards in Server Actions.** Mutations run open until the auth retrofit.
+> - **No role-based UI gating.** Treat every viewer as an admin.
+> - **No RLS policies.** Keep `enable row level security` on tables but skip every `create policy ...` block. Kysely as `postgres` bypasses RLS.
+> - **Migrations use Kysely** (`data/migrations/*.ts`), not Supabase CLI SQL. Apply with `npm run db:migrate`; regenerate types with `npm run db:codegen` → `src/lib/db/schema.ts`.
+> - **Queries use Kysely** (`src/lib/db/kysely.ts` singleton), not `supabase.from(...)`.
+> - **`consultant_id` / `created_by` columns**: keep them as `uuid null` with no FK to `profiles` for now. Leave them null on insert; the auth retrofit will tighten the FK and backfill from the session.
+> - **Verification skips role tests.** Ignore "test as consultant / ops / admin", "verify RLS denial", anything role-gated.
+>
+> **Execution order:** Phase 1 (done) → 3 → **Phase 4 (this)** → 5 → 6 → 7 → 2 (auth retrofit, last).
+
 ## Context for a fresh chat
 
 Drapeworks CRM — a Next.js + Supabase app for a Singapore curtain company. A static prototype lives at `docs/prototype/` showing the target UX.

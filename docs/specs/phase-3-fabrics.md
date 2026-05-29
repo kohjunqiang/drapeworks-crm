@@ -1,5 +1,20 @@
 # Phase 3 — Fabric Catalog (Full CRUD Vertical Slice)
 
+> ## Execution override (2026-05-29) — read this before the rest of the spec
+>
+> Phase 2 (auth) has been **deferred to the end of the milestone**. Implement this phase against the no-auth posture below. The rest of the spec was written assuming auth exists; reinterpret it through this lens:
+>
+> - **Drop the Phase 2 prerequisite.** Anywhere this spec says "Phases 1 and 2 complete", read it as "Phase 1 complete".
+> - **No `requireRole` / `requireSession` in Server Actions.** Mutations run open. We add guards in a single audit pass during the auth retrofit.
+> - **No role-based UI gating.** Treat every viewer as an admin — render every Add / Edit / Discontinue control. Drop the `isAdmin` prop plumbing.
+> - **No RLS policies.** Keep `enable row level security` on tables (matches production posture), but skip every `create policy ...` block in the spec. Kysely connects as the `postgres` superuser via the session pooler and bypasses RLS.
+> - **Migrations use Kysely**, not the Supabase CLI. Write `data/migrations/YYYYMMDDHHMM_<name>.ts` files (template: `data/migrations/20260529042934_init_profiles.ts`). Apply with `npm run db:migrate`. Regenerate types with `npm run db:codegen` → `src/lib/db/schema.ts`. Ignore any `supabase migration new` / `supabase db push` instruction.
+> - **Queries use Kysely**, not `supabase.from(...)`. Set up `src/lib/db/kysely.ts` (single Pool + Kysely instance reading `DATABASE_URL`) in this phase and import the singleton from Server Actions + RSC.
+> - **`created_by` columns** (and similar profile FKs) — keep them in the schema as `uuid null`, but skip the `references public.profiles(id)` FK while there's no auth. Leave the column null on insert. The auth retrofit will tighten the FK and backfill.
+> - **Verification skips role tests.** Ignore "test as consultant / ops", "verify RLS denial", "promote yourself to admin", "switch yourself back to admin". They'll happen during the auth retrofit.
+>
+> **Execution order:** Phase 1 (done) → **Phase 3 (this)** → 4 → 5 → 6 → 7 → 2 (auth retrofit, last).
+
 ## Context for a fresh chat
 
 Drapeworks CRM — a Next.js + Supabase app for a Singapore curtain company. A static prototype lives at `docs/prototype/` showing the target UX.

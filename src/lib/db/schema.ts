@@ -23,6 +23,14 @@ export type AuthOauthResponseType = "code";
 
 export type AuthOneTimeTokenType = "confirmation_token" | "email_change_token_current" | "email_change_token_new" | "phone_change_token" | "reauthentication_token" | "recovery_token";
 
+export type DrawDirection = "Double" | "Single Left" | "Single Right";
+
+export type FabricStatus = "Active" | "Discontinued";
+
+export type FabricType = "Both" | "Day" | "Night";
+
+export type FulfilmentStatus = "completed" | "delivered_checked" | "fulfilment" | "order_made" | "sent_logistic" | "shipping_sg";
+
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
@@ -42,6 +50,10 @@ export type JsonPrimitive = boolean | number | string | null;
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
 export type Numeric = ColumnType<string, number | string, number | string>;
+
+export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
+
+export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Study Room";
 
 export type StorageBuckettype = "ANALYTICS" | "STANDARD" | "VECTOR";
 
@@ -378,6 +390,16 @@ export interface AuthWebauthnCredentials {
   user_id: string;
 }
 
+export interface Customers {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  email: string | null;
+  id: Generated<string>;
+  mobile: string;
+  name: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface ExtensionsPgStatStatements {
   calls: Int8 | null;
   dbid: number | null;
@@ -435,6 +457,54 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface Fabrics {
+  code: string;
+  color: string;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  name: string;
+  notes: string | null;
+  status: Generated<FabricStatus>;
+  supplier: string | null;
+  type: FabricType;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface Orders {
+  balance_cents: Generated<number | null>;
+  consultant_id: string | null;
+  created_at: Generated<Timestamp>;
+  current_status: Generated<FulfilmentStatus>;
+  customer_id: string;
+  deposit_cents: Generated<number>;
+  development: string | null;
+  display_id: string;
+  general_notes: string | null;
+  id: Generated<string>;
+  is_draft: Generated<boolean>;
+  move_in_date: Timestamp | null;
+  price_quoted_cents: Generated<number>;
+  property_type: PropertyType | null;
+  seq_num: number;
+  seq_year: number;
+  unit_type: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface OrderStatusEvents {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  note: string | null;
+  order_id: string;
+  status: FulfilmentStatus;
+}
+
+export interface OrderYearCounters {
+  last_seq: Generated<number>;
+  year: number;
+}
+
 export interface Profiles {
   created_at: Generated<Timestamp>;
   email: string;
@@ -470,6 +540,27 @@ export interface RealtimeSubscription {
   filters: Generated<string[]>;
   id: Generated<Int8>;
   subscription_id: string;
+}
+
+export interface RoomPhotos {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mime_type: string;
+  original_name: string | null;
+  position: Generated<number>;
+  room_id: string;
+  size_bytes: number;
+  storage_path: string;
+  uploaded_by: string | null;
+}
+
+export interface Rooms {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  label: string;
+  order_id: string;
+  position: number;
+  type: RoomType;
 }
 
 export interface StorageBuckets {
@@ -592,6 +683,21 @@ export interface VaultSecrets {
   updated_at: Generated<Timestamp>;
 }
 
+export interface Windows {
+  created_at: Generated<Timestamp>;
+  curtain_code: string | null;
+  day_curtain_code: string | null;
+  draw: DrawDirection | null;
+  height_cm: number | null;
+  id: Generated<string>;
+  install_width_cm: number | null;
+  night_curtain_code: string | null;
+  notes: string | null;
+  position: number;
+  room_id: string;
+  width_cm: number | null;
+}
+
 export interface DB {
   "auth.audit_log_entries": AuthAuditLogEntries;
   "auth.custom_oauth_providers": AuthCustomOauthProviders;
@@ -616,12 +722,19 @@ export interface DB {
   "auth.users": AuthUsers;
   "auth.webauthn_challenges": AuthWebauthnChallenges;
   "auth.webauthn_credentials": AuthWebauthnCredentials;
+  customers: Customers;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  fabrics: Fabrics;
+  order_status_events: OrderStatusEvents;
+  order_year_counters: OrderYearCounters;
+  orders: Orders;
   profiles: Profiles;
   "realtime.messages": RealtimeMessages;
   "realtime.schema_migrations": RealtimeSchemaMigrations;
   "realtime.subscription": RealtimeSubscription;
+  room_photos: RoomPhotos;
+  rooms: Rooms;
   "storage.buckets": StorageBuckets;
   "storage.buckets_analytics": StorageBucketsAnalytics;
   "storage.buckets_vectors": StorageBucketsVectors;
@@ -632,4 +745,5 @@ export interface DB {
   "storage.vector_indexes": StorageVectorIndexes;
   "vault.decrypted_secrets": VaultDecryptedSecrets;
   "vault.secrets": VaultSecrets;
+  windows: Windows;
 }

@@ -1,0 +1,334 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import { RoomSummaryCard } from "@/components/orders/room-summary-card";
+import type { PhotoTile } from "@/components/orders/photo-strip";
+import { StatusBadge } from "@/components/orders/status-badge";
+import { StatusTimeline } from "@/components/orders/status-timeline";
+import { requireSession } from "@/lib/auth/require-role";
+import { db } from "@/lib/db/kysely";
+import { signRoomPhotoUrls } from "@/lib/db/photos";
+import { formatSGD } from "@/lib/money";
+
+export const dynamic = "force-dynamic";
+
+export const metadata = { title: "Order — Drapeworks CRM" };
+
+const SG_DATE = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
+function formatDate(d: Date | string | null): string {
+  if (!d) return "—";
+  return SG_DATE.format(new Date(d));
+}
+
+type Params = { orderId: string };
+
+export default async function OrderDetailPage({
+  params,
+}: {
+  params: Promise<Params>;
+}) {
+  const { orderId } = await params;
+  const session = await requireSession();
+
+  const order = await db
+    .selectFrom("orders")
+    .innerJoin("customers", "customers.id", "orders.customer_id")
+    .select([
+      "orders.id as id",
+      "orders.display_id as display_id",
+      "orders.consultant_id as consultant_id",
+      "orders.current_status as current_status",
+      "orders.property_type as property_type",
+      "orders.development as development",
+      "orders.unit_type as unit_type",
+      "orders.move_in_date as move_in_date",
+      "orders.price_quoted_cents as price_quoted_cents",
+      "orders.deposit_cents as deposit_cents",
+      "orders.balance_cents as balance_cents",
+      "orders.general_notes as general_notes",
+      "orders.created_at as created_at",
+      "customers.id as customer_id",
+      "customers.name as customer_name",
+      "customers.mobile as customer_mobile",
+      "customers.email as customer_email",
+    ])
+    .where("orders.id", "=", orderId)
+    .executeTakeFirst();
+
+  if (!order) notFound();
+
+  const rooms = await db
+    .selectFrom("rooms")
+    .select(["id", "type", "label", "position"])
+    .where("order_id", "=", order.id)
+    .orderBy("position", "asc")
+    .execute();
+
+  const roomIds = rooms.map((r) => r.id);
+
+  const windows =
+    roomIds.length === 0
+      ? []
+      : await db
+          .selectFrom("windows")
+          .leftJoin(
+            "fabrics as day_fab",
+            "day_fab.code",
+            "windows.day_curtain_code",
+          )
+          .leftJoin(
+            "fabrics as night_fab",
+            "night_fab.code",
+            "windows.night_curtain_code",
+          )
+          .leftJoin(
+            "fabrics as curtain_fab",
+            "curtain_fab.code",
+            "windows.curtain_code",
+          )
+          .select([
+            "windows.id as id",
+            "windows.room_id as room_id",
+            "windows.position as position",
+            "windows.width_cm as width_cm",
+            "windows.height_cm as height_cm",
+            "windows.install_width_cm as install_width_cm",
+            "windows.notes as notes",
+            "windows.curtain_code as curtain_code",
+            "windows.day_curtain_code as day_curtain_code",
+            "windows.night_curtain_code as night_curtain_code",
+            "windows.draw as draw",
+            "day_fab.name as day_curtain_name",
+            "night_fab.name as night_curtain_name",
+            "curtain_fab.name as curtain_name",
+          ])
+          .where("windows.room_id", "in", roomIds)
+          .orderBy("windows.position", "asc")
+          .execute();
+
+  const windowsByRoom = new Map<string, typeof windows>();
+  for (const w of windows) {
+    const list = windowsByRoom.get(w.room_id) ?? [];
+    list.push(w);
+    windowsByRoom.set(w.room_id, list);
+  }
+
+  const events = await db
+    .selectFrom("order_status_events")
+    .select(["id", "status", "note", "created_at"])
+    .where("order_id", "=", order.id)
+    .orderBy("created_at", "desc")
+    .execute();
+
+  const photos =
+    roomIds.length === 0
+      ? []
+      : await db
+          .selectFrom("room_photos")
+          .select([
+            "id",
+            "room_id",
+            "storage_path",
+            "original_name",
+            "position",
+            "created_at",
+          ])
+          .where("room_id", "in", roomIds)
+          .orderBy("position", "asc")
+          .orderBy("created_at", "asc")
+          .execute();
+
+  const signed = await signRoomPhotoUrls(photos.map((p) => p.storage_path));
+
+  const photosByRoom = new Map<string, PhotoTile[]>();
+  for (const p of photos) {
+    const url = signed.get(p.storage_path);
+    if (!url) continue;
+    const list = photosByRoom.get(p.room_id) ?? [];
+    list.push({
+      id: p.id,
+      signedUrl: url,
+      originalName: p.original_name,
+    });
+    photosByRoom.set(p.room_id, list);
+  }
+
+  return (
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="text-xs text-slate-500 mb-3">
+        <Link href="/orders" className="hover:text-slate-700">
+          Orders
+        </Link>
+        <span className="mx-1">/</span>
+        <span className="text-slate-700">{order.display_id}</span>
+      </div>
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between mb-6">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+              {order.customer_name}
+            </h1>
+            <StatusBadge status={order.current_status} />
+          </div>
+          <div className="text-sm text-slate-500 mt-1">
+            {[order.development, order.unit_type]
+              .filter(Boolean)
+              .join(" · ")}
+            {(order.development || order.unit_type) && " · "}
+            {order.move_in_date && `Move-in ${formatDate(order.move_in_date)} · `}
+            Order {order.display_id}
+          </div>
+        </div>
+        {(session.profile.role === "admin" ||
+          order.consultant_id === session.user.id) && (
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/orders/${order.id}/edit`}
+              className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
+            >
+              Edit
+            </Link>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+        <div className="lg:col-span-2 space-y-4 order-2 lg:order-1">
+          <StatusTimeline
+            orderId={order.id}
+            currentStatus={order.current_status}
+            events={events}
+            canAdvance={
+              session.profile.role === "ops" ||
+              session.profile.role === "admin"
+            }
+            canAddNote={
+              session.profile.role !== "consultant" ||
+              order.consultant_id === session.user.id
+            }
+            canRevert={session.profile.role === "admin"}
+          />
+
+          <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">
+              Rooms &amp; measurements{" "}
+              <span className="text-xs font-normal text-slate-500">(cm)</span>
+            </h2>
+            {rooms.length === 0 && (
+              <p className="text-sm text-slate-500">No rooms recorded.</p>
+            )}
+            {rooms.map((r) => (
+              <RoomSummaryCard
+                key={r.id}
+                label={r.label}
+                type={r.type}
+                windows={windowsByRoom.get(r.id) ?? []}
+                photos={photosByRoom.get(r.id) ?? []}
+              />
+            ))}
+          </section>
+
+          {order.general_notes && (
+            <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+              <h2 className="text-base font-semibold text-slate-900 mb-2">
+                General notes
+              </h2>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                {order.general_notes}
+              </p>
+            </section>
+          )}
+        </div>
+
+        <div className="space-y-4 order-1 lg:order-2">
+          <section className="bg-white rounded-lg border border-slate-200 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">
+              Customer
+            </h3>
+            <dl className="space-y-2 text-sm">
+              <div>
+                <dt className="text-xs text-slate-500">Mobile</dt>
+                <dd className="text-slate-800">{order.customer_mobile}</dd>
+              </div>
+              {order.customer_email && (
+                <div>
+                  <dt className="text-xs text-slate-500">Email</dt>
+                  <dd className="text-slate-800">{order.customer_email}</dd>
+                </div>
+              )}
+              {order.property_type && (
+                <div>
+                  <dt className="text-xs text-slate-500">Property</dt>
+                  <dd className="text-slate-800">
+                    {order.property_type}
+                    {order.development && ` · ${order.development}`}
+                  </dd>
+                </div>
+              )}
+              {order.unit_type && (
+                <div>
+                  <dt className="text-xs text-slate-500">Unit Type</dt>
+                  <dd className="text-slate-800">{order.unit_type}</dd>
+                </div>
+              )}
+              {order.move_in_date && (
+                <div>
+                  <dt className="text-xs text-slate-500">Move-in</dt>
+                  <dd className="text-slate-800">
+                    {formatDate(order.move_in_date)}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </section>
+
+          <section className="bg-white rounded-lg border border-slate-200 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">
+              Payment
+            </h3>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Quoted</dt>
+                <dd className="font-medium text-slate-900">
+                  {formatSGD(order.price_quoted_cents)}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-slate-500">Deposit paid</dt>
+                <dd className="font-medium text-emerald-700">
+                  {formatSGD(order.deposit_cents)}
+                </dd>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-slate-100">
+                <dt className="text-slate-500">Balance due</dt>
+                <dd className="font-semibold text-teal-700">
+                  {formatSGD(order.balance_cents)}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="bg-white rounded-lg border border-slate-200 p-5">
+            <h3 className="text-sm font-semibold text-slate-900 mb-3">
+              Consultation
+            </h3>
+            <dl className="space-y-2 text-sm">
+              <div>
+                <dt className="text-xs text-slate-500">Created</dt>
+                <dd className="text-slate-800">
+                  {formatDate(order.created_at)}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}

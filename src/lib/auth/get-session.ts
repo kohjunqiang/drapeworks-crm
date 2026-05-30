@@ -18,12 +18,17 @@ export type SessionData = {
   };
 };
 
-export const getSession = cache(async (): Promise<SessionData | null> => {
+export type SessionState =
+  | { kind: "session"; data: SessionData }
+  | { kind: "inactive" }
+  | { kind: "none" };
+
+export const getSessionState = cache(async (): Promise<SessionState> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return null;
+  if (!user) return { kind: "none" };
 
   const profile = await db
     .selectFrom("profiles")
@@ -31,10 +36,19 @@ export const getSession = cache(async (): Promise<SessionData | null> => {
     .where("id", "=", user.id)
     .executeTakeFirst();
 
-  if (!profile || !profile.is_active) return null;
+  if (!profile) return { kind: "none" };
+  if (!profile.is_active) return { kind: "inactive" };
 
   return {
-    user: { id: user.id, email: user.email ?? "" },
-    profile,
+    kind: "session",
+    data: {
+      user: { id: user.id, email: user.email ?? "" },
+      profile,
+    },
   };
 });
+
+export async function getSession(): Promise<SessionData | null> {
+  const state = await getSessionState();
+  return state.kind === "session" ? state.data : null;
+}

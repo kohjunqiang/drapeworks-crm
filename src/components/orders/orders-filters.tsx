@@ -6,11 +6,15 @@ import { usePathname, useRouter } from "next/navigation";
 import { STATUS_FLOW, STATUS_LABELS } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 
+type Consultant = { id: string; label: string };
+
 type Props = {
   defaults: {
     q?: string;
     status?: string;
+    consultant?: string;
   };
+  consultants: Consultant[];
 };
 
 const INPUT_CLS =
@@ -18,22 +22,24 @@ const INPUT_CLS =
 
 function buildHref(
   base: string,
-  next: { q: string; status: string },
+  next: { q: string; status: string; consultant: string },
 ): string {
   const params = new URLSearchParams();
   if (next.q) params.set("q", next.q);
   if (next.status) params.set("status", next.status);
+  if (next.consultant) params.set("consultant", next.consultant);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
 
-export function OrdersFilters({ defaults }: Props) {
+export function OrdersFilters({ defaults, consultants }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [, startTransition] = useTransition();
 
   const [q, setQ] = useState(defaults.q ?? "");
   const [status, setStatus] = useState(defaults.status ?? "");
+  const [consultant, setConsultant] = useState(defaults.consultant ?? "");
 
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -41,14 +47,14 @@ export function OrdersFilters({ defaults }: Props) {
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       startTransition(() => {
-        router.push(buildHref(pathname, { q, status }));
+        router.push(buildHref(pathname, { q, status, consultant }));
       });
     }, 300);
     return () => {
       if (debounce.current) clearTimeout(debounce.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, status]);
+  }, [q, status, consultant]);
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 mb-4 p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
@@ -69,6 +75,18 @@ export function OrdersFilters({ defaults }: Props) {
           {STATUS_FLOW.map((s: FulfilmentStatus) => (
             <option key={s} value={s}>
               {STATUS_LABELS[s]}
+            </option>
+          ))}
+        </select>
+        <select
+          value={consultant}
+          onChange={(e) => setConsultant(e.target.value)}
+          className={INPUT_CLS}
+        >
+          <option value="">All consultants</option>
+          {consultants.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
             </option>
           ))}
         </select>

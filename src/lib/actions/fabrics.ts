@@ -6,33 +6,64 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { userMessage } from "@/lib/errors";
 import { fabricSchema } from "@/lib/validation/fabric";
 
 export async function upsertFabric(input: unknown) {
   const session = await requireRole(["admin"]);
   const parsed = fabricSchema.parse(input);
 
-  await db
-    .insertInto("fabrics")
-    .values({
-      code: parsed.code,
-      name: parsed.name,
-      type: parsed.type,
-      supplier: parsed.supplier ?? null,
-      color: parsed.color,
-      notes: parsed.notes ?? null,
-      created_by: session.user.id,
-    })
-    .onConflict((oc) =>
-      oc.column("code").doUpdateSet({
-        name: parsed.name,
-        type: parsed.type,
-        supplier: parsed.supplier ?? null,
-        color: parsed.color,
-        notes: parsed.notes ?? null,
-      }),
-    )
-    .execute();
+  if (parsed.isNew) {
+    // Surface a friendly "code already exists" error rather than letting the
+    // DB throw a unique-constraint string.
+    const existing = await db
+      .selectFrom("fabrics")
+      .select("code")
+      .where("code", "=", parsed.code)
+      .executeTakeFirst();
+    if (existing) {
+      throw new Error(`Fabric ${parsed.code} already exists`);
+    }
+
+    try {
+      await db
+        .insertInto("fabrics")
+        .values({
+          code: parsed.code,
+          name: parsed.name,
+          type: parsed.type,
+          supplier: parsed.supplier ?? null,
+          color: parsed.color,
+          notes: parsed.notes ?? null,
+          created_by: session.user.id,
+        })
+        .execute();
+    } catch (err) {
+      // Race: another admin created the same code between our check and our
+      // insert. Map the constraint violation to a friendly message.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/duplicate key|violates.*unique/i.test(msg)) {
+        throw new Error(`Fabric ${parsed.code} already exists`);
+      }
+      throw new Error(userMessage(err, "Could not add fabric"));
+    }
+  } else {
+    try {
+      await db
+        .updateTable("fabrics")
+        .set({
+          name: parsed.name,
+          type: parsed.type,
+          supplier: parsed.supplier ?? null,
+          color: parsed.color,
+          notes: parsed.notes ?? null,
+        })
+        .where("code", "=", parsed.code)
+        .execute();
+    } catch (err) {
+      throw new Error(userMessage(err, "Could not save fabric"));
+    }
+  }
 
   revalidatePath("/fabrics");
 }
@@ -53,11 +84,15 @@ export async function toggleFabricStatus(code: string) {
 
   const next = current.status === "Active" ? "Discontinued" : "Active";
 
-  await db
-    .updateTable("fabrics")
-    .set({ status: next })
-    .where("code", "=", code)
-    .execute();
+  try {
+    await db
+      .updateTable("fabrics")
+      .set({ status: next })
+      .where("code", "=", code)
+      .execute();
+  } catch (err) {
+    throw new Error(userMessage(err, "Could not update fabric status"));
+  }
 
   revalidatePath("/fabrics");
 }

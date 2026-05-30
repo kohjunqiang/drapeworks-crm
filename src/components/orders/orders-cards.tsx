@@ -48,6 +48,11 @@ export function OrdersCards({ orders }: Props) {
               Move-in {formatDate(o.move_in_date)}
             </div>
           </div>
+          {o.consultant_name && (
+            <div className="text-xs text-slate-400 mt-2">
+              {o.consultant_name}
+            </div>
+          )}
         </Link>
       ))}
       {orders.length === 0 && (

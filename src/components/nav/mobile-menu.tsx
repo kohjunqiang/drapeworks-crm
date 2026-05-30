@@ -30,11 +30,7 @@ export function MobileMenu({ role }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const visible = baseLinks.filter((l) => !l.roles || l.roles.includes(role));
-  const allLinks =
-    role === "admin"
-      ? [...visible, { href: "/admin/users", label: "Users" }]
-      : visible;
+  const allLinks = baseLinks.filter((l) => !l.roles || l.roles.includes(role));
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>

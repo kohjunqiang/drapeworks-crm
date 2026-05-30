@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
-import { createOrder, updateOrder } from "@/lib/actions/orders";
+import { createOrder, createOrderDraft, updateOrder } from "@/lib/actions/orders";
 import type { RoomType } from "@/lib/db/schema";
 import {
   isToiletRoom,
@@ -63,7 +63,7 @@ function makeWindow(roomType: RoomType, position: number) {
 const EMPTY_DEFAULTS: OrderEditInput = {
   customer: { name: "", mobile: "", email: "" },
   order: {
-    property_type: undefined,
+    property_type: "HDB",
     development: "",
     unit_type: "",
     move_in_date: "",
@@ -160,6 +160,32 @@ export function ConsultationForm({
     });
   });
 
+  function saveAsDraft() {
+    // Use the raw current values (skip the strict Zod resolver so partial
+    // input is allowed). The draft action does its own relaxed validation.
+    const values = getValues();
+    const payload = {
+      ...values,
+      rooms: (values.rooms ?? []).map((room, rIdx) => ({
+        ...room,
+        position: rIdx,
+        windows: (room.windows ?? []).map((w, wIdx) => ({
+          ...w,
+          position: wIdx,
+        })),
+      })),
+    };
+    startTransition(async () => {
+      try {
+        await createOrderDraft(payload);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) return;
+        toast.error(msg || "Draft save failed");
+      }
+    });
+  }
+
   function handleCancel() {
     if (mode === "edit" && orderId) {
       router.push(`/orders/${orderId}`);
@@ -247,6 +273,16 @@ export function ConsultationForm({
           >
             Cancel
           </button>
+          {mode === "create" && (
+            <button
+              type="button"
+              onClick={saveAsDraft}
+              disabled={pending}
+              className="px-4 py-2 text-sm border border-slate-300 rounded hover:bg-slate-100 disabled:opacity-50"
+            >
+              Save as draft
+            </button>
+          )}
           <button
             type="submit"
             disabled={pending}

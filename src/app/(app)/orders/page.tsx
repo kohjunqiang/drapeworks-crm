@@ -21,6 +21,7 @@ function isStatus(s: string | undefined): s is FulfilmentStatus {
 type SearchParams = {
   q?: string;
   status?: string;
+  consultant?: string;
 };
 
 export default async function OrdersDashboardPage({
@@ -28,9 +29,14 @@ export default async function OrdersDashboardPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { q: qRaw, status: statusRaw } = await searchParams;
+  const { q: qRaw, status: statusRaw, consultant: consultantRaw } =
+    await searchParams;
   const q = (qRaw ?? "").trim();
   const status = isStatus(statusRaw) ? statusRaw : undefined;
+  const consultantId =
+    typeof consultantRaw === "string" && consultantRaw.length > 0
+      ? consultantRaw
+      : undefined;
 
   // Stat counts.
   const counts = await db
@@ -72,10 +78,12 @@ export default async function OrdersDashboardPage({
     ])
     .executeTakeFirstOrThrow();
 
-  // Orders list with filters.
+  // Orders list with filters. Left join to profiles in case consultant_id is
+  // null for legacy/seed rows.
   let listQ = db
     .selectFrom("orders")
     .innerJoin("customers", "customers.id", "orders.customer_id")
+    .leftJoin("profiles", "profiles.id", "orders.consultant_id")
     .select([
       "orders.id as id",
       "orders.display_id as display_id",
@@ -84,10 +92,14 @@ export default async function OrdersDashboardPage({
       "orders.move_in_date as move_in_date",
       "orders.price_quoted_cents as price_quoted_cents",
       "orders.created_at as created_at",
+      "orders.consultant_id as consultant_id",
       "customers.name as customer_name",
+      "profiles.full_name as consultant_name",
+      "profiles.email as consultant_email",
     ]);
 
   if (status) listQ = listQ.where("orders.current_status", "=", status);
+  if (consultantId) listQ = listQ.where("orders.consultant_id", "=", consultantId);
 
   if (q) {
     const like = `%${q.replace(/[%_]/g, "")}%`;
@@ -114,6 +126,22 @@ export default async function OrdersDashboardPage({
     move_in_date: r.move_in_date,
     current_status: r.current_status,
     price_quoted_cents: r.price_quoted_cents,
+    consultant_name:
+      r.consultant_name?.trim() ||
+      (r.consultant_email ? r.consultant_email.split("@")[0] : null),
+  }));
+
+  // Distinct consultants present in the orders table (for the filter dropdown).
+  const consultantRows = await db
+    .selectFrom("orders")
+    .innerJoin("profiles", "profiles.id", "orders.consultant_id")
+    .select(["profiles.id as id", "profiles.full_name as full_name", "profiles.email as email"])
+    .distinct()
+    .orderBy("profiles.full_name", "asc")
+    .execute();
+  const consultants = consultantRows.map((r) => ({
+    id: r.id,
+    label: r.full_name?.trim() || r.email.split("@")[0],
   }));
 
   return (
@@ -142,9 +170,12 @@ export default async function OrdersDashboardPage({
         completedThisMonth={Number(counts.completed_this_month)}
       />
 
-      <OrdersFilters defaults={{ q, status }} />
+      <OrdersFilters
+        defaults={{ q, status, consultant: consultantId }}
+        consultants={consultants}
+      />
 
-      {orders.length === 0 && !q && !status ? (
+      {orders.length === 0 && !q && !status && !consultantId ? (
         <EmptyState
           title="No orders yet"
           description="Create your first consultation to start tracking measurements, fabrics, and fulfilment."

@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
+import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
+import { PrintButton } from "@/components/orders/print-button";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
 import type { PhotoTile } from "@/components/orders/photo-strip";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { StatusTimeline } from "@/components/orders/status-timeline";
+import { STATUS_FLOW, STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 import { requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
@@ -38,6 +42,7 @@ export default async function OrderDetailPage({
   const order = await db
     .selectFrom("orders")
     .innerJoin("customers", "customers.id", "orders.customer_id")
+    .leftJoin("profiles", "profiles.id", "orders.consultant_id")
     .select([
       "orders.id as id",
       "orders.display_id as display_id",
@@ -56,6 +61,8 @@ export default async function OrderDetailPage({
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
+      "profiles.full_name as consultant_name",
+      "profiles.email as consultant_email",
     ])
     .where("orders.id", "=", orderId)
     .executeTakeFirst();
@@ -185,17 +192,49 @@ export default async function OrderDetailPage({
             Order {order.display_id}
           </div>
         </div>
-        {(session.profile.role === "admin" ||
-          order.consultant_id === session.user.id) && (
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/orders/${order.id}/edit`}
-              className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
-            >
-              Edit
-            </Link>
-          </div>
-        )}
+        {(() => {
+          const canEdit =
+            session.profile.role === "admin" ||
+            order.consultant_id === session.user.id;
+          const isAdvancer =
+            session.profile.role === "ops" ||
+            session.profile.role === "admin";
+          const currentIdx = statusIndex(order.current_status);
+          const atEnd = currentIdx === STATUS_FLOW.length - 1;
+          const nextLabel = atEnd
+            ? undefined
+            : STATUS_LABELS[STATUS_FLOW[currentIdx + 1]];
+
+          if (!canEdit && !isAdvancer) return null;
+
+          return (
+            <div className="flex flex-wrap items-center gap-2">
+              {canEdit && (
+                <Link
+                  href={`/orders/${order.id}/edit`}
+                  className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
+                >
+                  Edit
+                </Link>
+              )}
+              <PrintButton />
+              {isAdvancer && (
+                <AdvanceStatusButton
+                  orderId={order.id}
+                  atEnd={atEnd}
+                  nextLabel={nextLabel}
+                />
+              )}
+              {session.profile.role === "admin" && (
+                <DeleteOrderDialog
+                  orderId={order.id}
+                  displayId={order.display_id}
+                  customerName={order.customer_name}
+                />
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
@@ -204,10 +243,6 @@ export default async function OrderDetailPage({
             orderId={order.id}
             currentStatus={order.current_status}
             events={events}
-            canAdvance={
-              session.profile.role === "ops" ||
-              session.profile.role === "admin"
-            }
             canAddNote={
               session.profile.role !== "consultant" ||
               order.consultant_id === session.user.id
@@ -319,6 +354,20 @@ export default async function OrderDetailPage({
               Consultation
             </h3>
             <dl className="space-y-2 text-sm">
+              {(() => {
+                const name =
+                  order.consultant_name?.trim() ||
+                  (order.consultant_email
+                    ? order.consultant_email.split("@")[0]
+                    : null);
+                if (!name) return null;
+                return (
+                  <div>
+                    <dt className="text-xs text-slate-500">Consultant</dt>
+                    <dd className="text-slate-800">{name}</dd>
+                  </div>
+                );
+              })()}
               <div>
                 <dt className="text-xs text-slate-500">Created</dt>
                 <dd className="text-slate-800">

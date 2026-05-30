@@ -35,21 +35,9 @@ type Props = {
 export function TopNav({ profile }: Props) {
   const pathname = usePathname();
   const canCreate = profile.role === "consultant" || profile.role === "admin";
-  const visible = baseLinks.filter(
+  const links = baseLinks.filter(
     (l) => l.href !== "/orders/new" || canCreate,
   );
-  const links = [
-    ...visible,
-    ...(profile.role === "admin"
-      ? [
-          {
-            href: "/admin/users",
-            label: "Users",
-            match: (p: string) => p.startsWith("/admin"),
-          },
-        ]
-      : []),
-  ];
 
   return (
     <nav className="bg-white border-b border-slate-200">

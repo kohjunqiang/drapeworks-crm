@@ -13,9 +13,10 @@ export function centsToDisplay(cents: number | null | undefined): string {
 const SGD = new Intl.NumberFormat("en-SG", {
   style: "currency",
   currency: "SGD",
-  minimumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
 });
 
 export function formatSGD(cents: number | null | undefined): string {
-  return SGD.format((cents ?? 0) / 100);
+  return SGD.format(Math.round((cents ?? 0) / 100));
 }

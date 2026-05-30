@@ -10,6 +10,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import type { SessionData } from "@/lib/auth/get-session";
 import { db } from "@/lib/db/kysely";
+import { userMessage } from "@/lib/errors";
 import { adminClient } from "@/lib/supabase/admin";
 
 const BUCKET = "room-photos";
@@ -69,7 +70,9 @@ export async function requestRoomPhotoUpload(input: unknown) {
   const { data, error } = await admin.storage
     .from(BUCKET)
     .createSignedUploadUrl(path);
-  if (error || !data) throw new Error(error?.message ?? "Failed to sign upload URL");
+  if (error || !data) {
+    throw new Error(userMessage(error, "Could not start upload"));
+  }
 
   return { path, token: data.token, signedUrl: data.signedUrl };
 }
@@ -100,7 +103,7 @@ export async function confirmRoomPhotoUpload(input: unknown) {
   const { data: listed, error: listErr } = await admin.storage
     .from(BUCKET)
     .list(dir, { search: file });
-  if (listErr) throw new Error(listErr.message);
+  if (listErr) throw new Error(userMessage(listErr, "Could not verify upload"));
   if (!listed || listed.length === 0) throw new Error("Upload not found");
 
   const inserted = await db
@@ -146,14 +149,46 @@ export async function deleteRoomPhoto(photoId: string) {
   const isAdmin = session.profile.role === "admin";
   if (!isOwner && !isAdmin) throw new Error("Forbidden");
 
+  // DB first: if the storage remove fails afterwards we leak a bucket
+  // object but the page won't surface a broken signed URL. The reverse
+  // order would leave a phantom row pointing at a deleted file.
+  await db.deleteFrom("room_photos").where("id", "=", photoId).execute();
+
   const admin = adminClient();
   const { error: rmErr } = await admin.storage.from(BUCKET).remove([
     photo.storage_path,
   ]);
-  if (rmErr) throw new Error(rmErr.message);
-
-  await db.deleteFrom("room_photos").where("id", "=", photoId).execute();
+  if (rmErr) {
+    // Log it but don't surface to the user; the row is already gone.
+    console.error("storage remove failed after DB delete:", rmErr.message);
+  }
 
   revalidatePath(`/orders/${photo.order_id}`);
   revalidatePath(`/orders/${photo.order_id}/edit`);
+}
+
+const cleanupSchema = z.object({
+  roomId: z.string().uuid(),
+  path: z.string().min(1),
+});
+
+// Best-effort cleanup when a client-side PUT to a signed upload URL succeeds
+// but confirmRoomPhotoUpload fails. Without this, the bucket accrues orphan
+// objects. We re-verify ownership of the room so the action can't be abused
+// to delete arbitrary paths.
+export async function cleanupOrphanUpload(input: unknown) {
+  const session = await requireRole(["consultant", "admin"]);
+  const parsed = cleanupSchema.parse(input);
+  const orderId = await assertCanWriteRoom(session, parsed.roomId);
+
+  const expectedPrefix = `orders/${orderId}/rooms/${parsed.roomId}/`;
+  if (!parsed.path.startsWith(expectedPrefix)) {
+    throw new Error("Cleanup path does not match room");
+  }
+
+  const admin = adminClient();
+  const { error } = await admin.storage.from(BUCKET).remove([parsed.path]);
+  if (error) {
+    console.error("orphan cleanup failed:", error.message);
+  }
 }

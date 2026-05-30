@@ -8,14 +8,19 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { adminClient } from "@/lib/supabase/admin";
 import {
   isToiletRoom,
   orderCreateSchema,
+  orderDraftSchema,
   orderEditSchema,
   type OrderCreateInput,
+  type OrderDraftInput,
   type OrderEditInput,
   type WindowEditInput,
 } from "@/lib/validation/order";
+
+const PHOTO_BUCKET = "room-photos";
 
 export async function createOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
@@ -162,6 +167,8 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderEditInput = orderEditSchema.parse(input);
 
+  const orphanStoragePaths: string[] = [];
+
   await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
@@ -288,6 +295,20 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
       await delWindows.execute();
     }
 
+    // Before deleting rooms we capture every room_photo storage path that's
+    // about to be cascade-deleted. We sweep the bucket after the DB commits
+    // so a rollback doesn't leave us with deleted files but live rows.
+    let orphanQ = trx
+      .selectFrom("room_photos")
+      .innerJoin("rooms", "rooms.id", "room_photos.room_id")
+      .select("room_photos.storage_path as storage_path")
+      .where("rooms.order_id", "=", orderId);
+    if (keepRoomIds.length > 0) {
+      orphanQ = orphanQ.where("rooms.id", "not in", keepRoomIds);
+    }
+    const orphanRows = await orphanQ.execute();
+    orphanStoragePaths.push(...orphanRows.map((r) => r.storage_path));
+
     let delRooms = trx.deleteFrom("rooms").where("order_id", "=", orderId);
     if (keepRoomIds.length > 0) {
       delRooms = delRooms.where("id", "not in", keepRoomIds);
@@ -295,9 +316,176 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
     await delRooms.execute();
   });
 
+  if (orphanStoragePaths.length > 0) {
+    const { error } = await adminClient()
+      .storage.from(PHOTO_BUCKET)
+      .remove(orphanStoragePaths);
+    if (error) {
+      console.error(
+        "room-photo storage sweep failed during updateOrder:",
+        error.message,
+      );
+    }
+  }
+
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/edit`);
   revalidatePath("/orders");
+
+  redirect(`/orders/${orderId}`);
+}
+
+export async function deleteOrder(input: {
+  orderId: string;
+  confirmDisplayId: string;
+}): Promise<never> {
+  await requireRole(["admin"]);
+  if (
+    typeof input?.orderId !== "string" ||
+    typeof input?.confirmDisplayId !== "string"
+  ) {
+    throw new Error("Invalid input");
+  }
+
+  const order = await db
+    .selectFrom("orders")
+    .select(["id", "display_id"])
+    .where("id", "=", input.orderId)
+    .executeTakeFirst();
+  if (!order) throw new Error("Order not found");
+
+  if (input.confirmDisplayId.trim() !== order.display_id) {
+    throw new Error(
+      `Type ${order.display_id} exactly to confirm deletion`,
+    );
+  }
+
+  // Capture every photo's storage_path before the cascade fires so we can
+  // sweep the bucket after the DB commits.
+  const photos = await db
+    .selectFrom("room_photos")
+    .innerJoin("rooms", "rooms.id", "room_photos.room_id")
+    .select("room_photos.storage_path as storage_path")
+    .where("rooms.order_id", "=", order.id)
+    .execute();
+
+  // Cascades: orders → rooms → windows + room_photos, and orders →
+  // order_status_events. customers.id has on-delete RESTRICT so the customer
+  // row stays (preserving cross-order history).
+  await db.deleteFrom("orders").where("id", "=", order.id).execute();
+
+  if (photos.length > 0) {
+    const { error } = await adminClient()
+      .storage.from(PHOTO_BUCKET)
+      .remove(photos.map((p) => p.storage_path));
+    if (error) {
+      console.error(
+        "room-photo storage sweep failed during deleteOrder:",
+        error.message,
+      );
+    }
+  }
+
+  revalidatePath("/orders");
+  redirect("/orders");
+}
+
+// Saves a partially-filled consultation as a draft. Only customer.name is
+// required; rooms can be empty; phone/email/dates are not strictly validated.
+// The order's is_draft flag is set so the dashboard can surface drafts
+// separately later.
+export async function createOrderDraft(input: unknown): Promise<never> {
+  const session = await requireRole(["consultant", "admin"]);
+  const parsed: OrderDraftInput = orderDraftSchema.parse(input);
+
+  const orderId = await db.transaction().execute(async (trx) => {
+    const customer = await trx
+      .insertInto("customers")
+      .values({
+        name: parsed.customer.name,
+        mobile: parsed.customer.mobile,
+        email: parsed.customer.email ?? null,
+        created_by: session.user.id,
+      })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+
+    const order = await trx
+      .insertInto("orders")
+      .values({
+        customer_id: customer.id,
+        consultant_id: session.user.id,
+        property_type: parsed.order.property_type ?? null,
+        development: parsed.order.development ?? null,
+        unit_type: parsed.order.unit_type ?? null,
+        move_in_date: parsed.order.move_in_date
+          ? parsed.order.move_in_date
+          : null,
+        price_quoted_cents: parsed.order.price_quoted_cents,
+        deposit_cents: parsed.order.deposit_cents,
+        general_notes: parsed.order.general_notes ?? null,
+        is_draft: true,
+        seq_year: 0,
+        seq_num: 0,
+        display_id: "",
+      })
+      .returning(["id", "display_id"])
+      .executeTakeFirstOrThrow();
+
+    for (let r = 0; r < parsed.rooms.length; r++) {
+      const room = parsed.rooms[r];
+      const insertedRoom = await trx
+        .insertInto("rooms")
+        .values({
+          order_id: order.id,
+          type: room.type,
+          label: room.label,
+          position: r,
+        })
+        .returning("id")
+        .executeTakeFirstOrThrow();
+
+      const isToilet = isToiletRoom(room.type);
+
+      for (let w = 0; w < room.windows.length; w++) {
+        const win = room.windows[w];
+        const values = isToilet
+          ? {
+              room_id: insertedRoom.id,
+              position: w,
+              width_cm: win.width_cm ?? null,
+              height_cm: win.height_cm ?? null,
+              install_width_cm: win.install_width_cm ?? null,
+              notes: win.notes || null,
+              curtain_code: win.curtain_code || null,
+            }
+          : {
+              room_id: insertedRoom.id,
+              position: w,
+              width_cm: win.width_cm ?? null,
+              height_cm: win.height_cm ?? null,
+              install_width_cm: win.install_width_cm ?? null,
+              notes: win.notes || null,
+              day_curtain_code: win.day_curtain_code || null,
+              night_curtain_code: win.night_curtain_code || null,
+              draw: win.draw ?? null,
+            };
+        await trx.insertInto("windows").values(values).execute();
+      }
+    }
+
+    await trx
+      .insertInto("order_status_events")
+      .values({
+        order_id: order.id,
+        status: "order_made",
+        note: "Draft created from consultation",
+        created_by: session.user.id,
+      })
+      .execute();
+
+    return order.id;
+  });
 
   redirect(`/orders/${orderId}`);
 }

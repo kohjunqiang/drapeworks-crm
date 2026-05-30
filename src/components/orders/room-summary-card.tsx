@@ -42,7 +42,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
   const toilet = isToilet(type);
   return (
     <div className="border border-slate-200 rounded mb-3 overflow-hidden">
-      <div className="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">
+      <div className="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 break-words">
         {label}
       </div>
       <div className="overflow-x-auto">

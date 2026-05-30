@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,16 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Set password — Drapeworks CRM" };
 
 const MIN_PASSWORD = 8;
+const RECOVERY_COOKIE = "password_recovery";
 
 async function setPassword(formData: FormData) {
   "use server";
+
+  const cookieStore = await cookies();
+  if (!cookieStore.get(RECOVERY_COOKIE)) {
+    redirect("/forgot-password?error=expired");
+  }
+
   const password = String(formData.get("password") || "");
   const confirm = String(formData.get("confirm") || "");
   if (!password || password.length < MIN_PASSWORD) {
@@ -32,6 +40,11 @@ async function setPassword(formData: FormData) {
   if (error) {
     redirect(`/set-password?error=${encodeURIComponent(error.message)}`);
   }
+
+  // Burn the recovery cookie so a second password change requires a fresh
+  // reset link.
+  cookieStore.delete(RECOVERY_COOKIE);
+
   redirect("/orders");
 }
 
@@ -42,6 +55,11 @@ export default async function SetPasswordPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  const cookieStore = await cookies();
+  if (!cookieStore.get(RECOVERY_COOKIE)) {
+    redirect("/forgot-password?error=expired");
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

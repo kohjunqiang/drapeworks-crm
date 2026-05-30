@@ -13,6 +13,7 @@ export type OrderRow = {
   move_in_date: Date | string | null;
   current_status: FulfilmentStatus;
   price_quoted_cents: number;
+  consultant_name: string | null;
 };
 
 type Props = {
@@ -42,6 +43,7 @@ export function OrdersTable({ orders }: Props) {
             <th className="text-left px-4 py-3 font-medium">Move-in</th>
             <th className="text-left px-4 py-3 font-medium">Status</th>
             <th className="text-right px-4 py-3 font-medium">Price</th>
+            <th className="text-left px-4 py-3 font-medium">Consultant</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -71,6 +73,9 @@ export function OrdersTable({ orders }: Props) {
               </td>
               <td className="px-4 py-3 text-right font-medium">
                 {formatSGD(o.price_quoted_cents)}
+              </td>
+              <td className="px-4 py-3 text-slate-600">
+                {o.consultant_name ?? "—"}
               </td>
             </tr>
           ))}

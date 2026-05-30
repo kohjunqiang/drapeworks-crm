@@ -43,7 +43,7 @@ export function PricingSection() {
               type="number"
               step="0.01"
               min="0"
-              placeholder="0.00"
+              placeholder="0"
               defaultValue={quotedCents ? (quotedCents / 100).toFixed(2) : ""}
               onChange={(e) =>
                 handleDollarInput("order.price_quoted_cents", e.target.value)
@@ -68,7 +68,7 @@ export function PricingSection() {
               type="number"
               step="0.01"
               min="0"
-              placeholder="0.00"
+              placeholder="0"
               defaultValue={depositCents ? (depositCents / 100).toFixed(2) : ""}
               onChange={(e) =>
                 handleDollarInput("order.deposit_cents", e.target.value)

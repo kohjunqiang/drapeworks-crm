@@ -55,7 +55,12 @@ export default async function ForgotPasswordPage({
         We&apos;ll email you a reset link.
       </p>
 
-      {error && (
+      {error === "expired" && (
+        <div className="bg-slate-100 border border-slate-200 text-slate-700 rounded p-3 text-xs mb-4">
+          Your password reset link has expired. Request a new one below.
+        </div>
+      )}
+      {error && error !== "expired" && (
         <div className="bg-red-50 border border-red-200 text-red-700 rounded p-3 text-xs mb-4">
           {error === "missing"
             ? "Please enter your email."

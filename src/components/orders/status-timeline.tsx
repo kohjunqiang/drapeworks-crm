@@ -2,7 +2,6 @@ import { STATUS_FLOW, STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 
 import { AddStatusNoteForm } from "./add-status-note-form";
-import { AdvanceStatusButton } from "./advance-status-button";
 import { RevertStatusDialog } from "./revert-status-dialog";
 
 type Event = {
@@ -16,7 +15,6 @@ type Props = {
   orderId: string;
   currentStatus: FulfilmentStatus;
   events: Event[];
-  canAdvance: boolean;
   canAddNote: boolean;
   canRevert: boolean;
 };
@@ -35,7 +33,6 @@ export function StatusTimeline({
   orderId,
   currentStatus,
   events,
-  canAdvance,
   canAddNote,
   canRevert,
 }: Props) {
@@ -52,25 +49,14 @@ export function StatusTimeline({
     eventsByStatus.set(ev.status, list);
   }
 
-  const atEnd = currentIdx === STATUS_FLOW.length - 1;
   const atStart = currentIdx <= 0;
-  const nextLabel = atEnd ? undefined : STATUS_LABELS[STATUS_FLOW[currentIdx + 1]];
   const prevLabel = atStart ? undefined : STATUS_LABELS[STATUS_FLOW[currentIdx - 1]];
 
   return (
     <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <h2 className="text-base font-semibold text-slate-900">
-          Fulfilment status
-        </h2>
-        {canAdvance && (
-          <AdvanceStatusButton
-            orderId={orderId}
-            atEnd={atEnd}
-            nextLabel={nextLabel}
-          />
-        )}
-      </div>
+      <h2 className="text-base font-semibold text-slate-900 mb-4">
+        Fulfilment status
+      </h2>
       <ol className="relative">
         {STATUS_FLOW.map((s, i) => {
           const evs = eventsByStatus.get(s) ?? [];

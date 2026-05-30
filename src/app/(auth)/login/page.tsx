@@ -25,14 +25,14 @@ async function signIn(formData: FormData) {
   redirect("/orders");
 }
 
-type SearchParams = { error?: string; reset?: string };
+type SearchParams = { error?: string; reset?: string; inactive?: string };
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { error, reset } = await searchParams;
+  const { error, reset, inactive } = await searchParams;
 
   return (
     <form
@@ -53,6 +53,11 @@ export default async function LoginPage({
       {reset === "1" && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded p-3 text-xs mb-4">
           Check your inbox for the password reset link.
+        </div>
+      )}
+      {inactive === "1" && (
+        <div className="bg-slate-100 border border-slate-200 text-slate-700 rounded p-3 text-xs mb-4">
+          Your account has been deactivated. Contact an admin to restore access.
         </div>
       )}
       {error && (

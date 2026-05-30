@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  cleanupOrphanUpload,
   confirmRoomPhotoUpload,
   deleteRoomPhoto,
   requestRoomPhotoUpload,
@@ -84,16 +85,28 @@ export function PhotoUploader({ roomId, photos }: Props) {
         body: compressedFile,
       });
       if (!putRes.ok) {
+        // PUT itself failed → no orphan to sweep.
         throw new Error(`Upload failed (${putRes.status})`);
       }
 
-      await confirmRoomPhotoUpload({
-        roomId,
-        path,
-        mime: compressedFile.type || "image/jpeg",
-        sizeBytes: compressedFile.size,
-        originalName: file.name,
-      });
+      try {
+        await confirmRoomPhotoUpload({
+          roomId,
+          path,
+          mime: compressedFile.type || "image/jpeg",
+          sizeBytes: compressedFile.size,
+          originalName: file.name,
+        });
+      } catch (confirmErr) {
+        // PUT succeeded but the DB row never landed. Remove the orphan
+        // before bubbling the error up.
+        try {
+          await cleanupOrphanUpload({ roomId, path });
+        } catch {
+          // ignore — server logs the failure
+        }
+        throw confirmErr;
+      }
 
       toast.success("Photo uploaded");
       router.refresh();

@@ -5,7 +5,7 @@ export function PhotoPlaceholder() {
         Reference photos for this room
       </div>
       <div className="border-2 border-dashed border-slate-300 rounded p-6 text-center text-xs text-slate-500">
-        Photo upload coming in Phase 5
+        Save the order to add photos to this room.
       </div>
     </div>
   );

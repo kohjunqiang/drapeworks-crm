@@ -12,7 +12,7 @@ export type CurtainTypeOption = {
 };
 
 const INPUT_CLS =
-  "w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
+  "w-full px-2.5 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
 
 type Props = {
   roomIndex: number;
@@ -21,9 +21,11 @@ type Props = {
   curtainTypes: CurtainTypeOption[];
 };
 
-// A native <select> can't render option images, so we show a small preview
-// thumbnail beside the control driven by the currently-selected id.
-function Thumb({
+// A native <select> truncates long option labels on narrow screens and can't
+// render option images, so once a curtain is chosen we show a preview row
+// beneath the control: a thumbnail plus the full, wrapping label. Renders
+// nothing until something is selected, so empty windows stay uncluttered.
+function Preview({
   options,
   selectedId,
 }: {
@@ -31,16 +33,36 @@ function Thumb({
   selectedId: string | undefined;
 }) {
   const opt = selectedId ? options.find((o) => o.id === selectedId) : undefined;
+  if (!opt) return null;
   return (
-    <div className="w-9 h-9 flex-shrink-0 rounded border border-slate-200 bg-slate-100 overflow-hidden flex items-center justify-center">
-      {opt?.photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={opt.photoUrl}
-          alt={opt.label}
-          className="w-full h-full object-cover"
-        />
-      ) : null}
+    <div className="mt-1.5 flex items-center gap-2 rounded border border-slate-100 bg-slate-50 p-1.5">
+      <div className="w-10 h-10 flex-shrink-0 rounded border border-slate-200 bg-slate-100 overflow-hidden flex items-center justify-center text-slate-300">
+        {opt.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={opt.photoUrl}
+            alt={opt.label}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          // Placeholder image icon — reads as "no photo yet", not a broken box.
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+            />
+          </svg>
+        )}
+      </div>
+      <span className="text-xs leading-snug text-slate-600">{opt.label}</span>
     </div>
   );
 }
@@ -68,20 +90,18 @@ export function WindowFields({
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Curtain Type
           </label>
-          <div className="flex items-center gap-2">
-            <select
-              className={INPUT_CLS}
-              {...register(`${base}.curtain_type_id`)}
-            >
-              <option value="">— Select —</option>
-              {curtainTypes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label} ({c.category})
-                </option>
-              ))}
-            </select>
-            <Thumb options={curtainTypes} selectedId={toiletId} />
-          </div>
+          <select
+            className={INPUT_CLS}
+            {...register(`${base}.curtain_type_id`)}
+          >
+            <option value="">— Select —</option>
+            {curtainTypes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label} ({c.category})
+              </option>
+            ))}
+          </select>
+          <Preview options={curtainTypes} selectedId={toiletId} />
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">
@@ -134,39 +154,35 @@ export function WindowFields({
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Day Curtain
         </label>
-        <div className="flex items-center gap-2">
-          <select
-            className={INPUT_CLS}
-            {...register(`${base}.day_curtain_type_id`)}
-          >
-            <option value="">— None —</option>
-            {dayTypes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <Thumb options={dayTypes} selectedId={dayId} />
-        </div>
+        <select
+          className={INPUT_CLS}
+          {...register(`${base}.day_curtain_type_id`)}
+        >
+          <option value="">— None —</option>
+          {dayTypes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <Preview options={dayTypes} selectedId={dayId} />
       </div>
       <div className="col-span-2 sm:col-span-3">
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Night Curtain
         </label>
-        <div className="flex items-center gap-2">
-          <select
-            className={INPUT_CLS}
-            {...register(`${base}.night_curtain_type_id`)}
-          >
-            <option value="">— None —</option>
-            {nightTypes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <Thumb options={nightTypes} selectedId={nightId} />
-        </div>
+        <select
+          className={INPUT_CLS}
+          {...register(`${base}.night_curtain_type_id`)}
+        >
+          <option value="">— None —</option>
+          {nightTypes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <Preview options={nightTypes} selectedId={nightId} />
       </div>
       <div className="sm:col-span-2">
         <label className="block text-xs font-medium text-slate-600 mb-1">

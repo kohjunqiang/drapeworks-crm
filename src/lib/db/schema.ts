@@ -29,10 +29,6 @@ export type CurtainTypeStatus = "Active" | "Archived";
 
 export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
-export type FabricStatus = "Active" | "Discontinued";
-
-export type FabricType = "Both" | "Day" | "Night";
-
 export type FulfilmentStatus = "completed" | "delivered_checked" | "fulfilment" | "order_made" | "sent_logistic" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
@@ -486,19 +482,6 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
-export interface Fabrics {
-  code: string;
-  color: string;
-  created_at: Generated<Timestamp>;
-  created_by: string | null;
-  name: string;
-  notes: string | null;
-  status: Generated<FabricStatus>;
-  supplier: string | null;
-  type: FabricType;
-  updated_at: Generated<Timestamp>;
-}
-
 export interface Orders {
   balance_cents: Generated<number | null>;
   consultant_id: string | null;
@@ -716,15 +699,12 @@ export interface VaultSecrets {
 
 export interface Windows {
   created_at: Generated<Timestamp>;
-  curtain_code: string | null;
   curtain_type_id: string | null;
-  day_curtain_code: string | null;
   day_curtain_type_id: string | null;
   draw: DrawDirection | null;
   height_cm: number | null;
   id: Generated<string>;
   install_width_cm: number | null;
-  night_curtain_code: string | null;
   night_curtain_type_id: string | null;
   notes: string | null;
   position: number;
@@ -761,7 +741,6 @@ export interface DB {
   customers: Customers;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
-  fabrics: Fabrics;
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;

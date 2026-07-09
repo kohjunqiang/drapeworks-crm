@@ -22,11 +22,6 @@ const baseLinks = [
     match: (p: string) => p === "/orders/new",
   },
   {
-    href: "/fabrics",
-    label: "Fabrics",
-    match: (p: string) => p.startsWith("/fabrics"),
-  },
-  {
     href: "/admin/digital-catalogue",
     label: "Digital Catalogue",
     match: (p: string) => p.startsWith("/admin/digital-catalogue"),

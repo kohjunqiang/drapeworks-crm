@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Digital Catalogue — Drapeworks CRM" };
 
 export default async function DigitalCataloguePage() {
-  // Admin-only management screen (unlike fabrics, which is view-for-all).
+  // Admin-only management screen.
   await requireRole(["admin"]);
 
   const [rows, series] = await Promise.all([

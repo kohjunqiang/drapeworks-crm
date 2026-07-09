@@ -18,7 +18,6 @@ import type { Role } from "@/lib/auth/get-session";
 const baseLinks = [
   { href: "/orders", label: "Orders" },
   { href: "/orders/new", label: "New Consultation", roles: ["consultant", "admin"] as Role[] },
-  { href: "/fabrics", label: "Fabrics" },
   {
     href: "/admin/digital-catalogue",
     label: "Digital Catalogue",

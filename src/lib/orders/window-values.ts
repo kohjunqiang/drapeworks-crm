@@ -31,11 +31,6 @@ export type WindowColumnValues = {
   day_curtain_type_id: string | null;
   night_curtain_type_id: string | null;
   draw: DrawDirection | null;
-  // Option A: fabric codes are no longer written from the form. Kept as
-  // explicit nulls so converting a legacy window doesn't leave stale codes.
-  curtain_code: string | null;
-  day_curtain_code: string | null;
-  night_curtain_code: string | null;
 };
 
 export function windowValues(
@@ -48,9 +43,6 @@ export function windowValues(
     height_cm: win.height_cm ?? null,
     install_width_cm: win.install_width_cm ?? null,
     notes: win.notes || null,
-    curtain_code: null,
-    day_curtain_code: null,
-    night_curtain_code: null,
   } as const;
 
   if (win.variant === "toilet") {

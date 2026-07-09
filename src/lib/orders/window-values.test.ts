@@ -7,7 +7,7 @@ const NIGHT = "550e8400-e29b-41d4-a716-446655440001";
 const TOILET = "550e8400-e29b-41d4-a716-446655440002";
 
 describe("windowValues — regular window", () => {
-  it("writes day/night curtain type ids and draw, nulling toilet + fabric columns", () => {
+  it("writes day/night curtain type ids and draw, nulling toilet columns", () => {
     const values = windowValues(
       {
         variant: "regular",
@@ -32,9 +32,6 @@ describe("windowValues — regular window", () => {
       night_curtain_type_id: NIGHT,
       curtain_type_id: null,
       draw: "Single Left",
-      curtain_code: null,
-      day_curtain_code: null,
-      night_curtain_code: null,
     });
   });
 
@@ -64,9 +61,6 @@ describe("windowValues — toilet window", () => {
       day_curtain_type_id: null,
       night_curtain_type_id: null,
       draw: null,
-      curtain_code: null,
-      day_curtain_code: null,
-      night_curtain_code: null,
     });
   });
 });

@@ -57,20 +57,15 @@ const baseWindow = z.object({
 
 const regularWindow = baseWindow.extend({
   variant: z.literal("regular"),
-  // Option A: the form now selects photo-backed curtain *types*. The old
-  // fabric-code fields stay present-but-unused so existing payloads still
-  // parse; the form no longer writes them.
+  // The form selects photo-backed curtain *types* (Phase 8, "Option A").
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
-  day_curtain_code: z.string().optional(),
-  night_curtain_code: z.string().optional(),
   draw: z.enum(DRAW_DIRECTIONS).optional(),
 });
 
 const toiletWindow = baseWindow.extend({
   variant: z.literal("toilet"),
   curtain_type_id: optionalTypeId,
-  curtain_code: z.string().optional(),
 });
 
 export const windowSchema = z.discriminatedUnion("variant", [
@@ -174,9 +169,6 @@ const draftWindow = baseWindow.extend({
   curtain_type_id: optionalTypeId,
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
-  curtain_code: z.string().optional(),
-  day_curtain_code: z.string().optional(),
-  night_curtain_code: z.string().optional(),
   draw: z.enum(DRAW_DIRECTIONS).optional(),
 });
 

@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { windowValues } from "@/lib/orders/window-values";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   isToiletRoom,
@@ -17,7 +18,6 @@ import {
   type OrderCreateInput,
   type OrderDraftInput,
   type OrderEditInput,
-  type WindowEditInput,
 } from "@/lib/validation/order";
 
 const PHOTO_BUCKET = "room-photos";
@@ -78,40 +78,19 @@ export async function createOrder(input: unknown): Promise<never> {
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
-
-        if (isToilet && win.variant === "toilet") {
-          await trx
-            .insertInto("windows")
-            .values({
-              room_id: insertedRoom.id,
-              position: w,
-              width_cm: win.width_cm ?? null,
-              height_cm: win.height_cm ?? null,
-              install_width_cm: win.install_width_cm ?? null,
-              notes: win.notes || null,
-              curtain_code: win.curtain_code || null,
-            })
-            .execute();
-        } else if (!isToilet && win.variant === "regular") {
-          await trx
-            .insertInto("windows")
-            .values({
-              room_id: insertedRoom.id,
-              position: w,
-              width_cm: win.width_cm ?? null,
-              height_cm: win.height_cm ?? null,
-              install_width_cm: win.install_width_cm ?? null,
-              notes: win.notes || null,
-              day_curtain_code: win.day_curtain_code || null,
-              night_curtain_code: win.night_curtain_code || null,
-              draw: win.draw ?? null,
-            })
-            .execute();
-        } else {
+        const matchesShape =
+          (isToilet && win.variant === "toilet") ||
+          (!isToilet && win.variant === "regular");
+        if (!matchesShape) {
           throw new Error(
             `Window variant '${win.variant}' does not match room type '${room.type}'`,
           );
         }
+
+        await trx
+          .insertInto("windows")
+          .values({ room_id: insertedRoom.id, ...windowValues(win, w) })
+          .execute();
       }
     }
 
@@ -129,34 +108,6 @@ export async function createOrder(input: unknown): Promise<never> {
   });
 
   redirect(`/orders/${orderId}`);
-}
-
-function regularWindowValues(win: Extract<WindowEditInput, { variant: "regular" }>, position: number) {
-  return {
-    position,
-    width_cm: win.width_cm ?? null,
-    height_cm: win.height_cm ?? null,
-    install_width_cm: win.install_width_cm ?? null,
-    notes: win.notes || null,
-    day_curtain_code: win.day_curtain_code || null,
-    night_curtain_code: win.night_curtain_code || null,
-    draw: win.draw ?? null,
-    curtain_code: null,
-  } as const;
-}
-
-function toiletWindowValues(win: Extract<WindowEditInput, { variant: "toilet" }>, position: number) {
-  return {
-    position,
-    width_cm: win.width_cm ?? null,
-    height_cm: win.height_cm ?? null,
-    install_width_cm: win.install_width_cm ?? null,
-    notes: win.notes || null,
-    curtain_code: win.curtain_code || null,
-    day_curtain_code: null,
-    night_curtain_code: null,
-    draw: null,
-  } as const;
 }
 
 export async function updateOrder(orderId: string, input: unknown): Promise<never> {
@@ -250,27 +201,12 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
           );
         }
 
-        const values =
-          win.variant === "toilet"
-            ? toiletWindowValues(win, w)
-            : regularWindowValues(win, w);
+        // windowValues sets every shape column explicitly (nulling the
+        // opposite variant's columns), so a single update satisfies the
+        // validate_window_shape trigger even when a room switches type.
+        const values = windowValues(win, w);
 
         if (win.id) {
-          // Clear the opposite-shape columns to satisfy the window-shape trigger
-          // when a room is converted from regular to toilet (or vice versa) and
-          // existing window rows are being kept.
-          await trx
-            .updateTable("windows")
-            .set({
-              curtain_code: null,
-              day_curtain_code: null,
-              night_curtain_code: null,
-              draw: null,
-            })
-            .where("id", "=", win.id)
-            .where("room_id", "=", roomId)
-            .execute();
-
           await trx
             .updateTable("windows")
             .set(values)
@@ -449,28 +385,13 @@ export async function createOrderDraft(input: unknown): Promise<never> {
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
-        const values = isToilet
-          ? {
-              room_id: insertedRoom.id,
-              position: w,
-              width_cm: win.width_cm ?? null,
-              height_cm: win.height_cm ?? null,
-              install_width_cm: win.install_width_cm ?? null,
-              notes: win.notes || null,
-              curtain_code: win.curtain_code || null,
-            }
-          : {
-              room_id: insertedRoom.id,
-              position: w,
-              width_cm: win.width_cm ?? null,
-              height_cm: win.height_cm ?? null,
-              install_width_cm: win.install_width_cm ?? null,
-              notes: win.notes || null,
-              day_curtain_code: win.day_curtain_code || null,
-              night_curtain_code: win.night_curtain_code || null,
-              draw: win.draw ?? null,
-            };
-        await trx.insertInto("windows").values(values).execute();
+        // Drafts are relaxed: force the window shape from the room type rather
+        // than trusting the (possibly half-filled) window variant.
+        const shaped = { ...win, variant: isToilet ? "toilet" : "regular" } as const;
+        await trx
+          .insertInto("windows")
+          .values({ room_id: insertedRoom.id, ...windowValues(shaped, w) })
+          .execute();
       }
     }
 

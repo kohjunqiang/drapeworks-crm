@@ -39,6 +39,14 @@ const optionalInt = z.preprocess(
   z.number().int().positive().max(MAX_MEASUREMENT_CM).nullable(),
 );
 
+// A native <select>'s empty option submits "", which is not a valid uuid.
+// Normalise "" / null to undefined so an unselected curtain type is simply
+// "no selection" rather than a validation error.
+const optionalTypeId = z.preprocess(
+  (v) => (v === "" || v === null ? undefined : v),
+  z.string().uuid().optional(),
+);
+
 const baseWindow = z.object({
   position: z.number().int().min(0),
   width_cm: optionalInt,
@@ -49,6 +57,11 @@ const baseWindow = z.object({
 
 const regularWindow = baseWindow.extend({
   variant: z.literal("regular"),
+  // Option A: the form now selects photo-backed curtain *types*. The old
+  // fabric-code fields stay present-but-unused so existing payloads still
+  // parse; the form no longer writes them.
+  day_curtain_type_id: optionalTypeId,
+  night_curtain_type_id: optionalTypeId,
   day_curtain_code: z.string().optional(),
   night_curtain_code: z.string().optional(),
   draw: z.enum(DRAW_DIRECTIONS).optional(),
@@ -56,6 +69,7 @@ const regularWindow = baseWindow.extend({
 
 const toiletWindow = baseWindow.extend({
   variant: z.literal("toilet"),
+  curtain_type_id: optionalTypeId,
   curtain_code: z.string().optional(),
 });
 
@@ -157,6 +171,9 @@ const customerDraftSchema = z.object({
 
 const draftWindow = baseWindow.extend({
   variant: z.enum(["regular", "toilet"]),
+  curtain_type_id: optionalTypeId,
+  day_curtain_type_id: optionalTypeId,
+  night_curtain_type_id: optionalTypeId,
   curtain_code: z.string().optional(),
   day_curtain_code: z.string().optional(),
   night_curtain_code: z.string().optional(),

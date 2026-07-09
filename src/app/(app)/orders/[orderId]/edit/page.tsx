@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ConsultationForm } from "@/components/orders/consultation-form";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { requireRole } from "@/lib/auth/require-role";
+import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import {
@@ -80,9 +81,9 @@ export default async function EditOrderPage({
             "height_cm",
             "install_width_cm",
             "notes",
-            "curtain_code",
-            "day_curtain_code",
-            "night_curtain_code",
+            "curtain_type_id",
+            "day_curtain_type_id",
+            "night_curtain_type_id",
             "draw",
           ])
           .where("room_id", "in", roomIds)
@@ -125,12 +126,7 @@ export default async function EditOrderPage({
     roomPhotos[p.room_id] = list;
   }
 
-  const fabrics = await db
-    .selectFrom("fabrics")
-    .select(["code", "name", "type"])
-    .where("status", "=", "Active")
-    .orderBy("code", "asc")
-    .execute();
+  const curtainTypes = await loadActiveCurtainTypeOptions();
 
   const defaultValues: OrderEditInput = {
     customer: {
@@ -162,7 +158,7 @@ export default async function EditOrderPage({
               id: w.id,
               variant: "toilet" as const,
               position: wIdx,
-              curtain_code: w.curtain_code ?? "",
+              curtain_type_id: w.curtain_type_id ?? "",
               width_cm: w.width_cm ?? null,
               height_cm: w.height_cm ?? null,
               install_width_cm: w.install_width_cm ?? null,
@@ -173,8 +169,8 @@ export default async function EditOrderPage({
             id: w.id,
             variant: "regular" as const,
             position: wIdx,
-            day_curtain_code: w.day_curtain_code ?? "",
-            night_curtain_code: w.night_curtain_code ?? "",
+            day_curtain_type_id: w.day_curtain_type_id ?? "",
+            night_curtain_type_id: w.night_curtain_type_id ?? "",
             draw: w.draw ?? "Double",
             width_cm: w.width_cm ?? null,
             height_cm: w.height_cm ?? null,
@@ -223,7 +219,7 @@ export default async function EditOrderPage({
       <ConsultationForm
         mode="edit"
         orderId={order.id}
-        fabrics={fabrics}
+        curtainTypes={curtainTypes}
         defaultValues={defaultValues}
         roomPhotos={roomPhotos}
       />

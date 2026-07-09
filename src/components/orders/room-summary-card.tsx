@@ -8,13 +8,13 @@ type WindowSummary = {
   height_cm: number | null;
   install_width_cm: number | null;
   notes: string | null;
-  curtain_code: string | null;
-  day_curtain_code: string | null;
-  night_curtain_code: string | null;
   draw: string | null;
-  curtain_name?: string | null;
-  day_curtain_name?: string | null;
-  night_curtain_name?: string | null;
+  day_curtain_label?: string | null;
+  day_curtain_photo_url?: string | null;
+  night_curtain_label?: string | null;
+  night_curtain_photo_url?: string | null;
+  curtain_label?: string | null;
+  curtain_photo_url?: string | null;
 };
 
 type Props = {
@@ -33,9 +33,28 @@ function dim(a: number | null, b: number | null): string {
   return `${a ?? "—"} × ${b ?? "—"}`;
 }
 
-function fabricCell(code: string | null, name?: string | null): string {
-  if (!code) return "—";
-  return name ? `${code} ${name}` : code;
+// Curtain-type cell: small hero thumbnail + label. Em-dash when unselected.
+function CurtainCell({
+  label,
+  photoUrl,
+}: {
+  label?: string | null;
+  photoUrl?: string | null;
+}) {
+  if (!label) return <span>—</span>;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {photoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={photoUrl}
+          alt={label}
+          className="w-8 h-8 rounded object-cover border border-slate-200 flex-shrink-0"
+        />
+      ) : null}
+      <span>{label}</span>
+    </span>
+  );
 }
 
 export function RoomSummaryCard({ label, type, windows, photos }: Props) {
@@ -60,7 +79,10 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
               {windows.map((w) => (
                 <tr key={w.position} className="border-t border-slate-100">
                   <td className="px-4 py-2">
-                    {fabricCell(w.curtain_code, w.curtain_name)}
+                    <CurtainCell
+                      label={w.curtain_label}
+                      photoUrl={w.curtain_photo_url}
+                    />
                   </td>
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
                   <td className="px-4 py-2">{w.install_width_cm ?? "—"}</td>
@@ -89,10 +111,16 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
               {windows.map((w) => (
                 <tr key={w.position} className="border-t border-slate-100">
                   <td className="px-4 py-2">
-                    {fabricCell(w.day_curtain_code, w.day_curtain_name)}
+                    <CurtainCell
+                      label={w.day_curtain_label}
+                      photoUrl={w.day_curtain_photo_url}
+                    />
                   </td>
                   <td className="px-4 py-2">
-                    {fabricCell(w.night_curtain_code, w.night_curtain_name)}
+                    <CurtainCell
+                      label={w.night_curtain_label}
+                      photoUrl={w.night_curtain_photo_url}
+                    />
                   </td>
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
                   <td className="px-4 py-2">{w.install_width_cm ?? "—"}</td>

@@ -26,6 +26,12 @@ const baseLinks = [
     label: "Fabrics",
     match: (p: string) => p.startsWith("/fabrics"),
   },
+  {
+    href: "/admin/digital-catalogue",
+    label: "Digital Catalogue",
+    match: (p: string) => p.startsWith("/admin/digital-catalogue"),
+    adminOnly: true,
+  },
 ];
 
 type Props = {
@@ -35,8 +41,10 @@ type Props = {
 export function TopNav({ profile }: Props) {
   const pathname = usePathname();
   const canCreate = profile.role === "consultant" || profile.role === "admin";
+  const isAdmin = profile.role === "admin";
   const links = baseLinks.filter(
-    (l) => l.href !== "/orders/new" || canCreate,
+    (l) =>
+      (l.href !== "/orders/new" || canCreate) && (!l.adminOnly || isAdmin),
   );
 
   return (

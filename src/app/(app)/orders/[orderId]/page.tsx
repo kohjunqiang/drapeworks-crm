@@ -10,6 +10,8 @@ import { StatusBadge } from "@/components/orders/status-badge";
 import { StatusTimeline } from "@/components/orders/status-timeline";
 import { STATUS_FLOW, STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 import { requireSession } from "@/lib/auth/require-role";
+import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
+import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import { formatSGD } from "@/lib/money";
@@ -84,19 +86,30 @@ export default async function OrderDetailPage({
       : await db
           .selectFrom("windows")
           .leftJoin(
-            "fabrics as day_fab",
-            "day_fab.code",
-            "windows.day_curtain_code",
+            "curtain_types as day_ct",
+            "day_ct.id",
+            "windows.day_curtain_type_id",
           )
           .leftJoin(
-            "fabrics as night_fab",
-            "night_fab.code",
-            "windows.night_curtain_code",
+            "curtain_types as night_ct",
+            "night_ct.id",
+            "windows.night_curtain_type_id",
           )
           .leftJoin(
-            "fabrics as curtain_fab",
-            "curtain_fab.code",
-            "windows.curtain_code",
+            "curtain_types as toilet_ct",
+            "toilet_ct.id",
+            "windows.curtain_type_id",
+          )
+          .leftJoin("curtain_series as day_cs", "day_cs.id", "day_ct.series_id")
+          .leftJoin(
+            "curtain_series as night_cs",
+            "night_cs.id",
+            "night_ct.series_id",
+          )
+          .leftJoin(
+            "curtain_series as toilet_cs",
+            "toilet_cs.id",
+            "toilet_ct.series_id",
           )
           .select([
             "windows.id as id",
@@ -106,20 +119,84 @@ export default async function OrderDetailPage({
             "windows.height_cm as height_cm",
             "windows.install_width_cm as install_width_cm",
             "windows.notes as notes",
-            "windows.curtain_code as curtain_code",
-            "windows.day_curtain_code as day_curtain_code",
-            "windows.night_curtain_code as night_curtain_code",
             "windows.draw as draw",
-            "day_fab.name as day_curtain_name",
-            "night_fab.name as night_curtain_name",
-            "curtain_fab.name as curtain_name",
+            "day_ct.label as day_curtain_label",
+            "day_ct.photo_path as day_curtain_photo_path",
+            "day_ct.series_index as day_curtain_index",
+            "day_ct.page as day_curtain_page",
+            "day_cs.name as day_curtain_series",
+            "night_ct.label as night_curtain_label",
+            "night_ct.photo_path as night_curtain_photo_path",
+            "night_ct.series_index as night_curtain_index",
+            "night_ct.page as night_curtain_page",
+            "night_cs.name as night_curtain_series",
+            "toilet_ct.label as curtain_label",
+            "toilet_ct.photo_path as curtain_photo_path",
+            "toilet_ct.series_index as curtain_index",
+            "toilet_ct.page as curtain_page",
+            "toilet_cs.name as curtain_series",
           ])
           .where("windows.room_id", "in", roomIds)
           .orderBy("windows.position", "asc")
           .execute();
 
-  const windowsByRoom = new Map<string, typeof windows>();
-  for (const w of windows) {
+  // Sign every referenced curtain-type hero photo in one batch.
+  const curtainPhotoPaths = windows
+    .flatMap((w) => [
+      w.day_curtain_photo_path,
+      w.night_curtain_photo_path,
+      w.curtain_photo_path,
+    ])
+    .filter((p): p is string => !!p);
+  const curtainPhotoUrls = await signCurtainTypePhotoUrls(curtainPhotoPaths);
+  const urlFor = (path: string | null) =>
+    path ? (curtainPhotoUrls.get(path) ?? null) : null;
+
+  // Build the "Series #index · Page — Label" display string per curtain, or
+  // null when the window has no curtain type selected.
+  const labelOf = (
+    series: string | null,
+    index: number | null,
+    page: string | null,
+    label: string | null,
+  ) =>
+    label
+      ? formatCurtainOptionLabel({ series, index, page, label })
+      : null;
+
+  const windowSummaries = windows.map((w) => ({
+    position: w.position,
+    width_cm: w.width_cm,
+    height_cm: w.height_cm,
+    install_width_cm: w.install_width_cm,
+    notes: w.notes,
+    draw: w.draw,
+    room_id: w.room_id,
+    day_curtain_label: labelOf(
+      w.day_curtain_series,
+      w.day_curtain_index,
+      w.day_curtain_page,
+      w.day_curtain_label,
+    ),
+    day_curtain_photo_url: urlFor(w.day_curtain_photo_path),
+    night_curtain_label: labelOf(
+      w.night_curtain_series,
+      w.night_curtain_index,
+      w.night_curtain_page,
+      w.night_curtain_label,
+    ),
+    night_curtain_photo_url: urlFor(w.night_curtain_photo_path),
+    curtain_label: labelOf(
+      w.curtain_series,
+      w.curtain_index,
+      w.curtain_page,
+      w.curtain_label,
+    ),
+    curtain_photo_url: urlFor(w.curtain_photo_path),
+  }));
+
+  const windowsByRoom = new Map<string, typeof windowSummaries>();
+  for (const w of windowSummaries) {
     const list = windowsByRoom.get(w.room_id) ?? [];
     list.push(w);
     windowsByRoom.set(w.room_id, list);

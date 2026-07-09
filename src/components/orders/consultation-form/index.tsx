@@ -23,13 +23,13 @@ import {
   type RoomTemplate,
 } from "./quick-add-room-bar";
 import { RoomCard } from "./room-card";
-import type { FabricOption } from "./window-fields";
+import type { CurtainTypeOption } from "./window-fields";
 
 type Mode = "create" | "edit";
 
 type Props = {
   mode: Mode;
-  fabrics: FabricOption[];
+  curtainTypes: CurtainTypeOption[];
   orderId?: string;
   defaultValues?: OrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
@@ -40,7 +40,7 @@ function makeWindow(roomType: RoomType, position: number) {
     return {
       variant: "toilet" as const,
       position,
-      curtain_code: "",
+      curtain_type_id: "",
       width_cm: null,
       height_cm: null,
       install_width_cm: null,
@@ -50,8 +50,8 @@ function makeWindow(roomType: RoomType, position: number) {
   return {
     variant: "regular" as const,
     position,
-    day_curtain_code: "",
-    night_curtain_code: "",
+    day_curtain_type_id: "",
+    night_curtain_type_id: "",
     draw: "Double" as const,
     width_cm: null,
     height_cm: null,
@@ -84,7 +84,7 @@ const EMPTY_DEFAULTS: OrderEditInput = {
 
 export function ConsultationForm({
   mode,
-  fabrics,
+  curtainTypes,
   orderId,
   defaultValues,
   roomPhotos,
@@ -229,7 +229,7 @@ export function ConsultationForm({
                   key={room.id}
                   roomIndex={rIdx}
                   onRemove={() => removeRoom(rIdx)}
-                  fabrics={fabrics}
+                  curtainTypes={curtainTypes}
                   mode={mode}
                   roomId={persistedRoomId}
                   photos={

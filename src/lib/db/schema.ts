@@ -23,6 +23,10 @@ export type AuthOauthResponseType = "code";
 
 export type AuthOneTimeTokenType = "confirmation_token" | "email_change_token_current" | "email_change_token_new" | "phone_change_token" | "reauthentication_token" | "recovery_token";
 
+export type CurtainCategory = "Day" | "Night";
+
+export type CurtainTypeStatus = "Active" | "Archived";
+
 export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
 export type FabricStatus = "Active" | "Discontinued";
@@ -78,6 +82,7 @@ export interface AuthCustomOauthProviders {
   client_id: string;
   client_secret: string;
   created_at: Generated<Timestamp>;
+  custom_claims_allowlist: Generated<string[]>;
   discovery_cached_at: Timestamp | null;
   discovery_url: string | null;
   email_optional: Generated<boolean>;
@@ -390,6 +395,30 @@ export interface AuthWebauthnCredentials {
   user_id: string;
 }
 
+export interface CurtainSeries {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainTypes {
+  category: CurtainCategory;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  label: string;
+  page: string | null;
+  photo_mime: string | null;
+  photo_path: string | null;
+  series_id: string | null;
+  series_index: number | null;
+  status: Generated<CurtainTypeStatus>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Customers {
   created_at: Generated<Timestamp>;
   created_by: string | null;
@@ -516,6 +545,7 @@ export interface Profiles {
 }
 
 export interface RealtimeMessages {
+  binary_payload: Buffer | null;
   event: string | null;
   extension: string;
   id: Generated<string>;
@@ -539,6 +569,7 @@ export interface RealtimeSubscription {
   entity: string;
   filters: Generated<string[]>;
   id: Generated<Int8>;
+  selected_columns: string[] | null;
   subscription_id: string;
 }
 
@@ -686,12 +717,15 @@ export interface VaultSecrets {
 export interface Windows {
   created_at: Generated<Timestamp>;
   curtain_code: string | null;
+  curtain_type_id: string | null;
   day_curtain_code: string | null;
+  day_curtain_type_id: string | null;
   draw: DrawDirection | null;
   height_cm: number | null;
   id: Generated<string>;
   install_width_cm: number | null;
   night_curtain_code: string | null;
+  night_curtain_type_id: string | null;
   notes: string | null;
   position: number;
   room_id: string;
@@ -722,6 +756,8 @@ export interface DB {
   "auth.users": AuthUsers;
   "auth.webauthn_challenges": AuthWebauthnChallenges;
   "auth.webauthn_credentials": AuthWebauthnCredentials;
+  curtain_series: CurtainSeries;
+  curtain_types: CurtainTypes;
   customers: Customers;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;

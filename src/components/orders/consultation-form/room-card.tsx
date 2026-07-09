@@ -12,7 +12,7 @@ import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
 import type { RoomType } from "@/lib/db/schema";
 
 import { PhotoPlaceholder } from "./photo-placeholder";
-import { WindowFields, type FabricOption } from "./window-fields";
+import { WindowFields, type CurtainTypeOption } from "./window-fields";
 
 const INPUT_CLS =
   "w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
@@ -32,7 +32,7 @@ const ROOM_TYPE_OPTIONS: RoomType[] = [
 type Props = {
   roomIndex: number;
   onRemove: () => void;
-  fabrics: FabricOption[];
+  curtainTypes: CurtainTypeOption[];
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
@@ -41,7 +41,7 @@ type Props = {
 export function RoomCard({
   roomIndex,
   onRemove,
-  fabrics,
+  curtainTypes,
   mode,
   roomId,
   photos,
@@ -70,17 +70,17 @@ export function RoomCard({
         shouldDirty: false,
       });
       if (targetVariant === "toilet") {
-        setValue(`rooms.${roomIndex}.windows.${i}.day_curtain_code`, "", {
+        setValue(`rooms.${roomIndex}.windows.${i}.day_curtain_type_id`, "", {
           shouldDirty: false,
         });
-        setValue(`rooms.${roomIndex}.windows.${i}.night_curtain_code`, "", {
+        setValue(`rooms.${roomIndex}.windows.${i}.night_curtain_type_id`, "", {
           shouldDirty: false,
         });
         setValue(`rooms.${roomIndex}.windows.${i}.draw`, undefined, {
           shouldDirty: false,
         });
       } else {
-        setValue(`rooms.${roomIndex}.windows.${i}.curtain_code`, "", {
+        setValue(`rooms.${roomIndex}.windows.${i}.curtain_type_id`, "", {
           shouldDirty: false,
         });
       }
@@ -93,7 +93,7 @@ export function RoomCard({
         ? {
             variant: "toilet",
             position: fields.length,
-            curtain_code: "",
+            curtain_type_id: "",
             width_cm: null,
             height_cm: null,
             install_width_cm: null,
@@ -102,8 +102,8 @@ export function RoomCard({
         : {
             variant: "regular",
             position: fields.length,
-            day_curtain_code: "",
-            night_curtain_code: "",
+            day_curtain_type_id: "",
+            night_curtain_type_id: "",
             draw: "Double",
             width_cm: null,
             height_cm: null,
@@ -177,7 +177,7 @@ export function RoomCard({
               roomIndex={roomIndex}
               windowIndex={wIdx}
               isToilet={isToilet}
-              fabrics={fabrics}
+              curtainTypes={curtainTypes}
             />
           </div>
         ))}

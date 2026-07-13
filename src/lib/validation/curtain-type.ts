@@ -17,6 +17,8 @@ const pageField = z
   .optional()
   .transform((v) => (v ? v : undefined));
 
+// NOTE: pricing (vendor + cost + sale) lives on the SERIES, not the curtain
+// type — see curtain-series.ts. Every type inherits its series' price.
 export const curtainTypeSchema = z.object({
   isNew: z.boolean(),
   id: z.string().uuid().optional(), // present on edit

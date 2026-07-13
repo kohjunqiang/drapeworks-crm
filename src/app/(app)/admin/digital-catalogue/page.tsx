@@ -7,7 +7,9 @@ import {
   loadSeriesForCatalogue,
   signCurtainTypePhotoUrls,
 } from "@/lib/db/curtain-types";
+import { loadActiveVendorOptions } from "@/lib/db/vendors";
 import { db } from "@/lib/db/kysely";
+import { centsToDisplay } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +19,12 @@ export default async function DigitalCataloguePage() {
   // Admin-only management screen.
   await requireRole(["admin"]);
 
-  const [rows, series] = await Promise.all([
+  const [rows, series, vendors] = await Promise.all([
     db
       .selectFrom("curtain_types")
       .leftJoin("curtain_series", "curtain_series.id", "curtain_types.series_id")
+      // Pricing is inherited from the series' chosen vendor.
+      .leftJoin("vendors", "vendors.id", "curtain_series.vendor_id")
       .select([
         "curtain_types.id as id",
         "curtain_types.label as label",
@@ -31,12 +35,16 @@ export default async function DigitalCataloguePage() {
         "curtain_types.series_index as series_index",
         "curtain_types.page as page",
         "curtain_series.name as series_name",
+        "curtain_series.cost_rmb_cents as cost_rmb_cents",
+        "curtain_series.sale_sgd_cents as sale_sgd_cents",
+        "vendors.name as vendor_name",
       ])
       .orderBy("curtain_series.name", "asc")
       .orderBy("curtain_types.series_index", "asc")
       .orderBy("curtain_types.label", "asc")
       .execute(),
     loadSeriesForCatalogue(),
+    loadActiveVendorOptions(),
   ]);
 
   const paths = rows
@@ -55,6 +63,10 @@ export default async function DigitalCataloguePage() {
     series_name: r.series_name,
     series_index: r.series_index,
     page: r.page,
+    // Inherited from the series (read-only here).
+    vendor_name: r.vendor_name,
+    cost_rmb: r.cost_rmb_cents != null ? centsToDisplay(r.cost_rmb_cents) : null,
+    sale_sgd: r.sale_sgd_cents != null ? centsToDisplay(r.sale_sgd_cents) : null,
   }));
 
   return (
@@ -69,7 +81,11 @@ export default async function DigitalCataloguePage() {
           </p>
         </div>
       </div>
-      <CurtainTypesTable curtainTypes={curtainTypes} series={series} />
+      <CurtainTypesTable
+        curtainTypes={curtainTypes}
+        series={series}
+        vendors={vendors}
+      />
     </main>
   );
 }

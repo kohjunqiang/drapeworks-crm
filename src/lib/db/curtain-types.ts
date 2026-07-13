@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { db } from "@/lib/db/kysely";
+import { centsToDisplay } from "@/lib/money";
 import { adminClient } from "@/lib/supabase/admin";
 import { CURTAIN_TYPE_PHOTO_BUCKET } from "@/lib/storage/curtain-type-photo";
 
@@ -81,22 +82,40 @@ export type CurtainSeriesRow = {
   name: string;
   is_active: boolean;
   typeCount: number;
+  // Pricing (Phase 9) — inherited by every curtain type in the series.
+  vendor_id: string | null;
+  vendor_name: string | null;
+  cost_rmb: string | null; // decimal string for the edit form
+  sale_sgd: string | null;
 };
 
 // All series (active + archived) with how many curtain types reference each,
-// for the admin management dialog. The form assignment dropdown filters to the
-// active ones.
+// plus the series' pricing + chosen vendor name, for the admin management
+// dialog. The form assignment dropdown filters to the active ones.
 export async function loadSeriesForCatalogue(): Promise<CurtainSeriesRow[]> {
   const rows = await db
     .selectFrom("curtain_series")
     .leftJoin("curtain_types", "curtain_types.series_id", "curtain_series.id")
+    .leftJoin("vendors", "vendors.id", "curtain_series.vendor_id")
     .select((eb) => [
       "curtain_series.id as id",
       "curtain_series.name as name",
       "curtain_series.is_active as is_active",
+      "curtain_series.vendor_id as vendor_id",
+      "curtain_series.cost_rmb_cents as cost_rmb_cents",
+      "curtain_series.sale_sgd_cents as sale_sgd_cents",
+      "vendors.name as vendor_name",
       eb.fn.count("curtain_types.id").as("type_count"),
     ])
-    .groupBy(["curtain_series.id", "curtain_series.name", "curtain_series.is_active"])
+    .groupBy([
+      "curtain_series.id",
+      "curtain_series.name",
+      "curtain_series.is_active",
+      "curtain_series.vendor_id",
+      "curtain_series.cost_rmb_cents",
+      "curtain_series.sale_sgd_cents",
+      "vendors.name",
+    ])
     .orderBy("curtain_series.name", "asc")
     .execute();
 
@@ -105,5 +124,9 @@ export async function loadSeriesForCatalogue(): Promise<CurtainSeriesRow[]> {
     name: r.name,
     is_active: r.is_active,
     typeCount: Number(r.type_count),
+    vendor_id: r.vendor_id,
+    vendor_name: r.vendor_name,
+    cost_rmb: r.cost_rmb_cents != null ? centsToDisplay(r.cost_rmb_cents) : null,
+    sale_sgd: r.sale_sgd_cents != null ? centsToDisplay(r.sale_sgd_cents) : null,
   }));
 }

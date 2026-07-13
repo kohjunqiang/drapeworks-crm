@@ -23,6 +23,11 @@ const baseLinks = [
     label: "Digital Catalogue",
     roles: ["admin"] as Role[],
   },
+  {
+    href: "/admin/vendors",
+    label: "Vendors",
+    roles: ["admin"] as Role[],
+  },
 ];
 
 type Props = {

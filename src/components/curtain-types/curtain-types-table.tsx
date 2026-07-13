@@ -9,6 +9,7 @@ import { CurtainTypeFormDialog } from "./curtain-type-form-dialog";
 
 import { toggleCurtainTypeStatus } from "@/lib/actions/curtain-types";
 import type { CurtainSeriesRow } from "@/lib/db/curtain-types";
+import type { VendorOption } from "@/lib/db/vendors";
 import type { CurtainCategory, CurtainTypeStatus } from "@/lib/db/schema";
 import type { CurtainTypeInput } from "@/lib/validation/curtain-type";
 
@@ -23,11 +24,16 @@ export type CurtainTypeRow = {
   series_name: string | null;
   series_index: number | null;
   page: string | null;
+  // Pricing inherited from the series (read-only here).
+  vendor_name: string | null;
+  cost_rmb: string | null;
+  sale_sgd: string | null;
 };
 
 type Props = {
   curtainTypes: CurtainTypeRow[];
   series: CurtainSeriesRow[];
+  vendors: VendorOption[];
 };
 
 function Thumb({ url, label }: { url: string | null; label: string }) {
@@ -67,7 +73,7 @@ function StatusBadge({ status }: { status: CurtainTypeStatus }) {
   );
 }
 
-export function CurtainTypesTable({ curtainTypes, series }: Props) {
+export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<"" | CurtainCategory>("");
   const [filterStatus, setFilterStatus] = useState<"" | CurtainTypeStatus>("");
@@ -206,6 +212,10 @@ export function CurtainTypesTable({ curtainTypes, series }: Props) {
               <th className="text-left px-4 py-3 font-medium">Series</th>
               <th className="text-left px-4 py-3 font-medium w-12">#</th>
               <th className="text-left px-4 py-3 font-medium">Page</th>
+              <th className="text-left px-4 py-3 font-medium">
+                Vendor / Price
+                <span className="font-normal text-slate-400"> (series)</span>
+              </th>
               <th className="text-left px-4 py-3 font-medium">Category</th>
               <th className="text-left px-4 py-3 font-medium">Status</th>
               <th className="text-right px-4 py-3 font-medium">Actions</th>
@@ -227,6 +237,21 @@ export function CurtainTypesTable({ curtainTypes, series }: Props) {
                   {c.series_index ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-slate-600">{c.page ?? "—"}</td>
+                <td className="px-4 py-3">
+                  {c.vendor_name || c.cost_rmb || c.sale_sgd ? (
+                    <div className="text-xs">
+                      <div className="text-slate-700 font-medium">
+                        {c.vendor_name ?? "—"}
+                      </div>
+                      <div className="text-slate-400">
+                        {c.cost_rmb ? `¥${c.cost_rmb}` : "—"} →{" "}
+                        {c.sale_sgd ? `S$${c.sale_sgd}` : "—"}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400 text-xs">Not priced</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <CategoryBadge category={c.category} />
                 </td>
@@ -277,6 +302,11 @@ export function CurtainTypesTable({ curtainTypes, series }: Props) {
                     {c.series_index != null ? ` · #${c.series_index}` : ""}
                     {c.page ? ` · ${c.page}` : ""}
                   </div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {c.vendor_name || c.cost_rmb || c.sale_sgd
+                      ? `${c.vendor_name ?? "—"} · ${c.cost_rmb ? `¥${c.cost_rmb}` : "—"} → ${c.sale_sgd ? `S$${c.sale_sgd}` : "—"}`
+                      : "Not priced"}
+                  </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
                   <CategoryBadge category={c.category} />
@@ -319,6 +349,7 @@ export function CurtainTypesTable({ curtainTypes, series }: Props) {
         open={seriesDialogOpen}
         onOpenChange={setSeriesDialogOpen}
         series={series}
+        vendors={vendors}
       />
     </>
   );

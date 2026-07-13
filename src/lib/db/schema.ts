@@ -51,6 +51,8 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
 export type Numeric = ColumnType<string, number | string, number | string>;
 
+export type PricingCalcMethod = "by_sqm" | "by_width";
+
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
 
 export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Study Room";
@@ -392,12 +394,16 @@ export interface AuthWebauthnCredentials {
 }
 
 export interface CurtainSeries {
+  calc_method: Generated<PricingCalcMethod>;
+  cost_rmb_cents: number | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   id: Generated<string>;
   is_active: Generated<boolean>;
   name: string;
+  sale_sgd_cents: number | null;
   updated_at: Generated<Timestamp>;
+  vendor_id: string | null;
 }
 
 export interface CurtainTypes {
@@ -697,6 +703,16 @@ export interface VaultSecrets {
   updated_at: Generated<Timestamp>;
 }
 
+export interface Vendors {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  notes: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Windows {
   created_at: Generated<Timestamp>;
   curtain_type_id: string | null;
@@ -760,5 +776,6 @@ export interface DB {
   "storage.vector_indexes": StorageVectorIndexes;
   "vault.decrypted_secrets": VaultDecryptedSecrets;
   "vault.secrets": VaultSecrets;
+  vendors: Vendors;
   windows: Windows;
 }

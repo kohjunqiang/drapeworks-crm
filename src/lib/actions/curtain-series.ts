@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
+import { dollarsToCents } from "@/lib/money";
 import { curtainSeriesSchema } from "@/lib/validation/curtain-series";
 
 function revalidateCatalogue() {
@@ -18,17 +19,32 @@ export async function upsertCurtainSeries(input: unknown) {
   const session = await requireRole(["admin"]);
   const parsed = curtainSeriesSchema.parse(input);
 
+  // Pricing lives on the series — convert the decimal inputs to integer cents.
+  const pricing = {
+    vendor_id:
+      parsed.vendor_id && parsed.vendor_id !== "" ? parsed.vendor_id : null,
+    cost_rmb_cents:
+      parsed.cost_rmb && parsed.cost_rmb !== ""
+        ? dollarsToCents(parsed.cost_rmb)
+        : null,
+    sale_sgd_cents:
+      parsed.sale_sgd && parsed.sale_sgd !== ""
+        ? dollarsToCents(parsed.sale_sgd)
+        : null,
+    calc_method: parsed.calc_method,
+  };
+
   try {
     if (parsed.isNew) {
       await db
         .insertInto("curtain_series")
-        .values({ name: parsed.name, created_by: session.user.id })
+        .values({ name: parsed.name, created_by: session.user.id, ...pricing })
         .execute();
     } else {
       if (!parsed.id) throw new Error("Missing series id");
       await db
         .updateTable("curtain_series")
-        .set({ name: parsed.name })
+        .set({ name: parsed.name, ...pricing })
         .where("id", "=", parsed.id)
         .execute();
     }

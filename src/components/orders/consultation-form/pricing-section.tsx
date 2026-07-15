@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
+import { FormSelect } from "@/components/ui/app-select";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 const INPUT_CLS =
@@ -123,25 +124,27 @@ export function PricingSection() {
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Freight
           </label>
-          <select
-            {...register("order.freight_mode")}
-            className="w-full px-3 py-2 border border-slate-200 rounded text-sm bg-white"
-          >
-            <option value="air">Air</option>
-            <option value="sea">Sea</option>
-          </select>
+          <FormSelect
+            control={control}
+            name="order.freight_mode"
+            options={[
+              { value: "air", label: "Air" },
+              { value: "sea", label: "Sea" },
+            ]}
+          />
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Sales channel
           </label>
-          <select
-            {...register("order.channel")}
-            className="w-full px-3 py-2 border border-slate-200 rounded text-sm bg-white"
-          >
-            <option value="standard">Standard (35% floor)</option>
-            <option value="carousell">Carousell (30% floor)</option>
-          </select>
+          <FormSelect
+            control={control}
+            name="order.channel"
+            options={[
+              { value: "standard", label: "Standard (35% floor)" },
+              { value: "carousell", label: "Carousell (30% floor)" },
+            ]}
+          />
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">

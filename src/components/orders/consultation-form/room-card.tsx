@@ -8,6 +8,7 @@ import {
 } from "react-hook-form";
 
 import { PhotoUploader, type UploaderPhoto } from "@/components/orders/photo-uploader";
+import { FormSelect } from "@/components/ui/app-select";
 import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
 import type { RoomType } from "@/lib/db/schema";
 
@@ -123,16 +124,11 @@ export function RoomCard({
             <label className="block text-xs font-medium text-slate-600 mb-1">
               Room Type
             </label>
-            <select
-              className={INPUT_CLS}
-              {...register(`rooms.${roomIndex}.type`)}
-            >
-              {ROOM_TYPE_OPTIONS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <FormSelect
+              control={control}
+              name={`rooms.${roomIndex}.type`}
+              options={ROOM_TYPE_OPTIONS.map((t) => ({ value: t, label: t }))}
+            />
           </div>
           <div className="sm:col-span-2">
             <label className="block text-xs font-medium text-slate-600 mb-1">

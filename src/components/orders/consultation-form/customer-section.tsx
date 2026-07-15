@@ -1,7 +1,12 @@
 "use client";
 
-import type { UseFormRegister, FieldErrors } from "react-hook-form";
+import {
+  useFormContext,
+  type UseFormRegister,
+  type FieldErrors,
+} from "react-hook-form";
 
+import { FormSelect } from "@/components/ui/app-select";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 const INPUT_CLS =
@@ -13,6 +18,7 @@ type Props = {
 };
 
 export function CustomerSection({ register, errors }: Props) {
+  const { control } = useFormContext<OrderEditInput>();
   return (
     <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
       <h2 className="text-base font-semibold text-slate-900 mb-4">
@@ -73,13 +79,17 @@ export function CustomerSection({ register, errors }: Props) {
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Property Type
           </label>
-          <select className={INPUT_CLS} {...register("order.property_type")}>
-            <option value="">—</option>
-            <option value="HDB">HDB</option>
-            <option value="Condo">Condo</option>
-            <option value="Landed">Landed</option>
-            <option value="Commercial">Commercial</option>
-          </select>
+          <FormSelect
+            control={control}
+            name="order.property_type"
+            noneLabel="—"
+            options={[
+              { value: "HDB", label: "HDB" },
+              { value: "Condo", label: "Condo" },
+              { value: "Landed", label: "Landed" },
+              { value: "Commercial", label: "Commercial" },
+            ]}
+          />
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">

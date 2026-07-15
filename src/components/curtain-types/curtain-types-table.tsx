@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { AppSelect } from "@/components/ui/app-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -196,41 +197,36 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
           className="flex-1 px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500"
         />
         <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
-          <select
+          <AppSelect
             value={filterSeries}
-            onChange={(e) => setFilterSeries(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded text-sm bg-white"
-          >
-            <option value="">All series</option>
-            {series.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-                {s.is_active ? "" : " (archived)"}
-              </option>
-            ))}
-          </select>
-          <select
+            onChange={setFilterSeries}
+            noneLabel="All series"
+            triggerClassName="w-full sm:w-40"
+            options={series.map((s) => ({
+              value: s.id,
+              label: `${s.name}${s.is_active ? "" : " (archived)"}`,
+            }))}
+          />
+          <AppSelect
             value={filterCategory}
-            onChange={(e) =>
-              setFilterCategory(e.target.value as "" | CurtainCategory)
-            }
-            className="px-3 py-2 border border-slate-200 rounded text-sm bg-white"
-          >
-            <option value="">All categories</option>
-            <option value="Day">Day</option>
-            <option value="Night">Night</option>
-          </select>
-          <select
+            onChange={(v) => setFilterCategory(v as "" | CurtainCategory)}
+            noneLabel="All categories"
+            triggerClassName="w-full sm:w-36"
+            options={[
+              { value: "Day", label: "Day" },
+              { value: "Night", label: "Night" },
+            ]}
+          />
+          <AppSelect
             value={filterStatus}
-            onChange={(e) =>
-              setFilterStatus(e.target.value as "" | CurtainTypeStatus)
-            }
-            className="px-3 py-2 border border-slate-200 rounded text-sm bg-white"
-          >
-            <option value="">All statuses</option>
-            <option value="Active">Active</option>
-            <option value="Archived">Archived</option>
-          </select>
+            onChange={(v) => setFilterStatus(v as "" | CurtainTypeStatus)}
+            noneLabel="All statuses"
+            triggerClassName="w-full sm:w-36"
+            options={[
+              { value: "Active", label: "Active" },
+              { value: "Archived", label: "Archived" },
+            ]}
+          />
         </div>
       </div>
 

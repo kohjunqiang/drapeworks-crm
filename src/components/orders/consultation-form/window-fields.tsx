@@ -2,6 +2,7 @@
 
 import { useFormContext, useWatch } from "react-hook-form";
 
+import { FormSelect } from "@/components/ui/app-select";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 export type CurtainTypeOption = {
@@ -92,17 +93,15 @@ export function WindowFields({
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Curtain Type
           </label>
-          <select
-            className={INPUT_CLS}
-            {...register(`${base}.curtain_type_id`)}
-          >
-            <option value="">— Select —</option>
-            {curtainTypes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label} ({c.category})
-              </option>
-            ))}
-          </select>
+          <FormSelect
+            control={control}
+            name={`${base}.curtain_type_id`}
+            noneLabel="— Select —"
+            options={curtainTypes.map((c) => ({
+              value: c.id,
+              label: `${c.label} (${c.category})`,
+            }))}
+          />
           <Preview options={curtainTypes} selectedId={toiletId} />
         </div>
         <div>
@@ -156,34 +155,24 @@ export function WindowFields({
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Day Curtain
         </label>
-        <select
-          className={INPUT_CLS}
-          {...register(`${base}.day_curtain_type_id`)}
-        >
-          <option value="">— None —</option>
-          {dayTypes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <FormSelect
+          control={control}
+          name={`${base}.day_curtain_type_id`}
+          noneLabel="— None —"
+          options={dayTypes.map((c) => ({ value: c.id, label: c.label }))}
+        />
         <Preview options={dayTypes} selectedId={dayId} />
       </div>
       <div className="col-span-2 sm:col-span-3">
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Night Curtain
         </label>
-        <select
-          className={INPUT_CLS}
-          {...register(`${base}.night_curtain_type_id`)}
-        >
-          <option value="">— None —</option>
-          {nightTypes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <FormSelect
+          control={control}
+          name={`${base}.night_curtain_type_id`}
+          noneLabel="— None —"
+          options={nightTypes.map((c) => ({ value: c.id, label: c.label }))}
+        />
         <Preview options={nightTypes} selectedId={nightId} />
       </div>
       <div className="sm:col-span-2">
@@ -220,11 +209,15 @@ export function WindowFields({
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Draw
         </label>
-        <select className={INPUT_CLS} {...register(`${base}.draw`)}>
-          <option value="Double">Double</option>
-          <option value="Single Left">Single Left</option>
-          <option value="Single Right">Single Right</option>
-        </select>
+        <FormSelect
+          control={control}
+          name={`${base}.draw`}
+          options={[
+            { value: "Double", label: "Double" },
+            { value: "Single Left", label: "Single Left" },
+            { value: "Single Right", label: "Single Right" },
+          ]}
+        />
       </div>
       <div className="col-span-2 sm:col-span-6 flex items-center gap-6 pt-0.5">
         <span className="text-xs font-medium text-slate-600">Add-ons:</span>

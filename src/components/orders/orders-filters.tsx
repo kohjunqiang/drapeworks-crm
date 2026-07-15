@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import { AppSelect } from "@/components/ui/app-select";
 import { STATUS_FLOW, STATUS_LABELS } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 
@@ -66,30 +67,23 @@ export function OrdersFilters({ defaults, consultants }: Props) {
         className={`flex-1 ${INPUT_CLS}`}
       />
       <div className="grid grid-cols-1 sm:flex gap-2 sm:gap-3">
-        <select
+        <AppSelect
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className={INPUT_CLS}
-        >
-          <option value="">All statuses</option>
-          {STATUS_FLOW.map((s: FulfilmentStatus) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={setStatus}
+          noneLabel="All statuses"
+          triggerClassName="w-full sm:w-44"
+          options={STATUS_FLOW.map((s: FulfilmentStatus) => ({
+            value: s,
+            label: STATUS_LABELS[s],
+          }))}
+        />
+        <AppSelect
           value={consultant}
-          onChange={(e) => setConsultant(e.target.value)}
-          className={INPUT_CLS}
-        >
-          <option value="">All consultants</option>
-          {consultants.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+          onChange={setConsultant}
+          noneLabel="All consultants"
+          triggerClassName="w-full sm:w-44"
+          options={consultants.map((c) => ({ value: c.id, label: c.label }))}
+        />
       </div>
     </div>
   );

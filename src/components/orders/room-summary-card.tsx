@@ -9,6 +9,8 @@ type WindowSummary = {
   install_width_cm: number | null;
   notes: string | null;
   draw: string | null;
+  add_s_fold?: boolean;
+  add_slim_tracks?: boolean;
   day_curtain_label?: string | null;
   day_curtain_photo_url?: string | null;
   night_curtain_label?: string | null;
@@ -104,6 +106,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
                 <th className="text-left px-4 py-2 font-medium">W × H</th>
                 <th className="text-left px-4 py-2 font-medium">Install W</th>
                 <th className="text-left px-4 py-2 font-medium">Draw</th>
+                <th className="text-left px-4 py-2 font-medium">Add-ons</th>
                 <th className="text-left px-4 py-2 font-medium">Notes</th>
               </tr>
             </thead>
@@ -125,6 +128,14 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
                   <td className="px-4 py-2">{w.install_width_cm ?? "—"}</td>
                   <td className="px-4 py-2">{w.draw ?? "—"}</td>
+                  <td className="px-4 py-2 text-slate-600">
+                    {[
+                      w.add_s_fold && "S-Fold",
+                      w.add_slim_tracks && "Slim tracks",
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "—"}
+                  </td>
                   <td className="px-4 py-2 text-slate-500">
                     {w.notes || "—"}
                   </td>

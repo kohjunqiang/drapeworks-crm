@@ -85,6 +85,8 @@ export default async function EditOrderPage({
             "day_curtain_type_id",
             "night_curtain_type_id",
             "draw",
+            "add_s_fold",
+            "add_slim_tracks",
           ])
           .where("room_id", "in", roomIds)
           .orderBy("position", "asc")
@@ -176,6 +178,8 @@ export default async function EditOrderPage({
             height_cm: w.height_cm ?? null,
             install_width_cm: w.install_width_cm ?? null,
             notes: w.notes ?? "",
+            add_s_fold: w.add_s_fold ?? false,
+            add_slim_tracks: w.add_slim_tracks ?? false,
           };
         }),
       };

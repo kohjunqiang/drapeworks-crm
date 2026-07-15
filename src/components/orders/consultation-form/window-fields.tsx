@@ -224,6 +224,25 @@ export function WindowFields({
           <option value="Single Right">Single Right</option>
         </select>
       </div>
+      <div className="col-span-2 sm:col-span-6 flex items-center gap-6 pt-0.5">
+        <span className="text-xs font-medium text-slate-600">Add-ons:</span>
+        <label className="flex items-center gap-1.5 text-xs text-slate-700">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+            {...register(`${base}.add_s_fold`)}
+          />
+          S-Fold
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-700">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+            {...register(`${base}.add_slim_tracks`)}
+          />
+          Slim tracks
+        </label>
+      </div>
       <div className="col-span-2 sm:col-span-4">
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Special Notes

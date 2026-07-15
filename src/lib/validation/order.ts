@@ -61,6 +61,9 @@ const regularWindow = baseWindow.extend({
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
   draw: z.enum(DRAW_DIRECTIONS).optional(),
+  // Per-window pricing toggles (Phase 9). Fullness is fixed at 2×.
+  add_s_fold: z.boolean().optional(),
+  add_slim_tracks: z.boolean().optional(),
 });
 
 const toiletWindow = baseWindow.extend({

@@ -109,6 +109,8 @@ export function RoomCard({
             height_cm: null,
             install_width_cm: null,
             notes: "",
+            add_s_fold: false,
+            add_slim_tracks: false,
           },
     );
   }

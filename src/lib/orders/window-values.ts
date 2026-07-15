@@ -15,6 +15,8 @@ export type WindowLike = {
   day_curtain_type_id?: string;
   night_curtain_type_id?: string;
   draw?: DrawDirection;
+  add_s_fold?: boolean;
+  add_slim_tracks?: boolean;
 };
 
 // Every column on public.windows that the shape trigger cares about. A uniform
@@ -31,6 +33,8 @@ export type WindowColumnValues = {
   day_curtain_type_id: string | null;
   night_curtain_type_id: string | null;
   draw: DrawDirection | null;
+  add_s_fold: boolean;
+  add_slim_tracks: boolean;
 };
 
 export function windowValues(
@@ -52,6 +56,9 @@ export function windowValues(
       day_curtain_type_id: null,
       night_curtain_type_id: null,
       draw: null,
+      // Toilet windows don't offer these curtain treatments.
+      add_s_fold: false,
+      add_slim_tracks: false,
     };
   }
 
@@ -61,5 +68,7 @@ export function windowValues(
     day_curtain_type_id: win.day_curtain_type_id ?? null,
     night_curtain_type_id: win.night_curtain_type_id ?? null,
     draw: win.draw ?? null,
+    add_s_fold: win.add_s_fold ?? false,
+    add_slim_tracks: win.add_slim_tracks ?? false,
   };
 }

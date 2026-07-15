@@ -32,7 +32,18 @@ describe("windowValues — regular window", () => {
       night_curtain_type_id: NIGHT,
       curtain_type_id: null,
       draw: "Single Left",
+      add_s_fold: false,
+      add_slim_tracks: false,
     });
+  });
+
+  it("passes through the S-Fold / Slim-tracks toggles", () => {
+    const values = windowValues(
+      { variant: "regular", add_s_fold: true, add_slim_tracks: true },
+      0,
+    );
+    expect(values.add_s_fold).toBe(true);
+    expect(values.add_slim_tracks).toBe(true);
   });
 
   it("nulls unselected type ids and empty notes/measurements", () => {
@@ -61,6 +72,8 @@ describe("windowValues — toilet window", () => {
       day_curtain_type_id: null,
       night_curtain_type_id: null,
       draw: null,
+      add_s_fold: false,
+      add_slim_tracks: false,
     });
   });
 });

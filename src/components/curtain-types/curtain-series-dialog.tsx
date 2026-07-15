@@ -113,7 +113,7 @@ function SeriesRow({
       <div className="flex items-center gap-2">
         <Select
           items={vendors.map((v) => ({ value: v.id, label: v.name }))}
-          value={vendorId || null}
+          value={vendorId || undefined}
           onValueChange={(v) => setVendorId(v ?? "")}
         >
           <SelectTrigger className="flex-1 min-w-0">

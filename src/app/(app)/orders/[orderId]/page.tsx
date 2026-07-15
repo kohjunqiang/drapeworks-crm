@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
 import { PrintButton } from "@/components/orders/print-button";
+import { QuoteCard } from "@/components/orders/quote-card";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
 import type { PhotoTile } from "@/components/orders/photo-strip";
 import { StatusBadge } from "@/components/orders/status-badge";
@@ -15,6 +16,7 @@ import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import { formatSGD } from "@/lib/money";
+import { computeOrderQuote } from "@/lib/pricing/order-quote";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +122,8 @@ export default async function OrderDetailPage({
             "windows.install_width_cm as install_width_cm",
             "windows.notes as notes",
             "windows.draw as draw",
+            "windows.add_s_fold as add_s_fold",
+            "windows.add_slim_tracks as add_slim_tracks",
             "day_ct.label as day_curtain_label",
             "day_ct.photo_path as day_curtain_photo_path",
             "day_ct.series_index as day_curtain_index",
@@ -171,6 +175,8 @@ export default async function OrderDetailPage({
     install_width_cm: w.install_width_cm,
     notes: w.notes,
     draw: w.draw,
+    add_s_fold: w.add_s_fold,
+    add_slim_tracks: w.add_slim_tracks,
     room_id: w.room_id,
     day_curtain_label: labelOf(
       w.day_curtain_series,
@@ -241,6 +247,10 @@ export default async function OrderDetailPage({
     });
     photosByRoom.set(p.room_id, list);
   }
+
+  // Auto-calculated quote from the priced series + window add-ons (null until
+  // the order's curtains are priced).
+  const quote = await computeOrderQuote(order.id);
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -425,6 +435,8 @@ export default async function OrderDetailPage({
               </div>
             </dl>
           </section>
+
+          {quote && <QuoteCard quote={quote} />}
 
           <section className="bg-white rounded-lg border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-900 mb-3">

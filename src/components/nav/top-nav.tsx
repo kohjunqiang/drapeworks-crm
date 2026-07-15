@@ -33,6 +33,12 @@ const baseLinks = [
     match: (p: string) => p.startsWith("/admin/vendors"),
     adminOnly: true,
   },
+  {
+    href: "/admin/pricing-settings",
+    label: "Pricing",
+    match: (p: string) => p.startsWith("/admin/pricing-settings"),
+    adminOnly: true,
+  },
 ];
 
 type Props = {

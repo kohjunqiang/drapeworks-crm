@@ -51,6 +51,8 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
 export type Numeric = ColumnType<string, number | string, number | string>;
 
+export type PricingAddonBasis = "per_metre" | "per_unit";
+
 export type PricingCalcMethod = "by_sqm" | "by_width";
 
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
@@ -523,6 +525,36 @@ export interface OrderYearCounters {
   year: number;
 }
 
+export interface PricingAddons {
+  basis: Generated<PricingAddonBasis>;
+  cost_rmb_cents: number | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  key: string;
+  label: string;
+  sale_sgd_cents: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface PricingAssumptions {
+  air_freight_cap_rmb_cents: number;
+  air_freight_floor_rmb_cents: number;
+  air_freight_rate_bps: number;
+  fx_sgd_to_rmb: number;
+  groupbuy_discount_bps: number;
+  gst_bps: number;
+  handyman_sgd_cents: number;
+  min_margin_bps: number;
+  min_margin_carousell_bps: number;
+  other_cost_bps: number;
+  premium_bps: number;
+  sea_freight_rmb_cents_per_m3: number;
+  singleton: Generated<boolean>;
+  style_multiplier: number;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Profiles {
   created_at: Generated<Timestamp>;
   email: string;
@@ -714,6 +746,8 @@ export interface Vendors {
 }
 
 export interface Windows {
+  add_s_fold: Generated<boolean>;
+  add_slim_tracks: Generated<boolean>;
   created_at: Generated<Timestamp>;
   curtain_type_id: string | null;
   day_curtain_type_id: string | null;
@@ -760,6 +794,8 @@ export interface DB {
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;
+  pricing_addons: PricingAddons;
+  pricing_assumptions: PricingAssumptions;
   profiles: Profiles;
   "realtime.messages": RealtimeMessages;
   "realtime.schema_migrations": RealtimeSchemaMigrations;

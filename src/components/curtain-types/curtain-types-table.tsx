@@ -4,6 +4,11 @@ import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CurtainSeriesDialog } from "./curtain-series-dialog";
 import { CurtainTypeFormDialog } from "./curtain-type-form-dialog";
 
@@ -36,16 +41,34 @@ type Props = {
   vendors: VendorOption[];
 };
 
-function Thumb({ url, label }: { url: string | null; label: string }) {
-  return (
-    <div className="w-12 h-12 rounded border border-slate-200 bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0">
-      {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt={label} className="w-full h-full object-cover" />
-      ) : (
+function Thumb({
+  url,
+  label,
+  onOpen,
+}: {
+  url: string | null;
+  label: string;
+  onOpen?: () => void;
+}) {
+  const base =
+    "w-12 h-12 rounded border border-slate-200 bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0";
+  if (!url) {
+    return (
+      <div className={base}>
         <span className="text-[9px] text-slate-400">No photo</span>
-      )}
-    </div>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="Click to enlarge"
+      className={`${base} cursor-zoom-in transition hover:ring-2 hover:ring-teal-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={label} className="w-full h-full object-cover" />
+    </button>
   );
 }
 
@@ -81,7 +104,14 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [seriesDialogOpen, setSeriesDialogOpen] = useState(false);
   const [editing, setEditing] = useState<CurtainTypeRow | undefined>(undefined);
+  const [lightbox, setLightbox] = useState<
+    { url: string; label: string } | null
+  >(null);
   const [, startTransition] = useTransition();
+
+  function openPhoto(c: CurtainTypeRow) {
+    if (c.photoUrl) setLightbox({ url: c.photoUrl, label: c.label });
+  }
 
   // Only active series can be assigned to a curtain type.
   const activeSeries = useMemo(
@@ -225,7 +255,11 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
             {filtered.map((c) => (
               <tr key={c.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3">
-                  <Thumb url={c.photoUrl} label={c.label} />
+                  <Thumb
+                    url={c.photoUrl}
+                    label={c.label}
+                    onOpen={() => openPhoto(c)}
+                  />
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-900">
                   {c.label}
@@ -290,7 +324,11 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
             key={c.id}
             className="bg-white rounded-lg border border-slate-200 p-3 flex items-start gap-3"
           >
-            <Thumb url={c.photoUrl} label={c.label} />
+            <Thumb
+              url={c.photoUrl}
+              label={c.label}
+              onOpen={() => openPhoto(c)}
+            />
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -351,6 +389,28 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
         series={series}
         vendors={vendors}
       />
+
+      {/* Photo lightbox */}
+      <Dialog
+        open={!!lightbox}
+        onOpenChange={(open) => {
+          if (!open) setLightbox(null);
+        }}
+      >
+        <DialogContent className="w-auto max-w-[95vw] sm:max-w-2xl p-0 overflow-hidden">
+          <DialogTitle className="px-4 py-3 text-sm font-medium text-slate-900 border-b border-slate-200">
+            {lightbox?.label}
+          </DialogTitle>
+          {lightbox && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={lightbox.url}
+              alt={lightbox.label}
+              className="block max-w-full max-h-[80vh] w-auto h-auto object-contain bg-slate-100"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

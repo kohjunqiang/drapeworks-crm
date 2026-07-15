@@ -57,6 +57,7 @@ The prototype uses **deep teal** as the accent colour (`teal-600` / `#0d9488`). 
 | 7 | `phase-2-auth.md` | **Auth retrofit (last)** — magic-link login, `(auth)`/`(app)` route groups, `lib/auth/*` helpers, RLS policies on every existing table, `requireRole/requireSession` insertion pass through every Server Action, admin user invite + role management UI. |
 | 8 | `phase-8-curtain-types.md` + `phase-8b-series-index-page.md` | Digital curtain-type catalog (Day/Night taxonomy, photo uploads, series/index/page). |
 | 9 | `phase-9-pricing-foundation.md` | **Pricing foundation** — vendors + per-curtain cost (RMB)/curated sale (SGD), global pricing assumptions + add-on price list. Data + admin UI only; calculator deferred to Phase 10. |
+| 10 | `phase-10-promotions-combos.md` | **Promotions & combo pricing** — order-level promo (preset tier or custom %) + per-window combo bundle price (explicit pick, overrides sale). Spec only; not yet implemented. |
 
 ## How to use a spec in a fresh chat
 

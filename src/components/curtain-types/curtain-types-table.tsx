@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -67,15 +66,10 @@ function Thumb({
       title="Click to enlarge"
       className={`${base} cursor-zoom-in transition hover:ring-2 hover:ring-teal-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
     >
-      {/* Rendered at 48px; next/image serves a ~96px (2x) thumbnail instead of
-          the full-size photo, and caches the optimized output. */}
-      <Image
-        src={url}
-        alt={label}
-        width={96}
-        height={96}
-        className="w-full h-full object-cover"
-      />
+      {/* Signed Supabase URLs rotate/expire — use a plain <img> (like the rest
+          of the app) rather than next/image's optimizer. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={label} className="w-full h-full object-cover" />
     </button>
   );
 }
@@ -410,11 +404,10 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
             {lightbox?.label}
           </DialogTitle>
           {lightbox && (
-            <Image
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               src={lightbox.url}
               alt={lightbox.label}
-              width={1200}
-              height={900}
               className="block max-w-full max-h-[80vh] w-auto h-auto object-contain bg-slate-100"
             />
           )}

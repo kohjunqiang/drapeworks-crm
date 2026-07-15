@@ -25,7 +25,10 @@ export type CalcAssumptions = {
   otherCostBps: number;
   groupbuyDiscountBps: number;
   styleMultiplier: number; // ×10000, e.g. 20000 = 2.0
-  handymanSgdCents: number;
+  // Installation cost per window, by offering.
+  handymanSingleSgdCents: number; // single curtain (1 track)
+  handymanDoubleSgdCents: number; // double curtain (day + night)
+  handymanBlindsSgdCents: number; // blinds
   seaFreightRmbCentsPerM3: number; // flat charge when shipping by sea
   airFreightRateBps: number;
   airFreightFloorRmbCents: number;
@@ -102,11 +105,13 @@ function addonLeg(
   };
 }
 
+export type Offering = "none" | "single" | "double";
+
 export function windowQuote(
   win: CalcWindow,
   book: CalcAddonBook,
   styleMultiplier: number,
-): Money & { curtainCostRmbCents: number } {
+): Money & { curtainCostRmbCents: number; offering: Offering } {
   const hasDay = !!win.dayPrice && win.widthCm != null && win.widthCm > 0;
   const hasNight = !!win.nightPrice && win.widthCm != null && win.widthCm > 0;
 
@@ -123,9 +128,17 @@ export function windowQuote(
   else if (hasDay || hasNight)
     total = add(total, addonLeg(book.singleTrack, null));
 
+  // Offering drives the per-window installation cost.
+  const offering: Offering =
+    hasDay && hasNight ? "double" : hasDay || hasNight ? "single" : "none";
+
   // Curtain-only COGS (excludes add-ons/tracks) — the air-freight base, per the
   // Excel's sum(Day COGS, Night COGS) × rate.
-  return { ...total, curtainCostRmbCents: dayLeg.costRmbCents + nightLeg.costRmbCents };
+  return {
+    ...total,
+    curtainCostRmbCents: dayLeg.costRmbCents + nightLeg.costRmbCents,
+    offering,
+  };
 }
 
 export type QuoteResult = {
@@ -135,7 +148,7 @@ export type QuoteResult = {
   gstRmbCents: number;
   grossCostRmbCents: number;
   grossCostSgdCents: number;
-  handymanSgdCents: number;
+  installationSgdCents: number; // per-offering install + ad-hoc extra
   netCostSgdCents: number;
   saleSgdCents: number;
   marginBps: number; // 1 − netCost/sale, ×10000
@@ -152,11 +165,19 @@ export function marginBps(netCostSgdCents: number, saleSgdCents: number): number
   return Math.round((1 - netCostSgdCents / saleSgdCents) * 10000);
 }
 
+const installFor = (offering: Offering, a: CalcAssumptions): number =>
+  offering === "double"
+    ? a.handymanDoubleSgdCents
+    : offering === "single"
+      ? a.handymanSingleSgdCents
+      : 0;
+
 export function computeQuote(
   windows: CalcWindow[],
   book: CalcAddonBook,
   a: CalcAssumptions,
   freightMode: FreightMode = "air",
+  extraInstallSgdCents = 0,
 ): QuoteResult {
   const totals = windows.reduce(
     (acc, w) => {
@@ -165,9 +186,10 @@ export function computeQuote(
         costRmbCents: acc.costRmbCents + q.costRmbCents,
         saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
         curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
+        installSgdCents: acc.installSgdCents + installFor(q.offering, a),
       };
     },
-    { costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0 },
+    { costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0, installSgdCents: 0 },
   );
 
   const cogs = totals.costRmbCents;
@@ -187,7 +209,8 @@ export function computeQuote(
   const grossCostRmb = cogs + freight + other + gst;
   // RMB → SGD: cents / (fx/10000) = cents × 10000 / fx.
   const grossCostSgd = Math.round((grossCostRmb * 10000) / a.fxSgdToRmb);
-  const netCostSgd = grossCostSgd + a.handymanSgdCents;
+  const installation = totals.installSgdCents + extraInstallSgdCents;
+  const netCostSgd = grossCostSgd + installation;
 
   const groupbuy = Math.round(
     (sale * (10000 - a.groupbuyDiscountBps)) / 10000,
@@ -200,7 +223,7 @@ export function computeQuote(
     gstRmbCents: gst,
     grossCostRmbCents: grossCostRmb,
     grossCostSgdCents: grossCostSgd,
-    handymanSgdCents: a.handymanSgdCents,
+    installationSgdCents: installation,
     netCostSgdCents: netCostSgd,
     saleSgdCents: sale,
     marginBps: marginBps(netCostSgd, sale),

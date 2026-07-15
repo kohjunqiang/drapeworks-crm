@@ -504,6 +504,7 @@ export interface Orders {
   deposit_cents: Generated<number>;
   development: string | null;
   display_id: string;
+  extra_install_sgd_cents: Generated<number>;
   freight_mode: Generated<FreightMode>;
   general_notes: string | null;
   id: Generated<string>;
@@ -550,7 +551,9 @@ export interface PricingAssumptions {
   fx_sgd_to_rmb: number;
   groupbuy_discount_bps: number;
   gst_bps: number;
-  handyman_sgd_cents: number;
+  handyman_blinds_sgd_cents: Generated<number>;
+  handyman_double_sgd_cents: Generated<number>;
+  handyman_single_sgd_cents: Generated<number>;
   min_margin_bps: number;
   min_margin_carousell_bps: number;
   other_cost_bps: number;

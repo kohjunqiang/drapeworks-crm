@@ -83,8 +83,8 @@ export function QuoteCard({ quote }: { quote: OrderQuote }) {
             <dd>{formatSGD(quote.grossCostSgdCents)}</dd>
           </div>
           <div className="flex justify-between">
-            <dt>Handyman</dt>
-            <dd>{formatSGD(quote.handymanSgdCents)}</dd>
+            <dt>Installation</dt>
+            <dd>{formatSGD(quote.installationSgdCents)}</dd>
           </div>
         </dl>
       </details>

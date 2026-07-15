@@ -14,7 +14,9 @@ const ASSUMPTIONS: CalcAssumptions = {
   otherCostBps: 1000, // 10%
   groupbuyDiscountBps: 1500, // 15%
   styleMultiplier: 20000, // 2.0
-  handymanSgdCents: 10000, // S$100
+  handymanSingleSgdCents: 6000, // single curtain — S$60
+  handymanDoubleSgdCents: 10000, // double curtain — S$100
+  handymanBlindsSgdCents: 8000, // blinds — S$80
   seaFreightRmbCentsPerM3: 40000, // ¥400 flat
   airFreightRateBps: 6000, // 60%
   airFreightFloorRmbCents: 50000, // ¥500
@@ -50,6 +52,7 @@ describe("windowQuote", () => {
       costRmbCents: 34140,
       saleSgdCents: 51100,
       curtainCostRmbCents: 28560,
+      offering: "single",
     });
   });
 
@@ -71,6 +74,7 @@ describe("windowQuote", () => {
       costRmbCents: 63700,
       saleSgdCents: 58000,
       curtainCostRmbCents: 61200,
+      offering: "double",
     });
   });
 
@@ -81,7 +85,12 @@ describe("windowQuote", () => {
         BOOK,
         ASSUMPTIONS.styleMultiplier,
       ),
-    ).toEqual({ costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0 });
+    ).toEqual({
+      costRmbCents: 0,
+      saleSgdCents: 0,
+      curtainCostRmbCents: 0,
+      offering: "none",
+    });
   });
 });
 
@@ -107,10 +116,26 @@ describe("computeQuote", () => {
     expect(q.gstRmbCents).toBe(3073);
     expect(q.grossCostRmbCents).toBe(90627);
     expect(q.grossCostSgdCents).toBe(17099);
-    expect(q.netCostSgdCents).toBe(27099);
-    expect(q.marginBps).toBe(4697); // 46.97%
+    // single-curtain install $60 (not the flat handyman)
+    expect(q.installationSgdCents).toBe(6000);
+    expect(q.netCostSgdCents).toBe(23099);
+    expect(q.marginBps).toBe(5480); // 54.80%
     expect(q.groupbuySgdCents).toBe(43435);
-    expect(q.groupbuyMarginBps).toBe(3761); // 37.61%
+    expect(q.groupbuyMarginBps).toBe(4682); // 46.82%
+  });
+
+  it("adds the ad-hoc extra install cost", () => {
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      nightPrice: null,
+      addSFold: true,
+      addSlimTracks: false,
+    };
+    const base = computeQuote([win], BOOK, ASSUMPTIONS, "air");
+    const withExtra = computeQuote([win], BOOK, ASSUMPTIONS, "air", 5000);
+    expect(withExtra.installationSgdCents).toBe(base.installationSgdCents + 5000);
+    expect(withExtra.netCostSgdCents).toBe(base.netCostSgdCents + 5000);
   });
 
   it("returns zeros for an empty order", () => {

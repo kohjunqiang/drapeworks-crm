@@ -56,10 +56,15 @@ export function PricingSection() {
 
   const quotedCents = useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
   const depositCents = useWatch({ control, name: "order.deposit_cents" }) ?? 0;
+  const extraInstallCents =
+    useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
   const balanceCents = Math.max(quotedCents - depositCents, 0);
 
   const setCents = (
-    field: "order.price_quoted_cents" | "order.deposit_cents",
+    field:
+      | "order.price_quoted_cents"
+      | "order.deposit_cents"
+      | "order.extra_install_cents",
     cents: number,
   ) => setValue(field, cents, { shouldValidate: false, shouldDirty: true });
 
@@ -113,7 +118,7 @@ export function PricingSection() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Freight
@@ -137,6 +142,15 @@ export function PricingSection() {
             <option value="standard">Standard (35% floor)</option>
             <option value="carousell">Carousell (30% floor)</option>
           </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Extra install (transport, etc.)
+          </label>
+          <DollarInput
+            cents={extraInstallCents}
+            onCents={(c) => setCents("order.extra_install_cents", c)}
+          />
         </div>
       </div>
 

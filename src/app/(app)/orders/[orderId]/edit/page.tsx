@@ -50,6 +50,7 @@ export default async function EditOrderPage({
       "orders.is_draft as is_draft",
       "orders.freight_mode as freight_mode",
       "orders.channel as channel",
+      "orders.extra_install_sgd_cents as extra_install_sgd_cents",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
@@ -153,6 +154,7 @@ export default async function EditOrderPage({
       is_draft: order.is_draft,
       freight_mode: order.freight_mode,
       channel: order.channel,
+      extra_install_cents: order.extra_install_sgd_cents,
     },
     rooms: rooms.map((r, rIdx) => {
       const isToilet = isToiletRoom(r.type);

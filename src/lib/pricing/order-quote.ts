@@ -26,7 +26,9 @@ function assumptionsRowToCalc(r: {
   other_cost_bps: number;
   groupbuy_discount_bps: number;
   style_multiplier: number;
-  handyman_sgd_cents: number;
+  handyman_single_sgd_cents: number;
+  handyman_double_sgd_cents: number;
+  handyman_blinds_sgd_cents: number;
   sea_freight_rmb_cents_per_m3: number;
   air_freight_rate_bps: number;
   air_freight_floor_rmb_cents: number;
@@ -38,7 +40,9 @@ function assumptionsRowToCalc(r: {
     otherCostBps: r.other_cost_bps,
     groupbuyDiscountBps: r.groupbuy_discount_bps,
     styleMultiplier: r.style_multiplier,
-    handymanSgdCents: r.handyman_sgd_cents,
+    handymanSingleSgdCents: r.handyman_single_sgd_cents,
+    handymanDoubleSgdCents: r.handyman_double_sgd_cents,
+    handymanBlindsSgdCents: r.handyman_blinds_sgd_cents,
     seaFreightRmbCentsPerM3: r.sea_freight_rmb_cents_per_m3,
     airFreightRateBps: r.air_freight_rate_bps,
     airFreightFloorRmbCents: r.air_freight_floor_rmb_cents,
@@ -96,7 +100,7 @@ export async function computeOrderQuote(
   const [order, windows, assumptionsRow, addonRows] = await Promise.all([
     db
       .selectFrom("orders")
-      .select(["freight_mode", "channel"])
+      .select(["freight_mode", "channel", "extra_install_sgd_cents"])
       .where("id", "=", orderId)
       .executeTakeFirst(),
     db
@@ -179,7 +183,13 @@ export async function computeOrderQuote(
     };
   });
 
-  const result = computeQuote(calcWindows, book, a, order?.freight_mode ?? "air");
+  const result = computeQuote(
+    calcWindows,
+    book,
+    a,
+    order?.freight_mode ?? "air",
+    order?.extra_install_sgd_cents ?? 0,
+  );
   // Nothing priced yet → not worth showing a $0 quote.
   if (result.saleSgdCents === 0 && result.cogsRmbCents === 0) return null;
 

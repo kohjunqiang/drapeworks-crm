@@ -149,6 +149,13 @@ const orderMetaSchema = z.object({
   // Pricing selectors (Phase 9) read by the quote calculator.
   freight_mode: z.enum(["air", "sea"]).default("air"),
   channel: z.enum(["standard", "carousell"]).default("standard"),
+  // Ad-hoc extra install cost (transport etc), SGD cents.
+  extra_install_cents: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_MONEY_CENTS)
+    .default(0),
 });
 
 export const orderCreateSchema = z.object({

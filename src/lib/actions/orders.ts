@@ -53,6 +53,7 @@ export async function createOrder(input: unknown): Promise<never> {
         deposit_cents: parsed.order.deposit_cents,
         freight_mode: parsed.order.freight_mode,
         channel: parsed.order.channel,
+        extra_install_sgd_cents: parsed.order.extra_install_cents,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: parsed.order.is_draft,
         // display_id / seq_year / seq_num populated by trigger
@@ -157,6 +158,7 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
         deposit_cents: parsed.order.deposit_cents,
         freight_mode: parsed.order.freight_mode,
         channel: parsed.order.channel,
+        extra_install_sgd_cents: parsed.order.extra_install_cents,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: parsed.order.is_draft,
       })
@@ -365,6 +367,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         deposit_cents: parsed.order.deposit_cents,
         freight_mode: parsed.order.freight_mode,
         channel: parsed.order.channel,
+        extra_install_sgd_cents: parsed.order.extra_install_cents,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: true,
         seq_year: 0,

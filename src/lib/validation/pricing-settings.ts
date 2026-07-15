@@ -10,7 +10,9 @@ export const assumptionsSchema = z.object({
   otherCostPct: z.coerce.number().min(0).max(100),
   groupbuyDiscountPct: z.coerce.number().min(0).max(100),
   styleMultiplier: z.coerce.number().min(0).max(100), // e.g. 2
-  handymanSgd: z.coerce.number().min(0).max(1_000_000),
+  handymanSingleSgd: z.coerce.number().min(0).max(1_000_000),
+  handymanDoubleSgd: z.coerce.number().min(0).max(1_000_000),
+  handymanBlindsSgd: z.coerce.number().min(0).max(1_000_000),
   seaFreightRmb: z.coerce.number().min(0).max(10_000_000),
   airFreightRatePct: z.coerce.number().min(0).max(100),
   airFreightFloorRmb: z.coerce.number().min(0).max(10_000_000),
@@ -28,7 +30,9 @@ export type AssumptionsRow = {
   other_cost_bps: number;
   groupbuy_discount_bps: number;
   style_multiplier: number;
-  handyman_sgd_cents: number;
+  handyman_single_sgd_cents: number;
+  handyman_double_sgd_cents: number;
+  handyman_blinds_sgd_cents: number;
   sea_freight_rmb_cents_per_m3: number;
   air_freight_rate_bps: number;
   air_freight_floor_rmb_cents: number;
@@ -48,7 +52,9 @@ export function assumptionsToStorage(h: AssumptionsInput): AssumptionsRow {
     other_cost_bps: pct(h.otherCostPct),
     groupbuy_discount_bps: pct(h.groupbuyDiscountPct),
     style_multiplier: ratio(h.styleMultiplier),
-    handyman_sgd_cents: cents(h.handymanSgd),
+    handyman_single_sgd_cents: cents(h.handymanSingleSgd),
+    handyman_double_sgd_cents: cents(h.handymanDoubleSgd),
+    handyman_blinds_sgd_cents: cents(h.handymanBlindsSgd),
     sea_freight_rmb_cents_per_m3: cents(h.seaFreightRmb),
     air_freight_rate_bps: pct(h.airFreightRatePct),
     air_freight_floor_rmb_cents: cents(h.airFreightFloorRmb),
@@ -65,7 +71,9 @@ export function assumptionsFromStorage(r: AssumptionsRow): AssumptionsInput {
     otherCostPct: r.other_cost_bps / 100,
     groupbuyDiscountPct: r.groupbuy_discount_bps / 100,
     styleMultiplier: r.style_multiplier / 10000,
-    handymanSgd: r.handyman_sgd_cents / 100,
+    handymanSingleSgd: r.handyman_single_sgd_cents / 100,
+    handymanDoubleSgd: r.handyman_double_sgd_cents / 100,
+    handymanBlindsSgd: r.handyman_blinds_sgd_cents / 100,
     seaFreightRmb: r.sea_freight_rmb_cents_per_m3 / 100,
     airFreightRatePct: r.air_freight_rate_bps / 100,
     airFreightFloorRmb: r.air_freight_floor_rmb_cents / 100,

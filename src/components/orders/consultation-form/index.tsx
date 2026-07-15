@@ -79,6 +79,7 @@ const EMPTY_DEFAULTS: OrderEditInput = {
     is_draft: false,
     freight_mode: "air",
     channel: "standard",
+    extra_install_cents: 0,
   },
   rooms: [
     {

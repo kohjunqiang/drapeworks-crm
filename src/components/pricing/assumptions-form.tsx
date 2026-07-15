@@ -54,7 +54,14 @@ const GROUPS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { name: "groupbuyDiscountPct", label: "Groupbuy discount", suffix: "%" },
       { name: "styleMultiplier", label: "Style multiplier", prefix: "×", placeholder: "2" },
-      { name: "handymanSgd", label: "Handyman", prefix: "S$" },
+    ],
+  },
+  {
+    title: "Installation (handyman) — cost per window by offering",
+    fields: [
+      { name: "handymanSingleSgd", label: "Single curtain", prefix: "S$" },
+      { name: "handymanDoubleSgd", label: "Double curtain (day+night)", prefix: "S$" },
+      { name: "handymanBlindsSgd", label: "Blinds", prefix: "S$" },
     ],
   },
   {

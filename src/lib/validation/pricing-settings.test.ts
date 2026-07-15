@@ -14,7 +14,9 @@ const EXCEL_ROW: AssumptionsRow = {
   other_cost_bps: 1000,
   groupbuy_discount_bps: 1500,
   style_multiplier: 20000,
-  handyman_sgd_cents: 10000,
+  handyman_single_sgd_cents: 6000,
+  handyman_double_sgd_cents: 10000,
+  handyman_blinds_sgd_cents: 8000,
   sea_freight_rmb_cents_per_m3: 40000,
   air_freight_rate_bps: 6000,
   air_freight_floor_rmb_cents: 50000,
@@ -31,7 +33,9 @@ describe("assumptions conversion", () => {
     expect(h.otherCostPct).toBe(10);
     expect(h.groupbuyDiscountPct).toBe(15);
     expect(h.styleMultiplier).toBe(2);
-    expect(h.handymanSgd).toBe(100);
+    expect(h.handymanSingleSgd).toBe(60);
+    expect(h.handymanDoubleSgd).toBe(100);
+    expect(h.handymanBlindsSgd).toBe(80);
     expect(h.seaFreightRmb).toBe(400);
     expect(h.airFreightRatePct).toBe(60);
     expect(h.airFreightFloorRmb).toBe(500);
@@ -52,7 +56,9 @@ describe("assumptions conversion", () => {
       otherCostPct: "10",
       groupbuyDiscountPct: "15",
       styleMultiplier: "2",
-      handymanSgd: "100",
+      handymanSingleSgd: "60",
+      handymanDoubleSgd: "100",
+      handymanBlindsSgd: "80",
       seaFreightRmb: "400",
       airFreightRatePct: "60",
       airFreightFloorRmb: "500",
@@ -71,7 +77,9 @@ describe("assumptions conversion", () => {
         otherCostPct: 10,
         groupbuyDiscountPct: 15,
         styleMultiplier: 2,
-        handymanSgd: 100,
+        handymanSingleSgd: 60,
+        handymanDoubleSgd: 100,
+        handymanBlindsSgd: 80,
         seaFreightRmb: 400,
         airFreightRatePct: 60,
         airFreightFloorRmb: 500,

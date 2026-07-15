@@ -8,22 +8,51 @@ import { centsToDisplay } from "@/lib/money";
 import { adminClient } from "@/lib/supabase/admin";
 import { CURTAIN_TYPE_PHOTO_BUCKET } from "@/lib/storage/curtain-type-photo";
 
-const TTL_SECONDS = 3600;
+// Curtain-type photos change rarely, so we sign them with a long TTL and reuse
+// the SAME url across requests. A rotating token on every render would bust the
+// browser/`next/image` cache and force a re-download of every thumbnail on each
+// page load. TTL is 7 days; we re-sign a path once it has < 1 day of validity
+// left, so a served url is always still valid.
+const TTL_SECONDS = 7 * 24 * 60 * 60;
+const REFRESH_BEFORE_MS = 24 * 60 * 60 * 1000;
 
-// Batched signed read URLs for curtain-type hero photos, wrapped in React
-// cache() so repeated renders in one request reuse the same signing call.
-// Mirrors signRoomPhotoUrls.
+// Process-wide, per-path cache of signed urls. Safe as a server singleton: the
+// urls are bucket-level (not user-specific) and there are only ~150 paths. On a
+// long-running server (Railway standalone) this persists across requests; a
+// fresh instance simply re-signs on first use.
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
+// Batched signed read URLs for curtain-type hero photos. The outer React
+// cache() dedupes within one render; the module cache above makes the urls
+// stable across requests so they stay cacheable client-side. Mirrors
+// signRoomPhotoUrls.
 export const signCurtainTypePhotoUrls = cache(
   async (paths: string[]): Promise<Map<string, string>> => {
     if (paths.length === 0) return new Map();
-    const admin = adminClient();
-    const { data, error } = await admin.storage
-      .from(CURTAIN_TYPE_PHOTO_BUCKET)
-      .createSignedUrls(paths, TTL_SECONDS);
-    if (error) throw new Error(error.message);
+    const now = Date.now();
+    const stale = paths.filter((p) => {
+      const hit = signedUrlCache.get(p);
+      return !hit || hit.expiresAt - now < REFRESH_BEFORE_MS;
+    });
+    if (stale.length > 0) {
+      const admin = adminClient();
+      const { data, error } = await admin.storage
+        .from(CURTAIN_TYPE_PHOTO_BUCKET)
+        .createSignedUrls(stale, TTL_SECONDS);
+      if (error) throw new Error(error.message);
+      for (const row of data) {
+        if (row.path && row.signedUrl) {
+          signedUrlCache.set(row.path, {
+            url: row.signedUrl,
+            expiresAt: now + TTL_SECONDS * 1000,
+          });
+        }
+      }
+    }
     const out = new Map<string, string>();
-    for (const row of data) {
-      if (row.path && row.signedUrl) out.set(row.path, row.signedUrl);
+    for (const p of paths) {
+      const hit = signedUrlCache.get(p);
+      if (hit) out.set(p, hit.url);
     }
     return out;
   },

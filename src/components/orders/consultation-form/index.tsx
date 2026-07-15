@@ -16,7 +16,10 @@ import {
   type OrderEditInput,
 } from "@/lib/validation/order";
 
+import type { CalcConfig } from "@/lib/pricing/order-quote";
+
 import { CustomerSection } from "./customer-section";
+import { LiveQuote } from "./live-quote";
 import { PricingSection } from "./pricing-section";
 import {
   QuickAddRoomBar,
@@ -30,6 +33,7 @@ type Mode = "create" | "edit";
 type Props = {
   mode: Mode;
   curtainTypes: CurtainTypeOption[];
+  calcConfig?: CalcConfig | null;
   orderId?: string;
   defaultValues?: OrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
@@ -73,6 +77,8 @@ const EMPTY_DEFAULTS: OrderEditInput = {
     deposit_cents: 0,
     general_notes: "",
     is_draft: false,
+    freight_mode: "air",
+    channel: "standard",
   },
   rooms: [
     {
@@ -87,6 +93,7 @@ const EMPTY_DEFAULTS: OrderEditInput = {
 export function ConsultationForm({
   mode,
   curtainTypes,
+  calcConfig,
   orderId,
   defaultValues,
   roomPhotos,
@@ -201,6 +208,10 @@ export function ConsultationForm({
       <form onSubmit={onSubmit}>
         <CustomerSection register={register} errors={errors} />
         <PricingSection />
+
+        {calcConfig && (
+          <LiveQuote curtainTypes={curtainTypes} config={calcConfig} />
+        )}
 
         <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
           <div className="flex items-center justify-between mb-4 gap-2">

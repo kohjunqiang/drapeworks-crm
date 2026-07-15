@@ -15,6 +15,7 @@ const ASSUMPTIONS: CalcAssumptions = {
   groupbuyDiscountBps: 1500, // 15%
   styleMultiplier: 20000, // 2.0
   handymanSgdCents: 10000, // S$100
+  seaFreightRmbCentsPerM3: 40000, // ¥400 flat
   airFreightRateBps: 6000, // 60%
   airFreightFloorRmbCents: 50000, // ¥500
   airFreightCapRmbCents: 140000, // ¥1400
@@ -44,8 +45,12 @@ describe("windowQuote", () => {
     );
     // day cost 2.8×2×5100=28560, sale 2.8×9000=25200
     // s-fold cost 2.8×1100=3080, sale 2.8×8000=22400
-    // single track cost 2500, sale 3500
-    expect(q).toEqual({ costRmbCents: 34140, saleSgdCents: 51100 });
+    // single track cost 2500, sale 3500; curtain-only cost = day 28560
+    expect(q).toEqual({
+      costRmbCents: 34140,
+      saleSgdCents: 51100,
+      curtainCostRmbCents: 28560,
+    });
   });
 
   it("uses a double track when both day + night are present", () => {
@@ -61,8 +66,12 @@ describe("windowQuote", () => {
       ASSUMPTIONS.styleMultiplier,
     );
     // day+night cost 2×(3×2×5100)=61200, sale 2×(3×9000)=54000
-    // double track cost 2500, sale 4000
-    expect(q).toEqual({ costRmbCents: 63700, saleSgdCents: 58000 });
+    // double track cost 2500, sale 4000; curtain-only cost = 61200
+    expect(q).toEqual({
+      costRmbCents: 63700,
+      saleSgdCents: 58000,
+      curtainCostRmbCents: 61200,
+    });
   });
 
   it("is zero for an unmeasured / unpriced window", () => {
@@ -72,7 +81,7 @@ describe("windowQuote", () => {
         BOOK,
         ASSUMPTIONS.styleMultiplier,
       ),
-    ).toEqual({ costRmbCents: 0, saleSgdCents: 0 });
+    ).toEqual({ costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0 });
   });
 });
 
@@ -109,6 +118,22 @@ describe("computeQuote", () => {
     expect(q.cogsRmbCents).toBe(0);
     expect(q.saleSgdCents).toBe(0);
     expect(q.marginBps).toBe(0);
+  });
+
+  it("uses a flat sea freight when shipping by sea", () => {
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      nightPrice: null,
+      addSFold: true,
+      addSlimTracks: false,
+    };
+    const air = computeQuote([win], BOOK, ASSUMPTIONS, "air");
+    const sea = computeQuote([win], BOOK, ASSUMPTIONS, "sea");
+    expect(air.freightRmbCents).toBe(50000); // air clamps to the ¥500 floor
+    expect(sea.freightRmbCents).toBe(40000); // sea is a flat ¥400
+    // Sea is cheaper here → lower net cost → better margin.
+    expect(sea.netCostSgdCents).toBeLessThan(air.netCostSgdCents);
   });
 });
 

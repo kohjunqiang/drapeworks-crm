@@ -9,6 +9,8 @@ export type CurtainTypeOption = {
   label: string;
   category: "Day" | "Night";
   photoUrl: string | null;
+  costRmbCents: number | null;
+  saleSgdCents: number | null;
 };
 
 const INPUT_CLS =

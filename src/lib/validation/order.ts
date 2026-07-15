@@ -146,6 +146,9 @@ const orderMetaSchema = z.object({
     .default(0),
   general_notes: z.string().max(2000).optional(),
   is_draft: z.boolean().default(false),
+  // Pricing selectors (Phase 9) read by the quote calculator.
+  freight_mode: z.enum(["air", "sea"]).default("air"),
+  channel: z.enum(["standard", "carousell"]).default("standard"),
 });
 
 export const orderCreateSchema = z.object({

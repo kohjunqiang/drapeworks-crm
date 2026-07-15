@@ -20,41 +20,53 @@ import {
 } from "@/lib/actions/pricing-settings";
 import type { AddonRow } from "@/lib/db/pricing-settings";
 
-const PRICE_RE = /^\d+(\.\d{1,2})?$/;
 const BASIS = [
   { value: "per_metre", label: "Per metre" },
   { value: "per_unit", label: "Per unit" },
 ];
 
-function Row({ row }: { row: AddonRow }) {
+type Draft = {
+  id: string;
+  label: string;
+  cost: string;
+  sale: string;
+  basis: AddonRow["basis"];
+  is_active: boolean;
+};
+
+export function AddonsTable({ addons }: { addons: AddonRow[] }) {
   const router = useRouter();
-  const [label, setLabel] = useState(row.label);
-  const [cost, setCost] = useState(row.cost_rmb ?? "");
-  const [sale, setSale] = useState(row.sale_sgd ?? "");
-  const [basis, setBasis] = useState(row.basis);
   const [pending, startTransition] = useTransition();
+  const [drafts, setDrafts] = useState<Draft[]>(() =>
+    addons.map((a) => ({
+      id: a.id,
+      label: a.label,
+      cost: a.cost_rmb ?? "",
+      sale: a.sale_sgd ?? "",
+      basis: a.basis,
+      is_active: a.is_active,
+    })),
+  );
 
-  const valid =
-    label.trim().length > 0 &&
-    (cost === "" || PRICE_RE.test(cost)) &&
-    (sale === "" || PRICE_RE.test(sale));
-  const dirty =
-    label.trim() !== row.label ||
-    cost !== (row.cost_rmb ?? "") ||
-    sale !== (row.sale_sgd ?? "") ||
-    basis !== row.basis;
+  function update(i: number, patch: Partial<Draft>) {
+    setDrafts((d) => d.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  }
 
-  function save() {
+  function saveAll() {
     startTransition(async () => {
       try {
-        await upsertPricingAddon({
-          id: row.id,
-          label: label.trim(),
-          cost_rmb: cost,
-          sale_sgd: sale,
-          basis,
-        });
-        toast.success("Add-on saved");
+        await Promise.all(
+          drafts.map((d) =>
+            upsertPricingAddon({
+              id: d.id,
+              label: d.label.trim(),
+              cost_rmb: d.cost,
+              sale_sgd: d.sale,
+              basis: d.basis,
+            }),
+          ),
+        );
+        toast.success("Add-ons saved");
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Save failed");
@@ -62,11 +74,13 @@ function Row({ row }: { row: AddonRow }) {
     });
   }
 
-  function toggle() {
+  function toggle(i: number) {
+    const d = drafts[i];
     startTransition(async () => {
       try {
-        await togglePricingAddonActive(row.id);
-        toast.success(row.is_active ? "Add-on archived" : "Add-on reactivated");
+        await togglePricingAddonActive(d.id);
+        update(i, { is_active: !d.is_active });
+        toast.success(d.is_active ? "Add-on archived" : "Add-on reactivated");
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Update failed");
@@ -74,73 +88,75 @@ function Row({ row }: { row: AddonRow }) {
     });
   }
 
-  return (
-    <div className="flex flex-wrap items-center gap-2 py-2 border-b border-slate-100 last:border-0">
-      <Input
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-        className={`flex-1 min-w-40 ${row.is_active ? "" : "text-slate-400"}`}
-      />
-      <Input
-        inputMode="decimal"
-        placeholder="¥ cost/m"
-        value={cost}
-        onChange={(e) => setCost(e.target.value)}
-        className="w-24"
-      />
-      <Input
-        inputMode="decimal"
-        placeholder="S$ sale"
-        value={sale}
-        onChange={(e) => setSale(e.target.value)}
-        className="w-24"
-      />
-      <Select
-        items={BASIS}
-        value={basis}
-        onValueChange={(v) => setBasis((v as AddonRow["basis"]) ?? "per_metre")}
-      >
-        <SelectTrigger className="w-32">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {BASIS.map((b) => (
-            <SelectItem key={b.value} value={b.value}>
-              {b.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button
-        type="button"
-        size="sm"
-        disabled={!dirty || !valid || pending}
-        onClick={save}
-        className="bg-teal-600 hover:bg-teal-700 text-white"
-      >
-        Save
-      </Button>
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={pending}
-        className="text-xs text-slate-500 hover:text-red-600 w-20 text-right"
-      >
-        {row.is_active ? "Archive" : "Reactivate"}
-      </button>
-    </div>
-  );
-}
+  if (drafts.length === 0) {
+    return <p className="text-sm text-slate-500 py-6 text-center">No add-ons.</p>;
+  }
 
-export function AddonsTable({ addons }: { addons: AddonRow[] }) {
   return (
     <div>
-      {addons.map((a) => (
-        <Row key={a.id} row={a} />
+      {drafts.map((d, i) => (
+        <div
+          key={d.id}
+          className="flex flex-wrap items-center gap-2 py-2 border-b border-slate-100 last:border-0"
+        >
+          <Input
+            value={d.label}
+            onChange={(e) => update(i, { label: e.target.value })}
+            className={`flex-1 min-w-40 ${d.is_active ? "" : "text-slate-400"}`}
+          />
+          <Input
+            inputMode="decimal"
+            placeholder="¥ cost/m"
+            value={d.cost}
+            onChange={(e) => update(i, { cost: e.target.value })}
+            className="w-24"
+          />
+          <Input
+            inputMode="decimal"
+            placeholder="S$ sale"
+            value={d.sale}
+            onChange={(e) => update(i, { sale: e.target.value })}
+            className="w-24"
+          />
+          <Select
+            items={BASIS}
+            value={d.basis}
+            onValueChange={(v) =>
+              update(i, { basis: (v as AddonRow["basis"]) ?? "per_metre" })
+            }
+          >
+            <SelectTrigger className="w-32">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BASIS.map((b) => (
+                <SelectItem key={b.value} value={b.value}>
+                  {b.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <button
+            type="button"
+            onClick={() => toggle(i)}
+            disabled={pending}
+            className="text-xs text-slate-500 hover:text-red-600 w-20 text-right"
+          >
+            {d.is_active ? "Archive" : "Reactivate"}
+          </button>
+        </div>
       ))}
-      {addons.length === 0 && (
-        <p className="text-sm text-slate-500 py-6 text-center">No add-ons.</p>
-      )}
+
+      <div className="flex justify-end mt-4">
+        <Button
+          type="button"
+          onClick={saveAll}
+          disabled={pending}
+          className="bg-teal-600 hover:bg-teal-700 text-white"
+        >
+          {pending ? "Saving…" : "Save add-ons"}
+        </Button>
+      </div>
     </div>
   );
 }

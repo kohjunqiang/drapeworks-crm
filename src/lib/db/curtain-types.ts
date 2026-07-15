@@ -63,6 +63,9 @@ export type CurtainTypeOptionRow = {
   label: string; // formatted: "Series #index · Page — Label"
   category: "Day" | "Night";
   photoUrl: string | null;
+  // Series pricing, so the live quote can price a selection client-side.
+  costRmbCents: number | null;
+  saleSgdCents: number | null;
 };
 
 // Active curtain types for the consultation form's pickers, with signed hero
@@ -82,6 +85,8 @@ export async function loadActiveCurtainTypeOptions(): Promise<
       "curtain_types.series_index as series_index",
       "curtain_types.page as page",
       "curtain_series.name as series_name",
+      "curtain_series.cost_rmb_cents as cost_rmb_cents",
+      "curtain_series.sale_sgd_cents as sale_sgd_cents",
     ])
     .where("curtain_types.status", "=", "Active")
     .orderBy("curtain_series.name", "asc")
@@ -103,6 +108,8 @@ export async function loadActiveCurtainTypeOptions(): Promise<
     }),
     category: r.category,
     photoUrl: r.photo_path ? (urls.get(r.photo_path) ?? null) : null,
+    costRmbCents: r.cost_rmb_cents,
+    saleSgdCents: r.sale_sgd_cents,
   }));
 }
 

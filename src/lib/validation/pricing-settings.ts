@@ -8,7 +8,6 @@ export const assumptionsSchema = z.object({
   fx: z.coerce.number().positive().max(1000), // SGD → RMB, e.g. 5.3
   gstPct: z.coerce.number().min(0).max(100),
   otherCostPct: z.coerce.number().min(0).max(100),
-  premium: z.coerce.number().min(0).max(1000), // e.g. 1.15
   groupbuyDiscountPct: z.coerce.number().min(0).max(100),
   styleMultiplier: z.coerce.number().min(0).max(100), // e.g. 2
   handymanSgd: z.coerce.number().min(0).max(1_000_000),
@@ -27,7 +26,6 @@ export type AssumptionsRow = {
   fx_sgd_to_rmb: number;
   gst_bps: number;
   other_cost_bps: number;
-  premium_bps: number;
   groupbuy_discount_bps: number;
   style_multiplier: number;
   handyman_sgd_cents: number;
@@ -48,7 +46,6 @@ export function assumptionsToStorage(h: AssumptionsInput): AssumptionsRow {
     fx_sgd_to_rmb: ratio(h.fx),
     gst_bps: pct(h.gstPct),
     other_cost_bps: pct(h.otherCostPct),
-    premium_bps: ratio(h.premium),
     groupbuy_discount_bps: pct(h.groupbuyDiscountPct),
     style_multiplier: ratio(h.styleMultiplier),
     handyman_sgd_cents: cents(h.handymanSgd),
@@ -66,7 +63,6 @@ export function assumptionsFromStorage(r: AssumptionsRow): AssumptionsInput {
     fx: r.fx_sgd_to_rmb / 10000,
     gstPct: r.gst_bps / 100,
     otherCostPct: r.other_cost_bps / 100,
-    premium: r.premium_bps / 10000,
     groupbuyDiscountPct: r.groupbuy_discount_bps / 100,
     styleMultiplier: r.style_multiplier / 10000,
     handymanSgd: r.handyman_sgd_cents / 100,

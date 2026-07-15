@@ -12,7 +12,6 @@ const EXCEL_ROW: AssumptionsRow = {
   fx_sgd_to_rmb: 53000,
   gst_bps: 900,
   other_cost_bps: 1000,
-  premium_bps: 11500,
   groupbuy_discount_bps: 1500,
   style_multiplier: 20000,
   handyman_sgd_cents: 10000,
@@ -30,7 +29,6 @@ describe("assumptions conversion", () => {
     expect(h.fx).toBe(5.3);
     expect(h.gstPct).toBe(9);
     expect(h.otherCostPct).toBe(10);
-    expect(h.premium).toBe(1.15);
     expect(h.groupbuyDiscountPct).toBe(15);
     expect(h.styleMultiplier).toBe(2);
     expect(h.handymanSgd).toBe(100);
@@ -52,7 +50,6 @@ describe("assumptions conversion", () => {
       fx: "5.3",
       gstPct: "9",
       otherCostPct: "10",
-      premium: "1.15",
       groupbuyDiscountPct: "15",
       styleMultiplier: "2",
       handymanSgd: "100",
@@ -72,7 +69,6 @@ describe("assumptions conversion", () => {
         fx: 5.3,
         gstPct: -1,
         otherCostPct: 10,
-        premium: 1.15,
         groupbuyDiscountPct: 15,
         styleMultiplier: 2,
         handymanSgd: 100,

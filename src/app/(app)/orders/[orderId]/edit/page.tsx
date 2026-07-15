@@ -5,6 +5,7 @@ import { ConsultationForm } from "@/components/orders/consultation-form";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
+import { loadCalcConfig } from "@/lib/pricing/order-quote";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import {
@@ -47,6 +48,8 @@ export default async function EditOrderPage({
       "orders.deposit_cents as deposit_cents",
       "orders.general_notes as general_notes",
       "orders.is_draft as is_draft",
+      "orders.freight_mode as freight_mode",
+      "orders.channel as channel",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
@@ -128,7 +131,10 @@ export default async function EditOrderPage({
     roomPhotos[p.room_id] = list;
   }
 
-  const curtainTypes = await loadActiveCurtainTypeOptions();
+  const [curtainTypes, calcConfig] = await Promise.all([
+    loadActiveCurtainTypeOptions(),
+    loadCalcConfig(),
+  ]);
 
   const defaultValues: OrderEditInput = {
     customer: {
@@ -145,6 +151,8 @@ export default async function EditOrderPage({
       deposit_cents: order.deposit_cents,
       general_notes: order.general_notes ?? "",
       is_draft: order.is_draft,
+      freight_mode: order.freight_mode,
+      channel: order.channel,
     },
     rooms: rooms.map((r, rIdx) => {
       const isToilet = isToiletRoom(r.type);
@@ -224,6 +232,7 @@ export default async function EditOrderPage({
         mode="edit"
         orderId={order.id}
         curtainTypes={curtainTypes}
+        calcConfig={calcConfig}
         defaultValues={defaultValues}
         roomPhotos={roomPhotos}
       />

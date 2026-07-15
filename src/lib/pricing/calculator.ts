@@ -17,6 +17,8 @@
 //    sheet are simplified to a flat handyman charge.
 //  - Blinds (by SQM) are deferred.
 
+export type FreightMode = "air" | "sea";
+
 export type CalcAssumptions = {
   fxSgdToRmb: number; // ×10000, e.g. 53000 = 5.3
   gstBps: number;
@@ -24,6 +26,7 @@ export type CalcAssumptions = {
   groupbuyDiscountBps: number;
   styleMultiplier: number; // ×10000, e.g. 20000 = 2.0
   handymanSgdCents: number;
+  seaFreightRmbCentsPerM3: number; // flat charge when shipping by sea
   airFreightRateBps: number;
   airFreightFloorRmbCents: number;
   airFreightCapRmbCents: number;
@@ -103,13 +106,14 @@ export function windowQuote(
   win: CalcWindow,
   book: CalcAddonBook,
   styleMultiplier: number,
-): Money {
+): Money & { curtainCostRmbCents: number } {
   const hasDay = !!win.dayPrice && win.widthCm != null && win.widthCm > 0;
   const hasNight = !!win.nightPrice && win.widthCm != null && win.widthCm > 0;
 
-  let total: Money = ZERO;
-  total = add(total, curtainLeg(win.dayPrice, win.widthCm, styleMultiplier));
-  total = add(total, curtainLeg(win.nightPrice, win.widthCm, styleMultiplier));
+  const dayLeg = curtainLeg(win.dayPrice, win.widthCm, styleMultiplier);
+  const nightLeg = curtainLeg(win.nightPrice, win.widthCm, styleMultiplier);
+
+  let total: Money = add(add(ZERO, dayLeg), nightLeg);
   if (win.addSFold) total = add(total, addonLeg(book.sFold, win.widthCm));
   if (win.addSlimTracks)
     total = add(total, addonLeg(book.slimTracks, win.widthCm));
@@ -119,7 +123,9 @@ export function windowQuote(
   else if (hasDay || hasNight)
     total = add(total, addonLeg(book.singleTrack, null));
 
-  return total;
+  // Curtain-only COGS (excludes add-ons/tracks) — the air-freight base, per the
+  // Excel's sum(Day COGS, Night COGS) × rate.
+  return { ...total, curtainCostRmbCents: dayLeg.costRmbCents + nightLeg.costRmbCents };
 }
 
 export type QuoteResult = {
@@ -150,20 +156,32 @@ export function computeQuote(
   windows: CalcWindow[],
   book: CalcAddonBook,
   a: CalcAssumptions,
+  freightMode: FreightMode = "air",
 ): QuoteResult {
   const totals = windows.reduce(
-    (acc, w) => add(acc, windowQuote(w, book, a.styleMultiplier)),
-    ZERO,
+    (acc, w) => {
+      const q = windowQuote(w, book, a.styleMultiplier);
+      return {
+        costRmbCents: acc.costRmbCents + q.costRmbCents,
+        saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
+        curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
+      };
+    },
+    { costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0 },
   );
 
   const cogs = totals.costRmbCents;
   const sale = totals.saleSgdCents;
 
-  const freight = clamp(
-    Math.round((cogs * a.airFreightRateBps) / 10000),
-    a.airFreightFloorRmbCents,
-    a.airFreightCapRmbCents,
-  );
+  // Air = rate × curtain COGS, clamped. Sea = flat per-m³ charge.
+  const freight =
+    freightMode === "sea"
+      ? a.seaFreightRmbCentsPerM3
+      : clamp(
+          Math.round((totals.curtainCostRmbCents * a.airFreightRateBps) / 10000),
+          a.airFreightFloorRmbCents,
+          a.airFreightCapRmbCents,
+        );
   const other = Math.round((cogs * a.otherCostBps) / 10000);
   const gst = Math.round((cogs * a.gstBps) / 10000);
   const grossCostRmb = cogs + freight + other + gst;

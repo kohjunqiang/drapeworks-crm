@@ -1,6 +1,7 @@
 import { ConsultationForm } from "@/components/orders/consultation-form";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
+import { loadCalcConfig } from "@/lib/pricing/order-quote";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,10 @@ export const metadata = { title: "New Consultation — Drapeworks CRM" };
 export default async function NewConsultationPage() {
   const session = await requireRole(["consultant", "admin"]);
 
-  const curtainTypes = await loadActiveCurtainTypeOptions();
+  const [curtainTypes, calcConfig] = await Promise.all([
+    loadActiveCurtainTypeOptions(),
+    loadCalcConfig(),
+  ]);
 
   const today = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -41,7 +45,11 @@ export default async function NewConsultationPage() {
           </div>
         </div>
       </div>
-      <ConsultationForm mode="create" curtainTypes={curtainTypes} />
+      <ConsultationForm
+        mode="create"
+        curtainTypes={curtainTypes}
+        calcConfig={calcConfig}
+      />
     </main>
   );
 }

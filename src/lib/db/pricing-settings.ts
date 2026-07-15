@@ -17,7 +17,6 @@ export async function loadAssumptions(): Promise<AssumptionsRow | null> {
     fx_sgd_to_rmb: r.fx_sgd_to_rmb,
     gst_bps: r.gst_bps,
     other_cost_bps: r.other_cost_bps,
-    premium_bps: r.premium_bps,
     groupbuy_discount_bps: r.groupbuy_discount_bps,
     style_multiplier: r.style_multiplier,
     handyman_sgd_cents: r.handyman_sgd_cents,

@@ -26,41 +26,42 @@ import {
 type FieldDef = {
   name: keyof AssumptionsInput;
   label: string;
-  hint: string;
+  prefix?: string; // inline unit on the left (¥, S$, ×)
+  suffix?: string; // inline unit on the right (%, /m³)
+  placeholder?: string;
 };
 
 const GROUPS: { title: string; fields: FieldDef[] }[] = [
   {
     title: "FX & tax",
     fields: [
-      { name: "fx", label: "SGD → RMB rate", hint: "e.g. 5.3" },
-      { name: "gstPct", label: "GST", hint: "%" },
-      { name: "otherCostPct", label: "Other cost", hint: "% of COGS" },
+      { name: "fx", label: "SGD → RMB rate", placeholder: "5.3" },
+      { name: "gstPct", label: "GST", suffix: "%" },
+      { name: "otherCostPct", label: "Other cost", suffix: "%" },
     ],
   },
   {
     title: "Freight",
     fields: [
-      { name: "seaFreightRmb", label: "Sea freight", hint: "¥ / m³" },
-      { name: "airFreightRatePct", label: "Air freight rate", hint: "% of day+night COGS" },
-      { name: "airFreightFloorRmb", label: "Air freight floor", hint: "¥ min" },
-      { name: "airFreightCapRmb", label: "Air freight cap", hint: "¥ max" },
+      { name: "seaFreightRmb", label: "Sea freight — flat", prefix: "¥", suffix: "/m³" },
+      { name: "airFreightRatePct", label: "Air freight — % of curtain cost", suffix: "%" },
+      { name: "airFreightFloorRmb", label: "Air freight — min", prefix: "¥" },
+      { name: "airFreightCapRmb", label: "Air freight — max", prefix: "¥" },
     ],
   },
   {
     title: "Pricing",
     fields: [
-      { name: "premium", label: "Our premium", hint: "× e.g. 1.15" },
-      { name: "groupbuyDiscountPct", label: "Groupbuy discount", hint: "%" },
-      { name: "styleMultiplier", label: "Style multiplier", hint: "× e.g. 2" },
-      { name: "handymanSgd", label: "Handyman", hint: "S$" },
+      { name: "groupbuyDiscountPct", label: "Groupbuy discount", suffix: "%" },
+      { name: "styleMultiplier", label: "Style multiplier", prefix: "×", placeholder: "2" },
+      { name: "handymanSgd", label: "Handyman", prefix: "S$" },
     ],
   },
   {
     title: "Margin floors",
     fields: [
-      { name: "minMarginPct", label: "Min margin", hint: "%" },
-      { name: "minMarginCarousellPct", label: "Min margin (Carousell)", hint: "%" },
+      { name: "minMarginPct", label: "Min margin", suffix: "%" },
+      { name: "minMarginCarousellPct", label: "Min margin (Carousell)", suffix: "%" },
     ],
   },
 ];
@@ -107,13 +108,26 @@ export function AssumptionsForm({ values }: { values: AssumptionsInput }) {
                     <FormItem>
                       <FormLabel className="text-xs">{f.label}</FormLabel>
                       <FormControl>
-                        <Input
-                          inputMode="decimal"
-                          {...field}
-                          value={field.value ?? ""}
-                        />
+                        <div className="relative">
+                          {f.prefix && (
+                            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                              {f.prefix}
+                            </span>
+                          )}
+                          <Input
+                            inputMode="decimal"
+                            placeholder={f.placeholder}
+                            {...field}
+                            value={field.value ?? ""}
+                            className={`${f.prefix ? "pl-8" : ""} ${f.suffix ? "pr-10" : ""}`}
+                          />
+                          {f.suffix && (
+                            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                              {f.suffix}
+                            </span>
+                          )}
+                        </div>
                       </FormControl>
-                      <p className="text-[11px] text-slate-400">{f.hint}</p>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -29,6 +29,8 @@ export type CurtainTypeStatus = "Active" | "Archived";
 
 export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
+export type FreightMode = "air" | "sea";
+
 export type FulfilmentStatus = "completed" | "delivered_checked" | "fulfilment" | "order_made" | "sent_logistic" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
@@ -58,6 +60,8 @@ export type PricingCalcMethod = "by_sqm" | "by_width";
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
 
 export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Study Room";
+
+export type SalesChannel = "carousell" | "standard";
 
 export type StorageBuckettype = "ANALYTICS" | "STANDARD" | "VECTOR";
 
@@ -492,6 +496,7 @@ export interface ExtensionsPgStatStatementsInfo {
 
 export interface Orders {
   balance_cents: Generated<number | null>;
+  channel: Generated<SalesChannel>;
   consultant_id: string | null;
   created_at: Generated<Timestamp>;
   current_status: Generated<FulfilmentStatus>;
@@ -499,6 +504,7 @@ export interface Orders {
   deposit_cents: Generated<number>;
   development: string | null;
   display_id: string;
+  freight_mode: Generated<FreightMode>;
   general_notes: string | null;
   id: Generated<string>;
   is_draft: Generated<boolean>;
@@ -548,7 +554,6 @@ export interface PricingAssumptions {
   min_margin_bps: number;
   min_margin_carousell_bps: number;
   other_cost_bps: number;
-  premium_bps: number;
   sea_freight_rmb_cents_per_m3: number;
   singleton: Generated<boolean>;
   style_multiplier: number;

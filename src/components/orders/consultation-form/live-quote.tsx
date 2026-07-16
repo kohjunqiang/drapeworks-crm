@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
+import type { ActiveCombo } from "@/lib/db/combos";
 import { formatSGD } from "@/lib/money";
 import {
   computeQuote,
@@ -27,9 +28,11 @@ function toWidthCm(v: unknown): number | null {
 export function LiveQuote({
   curtainTypes,
   config,
+  combos,
 }: {
   curtainTypes: CurtainTypeOption[];
   config: CalcConfig;
+  combos: ActiveCombo[];
 }) {
   const { control, setValue } = useFormContext<OrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
@@ -38,6 +41,7 @@ export function LiveQuote({
   const channel = useWatch({ control, name: "order.channel" }) ?? "standard";
   const extraInstallCents =
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
+  const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
 
   const priceById = useMemo(() => {
     const m = new Map<string, SeriesPrice>();
@@ -50,6 +54,12 @@ export function LiveQuote({
     return m;
   }, [curtainTypes]);
 
+  const comboPriceById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of combos) m.set(c.id, c.priceSgdCents);
+    return m;
+  }, [combos]);
+
   const quote = useMemo(() => {
     const priceOf = (id: string | undefined): SeriesPrice | null =>
       id ? (priceById.get(id) ?? null) : null;
@@ -59,12 +69,18 @@ export function LiveQuote({
         const isToilet = w.variant === "toilet";
         const dayId = isToilet ? w.curtain_type_id : w.day_curtain_type_id;
         const nightId = isToilet ? undefined : w.night_curtain_type_id;
+        const comboId = isToilet
+          ? undefined
+          : (w as { combo_id?: string }).combo_id;
         return {
           widthCm: toWidthCm(w.width_cm),
           dayPrice: priceOf(dayId || undefined),
           nightPrice: priceOf(nightId || undefined),
           addSFold: !!(w as { add_s_fold?: boolean }).add_s_fold,
           addSlimTracks: !!(w as { add_slim_tracks?: boolean }).add_slim_tracks,
+          comboPriceSgdCents: comboId
+            ? (comboPriceById.get(comboId) ?? null)
+            : null,
         };
       }),
     );
@@ -74,15 +90,24 @@ export function LiveQuote({
       config.assumptions,
       freightMode,
       extraInstallCents,
+      discountBps,
     );
-  }, [rooms, priceById, config, freightMode, extraInstallCents]);
+  }, [
+    rooms,
+    priceById,
+    comboPriceById,
+    config,
+    freightMode,
+    extraInstallCents,
+    discountBps,
+  ]);
 
   const hasMeasurements = quote.saleSgdCents > 0;
   const netCostSgdCents = quote.netCostSgdCents;
   // Margin tracks the price you'll actually charge (the editable Price quoted),
-  // falling back to the calculated suggestion until it's filled/overridden — so
-  // editing the quoted price updates the margin live.
-  const salePrice = quotedCents > 0 ? quotedCents : quote.saleSgdCents;
+  // falling back to the calculated suggestion — the discounted sale — until it's
+  // filled/overridden, so editing the quoted price updates the margin live.
+  const salePrice = quotedCents > 0 ? quotedCents : quote.discountedSaleSgdCents;
   const shownMarginBps = marginBps(netCostSgdCents, salePrice);
   const groupbuyCents = Math.round(
     (salePrice * (10000 - config.assumptions.groupbuyDiscountBps)) / 10000,
@@ -97,17 +122,17 @@ export function LiveQuote({
   // when there's something priced, so it never wipes a manual entry with $0.
   // The fields stay editable — a manual override sticks until the next change.
   useEffect(() => {
-    if (quote.saleSgdCents > 0) {
-      setValue("order.price_quoted_cents", quote.saleSgdCents, {
+    if (quote.discountedSaleSgdCents > 0) {
+      setValue("order.price_quoted_cents", quote.discountedSaleSgdCents, {
         shouldDirty: true,
       });
       setValue(
         "order.deposit_cents",
-        Math.round(quote.saleSgdCents / 2),
+        Math.round(quote.discountedSaleSgdCents / 2),
         { shouldDirty: true },
       );
     }
-  }, [quote.saleSgdCents, setValue]);
+  }, [quote.discountedSaleSgdCents, setValue]);
 
   return (
     <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">

@@ -64,6 +64,8 @@ const regularWindow = baseWindow.extend({
   // Per-window pricing toggles (Phase 9). Fullness is fixed at 2×.
   add_s_fold: z.boolean().optional(),
   add_slim_tracks: z.boolean().optional(),
+  // Explicitly-picked combo (Phase 10) — fixes this window's sale price.
+  combo_id: optionalTypeId,
 });
 
 const toiletWindow = baseWindow.extend({
@@ -156,6 +158,15 @@ const orderMetaSchema = z.object({
     .min(0)
     .max(MAX_MONEY_CENTS)
     .default(0),
+  // Applied promotion (Phase 10), denormalised for reproducibility.
+  // discount_bps in basis points (15% → 1500); promo_label names the tier
+  // (null for a custom % or no promo).
+  discount_bps: z.coerce.number().int().min(0).max(10000).default(0),
+  promo_label: z
+    .string()
+    .max(120)
+    .optional()
+    .transform((v) => (v === "" || v === undefined ? undefined : v)),
 });
 
 export const orderCreateSchema = z.object({
@@ -183,6 +194,7 @@ const draftWindow = baseWindow.extend({
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
   draw: z.enum(DRAW_DIRECTIONS).optional(),
+  combo_id: optionalTypeId,
 });
 
 const draftRoom = z.object({

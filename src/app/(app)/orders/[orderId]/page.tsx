@@ -113,6 +113,7 @@ export default async function OrderDetailPage({
             "toilet_cs.id",
             "toilet_ct.series_id",
           )
+          .leftJoin("pricing_combos as combo", "combo.id", "windows.combo_id")
           .select([
             "windows.id as id",
             "windows.room_id as room_id",
@@ -124,6 +125,7 @@ export default async function OrderDetailPage({
             "windows.draw as draw",
             "windows.add_s_fold as add_s_fold",
             "windows.add_slim_tracks as add_slim_tracks",
+            "combo.name as combo_label",
             "day_ct.label as day_curtain_label",
             "day_ct.photo_path as day_curtain_photo_path",
             "day_ct.series_index as day_curtain_index",
@@ -177,6 +179,7 @@ export default async function OrderDetailPage({
     draw: w.draw,
     add_s_fold: w.add_s_fold,
     add_slim_tracks: w.add_slim_tracks,
+    combo_label: w.combo_label,
     room_id: w.room_id,
     day_curtain_label: labelOf(
       w.day_curtain_series,

@@ -11,6 +11,7 @@ type WindowSummary = {
   draw: string | null;
   add_s_fold?: boolean;
   add_slim_tracks?: boolean;
+  combo_label?: string | null;
   day_curtain_label?: string | null;
   day_curtain_photo_url?: string | null;
   night_curtain_label?: string | null;
@@ -129,12 +130,21 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
                   <td className="px-4 py-2">{w.install_width_cm ?? "—"}</td>
                   <td className="px-4 py-2">{w.draw ?? "—"}</td>
                   <td className="px-4 py-2 text-slate-600">
-                    {[
-                      w.add_s_fold && "S-Fold",
-                      w.add_slim_tracks && "Slim tracks",
-                    ]
-                      .filter(Boolean)
-                      .join(", ") || "—"}
+                    <div className="flex flex-col gap-1">
+                      <span>
+                        {[
+                          w.add_s_fold && "S-Fold",
+                          w.add_slim_tracks && "Slim tracks",
+                        ]
+                          .filter(Boolean)
+                          .join(", ") || "—"}
+                      </span>
+                      {w.combo_label && (
+                        <span className="inline-flex w-fit items-center gap-1 rounded bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[11px] text-amber-800">
+                          🏷 {w.combo_label}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-2 text-slate-500">
                     {w.notes || "—"}

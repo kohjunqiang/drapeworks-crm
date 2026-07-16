@@ -11,6 +11,8 @@ import {
 
 export type OrderQuote = QuoteResult & {
   minMarginBps: number; // for the "below floor?" warning
+  discountBps: number; // applied order-level promotion
+  promoLabel: string | null; // tier name (null = custom % or none)
 };
 
 export type CalcConfig = {
@@ -100,7 +102,13 @@ export async function computeOrderQuote(
   const [order, windows, assumptionsRow, addonRows] = await Promise.all([
     db
       .selectFrom("orders")
-      .select(["freight_mode", "channel", "extra_install_sgd_cents"])
+      .select([
+        "freight_mode",
+        "channel",
+        "extra_install_sgd_cents",
+        "discount_bps",
+        "promo_label",
+      ])
       .where("id", "=", orderId)
       .executeTakeFirst(),
     db
@@ -116,6 +124,7 @@ export async function computeOrderQuote(
       .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
       .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
       .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
+      .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
       .select([
         "windows.width_cm as width_cm",
         "windows.add_s_fold as add_s_fold",
@@ -126,6 +135,7 @@ export async function computeOrderQuote(
         "ncs.sale_sgd_cents as night_sale",
         "tcs.cost_rmb_cents as toilet_cost",
         "tcs.sale_sgd_cents as toilet_sale",
+        "pc.price_sgd_cents as combo_price",
       ])
       .where("rooms.order_id", "=", orderId)
       .execute(),
@@ -180,6 +190,7 @@ export async function computeOrderQuote(
       nightPrice,
       addSFold: w.add_s_fold,
       addSlimTracks: w.add_slim_tracks,
+      comboPriceSgdCents: w.combo_price,
     };
   });
 
@@ -189,6 +200,7 @@ export async function computeOrderQuote(
     a,
     order?.freight_mode ?? "air",
     order?.extra_install_sgd_cents ?? 0,
+    order?.discount_bps ?? 0,
   );
   // Nothing priced yet → not worth showing a $0 quote.
   if (result.saleSgdCents === 0 && result.cogsRmbCents === 0) return null;
@@ -199,5 +211,10 @@ export async function computeOrderQuote(
       ? assumptionsRow.min_margin_carousell_bps
       : assumptionsRow.min_margin_bps;
 
-  return { ...result, minMarginBps };
+  return {
+    ...result,
+    minMarginBps,
+    discountBps: order?.discount_bps ?? 0,
+    promoLabel: order?.promo_label ?? null,
+  };
 }

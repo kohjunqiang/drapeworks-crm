@@ -78,6 +78,27 @@ describe("windowQuote", () => {
     });
   });
 
+  it("a combo overrides the sale but leaves cost/COGS unchanged", () => {
+    const base = {
+      widthCm: 300,
+      dayPrice: SIGNATURE,
+      nightPrice: SIGNATURE,
+      addSFold: false,
+      addSlimTracks: false,
+    };
+    const plain = windowQuote(base, BOOK, ASSUMPTIONS.styleMultiplier);
+    const combo = windowQuote(
+      { ...base, comboPriceSgdCents: 45000 }, // S$450 bundle
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    // Sale is fixed to the bundle price; every cost figure is identical.
+    expect(combo.saleSgdCents).toBe(45000);
+    expect(combo.costRmbCents).toBe(plain.costRmbCents);
+    expect(combo.curtainCostRmbCents).toBe(plain.curtainCostRmbCents);
+    expect(combo.offering).toBe(plain.offering);
+  });
+
   it("is zero for an unmeasured / unpriced window", () => {
     expect(
       windowQuote(
@@ -136,6 +157,68 @@ describe("computeQuote", () => {
     const withExtra = computeQuote([win], BOOK, ASSUMPTIONS, "air", 5000);
     expect(withExtra.installationSgdCents).toBe(base.installationSgdCents + 5000);
     expect(withExtra.netCostSgdCents).toBe(base.netCostSgdCents + 5000);
+  });
+
+  it("an order-level discount reduces the sale + margin, not the cost", () => {
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      nightPrice: null,
+      addSFold: true,
+      addSlimTracks: false,
+    };
+    const base = computeQuote([win], BOOK, ASSUMPTIONS, "air");
+    const disc = computeQuote([win], BOOK, ASSUMPTIONS, "air", 0, 1500); // −15%
+    // Pre-discount sale is preserved; the discounted sale is 85% of it.
+    expect(disc.saleSgdCents).toBe(base.saleSgdCents);
+    expect(disc.discountedSaleSgdCents).toBe(
+      Math.round((base.saleSgdCents * 8500) / 10000),
+    );
+    // Cost is untouched, so the (lower) discounted sale means a lower margin.
+    expect(disc.netCostSgdCents).toBe(base.netCostSgdCents);
+    expect(disc.marginBps).toBeLessThan(base.marginBps);
+    expect(disc.marginBps).toBe(
+      marginBps(disc.netCostSgdCents, disc.discountedSaleSgdCents),
+    );
+    // Groupbuy derives from the discounted sale.
+    expect(disc.groupbuySgdCents).toBe(
+      Math.round(
+        (disc.discountedSaleSgdCents *
+          (10000 - ASSUMPTIONS.groupbuyDiscountBps)) /
+          10000,
+      ),
+    );
+  });
+
+  it("a combo and an order discount compose", () => {
+    const win = {
+      widthCm: 300,
+      dayPrice: SIGNATURE,
+      nightPrice: SIGNATURE,
+      addSFold: false,
+      addSlimTracks: false,
+      comboPriceSgdCents: 45000,
+    };
+    const q = computeQuote([win], BOOK, ASSUMPTIONS, "air", 0, 1000); // −10%
+    // Combo fixes the per-window sale; the promo then discounts the order total.
+    expect(q.saleSgdCents).toBe(45000);
+    expect(q.discountedSaleSgdCents).toBe(Math.round((45000 * 9000) / 10000));
+    expect(q.marginBps).toBe(
+      marginBps(q.netCostSgdCents, q.discountedSaleSgdCents),
+    );
+  });
+
+  it("with no discount, discountedSale equals sale (unchanged behaviour)", () => {
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      nightPrice: null,
+      addSFold: true,
+      addSlimTracks: false,
+    };
+    const q = computeQuote([win], BOOK, ASSUMPTIONS);
+    expect(q.discountedSaleSgdCents).toBe(q.saleSgdCents);
+    expect(q.marginBps).toBe(marginBps(q.netCostSgdCents, q.saleSgdCents));
   });
 
   it("returns zeros for an empty order", () => {

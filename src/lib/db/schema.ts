@@ -503,6 +503,7 @@ export interface Orders {
   customer_id: string;
   deposit_cents: Generated<number>;
   development: string | null;
+  discount_bps: Generated<number>;
   display_id: string;
   extra_install_sgd_cents: Generated<number>;
   freight_mode: Generated<FreightMode>;
@@ -511,6 +512,7 @@ export interface Orders {
   is_draft: Generated<boolean>;
   move_in_date: Timestamp | null;
   price_quoted_cents: Generated<number>;
+  promo_label: string | null;
   property_type: PropertyType | null;
   seq_num: number;
   seq_year: number;
@@ -563,6 +565,17 @@ export interface PricingAssumptions {
   updated_at: Generated<Timestamp>;
 }
 
+export interface PricingCombos {
+  created_at: Generated<Timestamp>;
+  day_series_id: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  night_series_id: string | null;
+  price_sgd_cents: number;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Profiles {
   created_at: Generated<Timestamp>;
   email: string;
@@ -570,6 +583,15 @@ export interface Profiles {
   id: string;
   is_active: Generated<boolean>;
   role: Generated<UserRole>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface Promotions {
+  created_at: Generated<Timestamp>;
+  discount_bps: number;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
   updated_at: Generated<Timestamp>;
 }
 
@@ -756,6 +778,7 @@ export interface Vendors {
 export interface Windows {
   add_s_fold: Generated<boolean>;
   add_slim_tracks: Generated<boolean>;
+  combo_id: string | null;
   created_at: Generated<Timestamp>;
   curtain_type_id: string | null;
   day_curtain_type_id: string | null;
@@ -804,7 +827,9 @@ export interface DB {
   orders: Orders;
   pricing_addons: PricingAddons;
   pricing_assumptions: PricingAssumptions;
+  pricing_combos: PricingCombos;
   profiles: Profiles;
+  promotions: Promotions;
   "realtime.messages": RealtimeMessages;
   "realtime.schema_migrations": RealtimeSchemaMigrations;
   "realtime.subscription": RealtimeSubscription;

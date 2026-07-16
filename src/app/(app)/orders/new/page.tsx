@@ -1,6 +1,8 @@
 import { ConsultationForm } from "@/components/orders/consultation-form";
 import { requireRole } from "@/lib/auth/require-role";
+import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
+import { loadActivePromotions } from "@/lib/db/promotions";
 import { loadCalcConfig } from "@/lib/pricing/order-quote";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +12,11 @@ export const metadata = { title: "New Consultation — Drapeworks CRM" };
 export default async function NewConsultationPage() {
   const session = await requireRole(["consultant", "admin"]);
 
-  const [curtainTypes, calcConfig] = await Promise.all([
+  const [curtainTypes, calcConfig, promotions, combos] = await Promise.all([
     loadActiveCurtainTypeOptions(),
     loadCalcConfig(),
+    loadActivePromotions(),
+    loadActiveCombos(),
   ]);
 
   const today = new Intl.DateTimeFormat("en-GB", {
@@ -49,6 +53,8 @@ export default async function NewConsultationPage() {
         mode="create"
         curtainTypes={curtainTypes}
         calcConfig={calcConfig}
+        promotions={promotions}
+        combos={combos}
       />
     </main>
   );

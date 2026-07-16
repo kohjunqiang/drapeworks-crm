@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
-import { FormSelect } from "@/components/ui/app-select";
+import { AppSelect, FormSelect } from "@/components/ui/app-select";
+import type { ActivePromotion } from "@/lib/db/promotions";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 const INPUT_CLS =
@@ -52,7 +53,91 @@ function DollarInput({
   );
 }
 
-export function PricingSection() {
+// Order-level promotion: pick a preset tier (sets its %) or "Custom %" (reveals
+// a % input). Both resolve to one discount on the whole quote — the live quote
+// (which margin-tracks the quoted price) recomputes for free.
+function PromotionControl({ promotions }: { promotions: ActivePromotion[] }) {
+  const { control, setValue } = useFormContext<OrderEditInput>();
+  const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
+  const promoLabel = useWatch({ control, name: "order.promo_label" });
+
+  // Initial selection derived from persisted values (edit mode).
+  const matchedPreset = promoLabel
+    ? promotions.find((p) => p.name === promoLabel)
+    : undefined;
+  const [selection, setSelection] = useState<string>(
+    matchedPreset ? matchedPreset.id : discountBps > 0 ? "custom" : "none",
+  );
+  const [customPct, setCustomPct] = useState<string>(
+    !matchedPreset && discountBps > 0 ? (discountBps / 100).toString() : "",
+  );
+
+  const setDiscount = (bps: number, label: string | undefined) => {
+    setValue("order.discount_bps", bps, { shouldDirty: true });
+    setValue("order.promo_label", label, { shouldDirty: true });
+  };
+
+  const applyCustom = (pctStr: string) => {
+    const pct = pctStr === "" ? 0 : parseFloat(pctStr);
+    const clamped = Number.isFinite(pct) ? Math.min(Math.max(pct, 0), 100) : 0;
+    setDiscount(Math.round(clamped * 100), undefined);
+  };
+
+  const options = [
+    ...promotions.map((p) => ({
+      value: p.id,
+      label: `${p.name} (−${p.discount_bps / 100}%)`,
+    })),
+    { value: "custom", label: "Custom %" },
+  ];
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-600 mb-1">
+        Promotion
+      </label>
+      <AppSelect
+        value={selection === "none" ? "" : selection}
+        noneLabel="— None —"
+        options={options}
+        onChange={(v) => {
+          const val = v || "none";
+          setSelection(val);
+          if (val === "none") setDiscount(0, undefined);
+          else if (val === "custom") applyCustom(customPct);
+          else {
+            const p = promotions.find((x) => x.id === val);
+            if (p) setDiscount(p.discount_bps, p.name);
+          }
+        }}
+      />
+      {selection === "custom" && (
+        <div className="relative mt-2">
+          <input
+            type="number"
+            step="0.1"
+            min="0"
+            max="100"
+            placeholder="Discount %"
+            value={customPct}
+            onChange={(e) => {
+              setCustomPct(e.target.value);
+              applyCustom(e.target.value);
+            }}
+            className="w-full pr-7 pl-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
+          />
+          <span className="absolute right-3 top-2 text-slate-400 text-sm">%</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function PricingSection({
+  promotions = [],
+}: {
+  promotions?: ActivePromotion[];
+}) {
   const { control, register, setValue } = useFormContext<OrderEditInput>();
 
   const quotedCents = useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
@@ -117,6 +202,10 @@ export function PricingSection() {
             />
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">
+        <PromotionControl promotions={promotions} />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">

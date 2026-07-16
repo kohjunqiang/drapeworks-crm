@@ -3,6 +3,8 @@
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
+import type { ActiveCombo } from "@/lib/db/combos";
+import { formatSGD } from "@/lib/money";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 export type CurtainTypeOption = {
@@ -22,6 +24,7 @@ type Props = {
   windowIndex: number;
   isToilet: boolean;
   curtainTypes: CurtainTypeOption[];
+  combos: ActiveCombo[];
 };
 
 // A native <select> truncates long option labels on narrow screens and can't
@@ -75,6 +78,7 @@ export function WindowFields({
   windowIndex,
   isToilet,
   curtainTypes,
+  combos,
 }: Props) {
   const { register, control } = useFormContext<OrderEditInput>();
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
@@ -85,6 +89,8 @@ export function WindowFields({
   const dayId = useWatch({ control, name: `${base}.day_curtain_type_id` });
   const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
   const toiletId = useWatch({ control, name: `${base}.curtain_type_id` });
+  const comboId = useWatch({ control, name: `${base}.combo_id` });
+  const activeCombo = comboId ? combos.find((c) => c.id === comboId) : undefined;
 
   if (isToilet) {
     return (
@@ -238,6 +244,28 @@ export function WindowFields({
           Slim tracks
         </label>
       </div>
+      {combos.length > 0 && (
+        <div className="col-span-2 sm:col-span-3">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Combo bundle
+          </label>
+          <FormSelect
+            control={control}
+            name={`${base}.combo_id`}
+            noneLabel="— None —"
+            options={combos.map((c) => ({
+              value: c.id,
+              label: `${c.name} — ${formatSGD(c.priceSgdCents)}`,
+            }))}
+          />
+          {activeCombo && (
+            <p className="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-800">
+              🏷 {activeCombo.name} — {formatSGD(activeCombo.priceSgdCents)}/window{" "}
+              <span className="text-amber-600">(overrides calc)</span>
+            </p>
+          )}
+        </div>
+      )}
       <div className="col-span-2 sm:col-span-4">
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Special Notes

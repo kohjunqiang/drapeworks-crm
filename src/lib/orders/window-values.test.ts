@@ -34,6 +34,7 @@ describe("windowValues — regular window", () => {
       draw: "Single Left",
       add_s_fold: false,
       add_slim_tracks: false,
+      combo_id: null,
     });
   });
 
@@ -74,6 +75,7 @@ describe("windowValues — toilet window", () => {
       draw: null,
       add_s_fold: false,
       add_slim_tracks: false,
+      combo_id: null,
     });
   });
 });

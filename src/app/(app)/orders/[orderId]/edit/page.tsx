@@ -4,7 +4,9 @@ import { notFound } from "next/navigation";
 import { ConsultationForm } from "@/components/orders/consultation-form";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { requireRole } from "@/lib/auth/require-role";
+import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
+import { loadActivePromotions } from "@/lib/db/promotions";
 import { loadCalcConfig } from "@/lib/pricing/order-quote";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
@@ -51,6 +53,8 @@ export default async function EditOrderPage({
       "orders.freight_mode as freight_mode",
       "orders.channel as channel",
       "orders.extra_install_sgd_cents as extra_install_sgd_cents",
+      "orders.discount_bps as discount_bps",
+      "orders.promo_label as promo_label",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
@@ -91,6 +95,7 @@ export default async function EditOrderPage({
             "draw",
             "add_s_fold",
             "add_slim_tracks",
+            "combo_id",
           ])
           .where("room_id", "in", roomIds)
           .orderBy("position", "asc")
@@ -132,9 +137,11 @@ export default async function EditOrderPage({
     roomPhotos[p.room_id] = list;
   }
 
-  const [curtainTypes, calcConfig] = await Promise.all([
+  const [curtainTypes, calcConfig, promotions, combos] = await Promise.all([
     loadActiveCurtainTypeOptions(),
     loadCalcConfig(),
+    loadActivePromotions(),
+    loadActiveCombos(),
   ]);
 
   const defaultValues: OrderEditInput = {
@@ -155,6 +162,8 @@ export default async function EditOrderPage({
       freight_mode: order.freight_mode,
       channel: order.channel,
       extra_install_cents: order.extra_install_sgd_cents,
+      discount_bps: order.discount_bps,
+      promo_label: order.promo_label ?? undefined,
     },
     rooms: rooms.map((r, rIdx) => {
       const isToilet = isToiletRoom(r.type);
@@ -190,6 +199,7 @@ export default async function EditOrderPage({
             notes: w.notes ?? "",
             add_s_fold: w.add_s_fold ?? false,
             add_slim_tracks: w.add_slim_tracks ?? false,
+            combo_id: w.combo_id ?? "",
           };
         }),
       };
@@ -235,6 +245,8 @@ export default async function EditOrderPage({
         orderId={order.id}
         curtainTypes={curtainTypes}
         calcConfig={calcConfig}
+        promotions={promotions}
+        combos={combos}
         defaultValues={defaultValues}
         roomPhotos={roomPhotos}
       />

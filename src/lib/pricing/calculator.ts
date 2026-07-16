@@ -59,6 +59,9 @@ export type CalcWindow = {
   nightPrice?: SeriesPrice | null;
   addSFold: boolean;
   addSlimTracks: boolean;
+  // Phase 10 — a picked combo fixes this window's sale to a bundle price,
+  // overriding the per-metre day/night sale. Cost is left untouched.
+  comboPriceSgdCents?: number | null;
 };
 
 type Money = { costRmbCents: number; saleSgdCents: number };
@@ -132,10 +135,16 @@ export function windowQuote(
   const offering: Offering =
     hasDay && hasNight ? "double" : hasDay || hasNight ? "single" : "none";
 
+  // Combo (Phase 10): a fixed bundle price overrides the window's sale. Cost
+  // (curtain COGS + add-ons + track) is unchanged, so the margin stays genuine.
+  const saleSgdCents =
+    win.comboPriceSgdCents != null ? win.comboPriceSgdCents : total.saleSgdCents;
+
   // Curtain-only COGS (excludes add-ons/tracks) — the air-freight base, per the
   // Excel's sum(Day COGS, Night COGS) × rate.
   return {
-    ...total,
+    costRmbCents: total.costRmbCents,
+    saleSgdCents,
     curtainCostRmbCents: dayLeg.costRmbCents + nightLeg.costRmbCents,
     offering,
   };
@@ -150,8 +159,9 @@ export type QuoteResult = {
   grossCostSgdCents: number;
   installationSgdCents: number; // per-offering install + ad-hoc extra
   netCostSgdCents: number;
-  saleSgdCents: number;
-  marginBps: number; // 1 − netCost/sale, ×10000
+  saleSgdCents: number; // pre-discount sum of window sales
+  discountedSaleSgdCents: number; // after the order-level promotion discount
+  marginBps: number; // 1 − netCost/discountedSale, ×10000
   groupbuySgdCents: number;
   groupbuyMarginBps: number;
 };
@@ -178,6 +188,7 @@ export function computeQuote(
   a: CalcAssumptions,
   freightMode: FreightMode = "air",
   extraInstallSgdCents = 0,
+  discountBps = 0,
 ): QuoteResult {
   const totals = windows.reduce(
     (acc, w) => {
@@ -212,8 +223,12 @@ export function computeQuote(
   const installation = totals.installSgdCents + extraInstallSgdCents;
   const netCostSgd = grossCostSgd + installation;
 
+  // Order-level promotion (Phase 10): discount the summed sale. Margin +
+  // groupbuy track the discounted price. discountBps=0 leaves everything as-is.
+  const discountedSale = Math.round((sale * (10000 - discountBps)) / 10000);
+
   const groupbuy = Math.round(
-    (sale * (10000 - a.groupbuyDiscountBps)) / 10000,
+    (discountedSale * (10000 - a.groupbuyDiscountBps)) / 10000,
   );
 
   return {
@@ -226,7 +241,8 @@ export function computeQuote(
     installationSgdCents: installation,
     netCostSgdCents: netCostSgd,
     saleSgdCents: sale,
-    marginBps: marginBps(netCostSgd, sale),
+    discountedSaleSgdCents: discountedSale,
+    marginBps: marginBps(netCostSgd, discountedSale),
     groupbuySgdCents: groupbuy,
     groupbuyMarginBps: marginBps(netCostSgd, groupbuy),
   };

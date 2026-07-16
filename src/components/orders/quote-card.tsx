@@ -6,6 +6,7 @@ const rmb = (cents: number) => `¥${(cents / 100).toFixed(2)}`;
 
 export function QuoteCard({ quote }: { quote: OrderQuote }) {
   const belowFloor = quote.marginBps < quote.minMarginBps;
+  const hasDiscount = quote.discountBps > 0;
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-4">
@@ -19,10 +20,25 @@ export function QuoteCard({ quote }: { quote: OrderQuote }) {
       </div>
 
       <dl className="space-y-1.5 text-sm">
+        {hasDiscount && (
+          <>
+            <div className="flex justify-between">
+              <dt className="text-slate-500">Subtotal</dt>
+              <dd className="text-slate-700">{formatSGD(quote.saleSgdCents)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-slate-500">
+                Promotion
+                {quote.promoLabel ? ` · ${quote.promoLabel}` : " · Custom"}
+              </dt>
+              <dd className="text-amber-700">−{pct(quote.discountBps)}</dd>
+            </div>
+          </>
+        )}
         <div className="flex justify-between">
           <dt className="text-slate-500">Sale price</dt>
           <dd className="font-semibold text-slate-900">
-            {formatSGD(quote.saleSgdCents)}
+            {formatSGD(quote.discountedSaleSgdCents)}
           </dd>
         </div>
         <div className="flex justify-between">

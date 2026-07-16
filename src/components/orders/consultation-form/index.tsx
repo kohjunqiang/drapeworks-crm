@@ -17,6 +17,8 @@ import {
 } from "@/lib/validation/order";
 
 import type { CalcConfig } from "@/lib/pricing/order-quote";
+import type { ActivePromotion } from "@/lib/db/promotions";
+import type { ActiveCombo } from "@/lib/db/combos";
 
 import { CustomerSection } from "./customer-section";
 import { LiveQuote } from "./live-quote";
@@ -34,6 +36,8 @@ type Props = {
   mode: Mode;
   curtainTypes: CurtainTypeOption[];
   calcConfig?: CalcConfig | null;
+  promotions?: ActivePromotion[];
+  combos?: ActiveCombo[];
   orderId?: string;
   defaultValues?: OrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
@@ -63,6 +67,7 @@ function makeWindow(roomType: RoomType, position: number) {
     notes: "",
     add_s_fold: false,
     add_slim_tracks: false,
+    combo_id: "",
   };
 }
 
@@ -80,6 +85,8 @@ const EMPTY_DEFAULTS: OrderEditInput = {
     freight_mode: "air",
     channel: "standard",
     extra_install_cents: 0,
+    discount_bps: 0,
+    promo_label: undefined,
   },
   rooms: [
     {
@@ -95,6 +102,8 @@ export function ConsultationForm({
   mode,
   curtainTypes,
   calcConfig,
+  promotions = [],
+  combos = [],
   orderId,
   defaultValues,
   roomPhotos,
@@ -208,10 +217,14 @@ export function ConsultationForm({
     <FormProvider {...form}>
       <form onSubmit={onSubmit}>
         <CustomerSection register={register} errors={errors} />
-        <PricingSection />
+        <PricingSection promotions={promotions} />
 
         {calcConfig && (
-          <LiveQuote curtainTypes={curtainTypes} config={calcConfig} />
+          <LiveQuote
+            curtainTypes={curtainTypes}
+            config={calcConfig}
+            combos={combos}
+          />
         )}
 
         <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
@@ -244,6 +257,7 @@ export function ConsultationForm({
                   roomIndex={rIdx}
                   onRemove={() => removeRoom(rIdx)}
                   curtainTypes={curtainTypes}
+                  combos={combos}
                   mode={mode}
                   roomId={persistedRoomId}
                   photos={

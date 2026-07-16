@@ -54,6 +54,8 @@ export async function createOrder(input: unknown): Promise<never> {
         freight_mode: parsed.order.freight_mode,
         channel: parsed.order.channel,
         extra_install_sgd_cents: parsed.order.extra_install_cents,
+        discount_bps: parsed.order.discount_bps,
+        promo_label: parsed.order.promo_label ?? null,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: parsed.order.is_draft,
         // display_id / seq_year / seq_num populated by trigger
@@ -159,6 +161,8 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
         freight_mode: parsed.order.freight_mode,
         channel: parsed.order.channel,
         extra_install_sgd_cents: parsed.order.extra_install_cents,
+        discount_bps: parsed.order.discount_bps,
+        promo_label: parsed.order.promo_label ?? null,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: parsed.order.is_draft,
       })
@@ -368,6 +372,8 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         freight_mode: parsed.order.freight_mode,
         channel: parsed.order.channel,
         extra_install_sgd_cents: parsed.order.extra_install_cents,
+        discount_bps: parsed.order.discount_bps,
+        promo_label: parsed.order.promo_label ?? null,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: true,
         seq_year: 0,

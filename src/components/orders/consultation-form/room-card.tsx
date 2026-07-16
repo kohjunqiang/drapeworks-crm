@@ -12,6 +12,8 @@ import { FormSelect } from "@/components/ui/app-select";
 import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
 import type { RoomType } from "@/lib/db/schema";
 
+import type { ActiveCombo } from "@/lib/db/combos";
+
 import { PhotoPlaceholder } from "./photo-placeholder";
 import { WindowFields, type CurtainTypeOption } from "./window-fields";
 
@@ -34,6 +36,7 @@ type Props = {
   roomIndex: number;
   onRemove: () => void;
   curtainTypes: CurtainTypeOption[];
+  combos: ActiveCombo[];
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
@@ -43,6 +46,7 @@ export function RoomCard({
   roomIndex,
   onRemove,
   curtainTypes,
+  combos,
   mode,
   roomId,
   photos,
@@ -112,6 +116,7 @@ export function RoomCard({
             notes: "",
             add_s_fold: false,
             add_slim_tracks: false,
+            combo_id: "",
           },
     );
   }
@@ -176,6 +181,7 @@ export function RoomCard({
               windowIndex={wIdx}
               isToilet={isToilet}
               curtainTypes={curtainTypes}
+              combos={combos}
             />
           </div>
         ))}

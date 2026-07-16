@@ -219,7 +219,7 @@ export function LiveQuote({
 
             {/* Installation, its own category, in SGD. */}
             <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Installation (SGD)
+              Installation (Handyman)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
               <div className="flex justify-between">

@@ -126,10 +126,17 @@ export function windowQuote(
   if (win.addSlimTracks)
     total = add(total, addonLeg(book.slimTracks, win.widthCm));
 
-  // Track: double if both day + night, single if just one.
-  if (hasDay && hasNight) total = add(total, addonLeg(book.doubleTrack, null));
+  // Track: double if both day + night, single if just one. The rail is a cost
+  // we bear, not a customer line item (unlike the opt-in add-ons above) — so
+  // only its COST feeds COGS; its notional sale price is kept out of the quote.
+  const trackCost = (m: Money): Money => ({
+    costRmbCents: m.costRmbCents,
+    saleSgdCents: 0,
+  });
+  if (hasDay && hasNight)
+    total = add(total, trackCost(addonLeg(book.doubleTrack, null)));
   else if (hasDay || hasNight)
-    total = add(total, addonLeg(book.singleTrack, null));
+    total = add(total, trackCost(addonLeg(book.singleTrack, null)));
 
   // Offering drives the per-window installation cost.
   const offering: Offering =

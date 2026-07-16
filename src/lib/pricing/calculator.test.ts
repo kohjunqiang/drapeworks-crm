@@ -47,10 +47,11 @@ describe("windowQuote", () => {
     );
     // day cost 2.8×2×5100=28560, sale 2.8×9000=25200
     // s-fold cost 2.8×1100=3080, sale 2.8×8000=22400
-    // single track cost 2500, sale 3500; curtain-only cost = day 28560
+    // single track cost 2500 (into COGS); its sale is NOT billed to the customer.
+    // sale = fabric 25200 + s-fold 22400 = 47600; curtain-only cost = day 28560
     expect(q).toEqual({
       costRmbCents: 34140,
-      saleSgdCents: 51100,
+      saleSgdCents: 47600,
       curtainCostRmbCents: 28560,
       offering: "single",
     });
@@ -69,13 +70,32 @@ describe("windowQuote", () => {
       ASSUMPTIONS.styleMultiplier,
     );
     // day+night cost 2×(3×2×5100)=61200, sale 2×(3×9000)=54000
-    // double track cost 2500, sale 4000; curtain-only cost = 61200
+    // double track cost 2500 (into COGS); its sale is NOT billed to the customer.
+    // sale = fabric 54000 only; curtain-only cost = 61200
     expect(q).toEqual({
       costRmbCents: 63700,
-      saleSgdCents: 58000,
+      saleSgdCents: 54000,
       curtainCostRmbCents: 61200,
       offering: "double",
     });
+  });
+
+  it("keeps the track out of the customer quote but in COGS (it's a cost, not a customer line)", () => {
+    const q = windowQuote(
+      {
+        widthCm: 300,
+        dayPrice: SIGNATURE,
+        nightPrice: SIGNATURE,
+        addSFold: false,
+        addSlimTracks: false,
+      },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    // Sale is fabric only: 2×(3×9000)=54000 — the S$40 double track is NOT added.
+    expect(q.saleSgdCents).toBe(54000);
+    // Its cost IS still carried: day+night 61200 + track cost 2500 = 63700.
+    expect(q.costRmbCents).toBe(63700);
   });
 
   it("a combo overrides the sale but leaves cost/COGS unchanged", () => {
@@ -131,7 +151,7 @@ describe("computeQuote", () => {
       ASSUMPTIONS,
     );
     expect(q.cogsRmbCents).toBe(34140);
-    expect(q.saleSgdCents).toBe(51100);
+    expect(q.saleSgdCents).toBe(47600); // fabric + s-fold; track sale excluded
     expect(q.freightRmbCents).toBe(50000); // clamped to the ¥500 floor
     expect(q.otherCostRmbCents).toBe(3414);
     expect(q.gstRmbCents).toBe(3073);
@@ -140,9 +160,9 @@ describe("computeQuote", () => {
     // single-curtain install $60 (not the flat handyman)
     expect(q.installationSgdCents).toBe(6000);
     expect(q.netCostSgdCents).toBe(23099);
-    expect(q.marginBps).toBe(5480); // 54.80%
-    expect(q.groupbuySgdCents).toBe(43435);
-    expect(q.groupbuyMarginBps).toBe(4682); // 46.82%
+    expect(q.marginBps).toBe(5147); // 51.47%
+    expect(q.groupbuySgdCents).toBe(40460);
+    expect(q.groupbuyMarginBps).toBe(4291); // 42.91%
   });
 
   it("adds the ad-hoc extra install cost", () => {

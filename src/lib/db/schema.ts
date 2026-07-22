@@ -511,6 +511,7 @@ export interface Orders {
   id: Generated<string>;
   is_draft: Generated<boolean>;
   move_in_date: Timestamp | null;
+  price_calc_at_quote_cents: number | null;
   price_quoted_cents: Generated<number>;
   promo_label: string | null;
   property_type: PropertyType | null;

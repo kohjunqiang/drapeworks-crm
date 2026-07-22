@@ -14,6 +14,9 @@ export type OrderRow = {
   current_status: FulfilmentStatus;
   price_quoted_cents: number;
   consultant_name: string | null;
+  // True when the calculator has drifted from the locked quote — a nudge to
+  // re-quote on the order detail page.
+  isStale?: boolean;
 };
 
 type Props = {
@@ -72,7 +75,17 @@ export function OrdersTable({ orders }: Props) {
                 <StatusBadge status={o.current_status} />
               </td>
               <td className="px-4 py-3 text-right font-medium">
-                {formatSGD(o.price_quoted_cents)}
+                <span className="inline-flex items-center gap-1.5">
+                  {o.isStale && (
+                    <span
+                      title="Pricing changed since quoted — open to re-quote"
+                      className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+                    >
+                      Stale
+                    </span>
+                  )}
+                  {formatSGD(o.price_quoted_cents)}
+                </span>
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {o.consultant_name ?? "—"}

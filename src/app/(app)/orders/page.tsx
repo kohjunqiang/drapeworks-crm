@@ -7,6 +7,7 @@ import { OrdersStats } from "@/components/orders/orders-stats";
 import { OrdersTable, type OrderRow } from "@/components/orders/orders-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db/kysely";
+import { orderStaleFlags } from "@/lib/pricing/order-quote";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 
@@ -118,6 +119,10 @@ export default async function OrdersDashboardPage({
     .limit(50)
     .execute();
 
+  // Which of the listed orders have drifted from their locked quote (one
+  // batched sweep, not a per-row recompute).
+  const staleFlags = await orderStaleFlags(rows.map((r) => r.id));
+
   const orders: OrderRow[] = rows.map((r) => ({
     id: r.id,
     display_id: r.display_id,
@@ -129,6 +134,7 @@ export default async function OrdersDashboardPage({
     consultant_name:
       r.consultant_name?.trim() ||
       (r.consultant_email ? r.consultant_email.split("@")[0] : null),
+    isStale: staleFlags.get(r.id) ?? false,
   }));
 
   // Distinct consultants present in the orders table (for the filter dropdown).

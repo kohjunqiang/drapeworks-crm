@@ -38,7 +38,12 @@ export function OrdersCards({ orders }: Props) {
                 {[o.development, o.display_id].filter(Boolean).join(" · ")}
               </div>
             </div>
-            <div className="font-semibold text-slate-900 text-sm">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-900 text-sm">
+              {o.isStale && (
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                  Stale
+                </span>
+              )}
               {formatSGD(o.price_quoted_cents)}
             </div>
           </div>

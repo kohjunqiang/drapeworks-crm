@@ -5,6 +5,7 @@ import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
+import { RequoteBanner } from "@/components/orders/requote-banner";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
 import type { PhotoTile } from "@/components/orders/photo-strip";
 import { StatusBadge } from "@/components/orders/status-badge";
@@ -437,6 +438,13 @@ export default async function OrderDetailPage({
                 </dd>
               </div>
             </dl>
+            {quote?.isStale && (
+              <RequoteBanner
+                orderId={order.id}
+                lockedCents={order.price_quoted_cents}
+                liveCents={quote.discountedSaleSgdCents}
+              />
+            )}
           </section>
 
           {quote && <QuoteCard quote={quote} />}

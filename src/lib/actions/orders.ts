@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { windowValues } from "@/lib/orders/window-values";
+import { computeOrderQuote } from "@/lib/pricing/order-quote";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   isToiletRoom,
@@ -21,6 +22,22 @@ import {
 } from "@/lib/validation/order";
 
 const PHOTO_BUCKET = "room-photos";
+
+// Capture the calculator's current output as the order's quote baseline. Called
+// after an order's windows/pricing are persisted so staleness is measured from
+// what the calc produced at save time — NOT from the (possibly manually
+// overridden) quoted price. Null when nothing is priced yet. Must run after the
+// transaction commits, since computeOrderQuote reads through the base `db`.
+async function stampQuoteBaseline(orderId: string): Promise<void> {
+  const quote = await computeOrderQuote(orderId);
+  await db
+    .updateTable("orders")
+    .set({
+      price_calc_at_quote_cents: quote ? quote.discountedSaleSgdCents : null,
+    })
+    .where("id", "=", orderId)
+    .execute();
+}
 
 export async function createOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
@@ -111,6 +128,8 @@ export async function createOrder(input: unknown): Promise<never> {
 
     return order.id;
   });
+
+  await stampQuoteBaseline(orderId);
 
   redirect(`/orders/${orderId}`);
 }
@@ -274,11 +293,51 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
     }
   }
 
+  await stampQuoteBaseline(orderId);
+
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/edit`);
   revalidatePath("/orders");
 
   redirect(`/orders/${orderId}`);
+}
+
+// Re-lock an order's quote to the current calculator output. Used when the
+// order-detail staleness banner reports the calc has drifted from the baseline.
+// Overwrites the frozen price + baseline with the live calc; deposit is left
+// untouched and balance_cents (generated) re-derives from the new price.
+export async function requoteOrder(orderId: string): Promise<void> {
+  if (typeof orderId !== "string" || orderId.length === 0) {
+    throw new Error("Invalid order id");
+  }
+
+  const session = await requireRole(["consultant", "admin"]);
+
+  const order = await db
+    .selectFrom("orders")
+    .select(["id", "consultant_id"])
+    .where("id", "=", orderId)
+    .executeTakeFirst();
+  if (!order) throw new Error("Order not found");
+
+  const isOwner = order.consultant_id === session.user.id;
+  const isAdmin = session.profile.role === "admin";
+  if (!isOwner && !isAdmin) throw new Error("Forbidden");
+
+  const quote = await computeOrderQuote(orderId);
+  if (!quote) throw new Error("Nothing priced to re-quote");
+
+  await db
+    .updateTable("orders")
+    .set({
+      price_quoted_cents: quote.discountedSaleSgdCents,
+      price_calc_at_quote_cents: quote.discountedSaleSgdCents,
+    })
+    .where("id", "=", orderId)
+    .execute();
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/orders");
 }
 
 export async function deleteOrder(input: {
@@ -422,6 +481,8 @@ export async function createOrderDraft(input: unknown): Promise<never> {
 
     return order.id;
   });
+
+  await stampQuoteBaseline(orderId);
 
   redirect(`/orders/${orderId}`);
 }

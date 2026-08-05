@@ -303,26 +303,38 @@ computeMeshQuote(panels, priceBook, assumptions, freightMode,
                  extraInstallSgdCents, discountBps): QuoteResult
 ```
 
-Install is **not** `panels.length × handymanMeshSgdCents`. A blank panel row that a
+Install is **not** `panels.length × handymanMeshSgdCents`. A blank panel row a
 consultant has just added — no category, no dimensions — must not carry an install cost,
-for two reasons: clicking "add panel" would otherwise drop the live margin before
-anything is typed, and it would diverge from the curtain rule in exactly the direction
-§9 warns about (`calculator.ts:142` resolves an unmeasured window to `offering: 'none'`,
-and `installFor` charges zero for it).
+or clicking "add panel" drops the live margin before anything is typed.
 
-Define the predicate once, in `mesh-calculator.ts`, and export it:
+**Two distinct predicates, both exported from `mesh-calculator.ts`. They are not the
+same and must not be collapsed:**
 
 ```ts
-meshInstallUnits(panels): number   // panels with a resolved category AND
-                                   // both width_cm and height_cm
+isMeasured(panel)  = category && width_cm && height_cm      → governs INSTALL (§6.3)
+isPriced(panel)    = isMeasured && band && price row        → governs WARNINGS (§6.5)
+
+meshInstallUnits(panels) = panels.filter(isMeasured).length
 ```
 
-Install is then `meshInstallUnits(panels) × handymanMeshSgdCents + extraInstallSgdCents`
-— a cost that lowers margin and never appears on the customer quote.
+Install is `meshInstallUnits(panels) × handymanMeshSgdCents + extraInstallSgdCents` — a
+cost that lowers margin and never appears on the customer quote.
 
-This is the same predicate `meshQuoteWarnings` (§6.5) uses to decide "unpriced", so the
-two cannot drift. `computeMeshQuote` and `MeshLiveQuote` both call `meshInstallUnits`;
-neither reimplements it. That is what the install-parity guard in §9 requires.
+A fully measured panel whose price-grid cell is empty is **warned but still an install
+unit**: the handyman installs it regardless of whether an admin has filled that cell.
+Defining install as "not warned" would make install cost silently change when someone
+edits the price grid — do not do it.
+
+**This deliberately diverges from curtains, and that is the point.** `calculator.ts:118`
+computes `hasDay = !!win.dayPrice && win.widthCm > 0`, so a curtain window's `offering`
+— and therefore its install cost — depends on the *series being priced*, not merely on
+the window being measured. That coupling is the root of the known live-vs-server install
+mismatch for unpriced-series windows. Mesh keying install off measurement alone is the
+correct rule and fixes that class of bug for the new product line. Do not later
+"correct" mesh to match curtains; if anything, curtains should move this way.
+
+`computeMeshQuote` and `MeshLiveQuote` both call `meshInstallUnits`; neither
+reimplements it. That is what the install-parity guard in §9 requires.
 
 S-fold, slim tracks, track cost and combos do not exist for mesh. The freight mode and
 sales channel selectors work unchanged.
@@ -366,14 +378,24 @@ which exists specifically to return plain serialisable objects that cross the
 server→client boundary):
 
 ```ts
-loadMeshCalcConfig(): Promise<MeshCalcConfig | null>
-  // category × band price grid, active size bands (with max_area_cm2),
-  // and active colours with their surcharges — all plain objects
+loadMeshCalcConfig(inUseIds?: {
+  categoryIds: string[]; colourIds: string[]; bandIds: string[];
+}): Promise<MeshCalcConfig | null>
+  // category × band price grid, size bands (with max_area_cm2),
+  // and colours with their surcharges — all plain objects
 ```
 
 `/orders/new` and `/orders/[orderId]/edit` pass it to `ConsultationForm` alongside the
 existing `calcConfig`. Without this loader the form work in rollout step 7 has nothing
 to price against.
+
+**Active-only would break editing.** §9 requires archived catalogue rows to stay
+resolvable for orders already referencing them; an active-only loader would render a
+blank category or colour select on `/orders/[orderId]/edit` for an order using an
+archived row, and saving would silently drop it. So the loader takes the ids the order
+actually uses and **unions them into the active set**. `/orders/new` passes nothing and
+gets active rows only. Rows included solely because they're in use are marked so the
+form can show them as selected but keep them out of the dropdown's choosable options.
 
 ### 6.5 Surfacing unpriced panels
 
@@ -385,11 +407,14 @@ must not be smuggled into `QuoteResult`, which has no channel to carry it.
 Add a separate pure helper in `mesh-calculator.ts`:
 
 ```ts
-meshQuoteWarnings(panels, priceBook, colours): {
+meshQuoteWarnings(panels, priceBook): {
   unpricedPanels: number[];   // positions
   reasons: Array<'no-category' | 'no-dimensions' | 'no-band' | 'no-price-row'>
 }
 ```
+
+It takes no `colours` argument — none of the four reasons involve colour, and a null
+surcharge is legal (§5.3), so an unset colour is never a warning.
 
 `computeMeshQuote` keeps returning `QuoteResult` unchanged. The live quote panel and
 the order detail quote card call `meshQuoteWarnings` separately and render an amber
@@ -422,6 +447,9 @@ meshOrderCreateSchema  // { customer, order, rooms }
 meshOrderDraftSchema   // relaxed, mirrors orderDraftSchema
 meshOrderEditSchema    // panels carry an optional id for upsert
 ```
+
+The optional `id` enables upsert but does **not** handle removal — deleting a panel in
+the edit form requires the keep-list reconciliation in §8.5, obligation 3.
 
 Measurements reuse the existing `optionalInt` preprocessor and the 1000 cm cap.
 
@@ -556,8 +584,8 @@ New module `src/lib/actions/mesh-orders.ts` — `createMeshOrder`, `updateMeshOr
 `saveMeshDraft`. Every action opens with `await requireRole([...])` and validates with
 Zod, per `rules/code/server-actions.md`.
 
-Each mesh write path carries the same four obligations the curtain paths do. Two are
-easy to miss and both are silent failures:
+Each mesh write path carries the same obligations the curtain paths do. Four of them
+fail *silently* if missed — no error, just wrong data — so none is optional:
 
 1. **`stampQuoteBaseline`** (`orders.ts:31`, called at `:132`, `:296`, `:485`) — lift
    into the shared module and call it from all three mesh actions. Skipping it leaves
@@ -567,10 +595,25 @@ easy to miss and both are silent failures:
    the transaction commits, because `computeOrderQuote` reads through the base `db`.
 2. **The `order_status_events` seed insert** (`:120`, `:473`) — a `status: 'order_made'`
    row inside the transaction. Without it a mesh order's status timeline starts empty.
-3. **Customer upsert** — lift into the shared module and reuse.
-4. **Order numbering** — nothing to lift. `display_id` / `seq_year` / `seq_num` are
-   populated by a database trigger; `orders.ts:78-81` just inserts the placeholders
-   `seq_year: 0, seq_num: 0, display_id: ""`. Mesh inserts the same placeholders.
+3. **Panel keep-list reconciliation** (`updateMeshOrder` only) — `updateOrder` does not
+   merely upsert. Per room it accumulates a `keepWindowIds` list, then
+   `deleteFrom("windows").where("room_id","=",roomId).where("id","not in",keepWindowIds)`
+   (`orders.ts:256-260`). `updateMeshOrder` needs the identical pattern over
+   `mesh_panels`. An optional `id` for upsert (§7) covers only half the job: without the
+   keep-list delete, a panel the consultant removed in the edit form stays in the table
+   and the order keeps quoting *and installing* it.
+4. **Room-photo storage sweep** (`updateMeshOrder` only) — before deleting dropped
+   rooms, `updateOrder` captures every `room_photos.storage_path` about to be
+   cascade-deleted (`orders.ts:262-276`) and removes those objects from the bucket
+   **after** the transaction commits (`:283-290`), deliberately ordered so a rollback
+   can't leave deleted files behind live rows. `rooms` and `room_photos` are shared
+   tables, so this is identical work, not mesh-specific work — lift it alongside the
+   customer upsert rather than reimplementing it.
+5. **Customer upsert** — lift into the shared module and reuse.
+
+Order numbering needs nothing lifted: `display_id` / `seq_year` / `seq_num` are
+populated by a database trigger, and `orders.ts:78-81` just inserts the placeholders
+`seq_year: 0, seq_num: 0, display_id: ""`. Mesh inserts the same placeholders.
 
 Plus the split-nulling rule from §9.
 
@@ -615,8 +658,10 @@ Order matters — step 1 is the safety gate.
    **not** reported stale by `orderStaleFlags`. Add `loadMeshCalcConfig` (§6.4) here
    too, so the form work in step 7 has a price book to consume.
 5. Validation schemas, server actions — including the split-nulling rule (§9) and all
-   four write-path obligations in §8.5, `stampQuoteBaseline` and the status-event seed
-   especially.
+   five write-path obligations in §8.5. `stampQuoteBaseline`, the status-event seed, the
+   panel keep-list reconciliation and the room-photo storage sweep all fail silently if
+   missed, so verify each: remove a panel on edit and confirm the row is gone; remove a
+   room with photos and confirm the bucket objects are swept.
 6. Admin page `/admin/mesh` + the `handyman_mesh_sgd_cents` pricing-settings field.
 7. `RoomShell` (with its narrow shared type) and `QuotePanel` extraction,
    `CurtainRoomCard` / `MeshRoomCard`, `MeshPanelFields`, `CurtainLiveQuote` /

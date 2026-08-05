@@ -146,18 +146,31 @@ mesh_size_bands
   id             uuid pk
   label          text not null            -- "Up to 2 m²"
   max_area_cm2   int                      -- null = open-ended top band
-  position       int not null default 0
+  position       int not null default 0   -- display order only, never pricing
   is_active      boolean not null default true
-  created_at, updated_at
+  created_by, created_at, updated_at
 ```
 
 Area is stored in **cm²** as an integer (`width_cm × height_cm`), so band matching is
 integer arithmetic with no float drift — the same discipline as money-in-cents. 2 m²
 is `20000`.
 
-Bands must be ordered ascending by `max_area_cm2`, with the open-ended band
-(`max_area_cm2 IS NULL`) last. The admin UI derives `position` from that ordering
-rather than letting it be set freely, so the lookup in §6.1 cannot pick a wrong band.
+**Band ordering is a structural invariant, not a UI convention.** The price lookup
+(§6.1) orders by `max_area_cm2 asc nulls last` directly, so correctness never depends
+on `position` being maintained correctly. `position` governs display order only.
+
+At most one open-ended band may be active, otherwise the lookup is nondeterministic.
+Enforced in the database:
+
+```sql
+create unique index mesh_size_bands_single_open_band
+  on public.mesh_size_bands (is_active)
+  where max_area_cm2 is null and is_active;
+```
+
+Every row the predicate admits has `is_active = true`, so a unique index on that column
+permits exactly one active open-ended band. Archived bands are excluded, making a
+top-band replacement a two-step archive-then-create.
 
 Colour surcharges are **flat per panel**, matching the flat-per-panel pricing basis.
 They are not scaled by area.
@@ -178,6 +191,8 @@ mesh_prices
 
   unique (category_id, band_id)
 ```
+
+`mesh_prices` gets the `set_updated_at` trigger, same as the three catalogue tables.
 
 Three categories × three bands = a nine-cell grid, edited in the admin UI.
 
@@ -237,15 +252,19 @@ end differs.
 
 ```
 area_cm2 = width_cm × height_cm
-band     = first band, ordered by position, where
+band     = first band, ordered by max_area_cm2 ASC NULLS LAST, where
              max_area_cm2 IS NULL OR area_cm2 ≤ max_area_cm2
 price    = mesh_prices[category_id][band_id]
 cost     = price.cost_rmb_cents  + (colour.surcharge_rmb_cents ?? 0)
 sale     = price.sale_sgd_cents  + (colour.surcharge_sgd_cents ?? 0)
 ```
 
+The ordering is on `max_area_cm2`, never on `position` — pricing correctness must not
+depend on a display-ordering column staying in sync (§5.3).
+
 A panel with a null width or height, no category, or no matching `mesh_prices` row
-contributes zero and is reported as unpriced (see §9).
+contributes zero to the quote, matching how `windowQuote` treats an unpriced curtain
+leg. Surfacing it to the user is a separate concern — see §6.5.
 
 ### 6.2 Shared tail
 
@@ -266,8 +285,10 @@ cost, the promotion discount applied to the sale, then `marginBps` and groupbuy 
 common and moves wholesale into `finaliseQuote`.
 
 `QuoteResult` is unchanged. `computeQuote` becomes a thin curtain-specific front end
-that calls `finaliseQuote`. **The existing 67 tests must pass unchanged after this
-refactor** — that is the safety gate for the whole phase.
+that calls `finaliseQuote`. **Every existing test must pass unchanged after this
+refactor** — 72 tests across 12 files at time of writing — and that is the safety gate
+for the whole phase. Verify with `npx vitest run` and read the count; the number will
+have grown by the time this is implemented, so treat 72 as a floor, not a target.
 
 ### 6.3 Mesh calculator
 
@@ -285,20 +306,72 @@ lowers margin and never appears on the customer quote.
 S-fold, slim tracks, track cost and combos do not exist for mesh. The freight mode and
 sales channel selectors work unchanged.
 
-### 6.4 Order quote
+### 6.4 Order quote — **both** engines in `order-quote.ts`
 
-`src/lib/pricing/order-quote.ts` branches once at the top on `order.product_line`:
-mesh orders load panels plus the mesh price book and call `computeMeshQuote`; curtain
-orders take the existing path untouched. `price_calc_at_quote_cents` and the
-stale-quote banner keep working as-is, since they only ever store a single total.
+`src/lib/pricing/order-quote.ts` contains two independent quote engines, and **both**
+need the product-line branch:
+
+1. **`computeOrderQuote(orderId)`** — the single-order path used by the order detail
+   page. Branches on `order.product_line`: mesh orders load panels plus the mesh price
+   book and call `computeMeshQuote`; curtain orders take the existing path untouched.
+
+2. **`orderStaleFlags(orderIds)`** — the batched staleness sweep for the orders list,
+   which avoids an N+1 by selecting all `windows` for a set of orders in one query and
+   recomputing each order's live sale.
+
+Missing the second one is a live bug, not a gap. `orderStaleFlags` selects from
+`windows` joined through `rooms` with no product-line filter. A mesh order has zero
+`windows` rows, so it falls to `computeQuote([])` → `discountedSaleSgdCents = 0`, which
+`quoteStaleness` compares against a non-null `price_calc_at_quote_cents`:
+
+```ts
+isStale: baselineCalcCents != null && baselineCalcCents !== liveCents
+```
+
+Every quoted mesh order would therefore show a permanent re-quote banner that no action
+can clear. The fix: `orderStaleFlags` must select the order's `product_line`, fetch
+`mesh_panels` for the mesh ids alongside `windows` for the curtain ids in the same
+batched sweep, and route each order to the matching calculator. Orders with no rows in
+*either* table still behave as they do today.
+
+`price_calc_at_quote_cents` and the stale-quote banner otherwise work unchanged, since
+they only ever store a single total.
+
+### 6.5 Surfacing unpriced panels
+
+There is **no existing precedent** for flagging unpriced items — `windowQuote`
+(`calculator.ts:82`) silently returns zero for an unpriced leg, and
+`calculator.test.ts:122` asserts that as intended behaviour. So this is new work, and it
+must not be smuggled into `QuoteResult`, which has no channel to carry it.
+
+Add a separate pure helper in `mesh-calculator.ts`:
+
+```ts
+meshQuoteWarnings(panels, priceBook, colours): {
+  unpricedPanels: number[];   // positions
+  reasons: Array<'no-category' | 'no-dimensions' | 'no-band' | 'no-price-row'>
+}
+```
+
+`computeMeshQuote` keeps returning `QuoteResult` unchanged. The live quote panel and
+the order detail quote card call `meshQuoteWarnings` separately and render an amber
+notice listing the affected panels. Pricing and warning stay decoupled, and curtains
+are untouched.
 
 ## 7. Validation
 
 New module `src/lib/validation/mesh.ts`.
 
-`src/lib/validation/order.ts` stays byte-identical except that `customerSchema` and
-`orderMetaSchema` become exported so they can be reused. `orderMetaSchema` gains
-`product_line: z.enum(["curtain","mesh"]).default("curtain")`.
+`src/lib/validation/order.ts` changes in exactly one way: `customerSchema` and
+`orderMetaSchema` become exported so they can be reused. No field is added or removed.
+
+**`product_line` does not go into the shared `orderMetaSchema`.** Putting it there would
+let the curtain edit form parse a field it must never accept, reducing the immutability
+guarantee in §9 to an "the action ignores it" convention on a value the schema happily
+validates. Instead the product line is fixed by *which schema you used*: the create
+paths set it as a literal (`orderCreateSchema` → `'curtain'`, `meshOrderCreateSchema` →
+`'mesh'`), and neither edit schema can express it at all. No edit path can change an
+order's product line because no edit schema has a field for it.
 
 ```ts
 meshPanelSchema        // position, category_id, colour_id, width/height/depth_cm,
@@ -324,30 +397,66 @@ values. The split fields are only meaningful when `draw = 'Double'`.
 then the form for the chosen line. No new top-nav item — the nav is already five items
 deep and the mobile menu is tight.
 
-The Mesh card is hidden until at least one `mesh_prices` row has a `sale_sgd_cents`, so
-nobody can create a $0 mesh quote before the catalogue is configured.
+The Mesh card is hidden until **both** of these hold:
 
-### 8.2 Consultation form
+1. at least one `mesh_prices` row has a non-null `sale_sgd_cents`, and
+2. `pricing_assumptions.handyman_mesh_sgd_cents > 0`.
 
-Thread a `productLine` prop through `ConsultationForm` and `RoomCard` and swap only the
-innermost field component:
+The second condition matters as much as the first. That column defaults to `0`, so
+gating on price alone would let the first mesh quotes go out with zero installation
+cost and an overstated margin — exactly the failure the install-parity guard in §9 is
+meant to prevent. The `/admin/mesh` empty state names both prerequisites and links to
+`/admin/pricing-settings` for the second.
+
+### 8.2 Consultation form — extract shells, don't thread a flag
+
+A `productLine` prop threaded through the existing components does **not** work. Three
+concrete blockers in the current code:
+
+- `room-card.tsx:54` is `useFormContext<OrderEditInput>()` and `:56-59` is
+  `useFieldArray({ name: \`rooms.${roomIndex}.windows\` })` — bound to the curtain
+  schema type and the `windows` field path. Mesh rooms hold `panels[]` (§7), so the path
+  is wrong on day one.
+- `room-card.tsx:69-92` runs a toilet-variant sync effect keyed on
+  `isToiletRoom(roomType)` that calls `setValue` on `day_curtain_type_id`,
+  `night_curtain_type_id` and `curtain_type_id`. Meaningless for mesh and actively
+  destructive.
+- `live-quote.tsx:37` is likewise `useFormContext<OrderEditInput>()`, and every
+  `useWatch` below it is typed against the curtain schema.
+
+Renaming the mesh array to `windows` and gating the toilet effect on `productLine` would
+compile, but it leaves `useFormContext<OrderEditInput>()` lying about the mesh case and
+leaves a field called `windows` holding mesh panels. Extract shells instead:
 
 ```
-ConsultationForm  ──┬── CustomerSection        shared
-                    ├── RoomCard               shared (rooms, photos, add/remove)
-                    │     ├── WindowFields     curtain
-                    │     └── MeshPanelFields  new
-                    ├── PricingSection         shared (promo, freight, channel)
-                    └── LiveQuote              branches on productLine
+ConsultationForm  ──┬── CustomerSection      shared, unchanged
+                    ├── RoomShell            NEW — presentational: room type select,
+                    │   │                    label, photo uploader, remove button,
+                    │   │                    "add" button. Takes children.
+                    │   ├── CurtainRoomCard  owns useFieldArray on …rooms.N.windows
+                    │   │                    + the toilet effect (curtain-only)
+                    │   └── MeshRoomCard     owns useFieldArray on …rooms.N.panels
+                    │         └── MeshPanelFields
+                    ├── PricingSection       shared, unchanged
+                    └── QuotePanel           NEW — presentational shell
+                        ├── CurtainLiveQuote existing logic, renamed
+                        └── MeshLiveQuote    calls computeMeshQuote +
+                                             meshQuoteWarnings (§6.5)
 ```
+
+Each room card owns its own `useFormContext` at its own schema type, so neither lies
+about the other. The duplicated part is small — a `useFieldArray` plus a map over
+fields. The shell holds the rest: room type, label, photos, add/remove, and all the
+prototype classes and breakpoints.
+
+`ConsultationForm` still takes a `productLine` prop, but it uses it to pick a room card
+and a quote component, not to branch inside shared internals.
 
 `MeshPanelFields` is one new component: category select, colour select, width / height /
 depth in cm, draw select, and — revealed only when draw is `Double` — the left/right cm
-pair with a live sum check against total width.
+pair with a live sum check against total width (amber hint on mismatch, never blocking).
 
-This threads a prop through two curtain files rather than duplicating the room, photo
-and customer scaffolding. Follow the existing prototype classes and breakpoints
-(`docs/prototype/consultation.html`).
+Follow `docs/prototype/consultation.html` for layout, classes and breakpoints.
 
 ### 8.3 Orders list and detail
 
@@ -355,6 +464,12 @@ and customer scaffolding. Follow the existing prototype classes and breakpoints
   `orders-cards.tsx` gain a product-line badge per row.
 - `room-summary-card.tsx` / `room-edit-card.tsx` render a panel spec table for mesh
   orders: category, colour, W × H × D, draw, and the split.
+- `src/app/(app)/orders/[orderId]/edit/page.tsx` needs a mesh branch. It is the server
+  component that loads `windows` rows and shapes them into the form's `defaultValues`
+  (and it imports `isToiletRoom` to do it). For a mesh order it must load `mesh_panels`
+  instead and build mesh-shaped defaults, then render `ConsultationForm` with
+  `productLine="mesh"`. Editing a mesh order is broken without this, regardless of what
+  the form components do.
 - The print view renders the same panel spec table.
 
 ### 8.4 Admin
@@ -384,16 +499,20 @@ New module `src/lib/actions/mesh-orders.ts` — `createMeshOrder`, `updateMeshOr
 ## 9. Guards and edge cases
 
 - **Unpriced panel.** A panel whose `(category, band)` has no price, or whose category
-  or dimensions are missing, is flagged in the live quote rather than silently priced
-  at zero — the same treatment unpriced curtain series receive.
+  or dimensions are missing, prices at zero (§6.1) and is surfaced by the separate
+  `meshQuoteWarnings` helper (§6.5). There is no existing unpriced-flagging behaviour to
+  copy — curtains deliberately price a missing series at zero and a test asserts it.
 - **Live quote and server quote must share install logic.** There is a known existing
   gap where the two disagree on curtain install cost for unpriced series. Build the
   mesh install calculation once and call it from both sides from the start.
 - **Band with no match.** If every band has a `max_area_cm2` and the panel exceeds all
-  of them, the panel is unpriced and flagged. The admin UI warns when no open-ended top
-  band exists.
-- **Split ignored for single draws.** `split_left_cm` / `split_right_cm` are cleared
-  when draw is not `Double`.
+  of them, the panel is unpriced and warned. The `/admin/mesh` band editor warns when no
+  active open-ended band exists; the database separately prevents there being more than
+  one (§5.3).
+- **Split cleared for single draws — on the server.** `createMeshOrder`,
+  `updateMeshOrder` and `saveMeshDraft` write `split_left_cm` and `split_right_cm` as
+  `null` whenever `draw` is not `Double`. The form hiding the fields is a convenience,
+  not the guarantee; the form is not the only writer.
 - **Product line is immutable after creation.** An order's `product_line` cannot be
   changed on edit; the field is not rendered on the edit form and the edit action
   ignores it rather than trusting the submitted value.
@@ -405,17 +524,26 @@ New module `src/lib/actions/mesh-orders.ts` — `createMeshOrder`, `updateMeshOr
 
 Order matters — step 1 is the safety gate.
 
-1. **Extract `finaliseQuote`**, change nothing else, confirm all 67 existing tests pass.
+1. **Extract `finaliseQuote`**, change nothing else, confirm the full existing suite
+   still passes (`npx vitest run` — 72 tests / 12 files at time of writing).
 2. Migration + `npm run db:codegen`.
 3. Mesh calculator with unit tests covering the band edges: area exactly on a threshold,
    area above the top band, a missing `mesh_prices` row, null dimensions, and a colour
-   surcharge applied on top of a base price.
-4. Validation schemas, server actions.
-5. Admin page `/admin/mesh` + the pricing-settings field.
-6. Consultation chooser, `MeshPanelFields`, live quote branch.
-7. Orders list filter and badge, order detail, print view.
-8. End-to-end: configure the catalogue through `/admin/mesh`, create a mesh order,
-   check the quote against a hand calculation, walk all six statuses, print.
+   surcharge applied on top of a base price. Plus `meshQuoteWarnings` (§6.5) tests for
+   each warning reason.
+4. **Both engines in `order-quote.ts`** — `computeOrderQuote` *and* `orderStaleFlags`
+   (§6.4). Add a regression test that a quoted mesh order with a captured baseline is
+   **not** reported stale by `orderStaleFlags`.
+5. Validation schemas, server actions (including the split-nulling rule in §9).
+6. Admin page `/admin/mesh` + the `handyman_mesh_sgd_cents` pricing-settings field.
+7. `RoomShell` and `QuotePanel` extraction, `CurtainRoomCard` / `MeshRoomCard`,
+   `MeshPanelFields`, `CurtainLiveQuote` / `MeshLiveQuote` (§8.2). Re-verify the curtain
+   consultation and edit flows still behave identically after the extraction.
+8. Consultation chooser, orders list filter and badge, order detail, the mesh branch in
+   `edit/page.tsx`, print view.
+9. End-to-end: configure the catalogue through `/admin/mesh`, set the mesh handyman
+   cost, create a mesh order, check the quote against a hand calculation, confirm the
+   orders list shows no false stale banner, edit the order, walk all six statuses, print.
 
 There is **no seed script**. The three categories, the colour list, the size bands and
 the price grid are all created through `/admin/mesh`, the same way vendors and series

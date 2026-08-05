@@ -189,28 +189,29 @@ const installFor = (offering: Offering, a: CalcAssumptions): number =>
       ? a.handymanSingleSgdCents
       : 0;
 
-export function computeQuote(
-  windows: CalcWindow[],
-  book: CalcAddonBook,
+// The half of the quote that every product line shares: freight, other cost,
+// GST, RMB→SGD, installation, the order-level discount, margin and groupbuy.
+// Product-specific code only has to reduce its line items down to these four
+// numbers and hand them over.
+//
+// `freightBaseRmbCents` is separate from `cogsRmbCents` because the two are not
+// the same for curtains: air freight is billed on curtain-only COGS, excluding
+// add-ons and tracks, per the Excel sheet.
+export type QuoteTotals = {
+  cogsRmbCents: number;
+  freightBaseRmbCents: number;
+  saleSgdCents: number;
+  installSgdCents: number;
+};
+
+export function finaliseQuote(
+  totals: QuoteTotals,
   a: CalcAssumptions,
   freightMode: FreightMode = "air",
   extraInstallSgdCents = 0,
   discountBps = 0,
 ): QuoteResult {
-  const totals = windows.reduce(
-    (acc, w) => {
-      const q = windowQuote(w, book, a.styleMultiplier);
-      return {
-        costRmbCents: acc.costRmbCents + q.costRmbCents,
-        saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
-        curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
-        installSgdCents: acc.installSgdCents + installFor(q.offering, a),
-      };
-    },
-    { costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0, installSgdCents: 0 },
-  );
-
-  const cogs = totals.costRmbCents;
+  const cogs = totals.cogsRmbCents;
   const sale = totals.saleSgdCents;
 
   // Air = rate × curtain COGS, clamped. Sea = flat per-m³ charge.
@@ -218,7 +219,7 @@ export function computeQuote(
     freightMode === "sea"
       ? a.seaFreightRmbCentsPerM3
       : clamp(
-          Math.round((totals.curtainCostRmbCents * a.airFreightRateBps) / 10000),
+          Math.round((totals.freightBaseRmbCents * a.airFreightRateBps) / 10000),
           a.airFreightFloorRmbCents,
           a.airFreightCapRmbCents,
         );
@@ -253,4 +254,41 @@ export function computeQuote(
     groupbuySgdCents: groupbuy,
     groupbuyMarginBps: marginBps(netCostSgd, groupbuy),
   };
+}
+
+export function computeQuote(
+  windows: CalcWindow[],
+  book: CalcAddonBook,
+  a: CalcAssumptions,
+  freightMode: FreightMode = "air",
+  extraInstallSgdCents = 0,
+  discountBps = 0,
+): QuoteResult {
+  const totals = windows.reduce(
+    (acc, w) => {
+      const q = windowQuote(w, book, a.styleMultiplier);
+      return {
+        costRmbCents: acc.costRmbCents + q.costRmbCents,
+        saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
+        curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
+        installSgdCents: acc.installSgdCents + installFor(q.offering, a),
+      };
+    },
+    { costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0, installSgdCents: 0 },
+  );
+
+  // Curtains bill air freight on curtain-only COGS — add-ons and tracks are
+  // excluded, per the Excel's sum(Day COGS, Night COGS) × rate.
+  return finaliseQuote(
+    {
+      cogsRmbCents: totals.costRmbCents,
+      freightBaseRmbCents: totals.curtainCostRmbCents,
+      saleSgdCents: totals.saleSgdCents,
+      installSgdCents: totals.installSgdCents,
+    },
+    a,
+    freightMode,
+    extraInstallSgdCents,
+    discountBps,
+  );
 }

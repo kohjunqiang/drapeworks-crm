@@ -312,13 +312,21 @@ same and must not be collapsed:**
 
 ```ts
 isMeasured(panel)  = category && width_cm && height_cm      → governs INSTALL (§6.3)
-isPriced(panel)    = isMeasured && band && price row        → governs WARNINGS (§6.5)
+isPriced(panel)    = isMeasured && band                     → governs WARNINGS (§6.5)
+                     && price row with a NON-NULL sale_sgd_cents
 
 meshInstallUnits(panels) = panels.filter(isMeasured).length
 ```
 
 Install is `meshInstallUnits(panels) × handymanMeshSgdCents + extraInstallSgdCents` — a
 cost that lowers margin and never appears on the customer quote.
+
+`isPriced` requires a **non-null `sale_sgd_cents`**, not merely the existence of a
+`mesh_prices` row. §5.4 makes both money columns nullable ("nullable = not yet priced"),
+and the nine-cell grid is realistically created as a grid and then filled cell by cell —
+so a row can exist with no price in it. Treating row-existence as proof of a price would
+let exactly the silent-zero case §6.5 exists to catch slip through, and it would
+contradict §8.1, which already gates the chooser on a non-null `sale_sgd_cents`.
 
 A fully measured panel whose price-grid cell is empty is **warned but still an install
 unit**: the handyman installs it regardless of whether an admin has filled that cell.
@@ -409,12 +417,22 @@ Add a separate pure helper in `mesh-calculator.ts`:
 ```ts
 meshQuoteWarnings(panels, priceBook): {
   unpricedPanels: number[];   // positions
-  reasons: Array<'no-category' | 'no-dimensions' | 'no-band' | 'no-price-row'>
+  reasons: Array<'no-category' | 'no-dimensions' | 'no-band'
+               | 'no-price-row' | 'price-row-empty'>
 }
 ```
 
-It takes no `colours` argument — none of the four reasons involve colour, and a null
-surcharge is legal (§5.3), so an unset colour is never a warning.
+The last two are deliberately distinct, because they send an admin to different places:
+
+| Reason | Meaning | Fix |
+|---|---|---|
+| `no-price-row` | No `(category, band)` row exists at all | A structural gap — the grid is missing a cell |
+| `price-row-empty` | The row exists but `sale_sgd_cents` is null | An unfilled cell in an otherwise complete grid |
+
+Both warn. The amber notice names which, so nobody hunts the wrong screen.
+
+It takes no `colours` argument — no warning reason involves colour, and a null surcharge
+is legal (§5.3), so an unset colour is never a warning.
 
 `computeMeshQuote` keeps returning `QuoteResult` unchanged. The live quote panel and
 the order detail quote card call `meshQuoteWarnings` separately and render an amber
@@ -619,9 +637,10 @@ Plus the split-nulling rule from §9.
 
 ## 9. Guards and edge cases
 
-- **Unpriced panel.** A panel whose `(category, band)` has no price, or whose category
-  or dimensions are missing, prices at zero (§6.1) and is surfaced by the separate
-  `meshQuoteWarnings` helper (§6.5). There is no existing unpriced-flagging behaviour to
+- **Unpriced panel.** A panel whose `(category, band)` cell is missing *or empty*, or
+  whose category or dimensions are missing, prices at zero (§6.1) and is surfaced by the
+  separate `meshQuoteWarnings` helper (§6.5). An existing `mesh_prices` row with a null
+  `sale_sgd_cents` counts as unpriced. There is no existing unpriced-flagging behaviour to
   copy — curtains deliberately price a missing series at zero and a test asserts it.
 - **Live quote and server quote must share install logic.** There is a known existing
   gap where the two disagree on curtain install cost for unpriced series. Build the
@@ -649,10 +668,11 @@ Order matters — step 1 is the safety gate.
    still passes (`npx vitest run` — 72 tests / 12 files at time of writing).
 2. Migration + `npm run db:codegen`.
 3. Mesh calculator with unit tests covering the band edges: area exactly on a threshold,
-   area above the top band, a missing `mesh_prices` row, null dimensions, and a colour
-   surcharge applied on top of a base price. Plus `meshQuoteWarnings` (§6.5) tests for
-   each warning reason, and a `meshInstallUnits` test asserting **a blank panel row adds
-   no install cost** (§6.3).
+   area above the top band, a missing `mesh_prices` row, **a `mesh_prices` row with a
+   null `sale_sgd_cents`**, null dimensions, and a colour surcharge applied on top of a
+   base price. Plus `meshQuoteWarnings` (§6.5) tests for each of the five warning
+   reasons, and a `meshInstallUnits` test asserting **a blank panel row adds no install
+   cost** while a measured-but-unpriced panel **does** (§6.3).
 4. **Both engines in `order-quote.ts`** — `computeOrderQuote` *and* `orderStaleFlags`
    (§6.4). Add a regression test that a quoted mesh order with a captured baseline is
    **not** reported stale by `orderStaleFlags`. Add `loadMeshCalcConfig` (§6.4) here

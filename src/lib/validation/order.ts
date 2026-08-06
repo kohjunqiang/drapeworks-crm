@@ -27,7 +27,9 @@ export function isToiletRoom(type: (typeof ROOM_TYPES)[number]): boolean {
 // stop typo-driven nonsense like 100000 cm.
 const MAX_MEASUREMENT_CM = 1000;
 
-const optionalInt = z.preprocess(
+// Exported so the mesh schemas (validation/mesh.ts) reuse the exact same
+// coercion rules rather than duplicating them. No behaviour change here.
+export const optionalInt = z.preprocess(
   (v) => {
     if (v === "" || v === undefined || v === null) return null;
     if (typeof v === "string") {
@@ -42,7 +44,7 @@ const optionalInt = z.preprocess(
 // A native <select>'s empty option submits "", which is not a valid uuid.
 // Normalise "" / null to undefined so an unselected curtain type is simply
 // "no selection" rather than a validation error.
-const optionalTypeId = z.preprocess(
+export const optionalTypeId = z.preprocess(
   (v) => (v === "" || v === null ? undefined : v),
   z.string().uuid().optional(),
 );
@@ -102,7 +104,7 @@ const sgPhone = z
       ),
   );
 
-const customerSchema = z.object({
+export const customerSchema = z.object({
   name: z.string().min(1, "Required").max(200),
   mobile: sgPhone,
   email: z
@@ -118,7 +120,7 @@ const customerSchema = z.object({
 // anywhere near this. Stops accidental extra zero typos from polluting stats.
 const MAX_MONEY_CENTS = 100_000_000;
 
-const orderMetaSchema = z.object({
+export const orderMetaSchema = z.object({
   property_type: z
     .enum(PROPERTY_TYPES)
     .or(z.literal(""))

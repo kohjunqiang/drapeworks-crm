@@ -238,6 +238,23 @@ alter table public.pricing_assumptions
   permitted where the owning order's `consultant_id = auth.uid()` or `is_admin()`,
   joined through `rooms`.
 
+### 5.8 `down()`
+
+Every migration in `data/migrations/` implements `down()`, and the convention drops enum
+types last — see `20260710130000_curtain_type_pricing.ts:48` and
+`20260708140000_curtain_types.ts:216-217`. A Postgres type cannot be dropped while a
+column still uses it, so the order here is not arbitrary:
+
+1. `drop table mesh_panels` — FK to `rooms`, and the only user of `mesh_draw_direction`
+2. `drop table mesh_prices` — FKs to `mesh_categories` and `mesh_size_bands`
+3. `drop table mesh_categories`, `mesh_colours`, `mesh_size_bands`
+4. `alter table pricing_assumptions drop column handyman_mesh_sgd_cents`
+5. `alter table orders drop column product_line` — the only user of `product_line`
+6. `drop type mesh_draw_direction`, `drop type product_line`
+
+Steps 5 and 6 must not be reversed. Dropping tables takes their triggers, indexes and
+policies with them, as in the `vendors` migration.
+
 After the migration, run `npm run db:codegen`.
 
 ## 6. Pricing
@@ -419,6 +436,7 @@ meshQuoteWarnings(panels, priceBook): {
   unpricedPanels: number[];   // positions
   reasons: Array<'no-category' | 'no-dimensions' | 'no-band'
                | 'no-price-row' | 'price-row-empty'>
+  missingCostPanels: number[];  // sale filled, cost_rmb_cents null
 }
 ```
 
@@ -433,6 +451,27 @@ Both warn. The amber notice names which, so nobody hunts the wrong screen.
 
 It takes no `colours` argument — no warning reason involves colour, and a null surcharge
 is legal (§5.3), so an unset colour is never a warning.
+
+### A null `cost_rmb_cents` is a separate advisory
+
+§5.4 makes `cost_rmb_cents` nullable too, and the fill-cell-by-cell workflow produces
+half-filled cells: sale entered, cost still blank. That panel is **correctly priced for
+the customer**, so it does not belong in `unpricedPanels` — but it contributes zero COGS,
+which means a zero freight base and a margin reading near 100%.
+
+That failure is invisible by construction. The below-floor guard
+(`live-quote.tsx:118`) fires on `shownMarginBps < floorBps`; a 100% margin is *above*
+the floor, so nothing trips. Unlike a $0 sale, which is obvious on screen, a missing
+cost looks like unusually good news.
+
+So it gets its own `missingCostPanels` list and its own notice — "margin unreliable,
+cost not configured" — kept out of the customer-facing unpriced warning.
+
+**This deliberately does not inherit the curtain behaviour.** `calculator.ts:86` is
+`price.costRmbCents ?? 0`, which silently zeroes an unset curtain cost with no warning
+anywhere. Inheriting that would be defensible, but it is recorded here as a decision
+rather than left as an omission: mesh warns, because a silently overstated margin is the
+kind of error that gets discovered in a P&L rather than on screen.
 
 `computeMeshQuote` keeps returning `QuoteResult` unchanged. The live quote panel and
 the order detail quote card call `meshQuoteWarnings` separately and render an amber
@@ -640,8 +679,12 @@ Plus the split-nulling rule from §9.
 - **Unpriced panel.** A panel whose `(category, band)` cell is missing *or empty*, or
   whose category or dimensions are missing, prices at zero (§6.1) and is surfaced by the
   separate `meshQuoteWarnings` helper (§6.5). An existing `mesh_prices` row with a null
-  `sale_sgd_cents` counts as unpriced. There is no existing unpriced-flagging behaviour to
-  copy — curtains deliberately price a missing series at zero and a test asserts it.
+  `sale_sgd_cents` counts as unpriced. There is no existing unpriced-flagging behaviour
+  to copy — curtains deliberately price a missing series at zero and a test asserts it.
+- **Missing cost is a different failure.** A cell with `sale_sgd_cents` filled and
+  `cost_rmb_cents` null quotes the customer correctly but reports near-100% margin, and
+  is *not* caught by the below-floor guard because it sits above the floor. Surfaced
+  separately as `missingCostPanels` (§6.5), never mixed into the unpriced warning.
 - **Live quote and server quote must share install logic.** There is a known existing
   gap where the two disagree on curtain install cost for unpriced series. Build the
   mesh install calculation once and call it from both sides from the start.
@@ -671,8 +714,9 @@ Order matters — step 1 is the safety gate.
    area above the top band, a missing `mesh_prices` row, **a `mesh_prices` row with a
    null `sale_sgd_cents`**, null dimensions, and a colour surcharge applied on top of a
    base price. Plus `meshQuoteWarnings` (§6.5) tests for each of the five warning
-   reasons, and a `meshInstallUnits` test asserting **a blank panel row adds no install
-   cost** while a measured-but-unpriced panel **does** (§6.3).
+   reasons, a test that a null `cost_rmb_cents` lands in `missingCostPanels` and **not**
+   in `unpricedPanels`, and a `meshInstallUnits` test asserting **a blank panel row adds
+   no install cost** while a measured-but-unpriced panel **does** (§6.3).
 4. **Both engines in `order-quote.ts`** — `computeOrderQuote` *and* `orderStaleFlags`
    (§6.4). Add a regression test that a quoted mesh order with a captured baseline is
    **not** reported stale by `orderStaleFlags`. Add `loadMeshCalcConfig` (§6.4) here

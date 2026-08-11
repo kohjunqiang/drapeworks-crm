@@ -50,7 +50,9 @@ export function StatusTimeline({
   }
 
   const atStart = currentIdx <= 0;
-  const prevLabel = atStart ? undefined : STATUS_LABELS[STATUS_FLOW[currentIdx - 1]];
+  const prevLabel = atStart
+    ? undefined
+    : STATUS_LABELS[STATUS_FLOW[currentIdx - 1]];
 
   return (
     <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
@@ -77,8 +79,8 @@ export function StatusTimeline({
                   reached
                     ? "bg-emerald-500 text-white"
                     : current
-                    ? "bg-teal-500 text-white ring-4 ring-teal-100"
-                    : "bg-slate-200 text-slate-500"
+                      ? "bg-teal-500 text-white ring-4 ring-teal-100"
+                      : "bg-slate-200 text-slate-500"
                 }`}
               >
                 {reached ? "✓" : i + 1}
@@ -92,23 +94,24 @@ export function StatusTimeline({
                     {headEv
                       ? formatDate(headEv.created_at)
                       : current
-                      ? "In progress"
-                      : "Pending"}
+                        ? "In progress"
+                        : "Pending"}
                   </div>
                 </div>
-                {evs.map((ev) => (
-                  ev.note && (
-                    <div
-                      key={ev.id}
-                      className="text-xs text-slate-600 mt-1 whitespace-pre-wrap"
-                    >
-                      {ev.note}
-                      <span className="text-slate-400 ml-2">
-                        · {formatDate(ev.created_at)}
-                      </span>
-                    </div>
-                  )
-                ))}
+                {evs.map(
+                  (ev) =>
+                    ev.note && (
+                      <div
+                        key={ev.id}
+                        className="text-xs text-slate-600 mt-1 whitespace-pre-wrap"
+                      >
+                        {ev.note}
+                        <span className="text-slate-400 ml-2">
+                          · {formatDate(ev.created_at)}
+                        </span>
+                      </div>
+                    ),
+                )}
               </div>
             </li>
           );

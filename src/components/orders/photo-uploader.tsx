@@ -54,9 +54,8 @@ export function PhotoUploader({ roomId, photos }: Props) {
         );
       }
 
-      const { default: imageCompression } = await import(
-        "browser-image-compression"
-      );
+      const { default: imageCompression } =
+        await import("browser-image-compression");
       const compressed = await imageCompression(toUpload, {
         maxSizeMB: 2,
         maxWidthOrHeight: 1600,

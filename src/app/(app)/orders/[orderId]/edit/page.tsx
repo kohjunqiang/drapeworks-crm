@@ -2,18 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ConsultationForm } from "@/components/orders/consultation-form";
+import { MeshConsultationForm } from "@/components/orders/mesh-form";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
 import { loadActivePromotions } from "@/lib/db/promotions";
-import { loadCalcConfig } from "@/lib/pricing/order-quote";
+import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import {
   isToiletRoom,
   type OrderEditInput,
 } from "@/lib/validation/order";
+import type { MeshOrderEditInput } from "@/lib/validation/mesh";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,7 @@ export default async function EditOrderPage({
       "orders.id as id",
       "orders.display_id as display_id",
       "orders.consultant_id as consultant_id",
+      "orders.product_line as product_line",
       "orders.property_type as property_type",
       "orders.development as development",
       "orders.unit_type as unit_type",
@@ -76,8 +79,10 @@ export default async function EditOrderPage({
 
   const roomIds = rooms.map((r) => r.id);
 
+  const isMesh = order.product_line === "mesh";
+
   const windows =
-    roomIds.length === 0
+    roomIds.length === 0 || isMesh
       ? []
       : await db
           .selectFrom("windows")
@@ -135,6 +140,115 @@ export default async function EditOrderPage({
     const list = roomPhotos[p.room_id] ?? [];
     list.push({ id: p.id, signedUrl: url, originalName: p.original_name });
     roomPhotos[p.room_id] = list;
+  }
+
+  // ── mesh orders take a different form, schema and action ───────────────
+  // Everything above (order, rooms, photos) is shared; only the line items and
+  // the form differ. Without this branch, editing a mesh order would render
+  // curtain fields against panels that aren't there.
+  if (isMesh) {
+    const panels =
+      roomIds.length === 0
+        ? []
+        : await db
+            .selectFrom("mesh_panels")
+            .select([
+              "id",
+              "room_id",
+              "position",
+              "category_id",
+              "colour_id",
+              "width_cm",
+              "height_cm",
+              "depth_cm",
+              "draw",
+              "split_left_cm",
+              "split_right_cm",
+              "notes",
+            ])
+            .where("room_id", "in", roomIds)
+            .orderBy("position", "asc")
+            .execute();
+
+    const panelsByRoom = new Map<string, typeof panels>();
+    for (const p of panels) {
+      const list = panelsByRoom.get(p.room_id) ?? [];
+      list.push(p);
+      panelsByRoom.set(p.room_id, list);
+    }
+
+    // Pass the ids this order already uses so archived categories, colours and
+    // bands still resolve — otherwise their selects render blank and the value
+    // is silently dropped on save.
+    const [meshConfig, meshPromotions] = await Promise.all([
+      loadMeshCalcConfig({
+        categoryIds: panels.map((p) => p.category_id).filter((x): x is string => !!x),
+        colourIds: panels.map((p) => p.colour_id).filter((x): x is string => !!x),
+      }),
+      loadActivePromotions(),
+    ]);
+
+    const meshDefaults: MeshOrderEditInput = {
+      customer: {
+        name: order.customer_name,
+        mobile: order.customer_mobile,
+        email: order.customer_email ?? "",
+      },
+      order: {
+        property_type: order.property_type ?? undefined,
+        development: order.development ?? "",
+        unit_type: order.unit_type ?? "",
+        move_in_date: toDateInput(order.move_in_date),
+        price_quoted_cents: order.price_quoted_cents,
+        deposit_cents: order.deposit_cents,
+        general_notes: order.general_notes ?? "",
+        is_draft: order.is_draft,
+        freight_mode: order.freight_mode,
+        channel: order.channel,
+        extra_install_cents: order.extra_install_sgd_cents,
+        discount_bps: order.discount_bps,
+        promo_label: order.promo_label ?? undefined,
+      },
+      rooms: rooms.map((r, rIdx) => ({
+        id: r.id,
+        type: r.type,
+        label: r.label,
+        position: rIdx,
+        panels: (panelsByRoom.get(r.id) ?? []).map((p, pIdx) => ({
+          id: p.id,
+          position: pIdx,
+          category_id: p.category_id ?? "",
+          colour_id: p.colour_id ?? "",
+          width_cm: p.width_cm ?? null,
+          height_cm: p.height_cm ?? null,
+          depth_cm: p.depth_cm ?? null,
+          draw: p.draw ?? undefined,
+          split_left_cm: p.split_left_cm ?? null,
+          split_right_cm: p.split_right_cm ?? null,
+          notes: p.notes ?? "",
+        })),
+      })),
+    };
+
+    return (
+      <EditShell order={order}>
+        {meshConfig ? (
+          <MeshConsultationForm
+            mode="edit"
+            orderId={order.id}
+            meshConfig={meshConfig}
+            promotions={meshPromotions}
+            defaultValues={meshDefaults}
+            roomPhotos={roomPhotos}
+          />
+        ) : (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Mesh pricing isn&rsquo;t configured, so this order can&rsquo;t be
+            edited safely.
+          </div>
+        )}
+      </EditShell>
+    );
   }
 
   const [curtainTypes, calcConfig, promotions, combos] = await Promise.all([
@@ -207,16 +321,37 @@ export default async function EditOrderPage({
   };
 
   return (
+    <EditShell order={order}>
+      <ConsultationForm
+        mode="edit"
+        orderId={order.id}
+        curtainTypes={curtainTypes}
+        calcConfig={calcConfig}
+        promotions={promotions}
+        combos={combos}
+        defaultValues={defaultValues}
+        roomPhotos={roomPhotos}
+      />
+    </EditShell>
+  );
+}
+
+// Breadcrumb + heading, shared by both product lines so only the form differs.
+function EditShell({
+  order,
+  children,
+}: {
+  order: { id: string; display_id: string; customer_name: string };
+  children: React.ReactNode;
+}) {
+  return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <div className="text-xs text-slate-500 mb-3">
         <Link href="/orders" className="hover:text-slate-700">
           Orders
         </Link>
         <span className="mx-1">/</span>
-        <Link
-          href={`/orders/${order.id}`}
-          className="hover:text-slate-700"
-        >
+        <Link href={`/orders/${order.id}`} className="hover:text-slate-700">
           {order.display_id}
         </Link>
         <span className="mx-1">/</span>
@@ -240,16 +375,7 @@ export default async function EditOrderPage({
         </Link>
       </div>
 
-      <ConsultationForm
-        mode="edit"
-        orderId={order.id}
-        curtainTypes={curtainTypes}
-        calcConfig={calcConfig}
-        promotions={promotions}
-        combos={combos}
-        defaultValues={defaultValues}
-        roomPhotos={roomPhotos}
-      />
+      {children}
     </main>
   );
 }

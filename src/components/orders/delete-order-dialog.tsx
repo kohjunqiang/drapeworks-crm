@@ -17,11 +17,7 @@ type Props = {
   customerName: string;
 };
 
-export function DeleteOrderDialog({
-  orderId,
-  displayId,
-  customerName,
-}: Props) {
+export function DeleteOrderDialog({ orderId, displayId, customerName }: Props) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [pending, startTransition] = useTransition();
@@ -60,8 +56,8 @@ export function DeleteOrderDialog({
             <p className="text-sm text-slate-700">
               This will permanently delete the order for{" "}
               <span className="font-medium">{customerName}</span>, along with
-              every room, window, status event, and photo. The customer
-              record stays.
+              every room, window, status event, and photo. The customer record
+              stays.
             </p>
             <p className="text-xs text-slate-500">
               Type{" "}

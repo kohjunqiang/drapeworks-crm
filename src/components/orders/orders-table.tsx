@@ -14,6 +14,7 @@ export type OrderRow = {
   current_status: FulfilmentStatus;
   price_quoted_cents: number;
   consultant_name: string | null;
+  product_line: "curtain" | "mesh";
   // True when the calculator has drifted from the locked quote — a nudge to
   // re-quote on the order detail page.
   isStale?: boolean;
@@ -22,6 +23,17 @@ export type OrderRow = {
 type Props = {
   orders: OrderRow[];
 };
+
+// Mesh and curtain orders never mix, so the line is a property of the whole
+// order — worth showing at a glance rather than hunting through line items.
+export function ProductLineBadge({ line }: { line: "curtain" | "mesh" }) {
+  if (line === "curtain") return null;
+  return (
+    <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 text-[10px] font-medium align-middle">
+      Mesh
+    </span>
+  );
+}
 
 const SG_DATE = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -59,6 +71,7 @@ export function OrdersTable({ orders }: Props) {
                 >
                   {o.display_id}
                 </Link>
+                <ProductLineBadge line={o.product_line} />
               </td>
               <td className="px-4 py-3 font-medium text-slate-900">
                 <Link href={`/orders/${o.id}`} className="block">

@@ -24,7 +24,9 @@ export function QuoteCard({ quote }: { quote: OrderQuote }) {
           <>
             <div className="flex justify-between">
               <dt className="text-slate-500">Subtotal</dt>
-              <dd className="text-slate-700">{formatSGD(quote.saleSgdCents)}</dd>
+              <dd className="text-slate-700">
+                {formatSGD(quote.saleSgdCents)}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-slate-500">
@@ -49,7 +51,9 @@ export function QuoteCard({ quote }: { quote: OrderQuote }) {
           <dt className="text-slate-500">Margin</dt>
           <dd
             className={
-              belowFloor ? "font-semibold text-red-600" : "font-semibold text-teal-700"
+              belowFloor
+                ? "font-semibold text-red-600"
+                : "font-semibold text-teal-700"
             }
           >
             {pct(quote.marginBps)}

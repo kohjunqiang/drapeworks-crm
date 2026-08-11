@@ -89,9 +89,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
                   </td>
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
                   <td className="px-4 py-2">{w.install_width_cm ?? "—"}</td>
-                  <td className="px-4 py-2 text-slate-500">
-                    {w.notes || "—"}
-                  </td>
+                  <td className="px-4 py-2 text-slate-500">{w.notes || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -146,9 +144,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-slate-500">
-                    {w.notes || "—"}
-                  </td>
+                  <td className="px-4 py-2 text-slate-500">{w.notes || "—"}</td>
                 </tr>
               ))}
             </tbody>

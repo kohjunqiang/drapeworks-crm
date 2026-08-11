@@ -23,6 +23,7 @@ type SearchParams = {
   q?: string;
   status?: string;
   consultant?: string;
+  product?: string;
 };
 
 export default async function OrdersDashboardPage({
@@ -30,14 +31,20 @@ export default async function OrdersDashboardPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { q: qRaw, status: statusRaw, consultant: consultantRaw } =
-    await searchParams;
+  const {
+    q: qRaw,
+    status: statusRaw,
+    consultant: consultantRaw,
+    product: productRaw,
+  } = await searchParams;
   const q = (qRaw ?? "").trim();
   const status = isStatus(statusRaw) ? statusRaw : undefined;
   const consultantId =
     typeof consultantRaw === "string" && consultantRaw.length > 0
       ? consultantRaw
       : undefined;
+  const productLine =
+    productRaw === "curtain" || productRaw === "mesh" ? productRaw : undefined;
 
   // Stat counts.
   const counts = await db
@@ -94,12 +101,14 @@ export default async function OrdersDashboardPage({
       "orders.price_quoted_cents as price_quoted_cents",
       "orders.created_at as created_at",
       "orders.consultant_id as consultant_id",
+      "orders.product_line as product_line",
       "customers.name as customer_name",
       "profiles.full_name as consultant_name",
       "profiles.email as consultant_email",
     ]);
 
   if (status) listQ = listQ.where("orders.current_status", "=", status);
+  if (productLine) listQ = listQ.where("orders.product_line", "=", productLine);
   if (consultantId) listQ = listQ.where("orders.consultant_id", "=", consultantId);
 
   if (q) {
@@ -128,6 +137,7 @@ export default async function OrdersDashboardPage({
     display_id: r.display_id,
     customer_name: r.customer_name,
     development: r.development,
+    product_line: r.product_line,
     move_in_date: r.move_in_date,
     current_status: r.current_status,
     price_quoted_cents: r.price_quoted_cents,
@@ -177,11 +187,11 @@ export default async function OrdersDashboardPage({
       />
 
       <OrdersFilters
-        defaults={{ q, status, consultant: consultantId }}
+        defaults={{ q, status, consultant: consultantId, product: productLine }}
         consultants={consultants}
       />
 
-      {orders.length === 0 && !q && !status && !consultantId ? (
+      {orders.length === 0 && !q && !status && !consultantId && !productLine ? (
         <EmptyState
           title="No orders yet"
           description="Create your first consultation to start tracking measurements, fabrics, and fulfilment."

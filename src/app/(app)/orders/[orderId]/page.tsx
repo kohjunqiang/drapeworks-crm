@@ -7,6 +7,10 @@ import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
 import { RequoteBanner } from "@/components/orders/requote-banner";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
+import {
+  MeshRoomSummaryCard,
+  type MeshPanelSummary,
+} from "@/components/orders/mesh-room-summary-card";
 import type { PhotoTile } from "@/components/orders/photo-strip";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { StatusTimeline } from "@/components/orders/status-timeline";
@@ -52,6 +56,7 @@ export default async function OrderDetailPage({
       "orders.id as id",
       "orders.display_id as display_id",
       "orders.consultant_id as consultant_id",
+      "orders.product_line as product_line",
       "orders.current_status as current_status",
       "orders.property_type as property_type",
       "orders.development as development",
@@ -83,8 +88,10 @@ export default async function OrderDetailPage({
 
   const roomIds = rooms.map((r) => r.id);
 
+  const isMesh = order.product_line === "mesh";
+
   const windows =
-    roomIds.length === 0
+    roomIds.length === 0 || isMesh
       ? []
       : await db
           .selectFrom("windows")
@@ -146,6 +153,44 @@ export default async function OrderDetailPage({
           .where("windows.room_id", "in", roomIds)
           .orderBy("windows.position", "asc")
           .execute();
+
+  // Mesh panels for a mesh order. Joined to the catalogue by id regardless of
+  // is_active, so an archived category or colour still renders on an existing
+  // order rather than showing a blank.
+  const meshPanels =
+    roomIds.length === 0 || !isMesh
+      ? []
+      : await db
+          .selectFrom("mesh_panels")
+          .leftJoin(
+            "mesh_categories as mc",
+            "mc.id",
+            "mesh_panels.category_id",
+          )
+          .leftJoin("mesh_colours as mcol", "mcol.id", "mesh_panels.colour_id")
+          .select([
+            "mesh_panels.room_id as room_id",
+            "mesh_panels.position as position",
+            "mesh_panels.width_cm as width_cm",
+            "mesh_panels.height_cm as height_cm",
+            "mesh_panels.depth_cm as depth_cm",
+            "mesh_panels.draw as draw",
+            "mesh_panels.split_left_cm as split_left_cm",
+            "mesh_panels.split_right_cm as split_right_cm",
+            "mesh_panels.notes as notes",
+            "mc.name as category_name",
+            "mcol.name as colour_name",
+          ])
+          .where("mesh_panels.room_id", "in", roomIds)
+          .orderBy("mesh_panels.position", "asc")
+          .execute();
+
+  const panelsByRoom = new Map<string, MeshPanelSummary[]>();
+  for (const p of meshPanels) {
+    const list = panelsByRoom.get(p.room_id) ?? [];
+    list.push(p);
+    panelsByRoom.set(p.room_id, list);
+  }
 
   // Sign every referenced curtain-type hero photo in one batch.
   const curtainPhotoPaths = windows
@@ -349,15 +394,25 @@ export default async function OrderDetailPage({
             {rooms.length === 0 && (
               <p className="text-sm text-slate-500">No rooms recorded.</p>
             )}
-            {rooms.map((r) => (
-              <RoomSummaryCard
-                key={r.id}
-                label={r.label}
-                type={r.type}
-                windows={windowsByRoom.get(r.id) ?? []}
-                photos={photosByRoom.get(r.id) ?? []}
-              />
-            ))}
+            {rooms.map((r) =>
+              isMesh ? (
+                <MeshRoomSummaryCard
+                  key={r.id}
+                  label={r.label}
+                  type={r.type}
+                  panels={panelsByRoom.get(r.id) ?? []}
+                  photos={photosByRoom.get(r.id) ?? []}
+                />
+              ) : (
+                <RoomSummaryCard
+                  key={r.id}
+                  label={r.label}
+                  type={r.type}
+                  windows={windowsByRoom.get(r.id) ?? []}
+                  photos={photosByRoom.get(r.id) ?? []}
+                />
+              ),
+            )}
           </section>
 
           {order.general_notes && (

@@ -36,7 +36,8 @@ export function RequoteBanner({
       <p className="text-xs text-amber-800">
         ⚠ Pricing has changed since this order was quoted. Locked at{" "}
         <span className="font-semibold">{formatSGD(lockedCents)}</span>, now
-        calculates to <span className="font-semibold">{formatSGD(liveCents)}</span>.
+        calculates to{" "}
+        <span className="font-semibold">{formatSGD(liveCents)}</span>.
       </p>
       <button
         type="button"

@@ -2,6 +2,8 @@ import Link from "next/link";
 
 import { formatSGD } from "@/lib/money";
 
+import { ProductLineBadge } from "./orders-table";
+
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
 
@@ -33,6 +35,7 @@ export function OrdersCards({ orders }: Props) {
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-slate-900 truncate">
                 {o.customer_name}
+                <ProductLineBadge line={o.product_line} />
               </div>
               <div className="text-xs text-slate-500 mt-0.5">
                 {[o.development, o.display_id].filter(Boolean).join(" · ")}

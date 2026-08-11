@@ -34,6 +34,12 @@ const baseLinks = [
     adminOnly: true,
   },
   {
+    href: "/admin/mesh",
+    label: "Mesh",
+    match: (p: string) => p.startsWith("/admin/mesh"),
+    adminOnly: true,
+  },
+  {
     href: "/admin/pricing-settings",
     label: "Pricing",
     match: (p: string) => p.startsWith("/admin/pricing-settings"),

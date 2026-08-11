@@ -29,6 +29,11 @@ const baseLinks = [
     roles: ["admin"] as Role[],
   },
   {
+    href: "/admin/mesh",
+    label: "Mesh",
+    roles: ["admin"] as Role[],
+  },
+  {
     href: "/admin/pricing-settings",
     label: "Pricing",
     roles: ["admin"] as Role[],

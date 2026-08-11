@@ -51,11 +51,15 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
+export type MeshDrawDirection = "Double" | "Single Bottom" | "Single Left" | "Single Right" | "Single Top";
+
 export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type PricingAddonBasis = "per_metre" | "per_unit";
 
 export type PricingCalcMethod = "by_sqm" | "by_width";
+
+export type ProductLine = "curtain" | "mesh";
 
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
 
@@ -494,6 +498,67 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface MeshCategories {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  description: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  position: Generated<number>;
+  updated_at: Generated<Timestamp>;
+  vendor_id: string | null;
+}
+
+export interface MeshColours {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  position: Generated<number>;
+  surcharge_rmb_cents: number | null;
+  surcharge_sgd_cents: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface MeshPanels {
+  category_id: string | null;
+  colour_id: string | null;
+  created_at: Generated<Timestamp>;
+  depth_cm: number | null;
+  draw: MeshDrawDirection | null;
+  height_cm: number | null;
+  id: Generated<string>;
+  notes: string | null;
+  position: number;
+  room_id: string;
+  split_left_cm: number | null;
+  split_right_cm: number | null;
+  width_cm: number | null;
+}
+
+export interface MeshPrices {
+  band_id: string;
+  category_id: string;
+  cost_rmb_cents: number | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  sale_sgd_cents: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface MeshSizeBands {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  label: string;
+  max_area_cm2: number | null;
+  position: Generated<number>;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Orders {
   balance_cents: Generated<number | null>;
   channel: Generated<SalesChannel>;
@@ -513,6 +578,7 @@ export interface Orders {
   move_in_date: Timestamp | null;
   price_calc_at_quote_cents: number | null;
   price_quoted_cents: Generated<number>;
+  product_line: Generated<ProductLine>;
   promo_label: string | null;
   property_type: PropertyType | null;
   seq_num: number;
@@ -556,6 +622,7 @@ export interface PricingAssumptions {
   gst_bps: number;
   handyman_blinds_sgd_cents: Generated<number>;
   handyman_double_sgd_cents: Generated<number>;
+  handyman_mesh_sgd_cents: Generated<number>;
   handyman_single_sgd_cents: Generated<number>;
   min_margin_bps: number;
   min_margin_carousell_bps: number;
@@ -823,6 +890,11 @@ export interface DB {
   customers: Customers;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  mesh_categories: MeshCategories;
+  mesh_colours: MeshColours;
+  mesh_panels: MeshPanels;
+  mesh_prices: MeshPrices;
+  mesh_size_bands: MeshSizeBands;
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;

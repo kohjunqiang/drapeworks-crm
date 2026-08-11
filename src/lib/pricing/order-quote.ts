@@ -8,7 +8,15 @@ import {
   type CalcWindow,
   type QuoteResult,
 } from "./calculator";
+import {
+  computeMeshQuote,
+  priceKey,
+  type MeshCalcAssumptions,
+  type MeshPanel,
+  type MeshPriceBook,
+} from "./mesh-calculator";
 import { quoteStaleness } from "./quote-staleness";
+import { computeStaleFlags } from "./stale-flags";
 
 export type OrderQuote = QuoteResult & {
   minMarginBps: number; // for the "below floor?" warning
@@ -36,11 +44,12 @@ function assumptionsRowToCalc(r: {
   handyman_single_sgd_cents: number;
   handyman_double_sgd_cents: number;
   handyman_blinds_sgd_cents: number;
+  handyman_mesh_sgd_cents: number;
   sea_freight_rmb_cents_per_m3: number;
   air_freight_rate_bps: number;
   air_freight_floor_rmb_cents: number;
   air_freight_cap_rmb_cents: number;
-}): CalcAssumptions {
+}): MeshCalcAssumptions {
   return {
     fxSgdToRmb: r.fx_sgd_to_rmb,
     gstBps: r.gst_bps,
@@ -50,6 +59,7 @@ function assumptionsRowToCalc(r: {
     handymanSingleSgdCents: r.handyman_single_sgd_cents,
     handymanDoubleSgdCents: r.handyman_double_sgd_cents,
     handymanBlindsSgdCents: r.handyman_blinds_sgd_cents,
+    handymanMeshSgdCents: r.handyman_mesh_sgd_cents,
     seaFreightRmbCentsPerM3: r.sea_freight_rmb_cents_per_m3,
     airFreightRateBps: r.air_freight_rate_bps,
     airFreightFloorRmbCents: r.air_freight_floor_rmb_cents,
@@ -97,6 +107,183 @@ export async function loadCalcConfig(): Promise<CalcConfig | null> {
     minMarginCarousellBps: assumptionsRow.min_margin_carousell_bps,
   };
 }
+
+// ── mesh ─────────────────────────────────────────────────────────────────
+
+/** A catalogue row offered to the form. */
+export type MeshCatalogueOption = {
+  id: string;
+  name: string;
+  /**
+   * False when the row is archived and is only present because an existing
+   * order references it. The form shows it as the current selection but keeps
+   * it out of the choosable options, so editing an old order neither blanks
+   * the select nor lets someone newly pick a retired colour.
+   */
+  selectable: boolean;
+};
+
+export type MeshCalcConfig = {
+  assumptions: MeshCalcAssumptions;
+  book: MeshPriceBook;
+  categories: MeshCatalogueOption[];
+  colours: MeshCatalogueOption[];
+  minMarginBps: number;
+  minMarginCarousellBps: number;
+};
+
+/** Ids an existing order already references, kept resolvable even if archived. */
+export type MeshInUseIds = {
+  categoryIds?: string[];
+  colourIds?: string[];
+  bandIds?: string[];
+};
+
+const uniq = (xs: string[]): string[] => [...new Set(xs)];
+
+// The price grid + band list + colour surcharges — everything the mesh
+// calculator needs and nothing it doesn't. Shared by the single-order quote and
+// the batched staleness sweep.
+async function loadMeshPriceBook(): Promise<MeshPriceBook> {
+  const [bandRows, priceRows, colourRows] = await Promise.all([
+    db
+      .selectFrom("mesh_size_bands")
+      .select(["id", "max_area_cm2"])
+      .where("is_active", "=", true)
+      .execute(),
+    db
+      .selectFrom("mesh_prices")
+      .select(["category_id", "band_id", "cost_rmb_cents", "sale_sgd_cents"])
+      .execute(),
+    db
+      .selectFrom("mesh_colours")
+      .select(["id", "surcharge_rmb_cents", "surcharge_sgd_cents"])
+      .execute(),
+  ]);
+
+  const prices: MeshPriceBook["prices"] = {};
+  for (const r of priceRows) {
+    prices[priceKey(r.category_id, r.band_id)] = {
+      costRmbCents: r.cost_rmb_cents,
+      saleSgdCents: r.sale_sgd_cents,
+    };
+  }
+
+  const colours: MeshPriceBook["colours"] = {};
+  for (const r of colourRows) {
+    colours[r.id] = {
+      costRmbCents: r.surcharge_rmb_cents,
+      saleSgdCents: r.surcharge_sgd_cents,
+    };
+  }
+
+  return {
+    bands: bandRows.map((b) => ({ id: b.id, maxAreaCm2: b.max_area_cm2 })),
+    prices,
+    colours,
+  };
+}
+
+// The mesh parallel to loadCalcConfig: plain serialisable objects so the whole
+// price book crosses the server→client boundary as props for the live quote.
+//
+// `inUse` widens the active catalogue with rows an order already references.
+// Without it, editing an order that uses an archived colour would render a
+// blank select and silently drop the value on save (§9 requires archived rows
+// stay resolvable). /orders/new passes nothing and gets active rows only.
+export async function loadMeshCalcConfig(
+  inUse: MeshInUseIds = {},
+): Promise<MeshCalcConfig | null> {
+  const inUseCategories = uniq(inUse.categoryIds ?? []);
+  const inUseColours = uniq(inUse.colourIds ?? []);
+  const inUseBands = uniq(inUse.bandIds ?? []);
+
+  const [assumptionsRow, categoryRows, colourRows, bandRows, book] =
+    await Promise.all([
+      db
+        .selectFrom("pricing_assumptions")
+        .selectAll()
+        .where("singleton", "=", true)
+        .executeTakeFirst(),
+      db
+        .selectFrom("mesh_categories")
+        .select(["id", "name", "is_active"])
+        .where((eb) =>
+          eb.or([
+            eb("is_active", "=", true),
+            ...(inUseCategories.length
+              ? [eb("id", "in", inUseCategories)]
+              : []),
+          ]),
+        )
+        .orderBy("position")
+        .orderBy("name")
+        .execute(),
+      db
+        .selectFrom("mesh_colours")
+        .select(["id", "name", "is_active"])
+        .where((eb) =>
+          eb.or([
+            eb("is_active", "=", true),
+            ...(inUseColours.length ? [eb("id", "in", inUseColours)] : []),
+          ]),
+        )
+        .orderBy("position")
+        .orderBy("name")
+        .execute(),
+      db
+        .selectFrom("mesh_size_bands")
+        .select(["id", "max_area_cm2"])
+        .where((eb) =>
+          eb.or([
+            eb("is_active", "=", true),
+            ...(inUseBands.length ? [eb("id", "in", inUseBands)] : []),
+          ]),
+        )
+        .execute(),
+      loadMeshPriceBook(),
+    ]);
+
+  if (!assumptionsRow) return null;
+
+  const toOption = (r: {
+    id: string;
+    name: string;
+    is_active: boolean;
+  }): MeshCatalogueOption => ({
+    id: r.id,
+    name: r.name,
+    selectable: r.is_active,
+  });
+
+  return {
+    assumptions: assumptionsRowToCalc(assumptionsRow),
+    // Bands are widened the same way, so an order priced under a retired band
+    // keeps resolving to the price it was quoted at.
+    book: {
+      ...book,
+      bands: bandRows.map((b) => ({ id: b.id, maxAreaCm2: b.max_area_cm2 })),
+    },
+    categories: categoryRows.map(toOption),
+    colours: colourRows.map(toOption),
+    minMarginBps: assumptionsRow.min_margin_bps,
+    minMarginCarousellBps: assumptionsRow.min_margin_carousell_bps,
+  };
+}
+
+type MeshPanelRow = {
+  category_id: string | null;
+  colour_id: string | null;
+  width_cm: number | null;
+  height_cm: number | null;
+};
+
+const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
+  categoryId: p.category_id,
+  colourId: p.colour_id,
+  widthCm: p.width_cm,
+  heightCm: p.height_cm,
+});
 
 // The window row shape (window measurement/toggles + its resolved day/night/
 // toilet series prices + combo price) that both the single-order quote and the
@@ -173,6 +360,7 @@ export async function computeOrderQuote(
     db
       .selectFrom("orders")
       .select([
+        "product_line",
         "freight_mode",
         "channel",
         "extra_install_sgd_cents",
@@ -224,17 +412,39 @@ export async function computeOrderQuote(
   if (!assumptionsRow) return null;
 
   const a = assumptionsRowToCalc(assumptionsRow);
-  const book = addonRowsToBook(addonRows);
-  const calcWindows: CalcWindow[] = windows.map(rowToCalcWindow);
 
-  const result = computeQuote(
-    calcWindows,
-    book,
-    a,
-    order?.freight_mode ?? "air",
-    order?.extra_install_sgd_cents ?? 0,
-    order?.discount_bps ?? 0,
-  );
+  // Mesh orders have no `windows` rows at all — quoting them through the
+  // curtain engine would return a $0 quote. Route on the discriminator.
+  const result =
+    order?.product_line === "mesh"
+      ? computeMeshQuote(
+          (
+            await db
+              .selectFrom("mesh_panels")
+              .innerJoin("rooms", "rooms.id", "mesh_panels.room_id")
+              .select([
+                "mesh_panels.category_id as category_id",
+                "mesh_panels.colour_id as colour_id",
+                "mesh_panels.width_cm as width_cm",
+                "mesh_panels.height_cm as height_cm",
+              ])
+              .where("rooms.order_id", "=", orderId)
+              .execute()
+          ).map(rowToMeshPanel),
+          await loadMeshPriceBook(),
+          a,
+          order.freight_mode,
+          order.extra_install_sgd_cents,
+          order.discount_bps,
+        )
+      : computeQuote(
+          windows.map(rowToCalcWindow) satisfies CalcWindow[],
+          addonRowsToBook(addonRows),
+          a,
+          order?.freight_mode ?? "air",
+          order?.extra_install_sgd_cents ?? 0,
+          order?.discount_bps ?? 0,
+        );
   // Nothing priced yet → not worth showing a $0 quote.
   if (result.saleSgdCents === 0 && result.cogsRmbCents === 0) return null;
 
@@ -269,57 +479,79 @@ export async function orderStaleFlags(
   const flags = new Map<string, boolean>();
   if (orderIds.length === 0) return flags;
 
-  const [orders, windows, assumptionsRow, addonRows] = await Promise.all([
-    db
-      .selectFrom("orders")
-      .select([
-        "id",
-        "freight_mode",
-        "extra_install_sgd_cents",
-        "discount_bps",
-        "price_calc_at_quote_cents",
-      ])
-      .where("id", "in", orderIds)
-      .execute(),
-    db
-      .selectFrom("windows")
-      .innerJoin("rooms", "rooms.id", "windows.room_id")
-      .leftJoin("curtain_types as dct", "dct.id", "windows.day_curtain_type_id")
-      .leftJoin("curtain_series as dcs", "dcs.id", "dct.series_id")
-      .leftJoin(
-        "curtain_types as nct",
-        "nct.id",
-        "windows.night_curtain_type_id",
-      )
-      .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
-      .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
-      .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
-      .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
-      .select([
-        "rooms.order_id as order_id",
-        "windows.width_cm as width_cm",
-        "windows.add_s_fold as add_s_fold",
-        "windows.add_slim_tracks as add_slim_tracks",
-        "dcs.cost_rmb_cents as day_cost",
-        "dcs.sale_sgd_cents as day_sale",
-        "ncs.cost_rmb_cents as night_cost",
-        "ncs.sale_sgd_cents as night_sale",
-        "tcs.cost_rmb_cents as toilet_cost",
-        "tcs.sale_sgd_cents as toilet_sale",
-        "pc.price_sgd_cents as combo_price",
-      ])
-      .where("rooms.order_id", "in", orderIds)
-      .execute(),
-    db
-      .selectFrom("pricing_assumptions")
-      .selectAll()
-      .where("singleton", "=", true)
-      .executeTakeFirst(),
-    db
-      .selectFrom("pricing_addons")
-      .select(["key", "cost_rmb_cents", "sale_sgd_cents", "basis"])
-      .execute(),
-  ]);
+  const [orders, windows, meshPanels, meshBook, assumptionsRow, addonRows] =
+    await Promise.all([
+      db
+        .selectFrom("orders")
+        .select([
+          "id",
+          "product_line",
+          "freight_mode",
+          "extra_install_sgd_cents",
+          "discount_bps",
+          "price_calc_at_quote_cents",
+        ])
+        .where("id", "in", orderIds)
+        .execute(),
+      db
+        .selectFrom("windows")
+        .innerJoin("rooms", "rooms.id", "windows.room_id")
+        .leftJoin(
+          "curtain_types as dct",
+          "dct.id",
+          "windows.day_curtain_type_id",
+        )
+        .leftJoin("curtain_series as dcs", "dcs.id", "dct.series_id")
+        .leftJoin(
+          "curtain_types as nct",
+          "nct.id",
+          "windows.night_curtain_type_id",
+        )
+        .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
+        .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
+        .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
+        .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
+        .select([
+          "rooms.order_id as order_id",
+          "windows.width_cm as width_cm",
+          "windows.add_s_fold as add_s_fold",
+          "windows.add_slim_tracks as add_slim_tracks",
+          "dcs.cost_rmb_cents as day_cost",
+          "dcs.sale_sgd_cents as day_sale",
+          "ncs.cost_rmb_cents as night_cost",
+          "ncs.sale_sgd_cents as night_sale",
+          "tcs.cost_rmb_cents as toilet_cost",
+          "tcs.sale_sgd_cents as toilet_sale",
+          "pc.price_sgd_cents as combo_price",
+        ])
+        .where("rooms.order_id", "in", orderIds)
+        .execute(),
+      // Mesh panels for the same sweep. A mesh order has zero `windows` rows, so
+      // without this it would quote at $0 against a non-null baseline and show a
+      // re-quote banner that no action could ever clear.
+      db
+        .selectFrom("mesh_panels")
+        .innerJoin("rooms", "rooms.id", "mesh_panels.room_id")
+        .select([
+          "rooms.order_id as order_id",
+          "mesh_panels.category_id as category_id",
+          "mesh_panels.colour_id as colour_id",
+          "mesh_panels.width_cm as width_cm",
+          "mesh_panels.height_cm as height_cm",
+        ])
+        .where("rooms.order_id", "in", orderIds)
+        .execute(),
+      loadMeshPriceBook(),
+      db
+        .selectFrom("pricing_assumptions")
+        .selectAll()
+        .where("singleton", "=", true)
+        .executeTakeFirst(),
+      db
+        .selectFrom("pricing_addons")
+        .select(["key", "cost_rmb_cents", "sale_sgd_cents", "basis"])
+        .execute(),
+    ]);
 
   if (!assumptionsRow) return flags;
 
@@ -333,22 +565,21 @@ export async function orderStaleFlags(
     windowsByOrder.set(w.order_id, list);
   }
 
-  for (const o of orders) {
-    // No baseline captured → never stale (quoteStaleness handles the null).
-    const live = computeQuote(
-      windowsByOrder.get(o.id) ?? [],
-      book,
-      a,
-      o.freight_mode,
-      o.extra_install_sgd_cents,
-      o.discount_bps,
-    );
-    flags.set(
-      o.id,
-      quoteStaleness(o.price_calc_at_quote_cents, live.discountedSaleSgdCents)
-        .isStale,
-    );
+  const panelsByOrder = new Map<string, MeshPanel[]>();
+  for (const p of meshPanels) {
+    const list = panelsByOrder.get(p.order_id) ?? [];
+    list.push(rowToMeshPanel(p));
+    panelsByOrder.set(p.order_id, list);
   }
 
-  return flags;
+  // The routing decision itself lives in a pure module so it can be tested
+  // without a database — see stale-flags.test.ts.
+  return computeStaleFlags({
+    orders,
+    windowsByOrder,
+    panelsByOrder,
+    book,
+    meshBook,
+    assumptions: a,
+  });
 }

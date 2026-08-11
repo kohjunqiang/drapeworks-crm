@@ -12,6 +12,11 @@ import { windowValues } from "@/lib/orders/window-values";
 import { computeOrderQuote } from "@/lib/pricing/order-quote";
 import { adminClient } from "@/lib/supabase/admin";
 import {
+  PHOTO_BUCKET,
+  stampQuoteBaseline,
+  sweepPhotoStorage,
+} from "@/lib/actions/order-shared";
+import {
   isToiletRoom,
   orderCreateSchema,
   orderDraftSchema,
@@ -21,23 +26,9 @@ import {
   type OrderEditInput,
 } from "@/lib/validation/order";
 
-const PHOTO_BUCKET = "room-photos";
-
-// Capture the calculator's current output as the order's quote baseline. Called
-// after an order's windows/pricing are persisted so staleness is measured from
-// what the calc produced at save time — NOT from the (possibly manually
-// overridden) quoted price. Null when nothing is priced yet. Must run after the
-// transaction commits, since computeOrderQuote reads through the base `db`.
-async function stampQuoteBaseline(orderId: string): Promise<void> {
-  const quote = await computeOrderQuote(orderId);
-  await db
-    .updateTable("orders")
-    .set({
-      price_calc_at_quote_cents: quote ? quote.discountedSaleSgdCents : null,
-    })
-    .where("id", "=", orderId)
-    .execute();
-}
+// The shared write-path obligations (quote baseline, photo sweep, order meta
+// columns, numbering placeholders) live in order-shared.ts so the curtain and
+// mesh actions can't drift apart on them.
 
 export async function createOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
@@ -134,7 +125,10 @@ export async function createOrder(input: unknown): Promise<never> {
   redirect(`/orders/${orderId}`);
 }
 
-export async function updateOrder(orderId: string, input: unknown): Promise<never> {
+export async function updateOrder(
+  orderId: string,
+  input: unknown,
+): Promise<never> {
   if (typeof orderId !== "string" || orderId.length === 0) {
     throw new Error("Invalid order id");
   }
@@ -281,17 +275,7 @@ export async function updateOrder(orderId: string, input: unknown): Promise<neve
     await delRooms.execute();
   });
 
-  if (orphanStoragePaths.length > 0) {
-    const { error } = await adminClient()
-      .storage.from(PHOTO_BUCKET)
-      .remove(orphanStoragePaths);
-    if (error) {
-      console.error(
-        "room-photo storage sweep failed during updateOrder:",
-        error.message,
-      );
-    }
-  }
+  await sweepPhotoStorage(orphanStoragePaths, "updateOrder");
 
   await stampQuoteBaseline(orderId);
 
@@ -360,9 +344,7 @@ export async function deleteOrder(input: {
   if (!order) throw new Error("Order not found");
 
   if (input.confirmDisplayId.trim() !== order.display_id) {
-    throw new Error(
-      `Type ${order.display_id} exactly to confirm deletion`,
-    );
+    throw new Error(`Type ${order.display_id} exactly to confirm deletion`);
   }
 
   // Capture every photo's storage_path before the cascade fires so we can
@@ -461,7 +443,10 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         const win = room.windows[w];
         // Drafts are relaxed: force the window shape from the room type rather
         // than trusting the (possibly half-filled) window variant.
-        const shaped = { ...win, variant: isToilet ? "toilet" : "regular" } as const;
+        const shaped = {
+          ...win,
+          variant: isToilet ? "toilet" : "regular",
+        } as const;
         await trx
           .insertInto("windows")
           .values({ room_id: insertedRoom.id, ...windowValues(shaped, w) })

@@ -5,7 +5,8 @@ import { useFormContext, useWatch } from "react-hook-form";
 
 import { AppSelect, FormSelect } from "@/components/ui/app-select";
 import type { ActivePromotion } from "@/lib/db/promotions";
-import type { OrderEditInput } from "@/lib/validation/order";
+
+import type { ConsultationShellShape } from "./form-shapes";
 
 const INPUT_CLS =
   "w-full pl-7 pr-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
@@ -57,7 +58,7 @@ function DollarInput({
 // a % input). Both resolve to one discount on the whole quote — the live quote
 // (which margin-tracks the quoted price) recomputes for free.
 function PromotionControl({ promotions }: { promotions: ActivePromotion[] }) {
-  const { control, setValue } = useFormContext<OrderEditInput>();
+  const { control, setValue } = useFormContext<ConsultationShellShape>();
   const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
   const promoLabel = useWatch({ control, name: "order.promo_label" });
 
@@ -126,7 +127,9 @@ function PromotionControl({ promotions }: { promotions: ActivePromotion[] }) {
             }}
             className="w-full pr-7 pl-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
           />
-          <span className="absolute right-3 top-2 text-slate-400 text-sm">%</span>
+          <span className="absolute right-3 top-2 text-slate-400 text-sm">
+            %
+          </span>
         </div>
       )}
     </div>
@@ -138,9 +141,11 @@ export function PricingSection({
 }: {
   promotions?: ActivePromotion[];
 }) {
-  const { control, register, setValue } = useFormContext<OrderEditInput>();
+  const { control, register, setValue } =
+    useFormContext<ConsultationShellShape>();
 
-  const quotedCents = useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
+  const quotedCents =
+    useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
   const depositCents = useWatch({ control, name: "order.deposit_cents" }) ?? 0;
   const extraInstallCents =
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;

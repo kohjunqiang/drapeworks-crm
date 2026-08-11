@@ -1,24 +1,24 @@
 "use client";
 
-import {
-  useFormContext,
-  type UseFormRegister,
-  type FieldErrors,
-} from "react-hook-form";
+import { useFormContext } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
-import type { OrderEditInput } from "@/lib/validation/order";
+
+import type { ConsultationShellShape } from "./form-shapes";
 
 const INPUT_CLS =
   "w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
 
-type Props = {
-  register: UseFormRegister<OrderEditInput>;
-  errors: FieldErrors<OrderEditInput>;
-};
-
-export function CustomerSection({ register, errors }: Props) {
-  const { control } = useFormContext<OrderEditInput>();
+// Typed to the shared customer+order prefix, not to either product's full
+// schema, so it can be dropped into the curtain or the mesh form without
+// claiming to know what the line items are. register/errors come from context
+// for the same reason — props typed to one schema wouldn't accept the other.
+export function CustomerSection() {
+  const {
+    control,
+    register,
+    formState: { errors },
+  } = useFormContext<ConsultationShellShape>();
   return (
     <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
       <h2 className="text-base font-semibold text-slate-900 mb-4">

@@ -2,77 +2,65 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useForm, useFieldArray, FormProvider } from "react-hook-form";
+import { FormProvider, useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
+import { CustomerSection } from "@/components/orders/consultation-form/customer-section";
+import { PricingSection } from "@/components/orders/consultation-form/pricing-section";
+import {
+  QuickAddRoomBar,
+  type RoomTemplate,
+} from "@/components/orders/consultation-form/quick-add-room-bar";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import {
-  createOrder,
-  createOrderDraft,
-  updateOrder,
-} from "@/lib/actions/orders";
-import type { RoomType } from "@/lib/db/schema";
-import {
-  isToiletRoom,
-  orderCreateSchema,
-  orderEditSchema,
-  type OrderEditInput,
-} from "@/lib/validation/order";
-
-import type { CalcConfig } from "@/lib/pricing/order-quote";
+  createMeshOrder,
+  createMeshOrderDraft,
+  updateMeshOrder,
+} from "@/lib/actions/mesh-orders";
 import type { ActivePromotion } from "@/lib/db/promotions";
-import type { ActiveCombo } from "@/lib/db/combos";
+import type { MeshCalcConfig } from "@/lib/pricing/order-quote";
+import {
+  meshOrderCreateSchema,
+  meshOrderEditSchema,
+  type MeshOrderEditInput,
+} from "@/lib/validation/mesh";
 
-import { CustomerSection } from "./customer-section";
-import { LiveQuote } from "./live-quote";
-import { PricingSection } from "./pricing-section";
-import { QuickAddRoomBar, type RoomTemplate } from "./quick-add-room-bar";
-import { RoomCard } from "./room-card";
-import type { CurtainTypeOption } from "./window-fields";
+import { MeshLiveQuote } from "./mesh-live-quote";
+import { MeshRoomCard } from "./mesh-room-card";
+
+// The MESH consultation form. Parallel to ConsultationForm rather than a branch
+// inside it: the schemas, actions, line items and quote engine all differ,
+// while the customer, pricing, room-shell and quick-add pieces are imported and
+// genuinely shared.
 
 type Mode = "create" | "edit";
 
 type Props = {
   mode: Mode;
-  curtainTypes: CurtainTypeOption[];
-  calcConfig?: CalcConfig | null;
+  meshConfig: MeshCalcConfig;
   promotions?: ActivePromotion[];
-  combos?: ActiveCombo[];
   orderId?: string;
-  defaultValues?: OrderEditInput;
+  defaultValues?: MeshOrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
 };
 
-function makeWindow(roomType: RoomType, position: number) {
-  if (isToiletRoom(roomType)) {
-    return {
-      variant: "toilet" as const,
-      position,
-      curtain_type_id: "",
-      width_cm: null,
-      height_cm: null,
-      install_width_cm: null,
-      notes: "",
-    };
-  }
+function makePanel(position: number) {
   return {
-    variant: "regular" as const,
     position,
-    day_curtain_type_id: "",
-    night_curtain_type_id: "",
-    draw: "Double" as const,
+    category_id: "",
+    colour_id: "",
     width_cm: null,
     height_cm: null,
-    install_width_cm: null,
+    depth_cm: null,
+    draw: undefined,
+    split_left_cm: null,
+    split_right_cm: null,
     notes: "",
-    add_s_fold: false,
-    add_slim_tracks: false,
-    combo_id: "",
   };
 }
 
-const EMPTY_DEFAULTS: OrderEditInput = {
+const EMPTY_DEFAULTS: MeshOrderEditInput = {
   customer: { name: "", mobile: "", email: "" },
   order: {
     property_type: "HDB",
@@ -94,17 +82,15 @@ const EMPTY_DEFAULTS: OrderEditInput = {
       type: "Living Room",
       label: "Living Room",
       position: 0,
-      windows: [makeWindow("Living Room", 0)],
+      panels: [makePanel(0)],
     },
   ],
 };
 
-export function ConsultationForm({
+export function MeshConsultationForm({
   mode,
-  curtainTypes,
-  calcConfig,
+  meshConfig,
   promotions = [],
-  combos = [],
   orderId,
   defaultValues,
   roomPhotos,
@@ -112,13 +98,14 @@ export function ConsultationForm({
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
-  const schema = mode === "create" ? orderCreateSchema : orderEditSchema;
+  const schema =
+    mode === "create" ? meshOrderCreateSchema : meshOrderEditSchema;
   const initial = defaultValues ?? EMPTY_DEFAULTS;
 
-  const form = useForm<OrderEditInput>({
-    // The Zod schema's transforms produce a slightly different output shape;
-    // the resolver is fine at runtime but the static types diverge. We accept
-    // a single any cast here rather than threading the transform types.
+  const form = useForm<MeshOrderEditInput>({
+    // Same reasoning as the curtain form: the Zod transforms make the output
+    // shape diverge from the input shape, which is fine at runtime but not
+    // statically reconcilable without threading transform types everywhere.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(schema) as any,
     defaultValues: initial,
@@ -150,68 +137,62 @@ export function ConsultationForm({
       type: template.type,
       label,
       position: current.length,
-      windows: [makeWindow(template.type, 0)],
+      panels: [makePanel(0)],
     });
   }
 
-  const onSubmit = handleSubmit((values) => {
-    const normalised: OrderEditInput = {
-      ...values,
-      rooms: values.rooms.map((room, rIdx) => ({
-        ...room,
-        position: rIdx,
-        windows: room.windows.map((w, wIdx) => ({ ...w, position: wIdx })),
-      })),
-    };
-
-    startTransition(async () => {
-      try {
-        if (mode === "edit") {
-          if (!orderId) throw new Error("Missing order id for edit");
-          await updateOrder(orderId, normalised);
-        } else {
-          await createOrder(normalised);
-        }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "";
-        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) return;
-        toast.error(msg || "Save failed");
-      }
-    });
-  });
-
-  function saveAsDraft() {
-    // Use the raw current values (skip the strict Zod resolver so partial
-    // input is allowed). The draft action does its own relaxed validation.
-    const values = getValues();
-    const payload = {
+  // Positions are re-derived from array order on submit so a removed row never
+  // leaves a gap the factory sheet would render as a missing panel.
+  function normalise(values: MeshOrderEditInput): MeshOrderEditInput {
+    return {
       ...values,
       rooms: (values.rooms ?? []).map((room, rIdx) => ({
         ...room,
         position: rIdx,
-        windows: (room.windows ?? []).map((w, wIdx) => ({
-          ...w,
-          position: wIdx,
+        panels: (room.panels ?? []).map((p, pIdx) => ({
+          ...p,
+          position: pIdx,
         })),
       })),
     };
+  }
+
+  function runAction(fn: () => Promise<unknown>, failMsg: string) {
     startTransition(async () => {
       try {
-        await createOrderDraft(payload);
+        await fn();
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
+        // A server action redirect throws by design; it isn't a failure.
         if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) return;
-        toast.error(msg || "Draft save failed");
+        toast.error(msg || failMsg);
       }
     });
   }
 
+  const onSubmit = handleSubmit((values) => {
+    const payload = normalise(values);
+    runAction(() => {
+      if (mode === "edit") {
+        if (!orderId) throw new Error("Missing order id for edit");
+        return updateMeshOrder(orderId, payload);
+      }
+      return createMeshOrder(payload);
+    }, "Save failed");
+  });
+
+  function saveAsDraft() {
+    // Raw current values — skip the strict resolver so partial input is
+    // allowed. The draft action does its own relaxed validation.
+    runAction(
+      () => createMeshOrderDraft(normalise(getValues())),
+      "Draft save failed",
+    );
+  }
+
   function handleCancel() {
-    if (mode === "edit" && orderId) {
-      router.push(`/orders/${orderId}`);
-    } else {
-      router.back();
-    }
+    if (mode === "edit" && orderId) router.push(`/orders/${orderId}`);
+    else router.back();
   }
 
   return (
@@ -220,13 +201,7 @@ export function ConsultationForm({
         <CustomerSection />
         <PricingSection promotions={promotions} />
 
-        {calcConfig && (
-          <LiveQuote
-            curtainTypes={curtainTypes}
-            config={calcConfig}
-            combos={combos}
-          />
-        )}
+        <MeshLiveQuote config={meshConfig} />
 
         <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
           <div className="flex items-center justify-between mb-4 gap-2">
@@ -238,11 +213,9 @@ export function ConsultationForm({
                 All measurements in centimetres (cm)
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">
-                {rooms.length} {rooms.length === 1 ? "room" : "rooms"}
-              </span>
-            </div>
+            <span className="text-xs text-slate-500">
+              {rooms.length} {rooms.length === 1 ? "room" : "rooms"}
+            </span>
           </div>
 
           <QuickAddRoomBar onAdd={handleQuickAdd} />
@@ -253,12 +226,12 @@ export function ConsultationForm({
               const persistedRoomId =
                 mode === "edit" ? formRoom?.id : undefined;
               return (
-                <RoomCard
+                <MeshRoomCard
                   key={room.id}
                   roomIndex={rIdx}
                   onRemove={() => removeRoom(rIdx)}
-                  curtainTypes={curtainTypes}
-                  combos={combos}
+                  categories={meshConfig.categories}
+                  colours={meshConfig.colours}
                   mode={mode}
                   roomId={persistedRoomId}
                   photos={
@@ -323,7 +296,7 @@ export function ConsultationForm({
                 : "Creating…"
               : mode === "edit"
                 ? "Save changes"
-                : "Create order"}
+                : "Create mesh order"}
           </button>
         </div>
       </form>

@@ -90,7 +90,9 @@ export function WindowFields({
   const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
   const toiletId = useWatch({ control, name: `${base}.curtain_type_id` });
   const comboId = useWatch({ control, name: `${base}.combo_id` });
-  const activeCombo = comboId ? combos.find((c) => c.id === comboId) : undefined;
+  const activeCombo = comboId
+    ? combos.find((c) => c.id === comboId)
+    : undefined;
 
   if (isToilet) {
     return (
@@ -260,8 +262,8 @@ export function WindowFields({
           />
           {activeCombo && (
             <p className="mt-1.5 inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-800">
-              🏷 {activeCombo.name} — {formatSGD(activeCombo.priceSgdCents)}/window{" "}
-              <span className="text-amber-600">(overrides calc)</span>
+              🏷 {activeCombo.name} — {formatSGD(activeCombo.priceSgdCents)}
+              /window <span className="text-amber-600">(overrides calc)</span>
             </p>
           )}
         </div>

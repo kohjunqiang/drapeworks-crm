@@ -3,43 +3,36 @@
 import { useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
-import type { ActiveCombo } from "@/lib/db/combos";
+import { useQuoteAutofill } from "@/components/orders/consultation-form/use-quote-autofill";
 import { formatSGD } from "@/lib/money";
 import {
-  computeQuote,
-  marginBps,
-  type CalcWindow,
-  type SeriesPrice,
-} from "@/lib/pricing/calculator";
-import type { CalcConfig } from "@/lib/pricing/order-quote";
-import type { OrderEditInput } from "@/lib/validation/order";
-
-import { useQuoteAutofill } from "./use-quote-autofill";
-
-import type { CurtainTypeOption } from "./window-fields";
+  computeMeshQuote,
+  meshQuoteWarnings,
+  type MeshPanel,
+} from "@/lib/pricing/mesh-calculator";
+import type { MeshCalcConfig } from "@/lib/pricing/order-quote";
+import type { MeshOrderEditInput } from "@/lib/validation/mesh";
 
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
 const rmb = (cents: number) => `¥${(cents / 100).toFixed(2)}`;
 
-function toWidthCm(v: unknown): number | null {
-  if (v == null || v === "") return null;
+function toNum(v: unknown): number | null {
+  if (v === "" || v === null || v === undefined) return null;
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export function LiveQuote({
-  curtainTypes,
-  config,
-  combos,
-}: {
-  curtainTypes: CurtainTypeOption[];
-  config: CalcConfig;
-  combos: ActiveCombo[];
-}) {
-  const { control } = useFormContext<OrderEditInput>();
+const REASON_TEXT: Record<string, string> = {
+  "no-category": "no category chosen",
+  "no-dimensions": "missing width or height",
+  "no-band": "larger than every size band — add an open-ended band",
+  "no-price-row": "no price configured for that category and size",
+  "price-row-empty": "price cell exists but is empty",
+};
+
+export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
+  const { control } = useFormContext<MeshOrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
-  const quotedCents =
-    useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
   const freightMode =
     useWatch({ control, name: "order.freight_mode" }) ?? "air";
   const channel = useWatch({ control, name: "order.channel" }) ?? "standard";
@@ -47,86 +40,48 @@ export function LiveQuote({
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
   const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
 
-  const priceById = useMemo(() => {
-    const m = new Map<string, SeriesPrice>();
-    for (const c of curtainTypes) {
-      m.set(c.id, {
-        costRmbCents: c.costRmbCents,
-        saleSgdCents: c.saleSgdCents,
-      });
+  const panels: MeshPanel[] = useMemo(() => {
+    const out: MeshPanel[] = [];
+    for (const room of rooms ?? []) {
+      for (const p of room?.panels ?? []) {
+        out.push({
+          categoryId: p?.category_id || null,
+          colourId: p?.colour_id || null,
+          widthCm: toNum(p?.width_cm),
+          heightCm: toNum(p?.height_cm),
+        });
+      }
     }
-    return m;
-  }, [curtainTypes]);
+    return out;
+  }, [rooms]);
 
-  const comboPriceById = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const c of combos) m.set(c.id, c.priceSgdCents);
-    return m;
-  }, [combos]);
-
-  const quote = useMemo(() => {
-    const priceOf = (id: string | undefined): SeriesPrice | null =>
-      id ? (priceById.get(id) ?? null) : null;
-
-    const windows: CalcWindow[] = (rooms ?? []).flatMap((r) =>
-      (r?.windows ?? []).map((w) => {
-        const isToilet = w.variant === "toilet";
-        const dayId = isToilet ? w.curtain_type_id : w.day_curtain_type_id;
-        const nightId = isToilet ? undefined : w.night_curtain_type_id;
-        const comboId = isToilet
-          ? undefined
-          : (w as { combo_id?: string }).combo_id;
-        return {
-          widthCm: toWidthCm(w.width_cm),
-          dayPrice: priceOf(dayId || undefined),
-          nightPrice: priceOf(nightId || undefined),
-          addSFold: !!(w as { add_s_fold?: boolean }).add_s_fold,
-          addSlimTracks: !!(w as { add_slim_tracks?: boolean }).add_slim_tracks,
-          comboPriceSgdCents: comboId
-            ? (comboPriceById.get(comboId) ?? null)
-            : null,
-        };
-      }),
-    );
-    return computeQuote(
-      windows,
-      config.book,
-      config.assumptions,
-      freightMode,
-      extraInstallCents,
-      discountBps,
-    );
-  }, [
-    rooms,
-    priceById,
-    comboPriceById,
-    config,
-    freightMode,
-    extraInstallCents,
-    discountBps,
-  ]);
-
-  const hasMeasurements = quote.saleSgdCents > 0;
-  const netCostSgdCents = quote.netCostSgdCents;
-  // Margin tracks the price you'll actually charge (the editable Price quoted),
-  // falling back to the calculated suggestion — the discounted sale — until it's
-  // filled/overridden, so editing the quoted price updates the margin live.
-  const salePrice =
-    quotedCents > 0 ? quotedCents : quote.discountedSaleSgdCents;
-  const shownMarginBps = marginBps(netCostSgdCents, salePrice);
-  const groupbuyCents = Math.round(
-    (salePrice * (10000 - config.assumptions.groupbuyDiscountBps)) / 10000,
+  const quote = useMemo(
+    () =>
+      computeMeshQuote(
+        panels,
+        config.book,
+        config.assumptions,
+        freightMode,
+        Number(extraInstallCents) || 0,
+        Number(discountBps) || 0,
+      ),
+    [panels, config, freightMode, extraInstallCents, discountBps],
   );
-  const groupbuyMarginBps = marginBps(netCostSgdCents, groupbuyCents);
-  // The active margin floor depends on the sales channel.
+
+  const warnings = useMemo(
+    () => meshQuoteWarnings(panels, config.book),
+    [panels, config.book],
+  );
+
+  // Same rule as the curtain panel, from the one shared owner.
+  useQuoteAutofill(quote.discountedSaleSgdCents);
+
+  const hasPriced = quote.saleSgdCents > 0;
   const floorBps =
     channel === "carousell"
       ? config.minMarginCarousellBps
       : config.minMarginBps;
-  const belowFloor = hasMeasurements && shownMarginBps < floorBps;
-
-  // Shared with the mesh quote panel — one owner of the 50% deposit rule.
-  useQuoteAutofill(quote.discountedSaleSgdCents);
+  const belowFloor = hasPriced && quote.marginBps < floorBps;
 
   return (
     <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">
@@ -134,18 +89,18 @@ export function LiveQuote({
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Live quote
         </span>
-        {hasMeasurements ? (
+        {hasPriced ? (
           <div className="flex items-center gap-4 sm:gap-6 text-sm">
             <div className="flex items-baseline gap-1.5">
               <span className="text-slate-500 text-xs">Quoted</span>
               <span className="font-semibold text-slate-900">
-                {formatSGD(salePrice)}
+                {formatSGD(quote.discountedSaleSgdCents)}
               </span>
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="text-slate-500 text-xs">Cost</span>
               <span className="text-slate-700">
-                {formatSGD(netCostSgdCents)}
+                {formatSGD(quote.netCostSgdCents)}
               </span>
             </div>
             <div className="flex items-baseline gap-1.5">
@@ -157,38 +112,60 @@ export function LiveQuote({
                     : "font-bold text-teal-700"
                 }
               >
-                {pct(shownMarginBps)}
+                {pct(quote.marginBps)}
               </span>
             </div>
           </div>
         ) : (
           <span className="text-xs text-slate-400">
-            Select priced curtains + widths to see the margin
+            Choose a category and enter width + height to see the margin
           </span>
         )}
       </div>
+
       {belowFloor && (
         <p className="mt-1.5 text-xs text-red-600">
           ⚠ Below the {pct(floorBps)}{" "}
-          {channel === "carousell" ? "Carousell " : ""}
-          margin floor — review before quoting. Groupbuy{" "}
-          {formatSGD(groupbuyCents)} · {pct(groupbuyMarginBps)}.
+          {channel === "carousell" ? "Carousell " : ""}margin floor — review
+          before quoting.
         </p>
       )}
 
-      {hasMeasurements && (
+      {warnings.unpricedPanels.length > 0 && (
+        <p className="mt-1.5 text-xs text-amber-700">
+          ⚠ {warnings.unpricedPanels.length}{" "}
+          {warnings.unpricedPanels.length === 1 ? "panel is" : "panels are"} not
+          priced ({warnings.reasons.map((r) => REASON_TEXT[r] ?? r).join("; ")}
+          ). They are quoted at $0 but still charged for installation.
+        </p>
+      )}
+
+      {/* A blank cost is NOT an unpriced panel — the customer price is right,
+          but margin reads far too high, and it sits above the floor so the
+          below-floor warning above can never catch it. */}
+      {warnings.missingCostPanels.length > 0 && (
+        <p className="mt-1.5 text-xs text-amber-700">
+          ⚠ {warnings.missingCostPanels.length}{" "}
+          {warnings.missingCostPanels.length === 1
+            ? "panel has"
+            : "panels have"}{" "}
+          no cost configured, so the margin above is overstated. Set the cost in
+          the mesh price grid.
+        </p>
+      )}
+
+      {hasPriced && (
         <details className="mt-2 border-t border-slate-100 pt-2">
           <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 select-none">
             Cost breakdown
           </summary>
           <div className="mt-2 max-w-sm text-xs">
-            {/* China-side costs, in RMB → converted once. */}
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               China costs (RMB)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
               <div className="flex justify-between">
-                <dt>Curtains + add-ons (COGS)</dt>
+                <dt>Panels (COGS)</dt>
                 <dd>{rmb(quote.cogsRmbCents)}</dd>
               </div>
               <div className="flex justify-between">
@@ -212,13 +189,12 @@ export function LiveQuote({
               </div>
             </dl>
 
-            {/* Installation, its own category, in SGD. */}
             <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Installation (Handyman)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
               <div className="flex justify-between">
-                <dt>Handyman + extra install</dt>
+                <dt>Drill + silicone, per measured panel</dt>
                 <dd>{formatSGD(quote.installationSgdCents)}</dd>
               </div>
             </dl>
@@ -226,7 +202,7 @@ export function LiveQuote({
             <dl className="mt-2 border-t border-slate-200 pt-1 font-medium text-slate-800">
               <div className="flex justify-between">
                 <dt>Net cost (SGD)</dt>
-                <dd>{formatSGD(netCostSgdCents)}</dd>
+                <dd>{formatSGD(quote.netCostSgdCents)}</dd>
               </div>
             </dl>
           </div>

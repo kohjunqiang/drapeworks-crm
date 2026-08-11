@@ -22,6 +22,7 @@ export async function loadAssumptions(): Promise<AssumptionsRow | null> {
     handyman_single_sgd_cents: r.handyman_single_sgd_cents,
     handyman_double_sgd_cents: r.handyman_double_sgd_cents,
     handyman_blinds_sgd_cents: r.handyman_blinds_sgd_cents,
+    handyman_mesh_sgd_cents: r.handyman_mesh_sgd_cents,
     sea_freight_rmb_cents_per_m3: r.sea_freight_rmb_cents_per_m3,
     air_freight_rate_bps: r.air_freight_rate_bps,
     air_freight_floor_rmb_cents: r.air_freight_floor_rmb_cents,

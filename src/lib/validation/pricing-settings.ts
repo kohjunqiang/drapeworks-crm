@@ -13,6 +13,7 @@ export const assumptionsSchema = z.object({
   handymanSingleSgd: z.coerce.number().min(0).max(1_000_000),
   handymanDoubleSgd: z.coerce.number().min(0).max(1_000_000),
   handymanBlindsSgd: z.coerce.number().min(0).max(1_000_000),
+  handymanMeshSgd: z.coerce.number().min(0).max(1_000_000),
   seaFreightRmb: z.coerce.number().min(0).max(10_000_000),
   airFreightRatePct: z.coerce.number().min(0).max(100),
   airFreightFloorRmb: z.coerce.number().min(0).max(10_000_000),
@@ -33,6 +34,7 @@ export type AssumptionsRow = {
   handyman_single_sgd_cents: number;
   handyman_double_sgd_cents: number;
   handyman_blinds_sgd_cents: number;
+  handyman_mesh_sgd_cents: number;
   sea_freight_rmb_cents_per_m3: number;
   air_freight_rate_bps: number;
   air_freight_floor_rmb_cents: number;
@@ -55,6 +57,7 @@ export function assumptionsToStorage(h: AssumptionsInput): AssumptionsRow {
     handyman_single_sgd_cents: cents(h.handymanSingleSgd),
     handyman_double_sgd_cents: cents(h.handymanDoubleSgd),
     handyman_blinds_sgd_cents: cents(h.handymanBlindsSgd),
+    handyman_mesh_sgd_cents: cents(h.handymanMeshSgd),
     sea_freight_rmb_cents_per_m3: cents(h.seaFreightRmb),
     air_freight_rate_bps: pct(h.airFreightRatePct),
     air_freight_floor_rmb_cents: cents(h.airFreightFloorRmb),
@@ -74,6 +77,7 @@ export function assumptionsFromStorage(r: AssumptionsRow): AssumptionsInput {
     handymanSingleSgd: r.handyman_single_sgd_cents / 100,
     handymanDoubleSgd: r.handyman_double_sgd_cents / 100,
     handymanBlindsSgd: r.handyman_blinds_sgd_cents / 100,
+    handymanMeshSgd: r.handyman_mesh_sgd_cents / 100,
     seaFreightRmb: r.sea_freight_rmb_cents_per_m3 / 100,
     airFreightRatePct: r.air_freight_rate_bps / 100,
     airFreightFloorRmb: r.air_freight_floor_rmb_cents / 100,

@@ -62,6 +62,7 @@ const GROUPS: { title: string; fields: FieldDef[] }[] = [
       { name: "handymanSingleSgd", label: "Single curtain", prefix: "S$" },
       { name: "handymanDoubleSgd", label: "Double curtain (day+night)", prefix: "S$" },
       { name: "handymanBlindsSgd", label: "Blinds", prefix: "S$" },
+      { name: "handymanMeshSgd", label: "Mesh panel (drill + silicone)", prefix: "S$" },
     ],
   },
   {

@@ -31,12 +31,30 @@ gel. Three grades:
 | **PetGuard** | Pet-resistant mesh |
 | **MaxGuard** | Child-safety / child-locked mesh |
 
-Recorded per panel: category, colour, width, height, depth, draw configuration, and —
-for a double draw — the left/right leaf split.
+Recorded per panel: category, colour, width, height, what the frame fixes to, whether
+the opening is inset, draw configuration, and — for a double draw — the left/right leaf
+split.
 
-**Depth** is a site measurement of the window recess (how deep the reveal is, i.e.
-whether there is room to install into the opening). It is measured in cm alongside
-width and height. It is *not* a chosen product spec and it does *not* affect price.
+**Fixing surface.** The mesh frame is screwed to the **window grille**. That is the
+standard installation and the default. The only exception is an opening with no window
+at all — a bare vent or gap — where there is no grille and the frame goes to the wall
+instead. Stored as `has_window`, a boolean; the mount surface is derived from it rather
+than stored twice. It does *not* affect price: install is charged per panel regardless.
+
+**Inset.** When the window is set into the wall there is wall to either side of it, so
+the panel has to fit within that space — it may match the measured size exactly but must
+never exceed it, or it physically will not go in. Stored as `has_inset`, a boolean.
+
+Deliberately a flag and not measurements. Nobody acts on the lengths; what changes is
+that the panel must be made to size with no overhang, and "there is an inset" says that
+completely. Four numbers would be four more things to measure on site and nothing more
+to do with them.
+
+An earlier draft of this spec recorded a **recess depth** instead, on the theory that a
+deep enough reveal allowed an inside mount and a shallow one forced a face mount. That
+is not how these are fitted. The column and the field were dropped in
+`20260816100000_mesh_mount_surface` rather than left as a number consultants fill in
+for nothing — the same reasoning that keeps the inset a flag.
 
 **Draw** is one of five directions: `Single Left`, `Single Right`, `Single Top`,
 `Single Bottom`, `Double`. A double draw splits the opening into two sliding leaves.
@@ -178,7 +196,8 @@ mesh_panels
   colour_id       uuid references mesh_colours(id)
   width_cm        int
   height_cm       int
-  depth_cm        int
+  has_window      boolean not null default true   -- false = fix to the wall
+  has_inset       boolean not null default false  -- true = make to size, no overhang
   draw            mesh_draw_direction
   split_left_cm   int
   split_right_cm  int
@@ -191,7 +210,12 @@ mesh_panels
 The index is composite, matching `windows_room_idx` (`initial.ts:495-499`) — panels are
 always read ordered by position within a room.
 
-All product columns are nullable so a draft consultation can be saved half-finished.
+All product columns are nullable so a draft consultation can be saved half-finished —
+except the two booleans, which are not null with defaults. A measurement has a
+meaningful "not taken yet"; a mount surface and an inset flag do not, and defaulting a
+half-finished draft to the normal installation with no inset is more useful than a third
+unknown state on each.
+
 There is deliberately no `updated_at`, matching `windows`.
 
 ### 5.6 Assumption column
@@ -232,6 +256,90 @@ migrations is reversible in either order.
 
 After each migration, run `npm run db:codegen`.
 
+### 5.9 Track systems
+
+The mesh runs on a track system (System 55 / 68 / 80). Two tables describe it, and
+both ship with their canonical values already in place — unlike the categories,
+colours and rates, this is **engineering data**: a property of the product, identical
+for every customer, where hand-entry would only invite a transposition nobody notices
+until a panel comes back the wrong size.
+
+```
+mesh_system_bands                     -- WHICH system, by width and draw
+  id              uuid pk
+  max_width_cm    int not null        -- inclusive upper bound
+  single_system   text                -- null = not possible at this width
+  double_system   text
+  position        int not null default 0   -- display order only
+  is_active       boolean not null default true
+  created_by, created_at, updated_at
+
+  unique index on (max_width_cm) where is_active
+
+mesh_systems                          -- what that system physically costs you
+  id                     uuid pk
+  name                   text not null
+  roller_mm              int not null
+  handle_mm              int not null
+  side_track_mm          int not null
+  track_height_mm        int not null
+  track_depth_mm         int not null
+  double_cost_rmb_cents  int          -- null = no surcharge
+  double_sale_sgd_cents  int
+  position, is_active, created_by, created_at, updated_at
+
+  unique index on lower(name)
+```
+
+**Resolution** is the first band, by ascending `max_width_cm`, where
+`width_cm <= max_width_cm` — ordered on the number, never on `position`, so what gets
+built cannot depend on a display column staying in sync. A wider opening needs a
+heavier profile; splitting it into two leaves halves what each carries, so a double
+draw can use a lighter system than a single of the same width.
+
+**There is deliberately no open-ended band.** A width past the last band is "wider than
+anything we build", which must stay an error rather than silently resolving to the
+heaviest profile. The partial unique index keeps at most one active band per upper
+bound, so resolution never depends on row order.
+
+**Not possible blocks the save.** Unlike every other mesh check — unpriced panels, the
+split mismatch — an unbuildable panel is rejected outright by `createMeshOrder` and
+`updateMeshOrder`. A quote needing attention is one thing; an order the factory cannot
+fulfil is another. This cannot live in Zod: resolution needs the matrix, which is
+database state the schema has no access to. The form performs the same check for
+immediate feedback, but the actions are the guarantee. Drafts are exempt.
+
+**Track length.** What is left after the hardware:
+
+```
+single draw:  track = width − (roller + handle) − side track
+double draw:  track = width − 2 × (roller + handle)
+```
+
+A double carries a roller and handle on each leaf and no side track; a single carries
+one stack and a fixed side track down the far edge. Everything is stored in integer
+**millimetres**: the supplier quotes 6.5 / 4.3 / 1.5 and the answer carries a decimal
+too (185.2), so centimetres would force floats into a measurement chain — the same
+hazard the money-in-cents rule exists to prevent.
+
+The consultation form shows the panel laid out left to right, which sums back to the
+measured width and so reads as a check rather than a formula:
+
+```
+6.5 (roller) + 4.3 (handle) + 218.4 (track) + 4.3 (handle) + 6.5 (roller) = 240 cm
+```
+
+**Systems link to the matrix by name**, case-insensitively and trimmed, because the
+matrix stores the system as free text an admin types. A name with no `mesh_systems`
+row yields "no dimensions set", never a silently wrong length.
+
+**The double-draw surcharge is the one place the system touches price.** A double
+carries a second roller and handle, charged flat per panel — one extra hardware set
+whatever the size, the same shape as the colour surcharge, and explicitly not scaled
+by area. It lives on the system rather than as one global figure because the hardware
+differs per system and the matrix pushes wider panels onto heavier ones. This is why
+`MeshPanel` carries `draw` into pricing at all.
+
 ## 6. Pricing
 
 Mesh reuses the entire back half of the existing engine. Only the per-line-item front
@@ -239,7 +347,7 @@ end differs.
 
 | | Curtain | Mesh |
 |---|---|---|
-| Front end | width × per-metre rate × style multiplier, + S-fold / slim-track add-ons, + track cost | area in ft² × the category's per-ft² rate, + colour surcharge |
+| Front end | width × per-metre rate × style multiplier, + S-fold / slim-track add-ons, + track cost | area in ft² × the category's per-ft² rate, + colour surcharge, + the system's double-draw surcharge (§5.9) |
 | Freight base | curtain-only COGS (excludes add-ons and tracks) | full panel COGS |
 | Back half | freight → other cost → GST → FX → install → discount → margin → groupbuy | identical |
 
@@ -267,7 +375,8 @@ double its price (12917 → 25833, not 25834).
 There is **no minimum billable area** — a small panel bills at its true size.
 
 The colour surcharge is added *after* the area scaling and is **not** scaled:
-a colour premium is a per-panel charge.
+a colour premium is a per-panel charge. The same applies to the double-draw
+surcharge (§5.9), which is added on top for a double draw only.
 
 A panel with a null width or height, no category, or a category with no sale rate
 contributes zero to the quote, matching how `windowQuote` treats an unpriced curtain
@@ -484,8 +593,9 @@ no request can change it — which is a stronger guarantee than an ignore-on-edi
 and it means `order.ts` really does change in exactly one way.
 
 ```ts
-meshPanelSchema        // position, category_id, colour_id, width/height/depth_cm,
-                       // draw, split_left_cm, split_right_cm, notes
+meshPanelSchema        // position, category_id, colour_id, width_cm, height_cm,
+                       // has_window, has_inset, draw, split_left_cm,
+                       // split_right_cm, notes
 meshRoomSchema         // type, label, position, panels[]
 meshOrderCreateSchema  // { customer, order, rooms }
 meshOrderDraftSchema   // relaxed, mirrors orderDraftSchema
@@ -585,9 +695,11 @@ hook, `useQuoteAutofill(discountedSaleSgdCents)`, called by both. Same reasoning
 `ConsultationForm` still takes a `productLine` prop, but it uses it to pick a room card
 and a quote component, not to branch inside shared internals.
 
-`MeshPanelFields` is one new component: category select, colour select, width / height /
-depth in cm, draw select, and — revealed only when draw is `Double` — the left/right cm
-pair with a live sum check against total width (amber hint on mismatch, never blocking).
+`MeshPanelFields` is one new component: category select, colour select, width and height
+in cm, an "Inset" checkbox beside them, a "Fixing to" select (window grille / wall — no
+window), draw select, and —
+revealed only when draw is `Double` — the left/right cm pair with a live sum check
+against total width (amber hint on mismatch, never blocking).
 
 Follow `docs/prototype/consultation.html` for layout, classes and breakpoints.
 
@@ -623,6 +735,27 @@ does.
 
 `/admin/pricing-settings` gains the single `handyman_mesh_sgd_cents` field in
 `assumptions-form.tsx`.
+
+### 8.4b Surviving a refresh
+
+`useFormDraft` mirrors the form into `sessionStorage` on every change and restores it
+on mount, for **both** the curtain and mesh consultation forms. A consultant measures a
+whole flat before saving anything, so a stray reload — or a phone reclaiming the tab —
+otherwise costs the entire visit.
+
+`sessionStorage`, not `localStorage`: the draft belongs to this tab and this sitting. It
+survives the refresh, which is the failure being solved, and dies with the tab rather
+than resurfacing days later on top of an order since saved and edited. Keyed per
+product and per order, so a create and each edited order stay separate.
+
+Restoring **merges over the current defaults** rather than replacing them — a draft
+written before a field existed would otherwise wipe that field's default to
+`undefined`. Storage failures (private browsing, quota) are swallowed: losing the
+safety net is acceptable, breaking the form is not. It is cleared on the redirect
+throw, which is the only success signal a server action gives.
+
+This is **not** the "Save as draft" button. That persists to the database on purpose
+and the whole team can see it; this is a local crash-recovery net nobody else sees.
 
 ### 8.5 Server actions
 

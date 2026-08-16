@@ -1,6 +1,10 @@
 import "server-only";
 
 import { db } from "@/lib/db/kysely";
+import type {
+  MeshSystemBand,
+  MeshSystemSpec,
+} from "@/lib/orders/mesh-system";
 
 export type MeshCategoryRow = {
   id: string;
@@ -24,6 +28,102 @@ export type MeshColourRow = {
   position: number;
   is_active: boolean;
 };
+
+export type MeshSystemRow = {
+  id: string;
+  name: string;
+  roller_mm: number;
+  handle_mm: number;
+  side_track_mm: number;
+  track_height_mm: number;
+  track_depth_mm: number;
+  double_cost_rmb_cents: number | null;
+  double_sale_sgd_cents: number | null;
+  position: number;
+  is_active: boolean;
+};
+
+export async function loadMeshSystems(): Promise<MeshSystemRow[]> {
+  return db
+    .selectFrom("mesh_systems")
+    .select([
+      "id",
+      "name",
+      "roller_mm",
+      "handle_mm",
+      "side_track_mm",
+      "track_height_mm",
+      "track_depth_mm",
+      "double_cost_rmb_cents",
+      "double_sale_sgd_cents",
+      "position",
+      "is_active",
+    ])
+    .orderBy("position")
+    .orderBy("name")
+    .execute();
+}
+
+// The active specs in the shape the track calculation wants. Active only: an
+// archived system must not keep sizing new tracks.
+export async function loadActiveMeshSystemSpecs(): Promise<MeshSystemSpec[]> {
+  const rows = await db
+    .selectFrom("mesh_systems")
+    .select(["name", "roller_mm", "handle_mm", "side_track_mm"])
+    .where("is_active", "=", true)
+    .execute();
+
+  return rows.map((r) => ({
+    name: r.name,
+    rollerMm: r.roller_mm,
+    handleMm: r.handle_mm,
+    sideTrackMm: r.side_track_mm,
+  }));
+}
+
+export type MeshSystemBandRow = {
+  id: string;
+  max_width_cm: number;
+  single_system: string | null;
+  double_system: string | null;
+  position: number;
+  is_active: boolean;
+};
+
+// Ordered by width, the same ordering resolution uses, so what an admin sees
+// matches what gets built.
+export async function loadMeshSystemBands(): Promise<MeshSystemBandRow[]> {
+  return db
+    .selectFrom("mesh_system_bands")
+    .select([
+      "id",
+      "max_width_cm",
+      "single_system",
+      "double_system",
+      "position",
+      "is_active",
+    ])
+    .orderBy("max_width_cm")
+    .execute();
+}
+
+// The active matrix in the shape the resolver wants: plain serialisable
+// objects, so the same value crosses to the consultation form as a prop and is
+// used directly by the server actions. Active only — an archived band must not
+// keep deciding what gets built.
+export async function loadActiveMeshSystemBands(): Promise<MeshSystemBand[]> {
+  const rows = await db
+    .selectFrom("mesh_system_bands")
+    .select(["max_width_cm", "single_system", "double_system"])
+    .where("is_active", "=", true)
+    .execute();
+
+  return rows.map((r) => ({
+    maxWidthCm: r.max_width_cm,
+    singleSystem: r.single_system,
+    doubleSystem: r.double_system,
+  }));
+}
 
 export async function loadMeshCategories(): Promise<MeshCategoryRow[]> {
   return db

@@ -7,6 +7,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import { CustomerSection } from "@/components/orders/consultation-form/customer-section";
+import {
+  formDraftKey,
+  useFormDraft,
+} from "@/components/orders/consultation-form/use-form-draft";
 import { PricingSection } from "@/components/orders/consultation-form/pricing-section";
 import {
   QuickAddRoomBar,
@@ -19,6 +23,11 @@ import {
   updateMeshOrder,
 } from "@/lib/actions/mesh-orders";
 import type { ActivePromotion } from "@/lib/db/promotions";
+import {
+  meshSystemProblems,
+  type MeshSystemBand,
+  type MeshSystemSpec,
+} from "@/lib/orders/mesh-system";
 import type { MeshCalcConfig } from "@/lib/pricing/order-quote";
 import {
   meshOrderCreateSchema,
@@ -39,6 +48,10 @@ type Mode = "create" | "edit";
 type Props = {
   mode: Mode;
   meshConfig: MeshCalcConfig;
+  // The track-system matrix (§5.9). Kept separate from meshConfig because it is
+  // a fabrication spec, not a pricing input — nothing here reaches the quote.
+  systemBands: MeshSystemBand[];
+  systemSpecs: MeshSystemSpec[];
   promotions?: ActivePromotion[];
   orderId?: string;
   defaultValues?: MeshOrderEditInput;
@@ -52,7 +65,8 @@ function makePanel(position: number) {
     colour_id: "",
     width_cm: null,
     height_cm: null,
-    depth_cm: null,
+    has_window: true,
+    has_inset: false,
     draw: undefined,
     split_left_cm: null,
     split_right_cm: null,
@@ -90,6 +104,8 @@ const EMPTY_DEFAULTS: MeshOrderEditInput = {
 export function MeshConsultationForm({
   mode,
   meshConfig,
+  systemBands,
+  systemSpecs,
   promotions = [],
   orderId,
   defaultValues,
@@ -118,6 +134,13 @@ export function MeshConsultationForm({
     getValues,
     formState: { errors },
   } = form;
+
+  // Survive an accidental refresh mid-consultation. Keyed per order so a create
+  // and each edited order keep separate drafts.
+  const { clearDraft } = useFormDraft(
+    form,
+    formDraftKey("mesh", mode, orderId),
+  );
 
   const {
     fields: rooms,
@@ -163,8 +186,13 @@ export function MeshConsultationForm({
         await fn();
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
-        // A server action redirect throws by design; it isn't a failure.
-        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) return;
+        // A server action redirect throws by design; it isn't a failure — it is
+        // in fact the only success signal, so the recovery draft is dropped
+        // here rather than before the call.
+        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) {
+          clearDraft();
+          return;
+        }
         toast.error(msg || failMsg);
       }
     });
@@ -172,6 +200,30 @@ export function MeshConsultationForm({
 
   const onSubmit = handleSubmit((values) => {
     const payload = normalise(values);
+
+    // An unbuildable panel blocks the save. The server action performs the same
+    // check — that is the guarantee — but catching it here names the room and
+    // panel instead of surfacing a bare action error after a round trip.
+    const problems = meshSystemProblems(
+      (payload.rooms ?? []).map((r) => ({
+        panels: (r.panels ?? []).map((p) => ({
+          widthCm: p.width_cm ?? null,
+          draw: p.draw,
+        })),
+      })),
+      systemBands,
+    );
+    if (problems.length > 0) {
+      const p = problems[0];
+      const room = payload.rooms?.[p.roomIndex];
+      toast.error(
+        `${room?.label ?? `Room ${p.roomIndex + 1}`}, panel ${
+          p.panelIndex + 1
+        }: ${p.message}`,
+      );
+      return;
+    }
+
     runAction(() => {
       if (mode === "edit") {
         if (!orderId) throw new Error("Missing order id for edit");
@@ -232,6 +284,8 @@ export function MeshConsultationForm({
                   onRemove={() => removeRoom(rIdx)}
                   categories={meshConfig.categories}
                   colours={meshConfig.colours}
+                  systemBands={systemBands}
+                  systemSpecs={systemSpecs}
                   mode={mode}
                   roomId={persistedRoomId}
                   photos={

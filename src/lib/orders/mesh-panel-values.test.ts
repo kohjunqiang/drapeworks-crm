@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { meshPanelValues } from "./mesh-panel-values";
+import { meshMountSurface, meshPanelValues } from "./mesh-panel-values";
 
 describe("meshPanelValues", () => {
   it("maps every column and preserves the position", () => {
@@ -10,9 +10,10 @@ describe("meshPanelValues", () => {
         colour_id: "col",
         width_cm: 240,
         height_cm: 150,
-        depth_cm: 9,
+        has_window: false,
+        has_inset: true,
         draw: "Single Left",
-        notes: "tight reveal",
+        notes: "bare opening",
       },
       3,
     );
@@ -22,11 +23,12 @@ describe("meshPanelValues", () => {
       colour_id: "col",
       width_cm: 240,
       height_cm: 150,
-      depth_cm: 9,
+      has_window: false,
+      has_inset: true,
       draw: "Single Left",
       split_left_cm: null,
       split_right_cm: null,
-      notes: "tight reveal",
+      notes: "bare opening",
     });
   });
 
@@ -87,14 +89,18 @@ describe("meshPanelValues", () => {
     expect(v.split_right_cm).toBeNull();
   });
 
-  it("maps a blank draft panel to all-null columns", () => {
+  it("maps a blank draft panel to nulls, but defaults the two flags", () => {
+    // The booleans are the non-null columns: neither a mount surface nor an
+    // inset has a meaningful "unset". Their defaults are the normal window
+    // installation, and no inset.
     expect(meshPanelValues({}, 0)).toEqual({
       position: 0,
       category_id: null,
       colour_id: null,
       width_cm: null,
       height_cm: null,
-      depth_cm: null,
+      has_window: true,
+      has_inset: false,
       draw: null,
       split_left_cm: null,
       split_right_cm: null,
@@ -104,5 +110,12 @@ describe("meshPanelValues", () => {
 
   it("normalises an empty notes string to null", () => {
     expect(meshPanelValues({ notes: "" }, 0).notes).toBeNull();
+  });
+});
+
+describe("meshMountSurface", () => {
+  it("names what the frame is screwed to", () => {
+    expect(meshMountSurface(true)).toBe("Window grille");
+    expect(meshMountSurface(false)).toBe("Wall");
   });
 });

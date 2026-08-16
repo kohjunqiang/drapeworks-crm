@@ -47,6 +47,7 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
           colourId: p?.colour_id || null,
           widthCm: toNum(p?.width_cm),
           heightCm: toNum(p?.height_cm),
+          draw: p?.draw ?? null,
         });
       }
     }

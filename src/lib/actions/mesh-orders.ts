@@ -7,7 +7,9 @@ import { redirect } from "next/navigation";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { loadActiveMeshSystemBands } from "@/lib/db/mesh-catalogue";
 import { meshPanelValues } from "@/lib/orders/mesh-panel-values";
+import { meshSystemProblems } from "@/lib/orders/mesh-system";
 import {
   SEQ_PLACEHOLDERS,
   collectOrphanPhotoPaths,
@@ -20,6 +22,7 @@ import {
   meshOrderCreateSchema,
   meshOrderDraftSchema,
   meshOrderEditSchema,
+  type MeshDraw,
   type MeshOrderCreateInput,
   type MeshOrderDraftInput,
   type MeshOrderEditInput,
@@ -32,9 +35,40 @@ import {
 // `product_line: 'mesh'` is written here, in the insert. It appears in no Zod
 // schema anywhere, so no request can set or change it.
 
+/**
+ * Reject any panel no track system can be built for (§5.9).
+ *
+ * This cannot live in the Zod schema: resolution needs the system matrix, which
+ * is database state the schema has no access to. So it runs here, after parse
+ * and before the transaction — the form performs the same check for immediate
+ * feedback, but the form is not the only writer and this is the guarantee.
+ *
+ * Deliberately blocking, unlike every other mesh check. An unpriced panel is a
+ * quote that needs attention; an unbuildable one is an order the factory cannot
+ * fulfil, and it must not be possible to place.
+ *
+ * Drafts are exempt — a half-measured panel is the normal state of a draft.
+ */
+async function assertBuildable(rooms: {
+  panels: { width_cm: number | null; draw?: MeshDraw }[];
+}[]): Promise<void> {
+  const bands = await loadActiveMeshSystemBands();
+  const problems = meshSystemProblems(
+    rooms.map((r) => ({
+      panels: r.panels.map((p) => ({ widthCm: p.width_cm, draw: p.draw })),
+    })),
+    bands,
+  );
+
+  if (problems.length > 0) {
+    throw new Error(problems[0].message);
+  }
+}
+
 export async function createMeshOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: MeshOrderCreateInput = meshOrderCreateSchema.parse(input);
+  await assertBuildable(parsed.rooms);
 
   const orderId = await db.transaction().execute(async (trx) => {
     const customer = await trx
@@ -114,6 +148,7 @@ export async function updateMeshOrder(
 
   const session = await requireRole(["consultant", "admin"]);
   const parsed: MeshOrderEditInput = meshOrderEditSchema.parse(input);
+  await assertBuildable(parsed.rooms);
 
   const orphanStoragePaths: string[] = [];
 

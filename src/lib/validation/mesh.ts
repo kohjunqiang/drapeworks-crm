@@ -45,9 +45,17 @@ export const meshPanelSchema = z.object({
   colour_id: optionalTypeId,
   width_cm: optionalInt,
   height_cm: optionalInt,
-  // Depth of the window recess, measured on site — decides whether the frame
-  // fits inside the reveal or must be face-mounted. Never affects price.
-  depth_cm: optionalInt,
+  // What the frame is screwed to. The mesh fixes to the window grille; an
+  // opening with no window has no grille, so it goes to the wall instead.
+  // Defaults to true because that is the overwhelmingly common case, and
+  // unlike the measurements there is no meaningful "unset". Never affects
+  // price — install is per panel regardless of mount surface.
+  has_window: z.boolean().default(true),
+  // The opening is set into the wall, so the panel has to fit within it — it
+  // may match the measured size exactly but never exceed it. A flag, not a
+  // measurement: the lengths change nothing, "make it to size, no overhang"
+  // does. Never affects price.
+  has_inset: z.boolean().default(false),
   draw: z.enum(MESH_DRAWS).optional(),
   // Double draw only. Recorded as two cm measurements rather than a preset
   // ratio so every split is expressible and the factory gets exact numbers.

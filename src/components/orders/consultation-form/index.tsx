@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
+import { formDraftKey, useFormDraft } from "./use-form-draft";
 import {
   createOrder,
   createOrderDraft,
@@ -132,6 +133,13 @@ export function ConsultationForm({
     formState: { errors },
   } = form;
 
+  // Survive an accidental refresh mid-consultation. Keyed per order so a create
+  // and each edited order keep separate drafts.
+  const { clearDraft } = useFormDraft(
+    form,
+    formDraftKey("curtain", mode, orderId),
+  );
+
   const {
     fields: rooms,
     append: appendRoom,
@@ -174,7 +182,12 @@ export function ConsultationForm({
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
-        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) return;
+        // The redirect throw is the only success signal, so the recovery
+        // draft is dropped here rather than before the call.
+        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) {
+          clearDraft();
+          return;
+        }
         toast.error(msg || "Save failed");
       }
     });
@@ -200,7 +213,10 @@ export function ConsultationForm({
         await createOrderDraft(payload);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
-        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) return;
+        if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) {
+          clearDraft();
+          return;
+        }
         toast.error(msg || "Draft save failed");
       }
     });

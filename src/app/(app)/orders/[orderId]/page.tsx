@@ -19,6 +19,15 @@ import { requireSession } from "@/lib/auth/require-role";
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
 import { db } from "@/lib/db/kysely";
+import {
+  loadActiveMeshSystemBands,
+  loadActiveMeshSystemSpecs,
+} from "@/lib/db/mesh-catalogue";
+import {
+  formatMmAsCm,
+  resolveMeshSystem,
+  resolveMeshTrack,
+} from "@/lib/orders/mesh-system";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import { formatSGD } from "@/lib/money";
 import { computeOrderQuote } from "@/lib/pricing/order-quote";
@@ -173,7 +182,8 @@ export default async function OrderDetailPage({
             "mesh_panels.position as position",
             "mesh_panels.width_cm as width_cm",
             "mesh_panels.height_cm as height_cm",
-            "mesh_panels.depth_cm as depth_cm",
+            "mesh_panels.has_window as has_window",
+            "mesh_panels.has_inset as has_inset",
             "mesh_panels.draw as draw",
             "mesh_panels.split_left_cm as split_left_cm",
             "mesh_panels.split_right_cm as split_right_cm",
@@ -185,10 +195,27 @@ export default async function OrderDetailPage({
           .orderBy("mesh_panels.position", "asc")
           .execute();
 
+  // The track system is derived, never stored (§5.9), so it is resolved here
+  // for the factory sheet rather than read off the row.
+  const [systemBands, systemSpecs] = isMesh
+    ? await Promise.all([
+        loadActiveMeshSystemBands(),
+        loadActiveMeshSystemSpecs(),
+      ])
+    : [[], []];
+
   const panelsByRoom = new Map<string, MeshPanelSummary[]>();
   for (const p of meshPanels) {
     const list = panelsByRoom.get(p.room_id) ?? [];
-    list.push(p);
+    const key = { widthCm: p.width_cm, draw: p.draw ?? undefined };
+    const resolved = resolveMeshSystem(key, systemBands);
+    const track = resolveMeshTrack(key, systemBands, systemSpecs);
+    list.push({
+      ...p,
+      system: resolved.status === "resolved" ? resolved.system : null,
+      trackCm:
+        track.status === "resolved" ? formatMmAsCm(track.trackMm) : null,
+    });
     panelsByRoom.set(p.room_id, list);
   }
 

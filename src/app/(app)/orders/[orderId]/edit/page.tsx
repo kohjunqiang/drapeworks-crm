@@ -10,6 +10,10 @@ import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
 import { loadActivePromotions } from "@/lib/db/promotions";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 import { db } from "@/lib/db/kysely";
+import {
+  loadActiveMeshSystemBands,
+  loadActiveMeshSystemSpecs,
+} from "@/lib/db/mesh-catalogue";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import {
   isToiletRoom,
@@ -160,7 +164,8 @@ export default async function EditOrderPage({
               "colour_id",
               "width_cm",
               "height_cm",
-              "depth_cm",
+              "has_window",
+              "has_inset",
               "draw",
               "split_left_cm",
               "split_right_cm",
@@ -180,13 +185,16 @@ export default async function EditOrderPage({
     // Pass the ids this order already uses so archived categories, colours and
     // bands still resolve — otherwise their selects render blank and the value
     // is silently dropped on save.
-    const [meshConfig, meshPromotions] = await Promise.all([
+    const [meshConfig, meshPromotions, meshSystemBands, meshSystemSpecs] =
+      await Promise.all([
       loadMeshCalcConfig({
         categoryIds: panels.map((p) => p.category_id).filter((x): x is string => !!x),
         colourIds: panels.map((p) => p.colour_id).filter((x): x is string => !!x),
       }),
-      loadActivePromotions(),
-    ]);
+        loadActivePromotions(),
+        loadActiveMeshSystemBands(),
+        loadActiveMeshSystemSpecs(),
+      ]);
 
     const meshDefaults: MeshOrderEditInput = {
       customer: {
@@ -221,7 +229,8 @@ export default async function EditOrderPage({
           colour_id: p.colour_id ?? "",
           width_cm: p.width_cm ?? null,
           height_cm: p.height_cm ?? null,
-          depth_cm: p.depth_cm ?? null,
+          has_window: p.has_window,
+          has_inset: p.has_inset,
           draw: p.draw ?? undefined,
           split_left_cm: p.split_left_cm ?? null,
           split_right_cm: p.split_right_cm ?? null,
@@ -237,6 +246,8 @@ export default async function EditOrderPage({
             mode="edit"
             orderId={order.id}
             meshConfig={meshConfig}
+            systemBands={meshSystemBands}
+            systemSpecs={meshSystemSpecs}
             promotions={meshPromotions}
             defaultValues={meshDefaults}
             roomPhotos={roomPhotos}

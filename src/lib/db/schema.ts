@@ -528,8 +528,9 @@ export interface MeshPanels {
   category_id: string | null;
   colour_id: string | null;
   created_at: Generated<Timestamp>;
-  depth_cm: number | null;
   draw: MeshDrawDirection | null;
+  has_inset: Generated<boolean>;
+  has_window: Generated<boolean>;
   height_cm: number | null;
   id: Generated<string>;
   notes: string | null;
@@ -538,6 +539,35 @@ export interface MeshPanels {
   split_left_cm: number | null;
   split_right_cm: number | null;
   width_cm: number | null;
+}
+
+export interface MeshSystemBands {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  double_system: string | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  max_width_cm: number;
+  position: Generated<number>;
+  single_system: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface MeshSystems {
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  double_cost_rmb_cents: number | null;
+  double_sale_sgd_cents: number | null;
+  handle_mm: number;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  position: Generated<number>;
+  roller_mm: number;
+  side_track_mm: number;
+  track_depth_mm: number;
+  track_height_mm: number;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface Orders {
@@ -874,6 +904,8 @@ export interface DB {
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
   mesh_panels: MeshPanels;
+  mesh_system_bands: MeshSystemBands;
+  mesh_systems: MeshSystems;
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;

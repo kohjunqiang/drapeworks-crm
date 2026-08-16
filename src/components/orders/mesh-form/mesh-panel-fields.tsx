@@ -3,6 +3,15 @@
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
+import {
+  formatMmAsCm,
+  meshSystemErrorMessage,
+  meshTrackSegments,
+  resolveMeshSystem,
+  resolveMeshTrack,
+  type MeshSystemBand,
+  type MeshSystemSpec,
+} from "@/lib/orders/mesh-system";
 import type { MeshCatalogueOption } from "@/lib/pricing/order-quote";
 import {
   MESH_DRAW_VALUES,
@@ -17,6 +26,8 @@ type Props = {
   panelIndex: number;
   categories: MeshCatalogueOption[];
   colours: MeshCatalogueOption[];
+  systemBands: MeshSystemBand[];
+  systemSpecs: MeshSystemSpec[];
 };
 
 // A catalogue select. Archived rows reach us only because this order already
@@ -41,6 +52,8 @@ export function MeshPanelFields({
   panelIndex,
   categories,
   colours,
+  systemBands,
+  systemSpecs,
 }: Props) {
   const { control, register } = useFormContext<MeshOrderEditInput>();
   const base = `rooms.${roomIndex}.panels.${panelIndex}` as const;
@@ -61,6 +74,12 @@ export function MeshPanelFields({
   const width = Number(widthCm ?? 0);
   const splitMismatch =
     isDouble && width > 0 && splitSum > 0 && splitSum !== width;
+
+  // Derived, never stored and never editable: width and draw decide it, and one
+  // source of truth means changing the matrix changes every order.
+  const panel = { widthCm: width > 0 ? width : null, draw };
+  const system = resolveMeshSystem(panel, systemBands);
+  const track = resolveMeshTrack(panel, systemBands, systemSpecs);
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-3">
@@ -110,17 +129,42 @@ export function MeshPanelFields({
         />
       </div>
 
+      {/* Sits with the measurements because it qualifies them: an inset panel
+          must be made to size exactly, where a normal one has slack. */}
+      <div className="col-span-2 sm:col-span-2">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+            {...register(`${base}.has_inset`)}
+          />
+          <span>
+            <span className="block text-xs font-medium text-slate-600">
+              Inset
+            </span>
+            <span className="block text-[11px] text-slate-400">
+              Set into the wall — make to size, no overhang
+            </span>
+          </span>
+        </label>
+      </div>
+
       <div className="sm:col-span-2">
         <label className="block text-xs font-medium text-slate-600 mb-1">
-          Recess depth (cm)
+          Fixing to
         </label>
-        <input
-          type="number"
+        <select
           className={INPUT_CLS}
-          {...register(`${base}.depth_cm`)}
-        />
+          {...register(`${base}.has_window`, {
+            setValueAs: (v) => v !== "false",
+          })}
+        >
+          <option value="true">Window grille</option>
+          <option value="false">Wall — no window</option>
+        </select>
         <p className="mt-1 text-[11px] text-slate-400">
-          How deep the reveal is — decides recess vs face mount.
+          The frame screws to the grille. Only a bare opening with no window
+          goes to the wall.
         </p>
       </div>
 
@@ -179,6 +223,88 @@ export function MeshPanelFields({
           className={INPUT_CLS}
           {...register(`${base}.notes`)}
         />
+      </div>
+
+      {/* Closes the panel: everything above is measured, this is what those
+          measurements produce. Read-only and derived — width and draw decide
+          it, and the matrix in /admin/mesh is the single source of truth. */}
+      <div className="col-span-2 sm:col-span-6">
+        {system.status === "resolved" && (
+          <div className="flex items-baseline gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              System
+            </span>
+            <span className="text-sm font-semibold text-slate-900">
+              {system.system}
+            </span>
+            <span className="text-xs text-slate-400">
+              {width} cm · {isDouble ? "double" : "single"} draw
+            </span>
+            {track.status === "resolved" && (
+              <span className="ml-auto text-sm text-slate-700">
+                Track{" "}
+                <span className="font-semibold text-slate-900">
+                  {formatMmAsCm(track.trackMm)} cm
+                </span>
+              </span>
+            )}
+            {track.status === "unknown-system" && (
+              <span className="ml-auto text-xs text-amber-700">
+                No dimensions set for {track.system} — track unknown
+              </span>
+            )}
+            {track.status === "too-narrow" && (
+              <span className="ml-auto text-xs text-red-600">
+                Narrower than the hardware ({formatMmAsCm(track.minimumMm)} cm)
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* The panel laid out across the window, left to right. It sums to the
+            width, so it reads as a check against the tape rather than a
+            formula to be trusted. */}
+        {track.status === "resolved" && (
+          <p className="mt-1 px-3 text-[11px] text-slate-400">
+            {meshTrackSegments(track).map((seg, i) => (
+              <span key={i}>
+                {i > 0 && " + "}
+                <span className="tabular-nums text-slate-500">
+                  {formatMmAsCm(seg.mm)}
+                </span>
+                <span className="text-slate-400"> ({seg.label})</span>
+              </span>
+            ))}
+            <span className="tabular-nums"> = {width} cm</span>
+          </p>
+        )}
+
+        {system.status === "incomplete" && (
+          <div className="flex items-baseline gap-2 rounded border border-dashed border-slate-200 px-3 py-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              System
+            </span>
+            <span className="text-sm text-slate-400">
+              Enter a width and draw to see it
+            </span>
+          </div>
+        )}
+
+        {system.status === "not-possible" && (
+          <div className="rounded border border-red-200 bg-red-50 px-3 py-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-red-500">
+                System
+              </span>
+              <span className="text-sm font-semibold text-red-700">
+                Not possible
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-red-600">
+              {meshSystemErrorMessage(system)}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -2,11 +2,15 @@ import Link from "next/link";
 
 import { MeshCategoriesTable } from "@/components/mesh/mesh-categories-table";
 import { MeshColoursTable } from "@/components/mesh/mesh-colours-table";
+import { MeshSystemBandsTable } from "@/components/mesh/mesh-system-bands-table";
+import { MeshSystemsTable } from "@/components/mesh/mesh-systems-table";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadAssumptions } from "@/lib/db/pricing-settings";
 import {
   loadMeshCategories,
   loadMeshColours,
+  loadMeshSystemBands,
+  loadMeshSystems,
 } from "@/lib/db/mesh-catalogue";
 import { loadVendors } from "@/lib/db/vendors";
 
@@ -17,12 +21,15 @@ export const metadata = { title: "Mesh catalogue — Drapeworks CRM" };
 export default async function MeshCataloguePage() {
   await requireRole(["admin"]);
 
-  const [categories, colours, vendors, assumptions] = await Promise.all([
-    loadMeshCategories(),
-    loadMeshColours(),
-    loadVendors(),
-    loadAssumptions(),
-  ]);
+  const [categories, colours, systemBands, systems, vendors, assumptions] =
+    await Promise.all([
+      loadMeshCategories(),
+      loadMeshColours(),
+      loadMeshSystemBands(),
+      loadMeshSystems(),
+      loadVendors(),
+      loadAssumptions(),
+    ]);
 
   // Both halves of the sellable gate, so an admin can see exactly what's still
   // missing rather than wondering why Mesh isn't offered on a consultation.
@@ -39,8 +46,9 @@ export default async function MeshCataloguePage() {
           Mesh catalogue
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Window mesh categories, their per-square-foot rates and the colour
-          list. Everything the consultation form offers comes from here.
+          Window mesh categories, their per-square-foot rates, the colour list and
+          the track-system matrix. Everything the consultation form offers
+          comes from here.
         </p>
       </div>
 
@@ -77,6 +85,8 @@ export default async function MeshCataloguePage() {
         vendors={vendors.filter((v) => v.is_active)}
       />
       <MeshColoursTable colours={colours} />
+      <MeshSystemBandsTable bands={systemBands} />
+      <MeshSystemsTable systems={systems} />
     </main>
   );
 }

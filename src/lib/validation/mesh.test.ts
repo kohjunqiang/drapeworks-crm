@@ -15,7 +15,6 @@ const panel = (over: Record<string, unknown> = {}) => ({
   colour_id: UUID,
   width_cm: 120,
   height_cm: 150,
-  depth_cm: 8,
   draw: "Single Left",
   ...over,
 });
@@ -50,13 +49,35 @@ describe("meshPanelSchema", () => {
 
   it("coerces measurement strings from the form to numbers", () => {
     const r = meshPanelSchema.safeParse(
-      panel({ width_cm: "120", height_cm: "150", depth_cm: "8" }),
+      panel({ width_cm: "120", height_cm: "150" }),
     );
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.width_cm).toBe(120);
-      expect(r.data.depth_cm).toBe(8);
+      expect(r.data.height_cm).toBe(150);
     }
+  });
+
+  it("defaults the mount to the window grille when unstated", () => {
+    const r = meshPanelSchema.safeParse(panel());
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.has_window).toBe(true);
+  });
+
+  it("accepts a bare opening that fixes to the wall", () => {
+    const r = meshPanelSchema.safeParse(panel({ has_window: false }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.has_window).toBe(false);
+  });
+
+  it("defaults to no inset, and accepts one when flagged", () => {
+    const plain = meshPanelSchema.safeParse(panel());
+    expect(plain.success).toBe(true);
+    if (plain.success) expect(plain.data.has_inset).toBe(false);
+
+    const inset = meshPanelSchema.safeParse(panel({ has_inset: true }));
+    expect(inset.success).toBe(true);
+    if (inset.success) expect(inset.data.has_inset).toBe(true);
   });
 
   it("rejects a measurement beyond the 1000 cm sanity cap", () => {

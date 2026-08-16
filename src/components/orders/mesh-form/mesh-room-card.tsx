@@ -7,6 +7,10 @@ import {
   LineItemRow,
   RoomShell,
 } from "@/components/orders/consultation-form/room-shell";
+import type {
+  MeshSystemBand,
+  MeshSystemSpec,
+} from "@/lib/orders/mesh-system";
 import type { MeshCatalogueOption } from "@/lib/pricing/order-quote";
 import type { MeshOrderEditInput } from "@/lib/validation/mesh";
 
@@ -23,6 +27,8 @@ type Props = {
   onRemove: () => void;
   categories: MeshCatalogueOption[];
   colours: MeshCatalogueOption[];
+  systemBands: MeshSystemBand[];
+  systemSpecs: MeshSystemSpec[];
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
@@ -33,6 +39,8 @@ export function MeshRoomCard({
   onRemove,
   categories,
   colours,
+  systemBands,
+  systemSpecs,
   mode,
   roomId,
   photos,
@@ -51,7 +59,8 @@ export function MeshRoomCard({
       colour_id: "",
       width_cm: null,
       height_cm: null,
-      depth_cm: null,
+      has_window: true,
+      has_inset: false,
       draw: undefined,
       split_left_cm: null,
       split_right_cm: null,
@@ -81,6 +90,8 @@ export function MeshRoomCard({
             panelIndex={pIdx}
             categories={categories}
             colours={colours}
+            systemBands={systemBands}
+            systemSpecs={systemSpecs}
           />
         </LineItemRow>
       ))}

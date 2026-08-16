@@ -4,7 +4,11 @@ import { ProductLineChooser } from "@/components/orders/product-line-chooser";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
-import { meshIsSellable } from "@/lib/db/mesh-catalogue";
+import {
+  loadActiveMeshSystemBands,
+  loadActiveMeshSystemSpecs,
+  meshIsSellable,
+} from "@/lib/db/mesh-catalogue";
 import { loadActivePromotions } from "@/lib/db/promotions";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 
@@ -106,10 +110,13 @@ async function CurtainConsultation() {
 async function MeshConsultation() {
   // No in-use ids to union: a new order references nothing yet, so this is the
   // active catalogue only.
-  const [meshConfig, promotions] = await Promise.all([
-    loadMeshCalcConfig(),
-    loadActivePromotions(),
-  ]);
+  const [meshConfig, promotions, systemBands, systemSpecs] =
+    await Promise.all([
+      loadMeshCalcConfig(),
+      loadActivePromotions(),
+      loadActiveMeshSystemBands(),
+      loadActiveMeshSystemSpecs(),
+    ]);
 
   if (!meshConfig) {
     return (
@@ -123,6 +130,8 @@ async function MeshConsultation() {
     <MeshConsultationForm
       mode="create"
       meshConfig={meshConfig}
+      systemBands={systemBands}
+      systemSpecs={systemSpecs}
       promotions={promotions}
     />
   );

@@ -47,6 +47,15 @@ const BOOK: MeshPriceBook = {
     [WHITE]: { costRmbCents: null, saleSgdCents: null },
     [BRONZE]: { costRmbCents: 2000, saleSgdCents: 3500 },
   },
+  // A single open band so every width resolves; the surcharge is what these
+  // tests care about, not which system gets picked.
+  bands: [
+    { maxWidthCm: 760, singleSystem: "System 68", doubleSystem: "System 55" },
+  ],
+  doubleSurcharges: {
+    "system 55": { costRmbCents: 4000, saleSgdCents: 6000 },
+    "system 68": { costRmbCents: 5000, saleSgdCents: 7500 },
+  },
 };
 
 // A copy of BOOK with one category's cost rate filled in, for comparing a
@@ -67,8 +76,17 @@ const panel = (over: Partial<MeshPanel> = {}): MeshPanel => ({
   colourId: WHITE,
   widthCm: 100,
   heightCm: 150, // 15000 cm² = 16.1459 ft²
+  draw: "Single Left",
   ...over,
 });
+
+const BLANK: MeshPanel = {
+  categoryId: null,
+  colourId: null,
+  widthCm: null,
+  heightCm: null,
+  draw: null,
+};
 
 // 15000 cm² at S$8.00/ft² → 16.14587 × 800 = 12916.69 → 12917.
 const SALE_15000 = 12917;
@@ -120,7 +138,7 @@ describe("meshInstallUnits", () => {
   it("a blank panel row adds no install cost", () => {
     const panels = [
       panel(),
-      { categoryId: null, colourId: null, widthCm: null, heightCm: null },
+      BLANK,
     ];
     expect(meshInstallUnits(panels)).toBe(1);
   });
@@ -168,6 +186,56 @@ describe("panelQuote", () => {
     expect(big.saleSgdCents).toBe(25_833 + 3500);
   });
 
+  it("adds the system's double-draw surcharge, flat, on a double only", () => {
+    // 100 × 150 resolves to System 55 on a double: +¥40 / +S$60 per panel.
+    const single = panelQuote(panel({ draw: "Single Left" }), BOOK);
+    const double = panelQuote(panel({ draw: "Double" }), BOOK);
+
+    expect(single).toEqual({
+      costRmbCents: COST_15000,
+      saleSgdCents: SALE_15000,
+    });
+    expect(double).toEqual({
+      costRmbCents: COST_15000 + 4000,
+      saleSgdCents: SALE_15000 + 6000,
+    });
+  });
+
+  it("does not scale the double surcharge by area", () => {
+    const small = panelQuote(panel({ draw: "Double" }), BOOK);
+    const big = panelQuote(
+      panel({ draw: "Double", widthCm: 200, heightCm: 150 }),
+      BOOK,
+    );
+    // Twice the area, identical surcharge — 25833 is the doubled base.
+    expect(big.saleSgdCents - 25_833).toBe(small.saleSgdCents - SALE_15000);
+  });
+
+  it("charges nothing when the system has no surcharge configured", () => {
+    const bare: MeshPriceBook = { ...BOOK, doubleSurcharges: {} };
+    expect(panelQuote(panel({ draw: "Double" }), bare)).toEqual({
+      costRmbCents: COST_15000,
+      saleSgdCents: SALE_15000,
+    });
+  });
+
+  it("charges nothing when no system resolves for the width", () => {
+    // 900 cm is past every band, so there is no system to charge for.
+    const q = panelQuote(
+      panel({ draw: "Double", widthCm: 900, heightCm: 150 }),
+      BOOK,
+    );
+    expect(q.saleSgdCents).toBe(scaleByArea(900 * 150, 800));
+  });
+
+  it("stacks the colour and double surcharges", () => {
+    const q = panelQuote(panel({ draw: "Double", colourId: BRONZE }), BOOK);
+    expect(q).toEqual({
+      costRmbCents: COST_15000 + 2000 + 4000,
+      saleSgdCents: SALE_15000 + 3500 + 6000,
+    });
+  });
+
   it("is zero for an unmeasured panel", () => {
     expect(panelQuote(panel({ widthCm: null }), BOOK)).toEqual({
       costRmbCents: 0,
@@ -202,10 +270,7 @@ describe("computeMeshQuote", () => {
 
   it("does not charge install for a blank row added to the form", () => {
     const withBlank = computeMeshQuote(
-      [
-        panel(),
-        { categoryId: null, colourId: null, widthCm: null, heightCm: null },
-      ],
+      [panel(), BLANK],
       BOOK,
       ASSUMPTIONS,
     );
@@ -264,13 +329,7 @@ describe("meshQuoteWarnings", () => {
   });
 
   it("ignores an untouched blank row", () => {
-    const blank = {
-      categoryId: null,
-      colourId: null,
-      widthCm: null,
-      heightCm: null,
-    };
-    expect(meshQuoteWarnings([blank], BOOK).unpricedPanels).toEqual([]);
+    expect(meshQuoteWarnings([BLANK], BOOK).unpricedPanels).toEqual([]);
   });
 
   it("flags a started row with no category", () => {

@@ -14,6 +14,8 @@ import {
   type MeshPanel,
   type MeshPriceBook,
 } from "./mesh-calculator";
+import type { MeshDraw } from "@/lib/validation/mesh";
+
 import { quoteStaleness } from "./quote-staleness";
 import { computeStaleFlags } from "./stale-flags";
 
@@ -146,7 +148,7 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)];
 // Neither query filters on is_active: an archived category or colour must keep
 // resolving to the rate an existing order was quoted at (§9).
 async function loadMeshPriceBook(): Promise<MeshPriceBook> {
-  const [categoryRows, colourRows] = await Promise.all([
+  const [categoryRows, colourRows, bandRows, systemRows] = await Promise.all([
     db
       .selectFrom("mesh_categories")
       .select(["id", "cost_rmb_cents_per_sqft", "sale_sgd_cents_per_sqft"])
@@ -154,6 +156,19 @@ async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     db
       .selectFrom("mesh_colours")
       .select(["id", "surcharge_rmb_cents", "surcharge_sgd_cents"])
+      .execute(),
+    // Active only for both: an archived band or system must stop deciding what
+    // a NEW panel resolves to. Unlike categories and colours these are not
+    // referenced by id from the panel row, so there is nothing to keep alive.
+    db
+      .selectFrom("mesh_system_bands")
+      .select(["max_width_cm", "single_system", "double_system"])
+      .where("is_active", "=", true)
+      .execute(),
+    db
+      .selectFrom("mesh_systems")
+      .select(["name", "double_cost_rmb_cents", "double_sale_sgd_cents"])
+      .where("is_active", "=", true)
       .execute(),
   ]);
 
@@ -173,7 +188,24 @@ async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     };
   }
 
-  return { rates, colours };
+  const doubleSurcharges: MeshPriceBook["doubleSurcharges"] = {};
+  for (const r of systemRows) {
+    doubleSurcharges[r.name.trim().toLowerCase()] = {
+      costRmbCents: r.double_cost_rmb_cents,
+      saleSgdCents: r.double_sale_sgd_cents,
+    };
+  }
+
+  return {
+    rates,
+    colours,
+    bands: bandRows.map((b) => ({
+      maxWidthCm: b.max_width_cm,
+      singleSystem: b.single_system,
+      doubleSystem: b.double_system,
+    })),
+    doubleSurcharges,
+  };
 }
 
 // The mesh parallel to loadCalcConfig: plain serialisable objects so the whole
@@ -254,6 +286,7 @@ type MeshPanelRow = {
   colour_id: string | null;
   width_cm: number | null;
   height_cm: number | null;
+  draw: MeshDraw | null;
 };
 
 const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
@@ -261,6 +294,8 @@ const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
   colourId: p.colour_id,
   widthCm: p.width_cm,
   heightCm: p.height_cm,
+  // Carried into pricing because a double draw attracts a system surcharge.
+  draw: p.draw,
 });
 
 // The window row shape (window measurement/toggles + its resolved day/night/
@@ -405,6 +440,7 @@ export async function computeOrderQuote(
                 "mesh_panels.colour_id as colour_id",
                 "mesh_panels.width_cm as width_cm",
                 "mesh_panels.height_cm as height_cm",
+                "mesh_panels.draw as draw",
               ])
               .where("rooms.order_id", "=", orderId)
               .execute()
@@ -516,6 +552,7 @@ export async function orderStaleFlags(
           "mesh_panels.colour_id as colour_id",
           "mesh_panels.width_cm as width_cm",
           "mesh_panels.height_cm as height_cm",
+          "mesh_panels.draw as draw",
         ])
         .where("rooms.order_id", "in", orderIds)
         .execute(),

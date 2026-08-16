@@ -13,6 +13,13 @@
 // See docs/specs/phase-11-mesh-product-line.md §6.
 
 import {
+  isDoubleDraw,
+  resolveMeshSystem,
+  type MeshSystemBand,
+} from "@/lib/orders/mesh-system";
+import type { MeshDraw } from "@/lib/validation/mesh";
+
+import {
   finaliseQuote,
   type CalcAssumptions,
   type FreightMode,
@@ -31,6 +38,12 @@ export type MeshPanel = {
   colourId: string | null;
   widthCm: number | null;
   heightCm: number | null;
+  /**
+   * Needed by pricing, not just by the factory sheet: a double draw carries a
+   * roller and handle on each leaf, and that extra hardware is charged as a
+   * per-panel surcharge on the system it resolves to.
+   */
+  draw: MeshDraw | null;
 };
 
 export type MeshRate = {
@@ -48,6 +61,14 @@ export type MeshColourSurcharge = {
 export type MeshPriceBook = {
   rates: Record<string, MeshRate>; // key: categoryId
   colours: Record<string, MeshColourSurcharge>;
+  /**
+   * The track-system matrix, carried here only because a double draw's
+   * surcharge is keyed on the system a panel resolves to. Pricing does not
+   * otherwise care which system gets built.
+   */
+  bands: MeshSystemBand[];
+  /** Per-panel double-draw surcharge, keyed by lower-cased system name. */
+  doubleSurcharges: Record<string, MeshColourSurcharge>;
 };
 
 // 1 ft = 30.48 cm exactly, so 1 ft² = 929.0304 cm². Held as an integer pair so
@@ -114,9 +135,36 @@ type Money = { costRmbCents: number; saleSgdCents: number };
 
 const ZERO: Money = { costRmbCents: 0, saleSgdCents: 0 };
 
+/**
+ * The double-draw surcharge for this panel, or zero.
+ *
+ * Charged per panel, not per ft²: it is one extra roller-and-handle set
+ * whatever the panel's size. Keyed on the system the panel resolves to, since
+ * heavier systems carry costlier hardware. A single draw, an unresolvable
+ * system, or a system with no surcharge configured all contribute nothing.
+ */
+export function doubleDrawSurcharge(
+  p: MeshPanel,
+  book: MeshPriceBook,
+): Money {
+  if (!isDoubleDraw(p.draw ?? undefined)) return ZERO;
+
+  const resolved = resolveMeshSystem(
+    { widthCm: p.widthCm, draw: p.draw ?? undefined },
+    book.bands,
+  );
+  if (resolved.status !== "resolved") return ZERO;
+
+  const s = book.doubleSurcharges[resolved.system.trim().toLowerCase()];
+  return {
+    costRmbCents: s?.costRmbCents ?? 0,
+    saleSgdCents: s?.saleSgdCents ?? 0,
+  };
+}
+
 // The category's per-ft² rate scaled by this panel's area, plus the colour's
-// flat surcharge. The surcharge is NOT scaled — a colour premium is a per-panel
-// charge, not a per-ft² one.
+// flat surcharge and — on a double draw — the system's flat surcharge. Neither
+// surcharge is scaled: both are per-panel charges, not per-ft² ones.
 export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
   const rate = rateFor(p, book);
   if (!rate) return ZERO;
@@ -124,15 +172,18 @@ export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
   const area = panelAreaCm2(p);
   if (area == null) return ZERO;
 
-  const surcharge = p.colourId ? book.colours[p.colourId] : undefined;
+  const colour = p.colourId ? book.colours[p.colourId] : undefined;
+  const double = doubleDrawSurcharge(p, book);
 
   return {
     costRmbCents:
       scaleByArea(area, rate.costRmbCentsPerSqft ?? 0) +
-      (surcharge?.costRmbCents ?? 0),
+      (colour?.costRmbCents ?? 0) +
+      double.costRmbCents,
     saleSgdCents:
       scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0) +
-      (surcharge?.saleSgdCents ?? 0),
+      (colour?.saleSgdCents ?? 0) +
+      double.saleSgdCents,
   };
 }
 

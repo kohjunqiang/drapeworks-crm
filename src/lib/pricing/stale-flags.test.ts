@@ -38,6 +38,10 @@ const MESH_BOOK: MeshPriceBook = {
     [CAT]: { costRmbCentsPerSqft: 400, saleSgdCentsPerSqft: 800 },
   },
   colours: {},
+  bands: [
+    { maxWidthCm: 760, singleSystem: "System 68", doubleSystem: "System 55" },
+  ],
+  doubleSurcharges: {},
 };
 
 const MESH_PANEL: MeshPanel = {
@@ -45,6 +49,7 @@ const MESH_PANEL: MeshPanel = {
   colourId: null,
   widthCm: 100,
   heightCm: 150,
+  draw: "Single Left",
 };
 
 const CURTAIN_WINDOW: CalcWindow = {

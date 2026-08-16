@@ -43,5 +43,54 @@ export const meshColourSchema = z.object({
   surcharge_sgd: priceField,
 });
 
+// One row of the track-system matrix: a width band and the system each draw
+// type needs at that width. A blank system means "not possible" — a real
+// answer, not a missing one, which is why it is allowed through.
+export const meshSystemBandSchema = z.object({
+  isNew: z.boolean(),
+  id: z.string().uuid().optional(),
+  max_width_cm: z
+    .string()
+    .regex(/^\d+$/, "Enter a whole number of centimetres")
+    .refine((v) => Number(v) > 0, "Must be greater than 0"),
+  single_system: z.string().trim().max(120).optional(),
+  double_system: z.string().trim().max(120).optional(),
+});
+
+// Physical dimensions of a track system, typed in cm with one decimal place
+// and stored as integer millimetres — the supplier quotes 6.5, 4.3, 1.5.
+const mmField = z
+  .string()
+  .regex(/^\d+(\.\d)?$/, "Enter a length in cm (e.g. 6.5)")
+  .refine((v) => Number(v) > 0, "Must be greater than 0");
+
+export const meshSystemSchema = z.object({
+  isNew: z.boolean(),
+  id: z.string().uuid().optional(),
+  // Matched to the matrix by name, so it is stored verbatim as typed.
+  name: z.string().trim().min(1, "Required").max(120),
+  roller_cm: mmField,
+  handle_cm: mmField,
+  side_track_cm: mmField,
+  track_height_cm: mmField,
+  track_depth_cm: mmField,
+  // Flat per-panel surcharge for a double draw — one extra roller-and-handle
+  // set, not scaled by area. Blank = no surcharge.
+  double_cost_rmb: priceField,
+  double_sale_sgd: priceField,
+});
+
+/** cm as typed → integer mm. "6.5" → 65. */
+export function cmToMm(v: string): number {
+  return Math.round(Number(v) * 10);
+}
+
+/** Integer mm → cm for display. 65 → "6.5". */
+export function mmToCm(v: number): string {
+  return String(v / 10);
+}
+
 export type MeshCategoryInput = z.infer<typeof meshCategorySchema>;
+export type MeshSystemInput = z.infer<typeof meshSystemSchema>;
 export type MeshColourInput = z.infer<typeof meshColourSchema>;
+export type MeshSystemBandInput = z.infer<typeof meshSystemBandSchema>;

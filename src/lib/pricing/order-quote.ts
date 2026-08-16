@@ -10,7 +10,6 @@ import {
 } from "./calculator";
 import {
   computeMeshQuote,
-  priceKey,
   type MeshCalcAssumptions,
   type MeshPanel,
   type MeshPriceBook,
@@ -136,24 +135,21 @@ export type MeshCalcConfig = {
 export type MeshInUseIds = {
   categoryIds?: string[];
   colourIds?: string[];
-  bandIds?: string[];
 };
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)];
 
-// The price grid + band list + colour surcharges — everything the mesh
-// calculator needs and nothing it doesn't. Shared by the single-order quote and
-// the batched staleness sweep.
+// The per-ft² rates + colour surcharges — everything the mesh calculator needs
+// and nothing it doesn't. Shared by the single-order quote and the batched
+// staleness sweep.
+//
+// Neither query filters on is_active: an archived category or colour must keep
+// resolving to the rate an existing order was quoted at (§9).
 async function loadMeshPriceBook(): Promise<MeshPriceBook> {
-  const [bandRows, priceRows, colourRows] = await Promise.all([
+  const [categoryRows, colourRows] = await Promise.all([
     db
-      .selectFrom("mesh_size_bands")
-      .select(["id", "max_area_cm2"])
-      .where("is_active", "=", true)
-      .execute(),
-    db
-      .selectFrom("mesh_prices")
-      .select(["category_id", "band_id", "cost_rmb_cents", "sale_sgd_cents"])
+      .selectFrom("mesh_categories")
+      .select(["id", "cost_rmb_cents_per_sqft", "sale_sgd_cents_per_sqft"])
       .execute(),
     db
       .selectFrom("mesh_colours")
@@ -161,11 +157,11 @@ async function loadMeshPriceBook(): Promise<MeshPriceBook> {
       .execute(),
   ]);
 
-  const prices: MeshPriceBook["prices"] = {};
-  for (const r of priceRows) {
-    prices[priceKey(r.category_id, r.band_id)] = {
-      costRmbCents: r.cost_rmb_cents,
-      saleSgdCents: r.sale_sgd_cents,
+  const rates: MeshPriceBook["rates"] = {};
+  for (const r of categoryRows) {
+    rates[r.id] = {
+      costRmbCentsPerSqft: r.cost_rmb_cents_per_sqft,
+      saleSgdCentsPerSqft: r.sale_sgd_cents_per_sqft,
     };
   }
 
@@ -177,11 +173,7 @@ async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     };
   }
 
-  return {
-    bands: bandRows.map((b) => ({ id: b.id, maxAreaCm2: b.max_area_cm2 })),
-    prices,
-    colours,
-  };
+  return { rates, colours };
 }
 
 // The mesh parallel to loadCalcConfig: plain serialisable objects so the whole
@@ -196,9 +188,8 @@ export async function loadMeshCalcConfig(
 ): Promise<MeshCalcConfig | null> {
   const inUseCategories = uniq(inUse.categoryIds ?? []);
   const inUseColours = uniq(inUse.colourIds ?? []);
-  const inUseBands = uniq(inUse.bandIds ?? []);
 
-  const [assumptionsRow, categoryRows, colourRows, bandRows, book] =
+  const [assumptionsRow, categoryRows, colourRows, book] =
     await Promise.all([
       db
         .selectFrom("pricing_assumptions")
@@ -231,16 +222,6 @@ export async function loadMeshCalcConfig(
         .orderBy("position")
         .orderBy("name")
         .execute(),
-      db
-        .selectFrom("mesh_size_bands")
-        .select(["id", "max_area_cm2"])
-        .where((eb) =>
-          eb.or([
-            eb("is_active", "=", true),
-            ...(inUseBands.length ? [eb("id", "in", inUseBands)] : []),
-          ]),
-        )
-        .execute(),
       loadMeshPriceBook(),
     ]);
 
@@ -258,12 +239,9 @@ export async function loadMeshCalcConfig(
 
   return {
     assumptions: assumptionsRowToCalc(assumptionsRow),
-    // Bands are widened the same way, so an order priced under a retired band
-    // keeps resolving to the price it was quoted at.
-    book: {
-      ...book,
-      bands: bandRows.map((b) => ({ id: b.id, maxAreaCm2: b.max_area_cm2 })),
-    },
+    // The book carries every category's rate, archived or not, so an order
+    // quoted under a since-retired category keeps resolving to its price.
+    book,
     categories: categoryRows.map(toOption),
     colours: colourRows.map(toOption),
     minMarginBps: assumptionsRow.min_margin_bps,

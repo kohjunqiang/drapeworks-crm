@@ -2,15 +2,11 @@ import Link from "next/link";
 
 import { MeshCategoriesTable } from "@/components/mesh/mesh-categories-table";
 import { MeshColoursTable } from "@/components/mesh/mesh-colours-table";
-import { MeshPriceGrid } from "@/components/mesh/mesh-price-grid";
-import { MeshSizeBandsTable } from "@/components/mesh/mesh-size-bands-table";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadAssumptions } from "@/lib/db/pricing-settings";
 import {
   loadMeshCategories,
   loadMeshColours,
-  loadMeshPrices,
-  loadMeshSizeBands,
 } from "@/lib/db/mesh-catalogue";
 import { loadVendors } from "@/lib/db/vendors";
 
@@ -21,21 +17,20 @@ export const metadata = { title: "Mesh catalogue — Drapeworks CRM" };
 export default async function MeshCataloguePage() {
   await requireRole(["admin"]);
 
-  const [categories, colours, bands, prices, vendors, assumptions] =
-    await Promise.all([
-      loadMeshCategories(),
-      loadMeshColours(),
-      loadMeshSizeBands(),
-      loadMeshPrices(),
-      loadVendors(),
-      loadAssumptions(),
-    ]);
+  const [categories, colours, vendors, assumptions] = await Promise.all([
+    loadMeshCategories(),
+    loadMeshColours(),
+    loadVendors(),
+    loadAssumptions(),
+  ]);
 
   // Both halves of the sellable gate, so an admin can see exactly what's still
   // missing rather than wondering why Mesh isn't offered on a consultation.
-  const hasPricedCell = prices.some((p) => p.sale_sgd_cents != null);
+  const hasPricedCategory = categories.some(
+    (c) => c.is_active && c.sale_sgd_cents_per_sqft != null,
+  );
   const hasInstallCost = (assumptions?.handyman_mesh_sgd_cents ?? 0) > 0;
-  const sellable = hasPricedCell && hasInstallCost;
+  const sellable = hasPricedCategory && hasInstallCost;
 
   return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -44,8 +39,8 @@ export default async function MeshCataloguePage() {
           Mesh catalogue
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Window mesh categories, colours, size bands and prices. Everything the
-          consultation form offers comes from here.
+          Window mesh categories, their per-square-foot rates and the colour
+          list. Everything the consultation form offers comes from here.
         </p>
       </div>
 
@@ -55,9 +50,10 @@ export default async function MeshCataloguePage() {
             Mesh isn&rsquo;t available on consultations yet.
           </p>
           <ul className="mt-1.5 space-y-1 list-disc list-inside">
-            {!hasPricedCell && (
+            {!hasPricedCategory && (
               <li>
-                No price is set. Fill at least one sale price in the grid below.
+                No category has a sale rate. Set S$/ft² on at least one active
+                category below.
               </li>
             )}
             {!hasInstallCost && (
@@ -81,8 +77,6 @@ export default async function MeshCataloguePage() {
         vendors={vendors.filter((v) => v.is_active)}
       />
       <MeshColoursTable colours={colours} />
-      <MeshSizeBandsTable bands={bands} />
-      <MeshPriceGrid categories={categories} bands={bands} prices={prices} />
     </main>
   );
 }

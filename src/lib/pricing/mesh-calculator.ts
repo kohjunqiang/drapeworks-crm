@@ -1,12 +1,14 @@
 // Mesh pricing — the product-specific front end for window mesh panels.
 //
-// Where curtains price by width × a per-metre rate, mesh prices FLAT PER PANEL:
-// look up (category, size band) in the price grid and add the colour surcharge.
-// Everything downstream — freight, other cost, GST, RMB→SGD, install, the
-// order discount, margin, groupbuy — is shared with curtains via finaliseQuote.
+// Where curtains price by width × a per-metre rate, mesh prices BY AREA: the
+// panel's area in square feet × the category's per-ft² rate, plus the colour's
+// flat surcharge. Everything downstream — freight, other cost, GST, RMB→SGD,
+// install, the order discount, margin, groupbuy — is shared with curtains via
+// finaliseQuote.
 //
-// Money is integer cents throughout (RMB cost cents, SGD sale cents); area is
-// integer cm² so band matching never touches a float.
+// Money is integer cents throughout (RMB cost cents, SGD sale cents), and rates
+// are integer cents per ft² (S$8.00/ft² = 800). Area is integer cm², converted
+// to ft² only inside the one rounding step below.
 //
 // See docs/specs/phase-11-mesh-product-line.md §6.
 
@@ -31,14 +33,9 @@ export type MeshPanel = {
   heightCm: number | null;
 };
 
-export type MeshBand = {
-  id: string;
-  maxAreaCm2: number | null; // null = the open-ended top band
-};
-
-export type MeshPriceCell = {
-  costRmbCents: number | null; // null = cost not configured (margin unreliable)
-  saleSgdCents: number | null; // null = not yet priced
+export type MeshRate = {
+  costRmbCentsPerSqft: number | null; // null = cost not configured (margin unreliable)
+  saleSgdCentsPerSqft: number | null; // null = not yet priced
 };
 
 export type MeshColourSurcharge = {
@@ -49,20 +46,23 @@ export type MeshColourSurcharge = {
 // Plain records rather than Maps so the whole book crosses the server→client
 // boundary as props, the same way CalcConfig does.
 export type MeshPriceBook = {
-  bands: MeshBand[];
-  prices: Record<string, MeshPriceCell>; // key: `${categoryId}:${bandId}`
+  rates: Record<string, MeshRate>; // key: categoryId
   colours: Record<string, MeshColourSurcharge>;
 };
 
-export const priceKey = (categoryId: string, bandId: string): string =>
-  `${categoryId}:${bandId}`;
+// 1 ft = 30.48 cm exactly, so 1 ft² = 929.0304 cm². Held as an integer pair so
+// the conversion is exact integer arithmetic up to a single final rounding —
+// dividing by a float literal would introduce drift the money-in-cents rule
+// exists to prevent.
+const CM2_PER_SQFT_NUMERATOR = 10_000;
+const CM2_PER_SQFT_DENOMINATOR = 9_290_304;
 
 // ── the two predicates ───────────────────────────────────────────────────
 //
 // These are NOT the same and must not be collapsed into one. A measured panel
-// whose price cell is empty is warned but still installed — the handyman fits
-// it whether or not an admin has filled that cell in. Defining install as "not
-// warned" would make install cost silently change when someone edits the grid.
+// whose category has no rate is warned but still installed — the handyman fits
+// it whether or not an admin has priced that category. Defining install as "not
+// warned" would make install cost silently change when someone edits a rate.
 
 /** Governs INSTALL. Deliberately keyed off measurement alone. */
 export function isMeasured(p: MeshPanel): boolean {
@@ -75,9 +75,9 @@ export function isMeasured(p: MeshPanel): boolean {
   );
 }
 
-/** Governs WARNINGS. Requires a non-null sale — a row can exist unfilled. */
+/** Governs WARNINGS. Requires a non-null sale rate — a category can be unpriced. */
 export function isPriced(p: MeshPanel, book: MeshPriceBook): boolean {
-  return priceCellFor(p, book)?.saleSgdCents != null;
+  return rateFor(p, book)?.saleSgdCentsPerSqft != null;
 }
 
 export function panelAreaCm2(p: MeshPanel): number | null {
@@ -86,33 +86,23 @@ export function panelAreaCm2(p: MeshPanel): number | null {
   return p.widthCm * p.heightCm;
 }
 
-// Smallest band that fits, ordered by max area with the open-ended band last.
-// Ordered here rather than by the bands' `position` column: pricing must not
-// depend on a display-ordering value staying in sync.
-export function resolveBand(
-  areaCm2: number,
-  bands: MeshBand[],
-): MeshBand | null {
-  const ordered = [...bands].sort((a, b) => {
-    if (a.maxAreaCm2 == null) return b.maxAreaCm2 == null ? 0 : 1;
-    if (b.maxAreaCm2 == null) return -1;
-    return a.maxAreaCm2 - b.maxAreaCm2;
-  });
-  return (
-    ordered.find((b) => b.maxAreaCm2 == null || areaCm2 <= b.maxAreaCm2) ?? null
-  );
+export function rateFor(p: MeshPanel, book: MeshPriceBook): MeshRate | null {
+  if (!isMeasured(p)) return null;
+  return book.rates[p.categoryId as string] ?? null;
 }
 
-export function priceCellFor(
-  p: MeshPanel,
-  book: MeshPriceBook,
-): MeshPriceCell | null {
-  if (!isMeasured(p)) return null;
-  const area = panelAreaCm2(p);
-  if (area == null) return null;
-  const band = resolveBand(area, book.bands);
-  if (!band) return null;
-  return book.prices[priceKey(p.categoryId as string, band.id)] ?? null;
+/**
+ * Area × rate, rounded to the nearest cent ONCE per panel.
+ *
+ * Rounding per panel rather than on the order total is deliberate: each panel is
+ * a line item the customer can see, so the printed lines must sum to the printed
+ * total. There is no minimum billable area — a small panel bills at its true
+ * size.
+ */
+export function scaleByArea(areaCm2: number, ratePerSqft: number): number {
+  return Math.round(
+    (areaCm2 * ratePerSqft * CM2_PER_SQFT_NUMERATOR) / CM2_PER_SQFT_DENOMINATOR,
+  );
 }
 
 /** Panels that attract an installation charge. */
@@ -124,17 +114,25 @@ type Money = { costRmbCents: number; saleSgdCents: number };
 
 const ZERO: Money = { costRmbCents: 0, saleSgdCents: 0 };
 
-// Flat base for the (category, band) cell, plus the colour's flat surcharge.
-// Neither is scaled by area — that's what "flat per panel" means.
+// The category's per-ft² rate scaled by this panel's area, plus the colour's
+// flat surcharge. The surcharge is NOT scaled — a colour premium is a per-panel
+// charge, not a per-ft² one.
 export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
-  const cell = priceCellFor(p, book);
-  if (!cell) return ZERO;
+  const rate = rateFor(p, book);
+  if (!rate) return ZERO;
+
+  const area = panelAreaCm2(p);
+  if (area == null) return ZERO;
 
   const surcharge = p.colourId ? book.colours[p.colourId] : undefined;
 
   return {
-    costRmbCents: (cell.costRmbCents ?? 0) + (surcharge?.costRmbCents ?? 0),
-    saleSgdCents: (cell.saleSgdCents ?? 0) + (surcharge?.saleSgdCents ?? 0),
+    costRmbCents:
+      scaleByArea(area, rate.costRmbCentsPerSqft ?? 0) +
+      (surcharge?.costRmbCents ?? 0),
+    saleSgdCents:
+      scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0) +
+      (surcharge?.saleSgdCents ?? 0),
   };
 }
 
@@ -178,12 +176,7 @@ export function computeMeshQuote(
 // Kept out of QuoteResult so pricing stays decoupled from presentation. The
 // live quote and the order detail card call this separately.
 
-export type MeshWarningReason =
-  | "no-category"
-  | "no-dimensions"
-  | "no-band"
-  | "no-price-row"
-  | "price-row-empty";
+export type MeshWarningReason = "no-category" | "no-dimensions" | "no-rate";
 
 export type MeshQuoteWarnings = {
   /** Indices into the panels array — zero sale reaching the customer. */
@@ -191,9 +184,10 @@ export type MeshQuoteWarnings = {
   /** Deduped set of reasons present, for the notice text. */
   reasons: MeshWarningReason[];
   /**
-   * Indices where the sale is configured but the cost isn't. These price the
-   * customer correctly but report a margin near 100%, which the below-floor
-   * guard can't catch because it sits ABOVE the floor. Separate advisory.
+   * Indices where the sale rate is configured but the cost rate isn't. These
+   * price the customer correctly but report a margin near 100%, which the
+   * below-floor guard can't catch because it sits ABOVE the floor. Separate
+   * advisory.
    */
   missingCostPanels: number[];
 };
@@ -218,32 +212,20 @@ export function meshQuoteWarnings(
       reasons.add("no-category");
       return;
     }
-    const area = panelAreaCm2(p);
-    if (area == null) {
+    if (panelAreaCm2(p) == null) {
       unpricedPanels.push(i);
       reasons.add("no-dimensions");
       return;
     }
-    const band = resolveBand(area, book.bands);
-    if (!band) {
+    const rate = book.rates[p.categoryId];
+    if (rate?.saleSgdCentsPerSqft == null) {
       unpricedPanels.push(i);
-      reasons.add("no-band");
-      return;
-    }
-    const cell = book.prices[priceKey(p.categoryId, band.id)];
-    if (!cell) {
-      unpricedPanels.push(i);
-      reasons.add("no-price-row");
-      return;
-    }
-    if (cell.saleSgdCents == null) {
-      unpricedPanels.push(i);
-      reasons.add("price-row-empty");
-      // Fall through: a cell with neither sale nor cost is both unpriced and
+      reasons.add("no-rate");
+      // Fall through: a category with neither rate set is both unpriced and
       // cost-less, but the unpriced notice is the actionable one.
       return;
     }
-    if (cell.costRmbCents == null) {
+    if (rate.costRmbCentsPerSqft == null) {
       missingCostPanels.push(i);
     }
   });

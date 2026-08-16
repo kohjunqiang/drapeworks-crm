@@ -499,6 +499,7 @@ export interface ExtensionsPgStatStatementsInfo {
 }
 
 export interface MeshCategories {
+  cost_rmb_cents_per_sqft: number | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   description: string | null;
@@ -506,6 +507,7 @@ export interface MeshCategories {
   is_active: Generated<boolean>;
   name: string;
   position: Generated<number>;
+  sale_sgd_cents_per_sqft: number | null;
   updated_at: Generated<Timestamp>;
   vendor_id: string | null;
 }
@@ -536,27 +538,6 @@ export interface MeshPanels {
   split_left_cm: number | null;
   split_right_cm: number | null;
   width_cm: number | null;
-}
-
-export interface MeshPrices {
-  band_id: string;
-  category_id: string;
-  cost_rmb_cents: number | null;
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  sale_sgd_cents: number | null;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface MeshSizeBands {
-  created_at: Generated<Timestamp>;
-  created_by: string | null;
-  id: Generated<string>;
-  is_active: Generated<boolean>;
-  label: string;
-  max_area_cm2: number | null;
-  position: Generated<number>;
-  updated_at: Generated<Timestamp>;
 }
 
 export interface Orders {
@@ -893,8 +874,6 @@ export interface DB {
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
   mesh_panels: MeshPanels;
-  mesh_prices: MeshPrices;
-  mesh_size_bands: MeshSizeBands;
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;

@@ -33,6 +33,8 @@ import {
   type MeshCategoryInput,
 } from "@/lib/validation/mesh-catalogue";
 
+import { centsToDisplay } from "@/lib/money";
+
 import { CatalogueSection, RowActions, StatusBadge } from "./catalogue-shell";
 
 type VendorOption = { id: string; name: string };
@@ -42,7 +44,14 @@ const BLANK: MeshCategoryInput = {
   name: "",
   description: undefined,
   vendor_id: undefined,
+  cost_rmb_per_sqft: "",
+  sale_sgd_per_sqft: "",
 };
+
+// centsToDisplay(null) is "0.00", which would turn "not priced" into a zero
+// rate on save. Keep null as a blank field.
+const rateField = (cents: number | null): string =>
+  cents == null ? "" : centsToDisplay(cents);
 
 function CategoryDialog({
   open,
@@ -148,6 +157,55 @@ function CategoryDialog({
               )}
             />
 
+            <div className="pt-1">
+              <p className="text-xs font-medium text-slate-700">
+                Rate per square foot
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                A panel is priced by its area: width × height in ft², times
+                these. Leave blank until you know the rate.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <FormField
+                name="cost_rmb_per_sqft"
+                control={form.control}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Cost (¥/ft²)</FormLabel>
+                    <FormControl>
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                name="sale_sgd_per_sqft"
+                control={form.control}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Sale (S$/ft²)</FormLabel>
+                    <FormControl>
+                      <Input
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <div className="flex items-center justify-end gap-2 pt-2">
               <Button
                 type="button"
@@ -203,6 +261,8 @@ export function MeshCategoriesTable({
         name: editing.name,
         description: editing.description ?? undefined,
         vendor_id: editing.vendor_id ?? undefined,
+        cost_rmb_per_sqft: rateField(editing.cost_rmb_cents_per_sqft),
+        sale_sgd_per_sqft: rateField(editing.sale_sgd_cents_per_sqft),
       }
     : undefined;
 
@@ -210,7 +270,7 @@ export function MeshCategoriesTable({
     <>
       <CatalogueSection
         title="Categories"
-        description="The mesh grades you sell — e.g. AirGuard, PetGuard, MaxGuard."
+        description="The mesh grades you sell, each with its per-square-foot rate — e.g. AirGuard, PetGuard, MaxGuard."
         addLabel="+ Add category"
         onAdd={() => {
           setEditing(undefined);
@@ -225,6 +285,8 @@ export function MeshCategoriesTable({
               <th className="text-left px-4 py-3 font-medium">Name</th>
               <th className="text-left px-4 py-3 font-medium">Description</th>
               <th className="text-left px-4 py-3 font-medium">Vendor</th>
+              <th className="text-right px-4 py-3 font-medium">Cost ¥/ft²</th>
+              <th className="text-right px-4 py-3 font-medium">Sale S$/ft²</th>
               <th className="text-left px-4 py-3 font-medium w-24">Status</th>
               <th className="text-right px-4 py-3 font-medium w-40">Actions</th>
             </tr>
@@ -240,6 +302,40 @@ export function MeshCategoriesTable({
                 </td>
                 <td className="px-4 py-3 text-slate-500">
                   {c.vendor_name ?? "—"}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {c.cost_rmb_cents_per_sqft == null ? (
+                    // A sale with no cost prices the customer correctly but
+                    // reports a margin near 100% — flag it here, where it can
+                    // be fixed, since the below-floor guard can never catch it.
+                    <span
+                      className={
+                        c.sale_sgd_cents_per_sqft == null
+                          ? "text-slate-400"
+                          : "text-amber-700"
+                      }
+                      title={
+                        c.sale_sgd_cents_per_sqft == null
+                          ? undefined
+                          : "No cost rate — margin on this category is unreliable"
+                      }
+                    >
+                      —
+                    </span>
+                  ) : (
+                    <span className="text-slate-700">
+                      {centsToDisplay(c.cost_rmb_cents_per_sqft)}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {c.sale_sgd_cents_per_sqft == null ? (
+                    <span className="text-slate-400">not priced</span>
+                  ) : (
+                    <span className="font-medium text-slate-900">
+                      {centsToDisplay(c.sale_sgd_cents_per_sqft)}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <StatusBadge active={c.is_active} />

@@ -25,9 +25,7 @@ function toNum(v: unknown): number | null {
 const REASON_TEXT: Record<string, string> = {
   "no-category": "no category chosen",
   "no-dimensions": "missing width or height",
-  "no-band": "larger than every size band — add an open-ended band",
-  "no-price-row": "no price configured for that category and size",
-  "price-row-empty": "price cell exists but is empty",
+  "no-rate": "that category has no S$/ft² rate set",
 };
 
 export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {

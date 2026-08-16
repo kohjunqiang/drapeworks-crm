@@ -59,6 +59,7 @@ The prototype uses **deep teal** as the accent colour (`teal-600` / `#0d9488`). 
 | 9 | `phase-9-pricing-foundation.md` | **Pricing foundation** — vendors + per-curtain cost (RMB)/curated sale (SGD), global pricing assumptions + add-on price list. Data + admin UI only; calculator deferred to Phase 10. |
 | 10 | `phase-10-promotions-combos.md` | **Promotions & combo pricing** — order-level promo (preset tier or custom %) + per-window combo bundle price (explicit pick, overrides sale). Spec only; not yet implemented. |
 | 11 | `phase-11-mesh-product-line.md` | **Mesh product line** — window mesh (AirGuard/PetGuard/MaxGuard) as a second product. `orders.product_line` discriminator + separate `mesh_panels` line items; flat per-panel pricing by category × m² band + colour surcharge. Spec only; not yet implemented. |
+| 12 | `phase-12-product-section-and-blinds.md` | **Product section & blinds** — merges the Digital Catalogue and Mesh nav tabs into one **Product** section (Curtains / Blinds / Mesh), and makes blinds a real product: `curtain_series.product_line`, a third `blind` window variant, per-width pricing and the `handyman_blinds` install rate. Spec only; not yet implemented. |
 
 ## How to use a spec in a fresh chat
 

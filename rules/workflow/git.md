@@ -55,6 +55,8 @@ fix(consultation-form): clear day/night curtain fields when switching room to to
 
 ## What NOT to do
 
+- **Never add a `Co-Authored-By: Claude` trailer** (or any AI attribution) to a commit
+  message or PR body. This overrides the default Claude Code behaviour.
 - Never `git commit -am 'fixes'` style — no useful info
 - Never commit secrets (`.env*`, `*.pem`, etc.) — they're already in `.gitignore`; double-check
 - Never `--amend` a pushed commit (rewrites history; breaks bisect)

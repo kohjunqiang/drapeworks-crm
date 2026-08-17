@@ -101,6 +101,7 @@ export default async function EditOrderPage({
             "curtain_type_id",
             "day_curtain_type_id",
             "night_curtain_type_id",
+            "blind_type_id",
             "draw",
             "add_s_fold",
             "add_slim_tracks",
@@ -299,6 +300,24 @@ export default async function EditOrderPage({
         label: r.label,
         position: rIdx,
         windows: wins.map((w, wIdx) => {
+          // A blind is checked FIRST and never derived from the room type: it
+          // is valid in every room, and deriving would drop the saved blind on
+          // load and re-save the window as an empty curtain.
+          if (w.blind_type_id) {
+            return {
+              id: w.id,
+              variant: "blind" as const,
+              position: wIdx,
+              blind_type_id: w.blind_type_id,
+              // Control side. "Double" can't occur on a blind (the schema and
+              // the trigger both reject it), so no coercion is needed.
+              draw: w.draw === "Double" ? undefined : (w.draw ?? undefined),
+              width_cm: w.width_cm ?? null,
+              height_cm: w.height_cm ?? null,
+              install_width_cm: w.install_width_cm ?? null,
+              notes: w.notes ?? "",
+            };
+          }
           if (isToilet) {
             return {
               id: w.id,

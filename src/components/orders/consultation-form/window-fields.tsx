@@ -76,6 +76,55 @@ function Preview({
   );
 }
 
+// Curtains / Blinds segmented control. A window is one or the other — never
+// both — so this is a two-way switch rather than a pair of checkboxes.
+function CoveringToggle({
+  isBlind,
+  onChange,
+  blindsAvailable,
+}: {
+  isBlind: boolean;
+  onChange: (next: "curtain" | "blind") => void;
+  blindsAvailable: boolean;
+}) {
+  // With no blind in the catalogue the toggle would lead to an empty picker,
+  // so it stays hidden until an admin has added one — the same "don't offer
+  // what can't be quoted" rule the Mesh card follows on the product chooser.
+  if (!blindsAvailable) return null;
+
+  const cls = (active: boolean) =>
+    active
+      ? "px-3 py-1 text-xs font-medium rounded bg-white text-slate-900 shadow-sm"
+      : "px-3 py-1 text-xs text-slate-500 hover:text-slate-700";
+
+  return (
+    <div className="col-span-2 sm:col-span-6">
+      <div
+        role="group"
+        aria-label="Window covering"
+        className="inline-flex gap-0.5 rounded-md bg-slate-100 p-0.5"
+      >
+        <button
+          type="button"
+          aria-pressed={!isBlind}
+          onClick={() => onChange("curtain")}
+          className={cls(!isBlind)}
+        >
+          Curtains
+        </button>
+        <button
+          type="button"
+          aria-pressed={isBlind}
+          onClick={() => onChange("blind")}
+          className={cls(isBlind)}
+        >
+          Blinds
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function WindowFields({
   roomIndex,
   windowIndex,
@@ -83,8 +132,30 @@ export function WindowFields({
   curtainTypes,
   combos,
 }: Props) {
-  const { register, control } = useFormContext<OrderEditInput>();
+  const { register, control, setValue, getValues } =
+    useFormContext<OrderEditInput>();
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
+  const variant = useWatch({ control, name: `${base}.variant` });
+  const isBlind = variant === "blind";
+
+  // Switching covering clears the other side's selections. Measurements and
+  // notes survive — they describe the OPENING, not what hangs in it.
+  //
+  // draw survives too, but its meaning changes: on a curtain it is the pull
+  // direction, on a blind the chain/control side. "Double" has no blind
+  // equivalent, so it is cleared rather than silently reinterpreted.
+  function setCovering(next: "curtain" | "blind") {
+    if (next === "blind") {
+      if (getValues(`${base}.draw`) === "Double") {
+        setValue(`${base}.draw`, undefined, { shouldDirty: true });
+      }
+      setValue(`${base}.variant`, "blind", { shouldDirty: true });
+      return;
+    }
+    setValue(`${base}.variant`, isToilet ? "toilet" : "regular", {
+      shouldDirty: true,
+    });
+  }
 
   // Every curtain picker takes curtain-line options only. The day/night
   // filters would exclude a blind anyway (its category is null), but the
@@ -92,20 +163,113 @@ export function WindowFields({
   const curtainOptions = curtainTypes.filter(
     (c) => c.productLine === "curtain",
   );
+  const blindOptions = curtainTypes.filter((c) => c.productLine === "blind");
   const dayTypes = curtainOptions.filter((c) => c.category === "Day");
   const nightTypes = curtainOptions.filter((c) => c.category === "Night");
 
   const dayId = useWatch({ control, name: `${base}.day_curtain_type_id` });
   const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
   const toiletId = useWatch({ control, name: `${base}.curtain_type_id` });
+  const blindId = useWatch({ control, name: `${base}.blind_type_id` });
   const comboId = useWatch({ control, name: `${base}.combo_id` });
   const activeCombo = comboId
     ? combos.find((c) => c.id === comboId)
     : undefined;
 
+  if (isBlind) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <CoveringToggle
+          isBlind
+          onChange={setCovering}
+          blindsAvailable={blindOptions.length > 0}
+        />
+        <div className="col-span-2 sm:col-span-4">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Blind
+          </label>
+          <FormSelect
+            control={control}
+            name={`${base}.blind_type_id`}
+            noneLabel="— Select —"
+            options={blindOptions.map((c) => ({
+              value: c.id,
+              label: c.label,
+            }))}
+          />
+          <Preview options={blindOptions} selectedId={blindId} />
+        </div>
+        <div className="col-span-2 sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Control side
+          </label>
+          {/* Same `draw` column as a curtain, but a blind has one chain — there
+              is no "Double". */}
+          <FormSelect
+            control={control}
+            name={`${base}.draw`}
+            noneLabel="— Select —"
+            options={[
+              { value: "Single Left", label: "Left" },
+              { value: "Single Right", label: "Right" },
+            ]}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Width (cm)
+          </label>
+          <input
+            type="number"
+            className={INPUT_CLS}
+            {...register(`${base}.width_cm`)}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Height (cm)
+          </label>
+          <input
+            type="number"
+            className={INPUT_CLS}
+            {...register(`${base}.height_cm`)}
+          />
+        </div>
+        <div className="col-span-2 sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Installation Width (cm)
+          </label>
+          <input
+            type="number"
+            className={INPUT_CLS}
+            {...register(`${base}.install_width_cm`)}
+          />
+        </div>
+        <div className="col-span-2 sm:col-span-6">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Special Notes
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. inside mount, bracket clearance…"
+            className={INPUT_CLS}
+            {...register(`${base}.notes`)}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (isToilet) {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="col-span-2 sm:col-span-4">
+          <CoveringToggle
+            isBlind={false}
+            onChange={setCovering}
+            blindsAvailable={blindOptions.length > 0}
+          />
+        </div>
         <div className="col-span-2">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Curtain Type
@@ -168,6 +332,11 @@ export function WindowFields({
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+      <CoveringToggle
+        isBlind={false}
+        onChange={setCovering}
+        blindsAvailable={blindOptions.length > 0}
+      />
       <div className="col-span-2 sm:col-span-3">
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Day Curtain

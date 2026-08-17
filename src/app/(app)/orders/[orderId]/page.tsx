@@ -130,6 +130,16 @@ export default async function OrderDetailPage({
             "toilet_cs.id",
             "toilet_ct.series_id",
           )
+          .leftJoin(
+            "curtain_types as blind_ct",
+            "blind_ct.id",
+            "windows.blind_type_id",
+          )
+          .leftJoin(
+            "curtain_series as blind_cs",
+            "blind_cs.id",
+            "blind_ct.series_id",
+          )
           .leftJoin("pricing_combos as combo", "combo.id", "windows.combo_id")
           .select([
             "windows.id as id",
@@ -158,6 +168,12 @@ export default async function OrderDetailPage({
             "toilet_ct.series_index as curtain_index",
             "toilet_ct.page as curtain_page",
             "toilet_cs.name as curtain_series",
+            "windows.blind_type_id as blind_type_id",
+            "blind_ct.label as blind_label",
+            "blind_ct.photo_path as blind_photo_path",
+            "blind_ct.series_index as blind_index",
+            "blind_ct.page as blind_page",
+            "blind_cs.name as blind_series",
           ])
           .where("windows.room_id", "in", roomIds)
           .orderBy("windows.position", "asc")
@@ -275,6 +291,14 @@ export default async function OrderDetailPage({
       w.curtain_label,
     ),
     curtain_photo_url: urlFor(w.curtain_photo_path),
+    is_blind: w.blind_type_id != null,
+    blind_label: labelOf(
+      w.blind_series,
+      w.blind_index,
+      w.blind_page,
+      w.blind_label,
+    ),
+    blind_photo_url: urlFor(w.blind_photo_path),
   }));
 
   const windowsByRoom = new Map<string, typeof windowSummaries>();

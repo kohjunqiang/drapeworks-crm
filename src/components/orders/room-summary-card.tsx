@@ -18,6 +18,12 @@ type WindowSummary = {
   night_curtain_photo_url?: string | null;
   curtain_label?: string | null;
   curtain_photo_url?: string | null;
+  // A blind occupies the window instead of curtains. Flagged explicitly rather
+  // than inferred from blind_label, so an unselected blind still renders as a
+  // blind row instead of silently reappearing as an empty curtain.
+  is_blind?: boolean;
+  blind_label?: string | null;
+  blind_photo_url?: string | null;
 };
 
 type Props = {
@@ -60,15 +66,56 @@ function CurtainCell({
   );
 }
 
+// Blinds table. Separate from the curtain tables because the columns genuinely
+// differ — one covering, a control side, and none of the curtain add-ons.
+function BlindTable({ windows }: { windows: WindowSummary[] }) {
+  return (
+    <table className="w-full text-xs min-w-[640px]">
+      <thead className="text-slate-500">
+        <tr>
+          <th className="text-left px-4 py-2 font-medium">Blind</th>
+          <th className="text-left px-4 py-2 font-medium">W × H</th>
+          <th className="text-left px-4 py-2 font-medium">Install W</th>
+          <th className="text-left px-4 py-2 font-medium">Control side</th>
+          <th className="text-left px-4 py-2 font-medium">Notes</th>
+        </tr>
+      </thead>
+      <tbody className="text-slate-700">
+        {windows.map((w) => (
+          <tr key={w.position} className="border-t border-slate-100">
+            <td className="px-4 py-2">
+              <CurtainCell label={w.blind_label} photoUrl={w.blind_photo_url} />
+            </td>
+            <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
+            <td className="px-4 py-2">{w.install_width_cm ?? "—"}</td>
+            <td className="px-4 py-2">
+              {w.draw === "Single Left"
+                ? "Left"
+                : w.draw === "Single Right"
+                  ? "Right"
+                  : "—"}
+            </td>
+            <td className="px-4 py-2 text-slate-500">{w.notes || "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 export function RoomSummaryCard({ label, type, windows, photos }: Props) {
   const toilet = isToilet(type);
+  // A room can mix the two — curtains on one window, a blind on the next — so
+  // the split is per window, not per room.
+  const blindWindows = windows.filter((w) => w.is_blind);
+  const curtainWindows = windows.filter((w) => !w.is_blind);
   return (
     <div className="border border-slate-200 rounded mb-3 overflow-hidden">
       <div className="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 break-words">
         {label}
       </div>
       <div className="overflow-x-auto">
-        {toilet ? (
+        {curtainWindows.length > 0 && (toilet ? (
           <table className="w-full text-xs min-w-[640px]">
             <thead className="text-slate-500">
               <tr>
@@ -79,7 +126,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
               </tr>
             </thead>
             <tbody className="text-slate-700">
-              {windows.map((w) => (
+              {curtainWindows.map((w) => (
                 <tr key={w.position} className="border-t border-slate-100">
                   <td className="px-4 py-2">
                     <CurtainCell
@@ -110,7 +157,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
               </tr>
             </thead>
             <tbody className="text-slate-700">
-              {windows.map((w) => (
+              {curtainWindows.map((w) => (
                 <tr key={w.position} className="border-t border-slate-100">
                   <td className="px-4 py-2">
                     <CurtainCell
@@ -149,7 +196,8 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
               ))}
             </tbody>
           </table>
-        )}
+        ))}
+        {blindWindows.length > 0 && <BlindTable windows={blindWindows} />}
       </div>
       <PhotoStrip photos={photos} />
     </div>

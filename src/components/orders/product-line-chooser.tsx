@@ -4,6 +4,9 @@ import Link from "next/link";
 // lines — a mesh job never shares a quote with a curtain job — so the choice is
 // made once, up front, rather than per line item.
 //
+// Blinds are NOT a third card. A blind sits alongside curtains inside the same
+// order, chosen per window, so it rides in under the curtain product line.
+//
 // The Mesh card only appears once mesh is actually sellable: a priced grid cell
 // AND a non-zero install cost. Without the second, every mesh quote would
 // overstate its margin.
@@ -41,8 +44,8 @@ export function ProductLineChooser({ meshEnabled }: { meshEnabled: boolean }) {
       <div className="flex flex-col sm:flex-row gap-3">
         <Card
           href="/orders/new?product=curtain"
-          title="Curtains"
-          blurb="Day and night curtains, tracks and add-ons, priced per metre of width."
+          title="Curtains & Blinds"
+          blurb="Day and night curtains, tracks and add-ons, or blinds — priced per metre of width."
           icon="🪟"
         />
         {meshEnabled && (

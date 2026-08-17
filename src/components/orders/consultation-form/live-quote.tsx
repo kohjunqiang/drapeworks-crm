@@ -201,7 +201,7 @@ export function LiveQuote({
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
               <div className="flex justify-between">
-                <dt>Curtains + add-ons (COGS)</dt>
+                <dt>Goods + add-ons (COGS)</dt>
                 <dd>{rmb(quote.cogsRmbCents)}</dd>
               </div>
               <div className="flex justify-between">

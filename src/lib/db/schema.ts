@@ -880,7 +880,6 @@ export interface Windows {
   draw: DrawDirection | null;
   height_cm: number | null;
   id: Generated<string>;
-  install_width_cm: number | null;
   night_curtain_type_id: string | null;
   notes: string | null;
   position: number;

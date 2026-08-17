@@ -15,7 +15,12 @@ import {
 import type { PhotoTile } from "@/components/orders/photo-strip";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { StatusTimeline } from "@/components/orders/status-timeline";
-import { STATUS_FLOW, STATUS_LABELS, statusIndex } from "@/lib/status-flow";
+import {
+  STATUS_FLOW,
+  STATUS_LABELS,
+  isLocked,
+  statusIndex,
+} from "@/lib/status-flow";
 import { requireSession } from "@/lib/auth/require-role";
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
@@ -441,6 +446,26 @@ export default async function OrderDetailPage({
                   className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
                 >
                   Edit
+                </Link>
+              )}
+              {/* The manufacturing set is derived once the deposit is in, and
+                  stays readable forever after. Ops and admin only — it is the
+                  screen that hands the order to a vendor. */}
+              {isAdvancer &&
+                order.current_status === "deposit_received" && (
+                  <Link
+                    href={`/orders/${order.id}/manufacture`}
+                    className="px-3 py-1.5 text-xs sm:text-sm border border-teal-600 text-teal-700 rounded hover:bg-teal-50 font-medium"
+                  >
+                    Review manufacturing measurements
+                  </Link>
+                )}
+              {isAdvancer && isLocked(order.current_status) && (
+                <Link
+                  href={`/orders/${order.id}/manufacture`}
+                  className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
+                >
+                  Manufacturing measurements
                 </Link>
               )}
               <PrintButton />

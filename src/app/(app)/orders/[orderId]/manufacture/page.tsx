@@ -120,7 +120,11 @@ export default async function ManufacturePage({
           canAmend={session.profile.role === "admin"}
         />
       ) : (
-        <EditableView order={order} lines={lines} />
+        <EditableView
+          order={order}
+          lines={lines}
+          isAdmin={session.profile.role === "admin"}
+        />
       )}
     </Shell>
   );
@@ -185,9 +189,15 @@ function Shell({
 async function EditableView({
   order,
   lines,
+  isAdmin,
 }: {
   order: OrderHeader;
   lines: ManufactureLine[];
+  /** Ops is the primary reader of this screen but can open neither remedy:
+   *  /admin/product/allowances is admin-only, and the edit route 404s for a
+   *  non-owner. Offering them a link that dead-ends is worse than telling them
+   *  who to ask, so the remedy is named rather than linked for ops. */
+  isAdmin: boolean;
 }) {
   const book = await loadAllowanceBook();
 
@@ -208,9 +218,11 @@ async function EditableView({
   ];
   for (const line of unconfigured) {
     blockers.push({
-      message: `${LINE_LABELS[line]} have no manufacturing allowance configured, so there is no way to work out what to build.`,
-      href: "/admin/product/allowances",
-      hrefLabel: "Set the allowance",
+      message: isAdmin
+        ? `${LINE_LABELS[line]} have no manufacturing allowance configured, so there is no way to work out what to build.`
+        : `${LINE_LABELS[line]} have no manufacturing allowance configured, so there is no way to work out what to build. Ask an admin to set it under Product → Allowances.`,
+      href: isAdmin ? "/admin/product/allowances" : undefined,
+      hrefLabel: isAdmin ? "Set the allowance" : undefined,
     });
   }
 
@@ -229,9 +241,11 @@ async function EditableView({
     );
     if (!applied) {
       blockers.push({
-        message: `${line.roomLabel} — ${labelOf(line)} has no measured width and height to work from.`,
-        href: `/orders/${order.id}/edit`,
-        hrefLabel: "Fix the measurement",
+        message: isAdmin
+          ? `${line.roomLabel} — ${labelOf(line)} has no measured width and height to work from.`
+          : `${line.roomLabel} — ${labelOf(line)} has no measured width and height to work from. Ask the consultant or an admin to add them.`,
+        href: isAdmin ? `/orders/${order.id}/edit` : undefined,
+        hrefLabel: isAdmin ? "Fix the measurement" : undefined,
       });
       continue;
     }

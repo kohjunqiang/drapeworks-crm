@@ -1,10 +1,15 @@
 // Everything that has to be true before an order's manufacturing measurements
 // can be frozen and the order handed to a vendor.
 //
-// Pure on purpose: the reconciliation screen runs this to decide whether the
-// confirm button is live and what to explain, and the confirm action runs the
-// same function inside its transaction. One implementation, so the screen can
-// never promise something the action then refuses.
+// Pure on purpose, so it can run anywhere.
+//
+// HONESTY NOTE: today only the confirm action calls this. The reconciliation
+// screen re-derives the same rules in its own client code rather than importing
+// it. The two agree — each rule was checked case by case — but they agree by
+// coincidence of two authors, not by construction. If you change a rule here,
+// change it in src/components/manufacture/reconciliation-row.tsx too, or the
+// screen will start promising something the action refuses. Wiring the screen
+// to this function is the real fix and is worth doing.
 
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { STATUS_LABELS } from "@/lib/status-flow";
@@ -45,8 +50,11 @@ const LINE_LABELS: Record<AllowanceLine, string> = {
 // Room label verbatim — it is what the consultant wrote on site, and it is how
 // whoever has to fix the problem will find the piece.
 function locate(line: ManufactureLine): string {
-  const noun = line.kind === "window" ? "window" : "panel";
-  return `${line.roomLabel} ${noun} ${line.position}`;
+  const noun = line.kind === "window" ? "Window" : "Panel";
+  // position is 0-based in the database; every screen shows it 1-based. A
+  // message naming "window 0" sends the reader looking for a row that does not
+  // exist on the page they are staring at.
+  return `${line.roomLabel} ${noun} ${line.position + 1}`;
 }
 
 function hasReason(o: LineOverride | undefined): boolean {

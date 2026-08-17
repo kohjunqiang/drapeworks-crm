@@ -77,7 +77,9 @@ describe("checkConfirmPreconditions", () => {
     if (result.ok) return;
     const joined = result.reasons.join(" ");
     expect(joined).toContain("Master Bedroom");
-    expect(joined).toContain("2");
+    // position 2 in the database is "Window 3" on screen. The message has to
+    // match what the reader is looking at, not the storage index.
+    expect(joined).toContain("Window 3");
   });
 
   it("refuses a line whose measured height is zero", () => {
@@ -180,6 +182,6 @@ describe("checkConfirmPreconditions", () => {
     );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.reasons.join(" ")).toMatch(/Balcony panel 3/);
+    expect(result.reasons.join(" ")).toMatch(/Balcony Panel 4/);
   });
 });

@@ -118,11 +118,22 @@ export async function confirmManufactureMeasurements(
 
       const overrides = new Map(parsed.lines.map((l) => [l.lineId, l]));
 
-      // A payload naming a line this order doesn't have means the page was
-      // built against a different version of the order. Silently dropping that
-      // person's override would be the worst possible outcome.
+      // The payload and the order must describe exactly the same set of pieces.
+      //
+      // An EXTRA id means the page was built against a version of the order
+      // that has since lost a line, and that person's override would be
+      // silently dropped. A MISSING id is worse: rows are built by iterating
+      // `lines`, so a window added after the page loaded would be manufactured
+      // at its computed default and sent to the vendor without anyone having
+      // looked at it. Comparing sizes as well as membership also rejects a
+      // payload carrying the same lineId twice, which `overrides` would
+      // otherwise resolve last-wins.
       const known = new Set(lines.map((l) => l.lineId));
-      if (parsed.lines.some((l) => !known.has(l.lineId))) {
+      const sameSet =
+        parsed.lines.length === known.size &&
+        overrides.size === known.size &&
+        parsed.lines.every((l) => known.has(l.lineId));
+      if (!sameSet) {
         throw new AuthoredError(
           "This order has changed since the page was loaded. Reload and check the measurements again.",
         );

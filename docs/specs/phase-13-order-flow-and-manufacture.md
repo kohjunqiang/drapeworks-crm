@@ -1,6 +1,6 @@
 # Phase 13 — Order flow & manufacturing measurements
 
-**Status:** 13A implemented and verified 2026-08-17; 13B specified, not implemented; 13C blocked on a vendor Excel sample
+**Status:** 13A implemented and verified 2026-08-17; 13B implemented and verified 2026-08-18; 13C blocked on a vendor Excel sample
 **Date:** 2026-08-17
 **Depends on:** Phase 6 (status workflow), Phase 9 (pricing foundation), Phase 11 (mesh), Phase 12 (blinds)
 

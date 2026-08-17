@@ -206,9 +206,9 @@ three places, and all three reject or destroy a blind window as written:
 
 | Location | Today | Must become |
 |---|---|---|
-| `createOrder` (~L95) | throws unless `isToilet ? 'toilet' : 'regular'` | `blind` is valid in **any** room; otherwise the existing match still applies |
-| `updateOrder` (~L219) | same throw | same change |
-| `saveDraft` (~L445) | **overwrites** `variant` with the room-derived value | preserve `variant` when it is `blind`; derive only between `regular` and `toilet` |
+| `createOrder` (L94) | throws unless `isToilet ? 'toilet' : 'regular'` | `blind` is valid in **any** room; otherwise the existing match still applies |
+| `updateOrder` (L218) | same throw | same change |
+| `saveDraft` (L448) | **overwrites** `variant` with the room-derived value | preserve `variant` when it is `blind`; derive only between `regular` and `toilet` |
 
 The `saveDraft` case is the dangerous one: as written it would silently convert a
 half-filled blind window into a curtain window on every autosave, discarding
@@ -321,6 +321,11 @@ passes `handymanBlindsSgdCents` through from `pricing_assumptions`.
 Each needs to render a blind line where it renders Day/Night rows today:
 
 - `consultation-form/live-quote.tsx` and `use-quote-autofill.ts`
+- `consultation-form/use-form-draft.ts` — the sessionStorage crash-recovery net added in
+  `19cb91d`. It restores by **merging over** current values, which is safe for new
+  fields but needs checking against a discriminated union: a restored `blind` window
+  must not end up with both `variant: 'blind'` and a stale `day_curtain_type_id` from
+  the defaults it merges onto. Verify, don't assume.
 - `consultation-form/window-fields.tsx`
 - `consultation-form/room-card.tsx` — its room-type-change effect (~L52) rewrites every
   window's variant, the client-side twin of the `saveDraft` bug in §5.1. It must skip

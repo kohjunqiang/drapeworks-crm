@@ -67,6 +67,10 @@ export function OrderReferenceField({ orderId, reference, canEdit }: Props) {
         maxLength={64}
         onChange={(e) => setValue(e.target.value)}
         placeholder="e.g. SJ-2026-118"
+        // The visible "Order reference" text is a <dt> on the detail page,
+        // outside this component, so nothing associates it with the input.
+        // A placeholder is not an accessible name — and it disappears on typing.
+        aria-label="Order reference"
         className="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
       />
       <button

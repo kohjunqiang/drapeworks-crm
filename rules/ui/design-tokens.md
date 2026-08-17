@@ -13,7 +13,7 @@
 | Border subtle | `border-slate-100` | internal section dividers |
 | **Accent (primary)** | `bg-teal-600 hover:bg-teal-700` | primary CTAs, logo, active states |
 | Accent focus ring | `focus:border-teal-500` | input focus |
-| Accent soft | `bg-teal-100 text-teal-700` | small badges (e.g. Day fabric type) |
+| Accent soft | `bg-teal-100 text-teal-700` | small badges (e.g. Active status) |
 | Danger | `text-red-600`, `bg-red-600` | destructive actions |
 | Success | `bg-emerald-100 text-emerald-700`, `bg-emerald-500` | active status, completed status dot |
 
@@ -32,14 +32,14 @@ Order fulfilment status → badge classes:
 | `fulfilment` | `bg-purple-100 text-purple-700` |
 | `completed` | `bg-green-100 text-green-700` |
 
-Fabric type:
-- Day = `bg-teal-100 text-teal-700`
-- Night = `bg-indigo-100 text-indigo-700`
-- Both = `bg-slate-200 text-slate-700`
+Curtain category (sheerness — curtains only; a blind has none, so the column and its
+filter are hidden on the Blinds tab rather than rendered blank):
+- Day = `bg-amber-50 text-amber-700`
+- Night = `bg-indigo-50 text-indigo-700`
 
-Fabric status:
-- Active = `bg-emerald-100 text-emerald-700`
-- Discontinued = `bg-slate-100 text-slate-600`
+Catalogue status:
+- Active = `bg-teal-50 text-teal-700`
+- Archived = `bg-slate-100 text-slate-500`
 
 Centralise these in `src/lib/status-flow.ts` as `STATUS_COLOURS` / `STATUS_LABELS` maps; don't sprinkle class strings across components.
 
@@ -71,6 +71,6 @@ Centralise these in `src/lib/status-flow.ts` as `STATUS_COLOURS` / `STATUS_LABEL
 ## Forbidden
 
 - Amber, orange, yellow anywhere
-- Custom hex colours outside this token list (exception: fabric swatch backgrounds, which are user-controlled hex stored in DB)
+- Custom hex colours outside this token list
 - Inline `style={{ color: '#...' }}` — use Tailwind classes
 - Adding a new colour without documenting it here first

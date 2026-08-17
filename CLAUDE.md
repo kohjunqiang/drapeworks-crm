@@ -1,6 +1,6 @@
 # Drapeworks CRM
 
-A Next.js + Supabase CRM for a Singapore curtain company. Three roles use it: **sales consultants** capture measurements on-site, **ops** track shipment/installation, **admins** manage the fabric catalog and team.
+A Next.js + Supabase CRM for a Singapore curtain company. Three roles use it: **sales consultants** capture measurements on-site, **ops** track shipment/installation, **admins** manage the product catalogue (curtains, blinds, mesh) and the team.
 
 ## Stack at a glance
 
@@ -32,14 +32,19 @@ The `rules/` folder is organised as:
 src/
   app/             # Next.js App Router (RSC by default)
     (auth)/        # /login, /auth/callback
-    (app)/         # auth-protected — orders, fabrics, admin
+    (app)/         # auth-protected
+      orders/      # dashboard, detail, new consultation, edit
+      admin/       # product/{curtains,blinds,mesh}, vendors, pricing-settings
     api/           # route handlers (health, etc.)
   components/
     ui/            # shadcn primitives (do not edit; regenerate via shadcn CLI)
-    nav/           # top nav + mobile menu
-    orders/        # orders feature
-    fabrics/       # fabrics feature
-    admin/         # admin feature
+    nav/           # top nav + mobile menu (links.ts is the single link list)
+    orders/        # orders feature (consultation-form/, mesh-form/)
+    curtain-types/ # curtain + blind catalogue (one table, split by product line)
+    mesh/          # mesh catalogue
+    vendors/       # vendor CRUD
+    pricing/       # pricing settings
+    admin/         # admin chrome (product tabs)
   lib/
     supabase/      # server.ts, browser.ts, admin.ts (service-role; isolated) — auth/session only
     auth/          # get-session.ts, require-role.ts
@@ -69,7 +74,9 @@ These come up constantly. Full detail in `rules/` (see `rules/README.md` for the
 - **RLS is the source of truth for access control.** Server Action guards are defence-in-depth. Never bypass with the service-role client except in `inviteUser`. (`rules/data/rls.md`)
 - **Money is integer cents.** Never floats, never `numeric(_,2)`. (`rules/code/typescript.md`)
 - **No hard deletes.** Use status toggles / archive flags. (`rules/data/migrations.md`)
-- **Fabric codes are immutable PKs.** The trigger enforces this; the UI must disable the code field on edit. (`rules/code/forms.md`)
+- **Catalogue labels are stored verbatim.** Vendor codes are the customer's language — never strip a prefix, normalise case, or fix an apparent typo. (`rules/code/forms.md`)
+- **A window is one covering.** Day/night curtains, a single toilet curtain, or a blind — never a mix. Enforced by the `windowSchema` discriminated union AND the `validate_window_shape` trigger; `windowValues` nulls the other variants' columns to keep them agreeing. (`rules/code/forms.md`)
+- **Don't offer what can't be quoted.** A product with no sale price is hidden from the consultation form, not shown at S$0. Mesh and blinds both gate this way. (`rules/code/forms.md`)
 - **Mirror the prototype exactly for UX.** Same classes, same breakpoints, same colours. Only diverge with explicit reason. (`rules/ui/design-tokens.md`, `rules/ui/responsive.md`)
 - **After every migration, regenerate types** with `npm run db:codegen` (writes `src/lib/db/schema.ts`).
 

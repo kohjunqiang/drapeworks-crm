@@ -70,7 +70,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 <Dialog open={open} onOpenChange={setOpen}>
   <DialogContent>
     <DialogHeader>
-      <DialogTitle>Add fabric</DialogTitle>
+      <DialogTitle>Add curtain type</DialogTitle>
     </DialogHeader>
     {/* form */}
   </DialogContent>

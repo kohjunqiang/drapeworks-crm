@@ -39,7 +39,7 @@ Closes #123  (if relevant)
 Examples:
 
 ```
-feat(fabrics): add CRUD dialog with shadcn Form and Zod validation
+feat(blinds): add the Curtains/Blinds toggle to the window card
 
 db(orders): add fulfilment_status enum and order_status_events table
 

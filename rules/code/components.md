@@ -49,8 +49,11 @@ src/components/
       room-card.tsx
       ...
     status-timeline.tsx  # simpler presentational components live at the top level
-  fabrics/
-  admin/
+  curtain-types/         # curtain + blind catalogue (one set, split by product line)
+  mesh/
+  vendors/
+  pricing/
+  admin/                 # admin chrome (product tabs)
 ```
 
 - File names: kebab-case

@@ -6,11 +6,11 @@ This folder contains one spec file per implementation phase. Each spec is **self
 
 Drapeworks is a curtain company in Singapore. This CRM gives:
 
-- **Sales consultants** a mobile-friendly form to capture customer details and measurements on-site (rooms, windows, fabric codes, photos)
+- **Sales consultants** a mobile-friendly form to capture customer details and measurements on-site (rooms, windows, curtain/blind/mesh selections, photos)
 - **Ops** a way to advance fulfilment status as orders move through logistics
-- **Admins** control over the fabric catalog and team users
+- **Admins** control over the product catalogue (curtains, blinds, mesh), pricing, vendors and team users
 
-A static HTML/Tailwind/Alpine.js prototype already exists at `docs/prototype/` covering 4 screens (orders dashboard, new consultation form, order detail with status timeline, fabric catalog). The prototype is the source of truth for layout, data shape, and interactions. Implementation should mirror the prototype's UX 1:1 while moving to Next.js + Supabase.
+A static HTML/Tailwind/Alpine.js prototype already exists at `docs/prototype/` covering 4 screens (orders dashboard, new consultation form, order detail with status timeline, and a fabric catalog screen since superseded by the Product section). The prototype is the source of truth for layout, data shape, and interactions. Implementation should mirror the prototype's UX 1:1 while moving to Next.js + Supabase.
 
 ## Stack (locked — applies to all phases)
 
@@ -30,7 +30,7 @@ A static HTML/Tailwind/Alpine.js prototype already exists at `docs/prototype/` c
 | Email notifications | None for v1 (only Supabase auth emails) |
 | Hosting | Railway via multi-stage Dockerfile, Next.js `output: 'standalone'` |
 | Customer dedup | v1 always creates new customer row; merge tool deferred |
-| Fabric code | Natural PK (`text`); FK target from `windows.*_curtain_code`; **immutable after creation** |
+| Catalogue | `curtain_series` → `curtain_types`, split by `product_line` (`curtain` \| `blind`); mesh has its own tables. Windows reference type **ids**, not codes — the Phase-3 fabric-code scheme was decommissioned in Phase 8. Labels are stored verbatim. |
 
 ## Theme
 
@@ -49,7 +49,7 @@ The prototype uses **deep teal** as the accent colour (`teal-600` / `#0d9488`). 
 | Order | Phase file | Deliverable |
 |---|---|---|
 | 1 | `phase-1-scaffold.md` | ✅ Next.js scaffold + Supabase project + Kysely migrator + Railway deploy with healthcheck |
-| 2 | `phase-3-fabrics.md` | Fabric catalog CRUD (full vertical slice — de-risks Kysely/forms/Server Actions) |
+| 2 | `phase-3-fabrics.md` | Fabric catalog CRUD (full vertical slice). **Superseded** — fabrics were replaced by the curtain-type catalogue in Phase 8 and the tables dropped. Kept for history. |
 | 3 | `phase-4-consultation.md` | New consultation form + order creation (rooms/windows, no photos yet) |
 | 4 | `phase-5-photos.md` | Per-room photo upload + display via Supabase Storage (service-role for now) |
 | 5 | `phase-6-orders-dashboard.md` | Orders dashboard with stats/filters + status workflow (advance + notes) + edit |
@@ -57,9 +57,9 @@ The prototype uses **deep teal** as the accent colour (`teal-600` / `#0d9488`). 
 | 7 | `phase-2-auth.md` | **Auth retrofit (last)** — magic-link login, `(auth)`/`(app)` route groups, `lib/auth/*` helpers, RLS policies on every existing table, `requireRole/requireSession` insertion pass through every Server Action, admin user invite + role management UI. |
 | 8 | `phase-8-curtain-types.md` + `phase-8b-series-index-page.md` | Digital curtain-type catalog (Day/Night taxonomy, photo uploads, series/index/page). |
 | 9 | `phase-9-pricing-foundation.md` | **Pricing foundation** — vendors + per-curtain cost (RMB)/curated sale (SGD), global pricing assumptions + add-on price list. Data + admin UI only; calculator deferred to Phase 10. |
-| 10 | `phase-10-promotions-combos.md` | **Promotions & combo pricing** — order-level promo (preset tier or custom %) + per-window combo bundle price (explicit pick, overrides sale). Spec only; not yet implemented. |
-| 11 | `phase-11-mesh-product-line.md` | **Mesh product line** — window mesh (AirGuard/PetGuard/MaxGuard) as a second product. `orders.product_line` discriminator + separate `mesh_panels` line items; flat per-panel pricing by category × m² band + colour surcharge. Spec only; not yet implemented. |
-| 12 | `phase-12-product-section-and-blinds.md` | **Product section & blinds** — merges the Digital Catalogue and Mesh nav tabs into one **Product** section (Curtains / Blinds / Mesh), and makes blinds a real product: `curtain_series.product_line`, a third `blind` window variant, per-width pricing and the `handyman_blinds` install rate. Spec only; not yet implemented. |
+| 10 | `phase-10-promotions-combos.md` | **Promotions & combo pricing** — order-level promo (preset tier or custom %) + per-window combo bundle price (explicit pick, overrides sale). ✅ Implemented. |
+| 11 | `phase-11-mesh-product-line.md` | **Mesh product line** — window mesh (AirGuard/PetGuard/MaxGuard) as a second product. `orders.product_line` discriminator + separate `mesh_panels` line items; priced per ft² by category + colour surcharge (the m²-band grid in the spec was superseded — see `20260814100000`). ✅ Implemented. |
+| 12 | `phase-12-product-section-and-blinds.md` | **Product section & blinds** — merges the Digital Catalogue and Mesh nav tabs into one **Product** section (Curtains / Blinds / Mesh), and makes blinds a real product: `curtain_series.product_line`, a third `blind` window variant, per-width pricing and the `handyman_blinds` install rate. **Implemented 2026-08-17**; catalogue seeded (420 blinds, 7 series) but unpriced, so blinds are not yet offered on consultations. |
 
 ## How to use a spec in a fresh chat
 
@@ -97,7 +97,7 @@ If anything is genuinely ambiguous, the spec is incomplete — fix the spec rath
 
 ### Migrations
 - Live in `data/migrations/` as TypeScript files using Kysely's migrator.
-- Named `YYYYMMDDHHMM_descriptive_name.ts` (UTC). Export `up(db)` and `down(db)`.
+- Named `YYYYMMDDHHMMSS_descriptive_name.ts` (UTC). Export `up(db)` and `down(db)`. See `rules/data/migrations.md`.
 - One migration = one logical change. Don't pile changes.
 - Phase 1 creates `data/` and the first migration (`init_profiles`). Subsequent phases add their own migrations.
 - After writing a migration: `npm run db:migrate` (applies via `data/migrate.ts` against `DATABASE_URL`, which points at the Supabase session pooler), then `npm run db:codegen`.
@@ -117,9 +117,9 @@ If anything is genuinely ambiguous, the spec is incomplete — fix the spec rath
 
 ### Forbidden
 - Storing money as floats or `numeric(_,2)` — always integer cents.
-- Mutating the fabric `code` after a fabric exists.
+- Changing a series' `product_line` after creation — it retroactively reprices every window that references it.
 - Hard deletes — use status toggles / archive flags.
-- Adding `requireRole`/`requireSession` calls *before* the auth retrofit phase. They will all be added in a single pass at the end so we can audit coverage.
+- Offering a product with no sale price on the consultation form — it quotes at S$0 while still charging install.
 
 ### Critical references (every phase)
 

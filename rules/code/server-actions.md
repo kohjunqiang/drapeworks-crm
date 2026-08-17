@@ -2,7 +2,7 @@
 
 ## Where they live
 
-`src/lib/actions/<feature>.ts` with `'use server'` at the top of the file (not per-function). One file per feature area: `auth.ts`, `fabrics.ts`, `orders.ts`, `status.ts`, `photos.ts`, `users.ts`.
+`src/lib/actions/<feature>.ts` with `'use server'` at the top of the file (not per-function). One file per feature area: `auth.ts`, `orders.ts`, `status.ts`, `photos.ts`, `users.ts`, `curtain-types.ts`, `curtain-series.ts`, `mesh-catalogue.ts`, `vendors.ts`, `pricing-settings.ts`.
 
 ## Canonical shape
 

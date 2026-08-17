@@ -26,22 +26,32 @@ Exceptions, all rare:
 migration. Import table row types and enums from it:
 
 ```ts
-import type { Orders, CurtainProductLine } from '@/lib/db/schema';
-type OrderInsert = Database['public']['Tables']['orders']['Insert'];
-type FulfilmentStatus = Database['public']['Enums']['fulfilment_status'];
-type FabricType = Database['public']['Enums']['fabric_type'];
+import type {
+  Orders,                 // one interface per table
+  CurtainProductLine,     // one string-literal union per Postgres enum
+  FulfilmentStatus,
+} from '@/lib/db/schema';
 ```
 
-For complex selects with joins, the inferred shape can be ugly — define a clean local type:
+Kysely infers a query's result type from the columns you select, so most queries need no
+hand-written row type. Name a shape only where it crosses a boundary — a loader's return
+type or a component prop:
 
 ```ts
-type OrderWithRooms = Order & {
-  customers: Database['public']['Tables']['customers']['Row'];
-  rooms: Array<Database['public']['Tables']['rooms']['Row'] & {
-    windows: Database['public']['Tables']['windows']['Row'][];
-  }>;
+export type CurtainTypeOptionRow = {
+  id: string;
+  label: string;
+  category: CurtainCategory | null;   // null for a blind
+  productLine: CurtainProductLine;
 };
 ```
+
+Prefer the generated enum union over re-declaring `'curtain' | 'blind'` by hand: adding a
+value to the enum then surfaces every place that needs updating as a type error. This is
+also why a closed value set should be a real Postgres enum rather than `text` + CHECK —
+codegen turns the latter into `Generated<string>`, where a typo compiles fine and fails
+at runtime.
+
 
 ## Imports
 

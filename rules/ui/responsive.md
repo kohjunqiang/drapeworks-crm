@@ -37,7 +37,7 @@ grid grid-cols-2 sm:grid-cols-6 gap-3   /* window fields with col-span overrides
 
 ## Table-vs-cards pattern (lists)
 
-For dashboards and any tabular list, show a table on desktop and cards on mobile. Used in orders list, fabrics list, admin users list.
+For dashboards and any tabular list, show a table on desktop and cards on mobile. Used in the orders list, the product catalogue tables, and the admin users list.
 
 ```tsx
 {/* Desktop */}

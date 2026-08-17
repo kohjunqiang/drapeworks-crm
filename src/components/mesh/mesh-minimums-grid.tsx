@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { upsertMeshMinimumArea } from "@/lib/actions/mesh-catalogue";
 import type {
   MeshCategoryRow,
@@ -31,29 +32,61 @@ export function MeshMinimumsGrid({
   minimums: MeshMinimumRow[];
 }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
 
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      minimums.map((m) => [
-        key(m.category_id, m.system_id),
-        cm2ToSqm(m.min_area_cm2_per_leaf),
-      ]),
-    ),
+  const stored = useMemo(
+    () =>
+      Object.fromEntries(
+        minimums.map((m) => [
+          key(m.category_id, m.system_id),
+          cm2ToSqm(m.min_area_cm2_per_leaf),
+        ]),
+      ),
+    [minimums],
   );
+
+  // `saved` tracks what is on the server so the Save button can tell whether
+  // anything actually changed. It is separate from the prop because a save
+  // updates it immediately, before the refreshed page arrives.
+  const [saved, setSaved] = useState<Record<string, string>>(stored);
+  const [draft, setDraft] = useState<Record<string, string>>(stored);
 
   const activeCategories = categories.filter((c) => c.is_active);
   const activeSystems = systems.filter((s) => s.is_active);
 
-  function save(categoryId: string, systemId: string) {
-    const value = draft[key(categoryId, systemId)] ?? "";
+  // Only the cells that actually differ get written, so saving does not churn
+  // every row in the grid.
+  const changed = useMemo(() => {
+    const out: { categoryId: string; systemId: string; value: string }[] = [];
+    for (const c of activeCategories) {
+      for (const sys of activeSystems) {
+        const k = key(c.id, sys.id);
+        const next = (draft[k] ?? "").trim();
+        if (next !== (saved[k] ?? "")) {
+          out.push({ categoryId: c.id, systemId: sys.id, value: next });
+        }
+      }
+    }
+    return out;
+  }, [draft, saved, activeCategories, activeSystems]);
+
+  function saveAll() {
+    if (changed.length === 0) return;
     startTransition(async () => {
       try {
-        await upsertMeshMinimumArea({
-          category_id: categoryId,
-          system_id: systemId,
-          min_sqm_per_leaf: value,
-        });
+        for (const cell of changed) {
+          await upsertMeshMinimumArea({
+            category_id: cell.categoryId,
+            system_id: cell.systemId,
+            min_sqm_per_leaf: cell.value,
+          });
+        }
+        setSaved(draft);
+        toast.success(
+          changed.length === 1
+            ? "Minimum saved"
+            : `${changed.length} minimums saved`,
+        );
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Save failed");
@@ -99,7 +132,6 @@ export function MeshMinimumsGrid({
                           [key(c.id, s.id)]: e.target.value,
                         }))
                       }
-                      onBlur={() => save(c.id, s.id)}
                     />
                     <span className="text-xs text-slate-400">m²</span>
                   </label>
@@ -110,11 +142,28 @@ export function MeshMinimumsGrid({
         </tbody>
       </table>
 
-      <p className="px-4 py-3 text-xs text-slate-500 border-t border-slate-100">
-        The area is floored, not the price — a panel under the minimum is
-        charged as though it were exactly that size, at the category&rsquo;s
-        usual rate. It floors cost as well as sale, so the margin stays honest.
-      </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100">
+        <p className="text-xs text-slate-500 max-w-xl">
+          The area is floored, not the price — a panel under the minimum is
+          charged as though it were exactly that size, at the category&rsquo;s
+          usual rate. It floors cost as well as sale, so the margin stays
+          honest.
+        </p>
+        <div className="flex items-center gap-3 shrink-0">
+          {changed.length > 0 && !pending && (
+            <span className="text-xs text-amber-700">
+              {changed.length} unsaved
+            </span>
+          )}
+          <Button
+            onClick={saveAll}
+            disabled={pending || changed.length === 0}
+            className="bg-teal-600 hover:bg-teal-700 text-white"
+          >
+            {pending ? "Saving…" : "Save minimums"}
+          </Button>
+        </div>
+      </div>
     </CatalogueSection>
   );
 }

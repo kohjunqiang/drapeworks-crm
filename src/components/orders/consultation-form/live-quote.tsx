@@ -70,6 +70,19 @@ export function LiveQuote({
 
     const windows: CalcWindow[] = (rooms ?? []).flatMap((r) =>
       (r?.windows ?? []).map((w) => {
+        // A blind carries no curtain, no add-ons and no combo — mirroring
+        // windowValues on the server so the live figure and the saved quote
+        // agree on what a blind window costs.
+        if (w.variant === "blind") {
+          return {
+            widthCm: toWidthCm(w.width_cm),
+            blindPrice: priceOf(w.blind_type_id || undefined),
+            addSFold: false,
+            addSlimTracks: false,
+            comboPriceSgdCents: null,
+          };
+        }
+
         const isToilet = w.variant === "toilet";
         const dayId = isToilet ? w.curtain_type_id : w.day_curtain_type_id;
         const nightId = isToilet ? undefined : w.night_curtain_type_id;

@@ -75,9 +75,30 @@ const toiletWindow = baseWindow.extend({
   curtain_type_id: optionalTypeId,
 });
 
+// A blind's chain/control side. "Double" is a curtain concept — two leaves
+// meeting in the middle — so it is not offered. The column is shared with
+// curtains, hence the same "Single Left"/"Single Right" spellings.
+export const BLIND_CONTROL_SIDES = ["Single Left", "Single Right"] as const;
+
+// Blinds occupy a window INSTEAD of curtains. There is deliberately no
+// day/night/curtain_type_id field here: "curtains or blinds, never both" is
+// enforced by the shape of the type, not by a runtime guard someone can forget
+// to call. The database's validate_window_shape() trigger enforces the same
+// invariant independently.
+//
+// One blind variant serves every room type. The toilet variant exists because a
+// toilet window takes ONE covering instead of a day/night pair; a blind is
+// already one covering, so it needs no toilet-specific counterpart.
+const blindWindow = baseWindow.extend({
+  variant: z.literal("blind"),
+  blind_type_id: optionalTypeId,
+  draw: z.enum(BLIND_CONTROL_SIDES).optional(),
+});
+
 export const windowSchema = z.discriminatedUnion("variant", [
   regularWindow,
   toiletWindow,
+  blindWindow,
 ]);
 
 export const roomSchema = z.object({
@@ -190,11 +211,16 @@ const customerDraftSchema = z.object({
     .transform((v) => (v && v.length > 0 ? v : undefined)),
 });
 
+// Drafts are deliberately permissive — a half-filled window must survive an
+// autosave — so this is a flat shape rather than a union. `blind` is included
+// because saveDraft must PRESERVE a blind variant rather than derive it from
+// the room type; deriving would silently discard blind_type_id on every save.
 const draftWindow = baseWindow.extend({
-  variant: z.enum(["regular", "toilet"]),
+  variant: z.enum(["regular", "toilet", "blind"]),
   curtain_type_id: optionalTypeId,
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
+  blind_type_id: optionalTypeId,
   draw: z.enum(DRAW_DIRECTIONS).optional(),
   combo_id: optionalTypeId,
 });
@@ -224,10 +250,12 @@ const optionalUuid = z.string().uuid().optional();
 
 const regularWindowEdit = regularWindow.extend({ id: optionalUuid });
 const toiletWindowEdit = toiletWindow.extend({ id: optionalUuid });
+const blindWindowEdit = blindWindow.extend({ id: optionalUuid });
 
 export const windowEditSchema = z.discriminatedUnion("variant", [
   regularWindowEdit,
   toiletWindowEdit,
+  blindWindowEdit,
 ]);
 
 export const roomEditSchema = z.object({

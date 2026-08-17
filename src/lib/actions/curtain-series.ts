@@ -11,7 +11,8 @@ import { dollarsToCents } from "@/lib/money";
 import { curtainSeriesSchema } from "@/lib/validation/curtain-series";
 
 function revalidateCatalogue() {
-  revalidatePath("/admin/digital-catalogue");
+  revalidatePath("/admin/product/curtains");
+  revalidatePath("/admin/product/blinds");
   revalidatePath("/orders/new");
 }
 
@@ -36,9 +37,18 @@ export async function upsertCurtainSeries(input: unknown) {
 
   try {
     if (parsed.isNew) {
+      // product_line is set ONCE, from the catalogue tab this series was
+      // created on. It is deliberately absent from the update branch below:
+      // moving a series between lines would change how every window
+      // referencing it is priced and installed, silently and retroactively.
       await db
         .insertInto("curtain_series")
-        .values({ name: parsed.name, created_by: session.user.id, ...pricing })
+        .values({
+          name: parsed.name,
+          created_by: session.user.id,
+          product_line: parsed.product_line,
+          ...pricing,
+        })
         .execute();
     } else {
       if (!parsed.id) throw new Error("Missing series id");

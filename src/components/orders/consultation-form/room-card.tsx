@@ -38,7 +38,7 @@ export function RoomCard({
   roomId,
   photos,
 }: Props) {
-  const { control, setValue } = useFormContext<OrderEditInput>();
+  const { control, setValue, getValues } = useFormContext<OrderEditInput>();
 
   const { fields, append, remove } = useFieldArray({
     control,
@@ -50,10 +50,17 @@ export function RoomCard({
   const isToilet = roomType ? isToiletRoom(roomType) : false;
 
   // Keep window variants in sync when the room type changes.
+  //
+  // Blind windows are skipped entirely: a blind is valid in every room type, so
+  // there is nothing to re-derive, and rewriting its variant here would wipe
+  // the chosen blind the moment someone corrected the room type. This mirrors
+  // the same carve-out in saveDraft on the server.
   useEffect(() => {
     if (!roomType) return;
     const targetVariant = isToilet ? "toilet" : "regular";
     fields.forEach((_, i) => {
+      const current = getValues(`rooms.${roomIndex}.windows.${i}.variant`);
+      if (current === "blind") return;
       setValue(`rooms.${roomIndex}.windows.${i}.variant`, targetVariant, {
         shouldValidate: false,
         shouldDirty: false,
@@ -74,7 +81,7 @@ export function RoomCard({
         });
       }
     });
-  }, [roomType, isToilet, roomIndex, fields, setValue]);
+  }, [roomType, isToilet, roomIndex, fields, setValue, getValues]);
 
   function addWindow() {
     append(

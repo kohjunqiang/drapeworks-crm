@@ -311,10 +311,25 @@ type WindowPriceRow = {
   night_sale: number | null;
   toilet_cost: number | null;
   toilet_sale: number | null;
+  blind_cost: number | null;
+  blind_sale: number | null;
   combo_price: number | null;
 };
 
 function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
+  // A blind occupies the window instead of curtains, so it short-circuits:
+  // no day/night leg, no add-ons, no combo. windowQuote applies the same rule
+  // itself, but sending clean input keeps the two engines honest.
+  if (w.blind_sale != null || w.blind_cost != null) {
+    return {
+      widthCm: w.width_cm,
+      blindPrice: { costRmbCents: w.blind_cost, saleSgdCents: w.blind_sale },
+      addSFold: false,
+      addSlimTracks: false,
+      comboPriceSgdCents: null,
+    };
+  }
+
   // Toilet windows carry a single curtain via curtain_type_id — price it as
   // the day leg.
   const dayPrice =
@@ -396,6 +411,8 @@ export async function computeOrderQuote(
       .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
       .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
       .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
+      .leftJoin("curtain_types as bct", "bct.id", "windows.blind_type_id")
+      .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
       .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
       .select([
         "windows.width_cm as width_cm",
@@ -407,6 +424,8 @@ export async function computeOrderQuote(
         "ncs.sale_sgd_cents as night_sale",
         "tcs.cost_rmb_cents as toilet_cost",
         "tcs.sale_sgd_cents as toilet_sale",
+        "bcs.cost_rmb_cents as blind_cost",
+        "bcs.sale_sgd_cents as blind_sale",
         "pc.price_sgd_cents as combo_price",
       ])
       .where("rooms.order_id", "=", orderId)
@@ -524,6 +543,8 @@ export async function orderStaleFlags(
         .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
         .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
         .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
+        .leftJoin("curtain_types as bct", "bct.id", "windows.blind_type_id")
+        .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
         .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
         .select([
           "rooms.order_id as order_id",
@@ -536,6 +557,8 @@ export async function orderStaleFlags(
           "ncs.sale_sgd_cents as night_sale",
           "tcs.cost_rmb_cents as toilet_cost",
           "tcs.sale_sgd_cents as toilet_sale",
+          "bcs.cost_rmb_cents as blind_cost",
+          "bcs.sale_sgd_cents as blind_sale",
           "pc.price_sgd_cents as combo_price",
         ])
         .where("rooms.order_id", "in", orderIds)

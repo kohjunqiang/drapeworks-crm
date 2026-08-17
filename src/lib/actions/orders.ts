@@ -91,7 +91,11 @@ export async function createOrder(input: unknown): Promise<never> {
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
+        // A blind is one covering and is valid in EVERY room type, so it is
+        // never checked against the room. Curtains still are: a toilet window
+        // takes a single curtain, any other window takes day/night.
         const matchesShape =
+          win.variant === "blind" ||
           (isToilet && win.variant === "toilet") ||
           (!isToilet && win.variant === "regular");
         if (!matchesShape) {
@@ -215,7 +219,11 @@ export async function updateOrder(
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
+        // A blind is one covering and is valid in EVERY room type, so it is
+        // never checked against the room. Curtains still are: a toilet window
+        // takes a single curtain, any other window takes day/night.
         const matchesShape =
+          win.variant === "blind" ||
           (isToilet && win.variant === "toilet") ||
           (!isToilet && win.variant === "regular");
         if (!matchesShape) {
@@ -441,12 +449,22 @@ export async function createOrderDraft(input: unknown): Promise<never> {
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
-        // Drafts are relaxed: force the window shape from the room type rather
+        // Drafts are relaxed: derive the window shape from the room type rather
         // than trusting the (possibly half-filled) window variant.
+        //
+        // A `blind` variant is PRESERVED, never derived. Blinds are valid in
+        // every room type, so there is nothing to correct — and overwriting one
+        // here would null blind_type_id on every autosave, silently turning a
+        // measured blind back into an empty curtain window.
         const shaped = {
           ...win,
-          variant: isToilet ? "toilet" : "regular",
-        } as const;
+          variant:
+            win.variant === "blind"
+              ? ("blind" as const)
+              : isToilet
+                ? ("toilet" as const)
+                : ("regular" as const),
+        };
         await trx
           .insertInto("windows")
           .values({ room_id: insertedRoom.id, ...windowValues(shaped, w) })

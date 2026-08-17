@@ -23,8 +23,11 @@ export const curtainTypeSchema = z.object({
   isNew: z.boolean(),
   id: z.string().uuid().optional(), // present on edit
   label: z.string().min(1, "Required").max(120),
-  category: z.enum(CURTAIN_CATEGORIES),
-  // The physical category this curtain type belongs to (required).
+  // Day/Night SHEERNESS. Required for a curtain, meaningless for a blind — the
+  // server checks the chosen series' product line and rejects the wrong
+  // combination, because only the server authoritatively knows that series'
+  // line. See assertCategoryMatchesLine in actions/curtain-types.ts.
+  category: z.enum(CURTAIN_CATEGORIES).optional(),
   series_id: z.string().uuid("Select a series"),
   page: pageField,
   photo_path: z.string().optional(),

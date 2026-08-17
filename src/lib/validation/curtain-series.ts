@@ -3,6 +3,12 @@ import { z } from "zod";
 export const CURTAIN_CALC_METHODS = ["by_width", "by_sqm"] as const;
 export type CurtainCalcMethod = (typeof CURTAIN_CALC_METHODS)[number];
 
+// Which product line a series sells. Set from the catalogue tab the series is
+// created on and NOT editable afterwards: moving a series between lines would
+// silently change how every window referencing it is priced and installed.
+export const CURTAIN_PRODUCT_LINES = ["curtain", "blind"] as const;
+export type CurtainProductLineInput = (typeof CURTAIN_PRODUCT_LINES)[number];
+
 // A price entered as a decimal amount (RMB or SGD), e.g. "51" or "90.50". Empty
 // means "not set yet". The server action converts it to integer cents.
 const priceField = z
@@ -30,6 +36,7 @@ export const curtainSeriesSchema = z.object({
   cost_rmb: priceField, // vendor cost per metre (RMB)
   sale_sgd: priceField, // curated sale price per metre (SGD)
   calc_method: z.enum(CURTAIN_CALC_METHODS).default("by_width"),
+  product_line: z.enum(CURTAIN_PRODUCT_LINES).default("curtain"),
 });
 
 export type CurtainSeriesInput = z.infer<typeof curtainSeriesSchema>;

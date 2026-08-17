@@ -273,3 +273,156 @@ describe("marginBps", () => {
     expect(marginBps(500, 0)).toBe(0);
   });
 });
+
+// ── Blinds (Phase 12) ─────────────────────────────────────────────────────
+//
+// A blind prices per metre of width like a curtain, but WITHOUT the style
+// multiplier, add-ons or track, and installs at its own handyman rate.
+
+const BLIND = { costRmbCents: 4000, saleSgdCents: 7000 }; // ¥40 / S$70 per m
+
+describe("windowQuote — blinds", () => {
+  it("prices by width with NO style multiplier on cost", () => {
+    const q = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+
+    // 2.0m × ¥40 = ¥80. A curtain would be ¥160 here (×2.0 fullness).
+    expect(q.costRmbCents).toBe(8000);
+    expect(q.saleSgdCents).toBe(14000); // 2.0m × S$70
+    expect(q.offering).toBe("blind");
+  });
+
+  it("adds no track and no add-ons even when the toggles are set", () => {
+    const withToggles = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addSFold: true, addSlimTracks: true },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    const without = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(withToggles).toEqual(without);
+  });
+
+  it("ignores a combo price — combos are a curtain bundle", () => {
+    const q = windowQuote(
+      {
+        widthCm: 200,
+        blindPrice: BLIND,
+        addSFold: false,
+        addSlimTracks: false,
+        comboPriceSgdCents: 999_00,
+      },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(q.saleSgdCents).toBe(14000);
+  });
+
+  it("counts blind cost toward the air-freight base", () => {
+    const q = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(q.curtainCostRmbCents).toBe(8000);
+  });
+
+  it("is 'none' — and free — when unmeasured", () => {
+    const q = windowQuote(
+      { widthCm: null, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(q.offering).toBe("none");
+    expect(q.costRmbCents).toBe(0);
+    expect(q.saleSgdCents).toBe(0);
+  });
+
+  it("never prices a curtain leg on a blind window", () => {
+    // Stale day/night prices left over from a switched window must not add up.
+    const q = windowQuote(
+      {
+        widthCm: 200,
+        blindPrice: BLIND,
+        dayPrice: SIGNATURE,
+        nightPrice: SIGNATURE,
+        addSFold: false,
+        addSlimTracks: false,
+      },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(q.saleSgdCents).toBe(14000);
+    expect(q.costRmbCents).toBe(8000);
+  });
+});
+
+describe("installation cost by offering", () => {
+  const measure = (win: Parameters<typeof computeQuote>[0][number]) =>
+    computeQuote([win], BOOK, ASSUMPTIONS, "sea", 0, 0).installationSgdCents;
+
+  it("charges the blinds rate for a blind window", () => {
+    expect(
+      measure({
+        widthCm: 200,
+        blindPrice: BLIND,
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toBe(ASSUMPTIONS.handymanBlindsSgdCents);
+  });
+
+  it("still charges single and double rates for curtains", () => {
+    expect(
+      measure({
+        widthCm: 200,
+        dayPrice: SIGNATURE,
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toBe(ASSUMPTIONS.handymanSingleSgdCents);
+    expect(
+      measure({
+        widthCm: 200,
+        dayPrice: SIGNATURE,
+        nightPrice: SIGNATURE,
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toBe(ASSUMPTIONS.handymanDoubleSgdCents);
+  });
+
+  it("charges nothing for an unmeasured blind", () => {
+    expect(
+      measure({
+        widthCm: null,
+        blindPrice: BLIND,
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toBe(0);
+  });
+
+  it("charges both rates on a mixed curtain + blind order", () => {
+    const total = computeQuote(
+      [
+        { widthCm: 200, dayPrice: SIGNATURE, nightPrice: SIGNATURE, addSFold: false, addSlimTracks: false },
+        { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+      "sea",
+      0,
+      0,
+    ).installationSgdCents;
+    expect(total).toBe(
+      ASSUMPTIONS.handymanDoubleSgdCents + ASSUMPTIONS.handymanBlindsSgdCents,
+    );
+  });
+});

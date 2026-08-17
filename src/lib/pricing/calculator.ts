@@ -57,6 +57,10 @@ export type CalcWindow = {
   widthCm: number | null;
   dayPrice?: SeriesPrice | null;
   nightPrice?: SeriesPrice | null;
+  // Phase 12 — a blind occupies the window INSTEAD of curtains, so this is
+  // mutually exclusive with day/night. Priced per metre of width like a
+  // curtain, but with no style multiplier, no add-ons and no track.
+  blindPrice?: SeriesPrice | null;
   addSFold: boolean;
   addSlimTracks: boolean;
   // Phase 10 — a picked combo fixes this window's sale to a bundle price,
@@ -88,6 +92,24 @@ function curtainLeg(
   };
 }
 
+// A blind, priced by width like a curtain but WITHOUT the style multiplier:
+// the multiplier buys extra fabric for gathering, and a blind hangs flat.
+//
+// NOTE: the Excel prices blinds by area (height x width). Per-width is a
+// deliberate product decision -- see docs/specs/phase-12 §2.1 -- with the known
+// consequence that height does not affect the price.
+function blindLeg(
+  price: SeriesPrice | null | undefined,
+  widthCm: number | null,
+): Money {
+  if (!price || widthCm == null || widthCm <= 0) return ZERO;
+  const widthM = widthCm / 100;
+  return {
+    costRmbCents: Math.round(widthM * (price.costRmbCents ?? 0)),
+    saleSgdCents: Math.round(widthM * (price.saleSgdCents ?? 0)),
+  };
+}
+
 // An add-on: per-metre scales by width, per-unit is a flat charge.
 function addonLeg(
   addon: AddonPrice | null | undefined,
@@ -108,13 +130,36 @@ function addonLeg(
   };
 }
 
-export type Offering = "none" | "single" | "double";
+export type Offering = "none" | "single" | "double" | "blind";
 
 export function windowQuote(
   win: CalcWindow,
   book: CalcAddonBook,
   styleMultiplier: number,
 ): Money & { curtainCostRmbCents: number; offering: Offering } {
+  // A blind window is priced and installed on its own terms: per metre of
+  // width, with NO style multiplier (that models gathered fabric fullness, and
+  // a blind doesn't gather), no S-Fold/Slim-Tracks (curtain hardware) and no
+  // track (a blind carries its own headrail). Its cost still joins the
+  // air-freight base, which is why it is returned as curtainCostRmbCents.
+  //
+  // Returned before the curtain path so a stale add-on flag left on the form
+  // mid-switch can't add a charge to a blind.
+  if (win.blindPrice) {
+    const leg = blindLeg(win.blindPrice, win.widthCm);
+    const measured = win.widthCm != null && win.widthCm > 0;
+    // A combo is a curtain bundle (day + night + track at a fixed price) and is
+    // deliberately NOT honoured here — comboPriceSgdCents is ignored rather
+    // than applied, so a combo left over from a switched-back window can't
+    // override a blind's price.
+    return {
+      costRmbCents: leg.costRmbCents,
+      saleSgdCents: leg.saleSgdCents,
+      curtainCostRmbCents: leg.costRmbCents,
+      offering: measured ? "blind" : "none",
+    };
+  }
+
   const hasDay = !!win.dayPrice && win.widthCm != null && win.widthCm > 0;
   const hasNight = !!win.nightPrice && win.widthCm != null && win.widthCm > 0;
 
@@ -183,11 +228,13 @@ export function marginBps(netCostSgdCents: number, saleSgdCents: number): number
 }
 
 const installFor = (offering: Offering, a: CalcAssumptions): number =>
-  offering === "double"
-    ? a.handymanDoubleSgdCents
-    : offering === "single"
-      ? a.handymanSingleSgdCents
-      : 0;
+  offering === "blind"
+    ? a.handymanBlindsSgdCents
+    : offering === "double"
+      ? a.handymanDoubleSgdCents
+      : offering === "single"
+        ? a.handymanSingleSgdCents
+        : 0;
 
 // The half of the quote that every product line shares: freight, other cost,
 // GST, RMB→SGD, installation, the order-level discount, margin and groupbuy.

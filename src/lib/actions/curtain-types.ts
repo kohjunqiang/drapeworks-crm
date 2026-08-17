@@ -22,12 +22,36 @@ import {
 import { adminClient } from "@/lib/supabase/admin";
 import { curtainTypeSchema } from "@/lib/validation/curtain-type";
 
-const CATALOGUE_PATH = "/admin/digital-catalogue";
+const CATALOGUE_PATHS = ["/admin/product/curtains", "/admin/product/blinds"];
 
 function revalidateCatalogue() {
-  revalidatePath(CATALOGUE_PATH);
+  for (const p of CATALOGUE_PATHS) revalidatePath(p);
   // Active types feed the consultation form's pickers.
   revalidatePath("/orders/new");
+}
+
+// Day/Night is curtain sheerness. A curtain must have one; a blind must not —
+// it would be a meaningless label sitting in the badge column of a tab that
+// doesn't render it. The series' product line is the authority, and only the
+// server can read it, so this check cannot live in the Zod schema.
+async function assertCategoryMatchesLine(
+  trx: Transaction<DB>,
+  seriesId: string,
+  category: string | undefined,
+): Promise<void> {
+  const series = await trx
+    .selectFrom("curtain_series")
+    .select("product_line")
+    .where("id", "=", seriesId)
+    .executeTakeFirst();
+  if (!series) throw new Error("Series not found");
+
+  if (series.product_line === "blind" && category) {
+    throw new Error("A blind has no Day/Night category");
+  }
+  if (series.product_line !== "blind" && !category) {
+    throw new Error("Select a category (Day or Night)");
+  }
 }
 
 // Next running index within a series: max(existing) + 1. The unique index on
@@ -55,12 +79,13 @@ export async function upsertCurtainType(input: unknown): Promise<{ id: string }>
   try {
     const id = await db.transaction().execute(async (trx) => {
       if (parsed.isNew) {
+        await assertCategoryMatchesLine(trx, parsed.series_id, parsed.category);
         const seriesIndex = await assignSeriesIndex(trx, parsed.series_id);
         const row = await trx
           .insertInto("curtain_types")
           .values({
             label: parsed.label,
-            category: parsed.category,
+            category: parsed.category ?? null,
             series_id: parsed.series_id,
             series_index: seriesIndex,
             page: parsed.page ?? null,
@@ -81,6 +106,8 @@ export async function upsertCurtainType(input: unknown): Promise<{ id: string }>
         .executeTakeFirst();
       if (!current) throw new Error("Curtain type not found");
 
+      await assertCategoryMatchesLine(trx, parsed.series_id, parsed.category);
+
       // Reassign the running index only when the series changes (keeps stable
       // references; the old sequence keeps its gap).
       const seriesIndex =
@@ -92,7 +119,7 @@ export async function upsertCurtainType(input: unknown): Promise<{ id: string }>
         .updateTable("curtain_types")
         .set({
           label: parsed.label,
-          category: parsed.category,
+          category: parsed.category ?? null,
           series_id: parsed.series_id,
           series_index: seriesIndex,
           page: parsed.page ?? null,

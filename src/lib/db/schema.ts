@@ -509,6 +509,24 @@ export interface ManufactureAllowances {
   width_delta_cm: number | null;
 }
 
+export interface ManufactureMeasurements {
+  confirmed_at: Generated<Timestamp>;
+  confirmed_by: string | null;
+  height_delta_cm: number;
+  id: Generated<string>;
+  is_overridden: Generated<boolean>;
+  mesh_panel_id: string | null;
+  mfg_height_cm: number;
+  mfg_width_cm: number;
+  order_id: string;
+  override_reason: string | null;
+  source_height_cm: number;
+  source_width_cm: number;
+  updated_at: Generated<Timestamp>;
+  width_delta_cm: number;
+  window_id: string | null;
+}
+
 export interface MeshCategories {
   cost_rmb_cents_per_sqft: number | null;
   created_at: Generated<Timestamp>;
@@ -925,6 +943,7 @@ export interface DB {
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
   manufacture_allowances: ManufactureAllowances;
+  manufacture_measurements: ManufactureMeasurements;
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
   mesh_minimum_areas: MeshMinimumAreas;

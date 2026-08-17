@@ -16,9 +16,17 @@ type Props = {
   orderId: string;
   atEnd: boolean;
   nextLabel?: string;
+  /** Overrides the generic "Advance →" wording. Used at order_recorded, where
+   *  the action is specifically "the deposit has arrived". */
+  ctaLabel?: string;
 };
 
-export function AdvanceStatusButton({ orderId, atEnd, nextLabel }: Props) {
+export function AdvanceStatusButton({
+  orderId,
+  atEnd,
+  nextLabel,
+  ctaLabel,
+}: Props) {
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -58,13 +66,13 @@ export function AdvanceStatusButton({ orderId, atEnd, nextLabel }: Props) {
         disabled={pending}
         className="px-3 py-1.5 text-xs sm:text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
       >
-        {pending ? "Advancing…" : "Advance →"}
+        {pending ? "Saving…" : (ctaLabel ?? "Advance →")}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {nextLabel ? `Advance to ${nextLabel}` : "Advance status"}
+              {ctaLabel ?? (nextLabel ? `Advance to ${nextLabel}` : "Advance status")}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
@@ -93,7 +101,7 @@ export function AdvanceStatusButton({ orderId, atEnd, nextLabel }: Props) {
                 disabled={pending}
                 className="px-4 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
               >
-                {pending ? "Advancing…" : "Advance"}
+                {pending ? "Saving…" : (ctaLabel ?? "Advance")}
               </button>
             </div>
           </div>

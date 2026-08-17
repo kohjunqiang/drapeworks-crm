@@ -426,6 +426,10 @@ export default async function OrderDetailPage({
           const nextLabel = atEnd
             ? undefined
             : STATUS_LABELS[STATUS_FLOW[currentIdx + 1]];
+          const ctaLabel =
+            order.current_status === "order_recorded"
+              ? "Record deposit received"
+              : undefined;
 
           if (!canEdit && !isAdvancer) return null;
 
@@ -445,6 +449,7 @@ export default async function OrderDetailPage({
                   orderId={order.id}
                   atEnd={atEnd}
                   nextLabel={nextLabel}
+                  ctaLabel={ctaLabel}
                 />
               )}
               {session.profile.role === "admin" && (

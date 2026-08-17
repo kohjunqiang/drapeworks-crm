@@ -44,3 +44,12 @@ export function nextStatus(
 export function statusIndex(s: FulfilmentStatus): number {
   return STATUS_FLOW.indexOf(s);
 }
+
+// Once an order has gone to the vendor, its measurements are being cut. Editing
+// the consultation behind that is how a customer ends up with curtains for a
+// different window. The order reference stays editable (it is paperwork, not a
+// manufacturing input) and so do status, notes, photos and amendments — those
+// write to other tables.
+export function isLocked(s: FulfilmentStatus): boolean {
+  return statusIndex(s) >= statusIndex("sent_to_vendor");
+}

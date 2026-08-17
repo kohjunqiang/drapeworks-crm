@@ -4,6 +4,7 @@ import {
   STATUS_COLOURS,
   STATUS_FLOW,
   STATUS_LABELS,
+  isLocked,
   nextStatus,
   statusIndex,
 } from "./status-flow";
@@ -57,5 +58,21 @@ describe("statusIndex", () => {
     expect(statusIndex("sent_to_vendor")).toBeLessThan(
       statusIndex("sent_logistic"),
     );
+  });
+});
+
+describe("isLocked", () => {
+  it("is false before the order reaches the vendor", () => {
+    expect(isLocked("order_recorded")).toBe(false);
+    expect(isLocked("deposit_received")).toBe(false);
+  });
+
+  it("is true from sent_to_vendor onward", () => {
+    expect(isLocked("sent_to_vendor")).toBe(true);
+    expect(isLocked("sent_logistic")).toBe(true);
+    expect(isLocked("shipping_sg")).toBe(true);
+    expect(isLocked("delivered_checked")).toBe(true);
+    expect(isLocked("fulfilment")).toBe(true);
+    expect(isLocked("completed")).toBe(true);
   });
 });

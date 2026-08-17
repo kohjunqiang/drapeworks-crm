@@ -21,6 +21,7 @@ import {
   orderCreateSchema,
   orderDraftSchema,
   orderEditSchema,
+  orderReferenceSchema,
   type OrderCreateInput,
   type OrderDraftInput,
   type OrderEditInput,
@@ -488,4 +489,31 @@ export async function createOrderDraft(input: unknown): Promise<never> {
   await stampQuoteBaseline(orderId);
 
   redirect(`/orders/${orderId}`);
+}
+
+// The vendor/delivery-facing identifier (Phase 13A). Deliberately NOT
+// status-gated: it's a paperwork identifier rather than a manufacturing
+// input, and a vendor may ask for a renumber mid-production even after the
+// order locks at sent_to_vendor.
+export async function setOrderReference(input: unknown): Promise<void> {
+  await requireRole(["ops", "admin"]);
+  const parsed = orderReferenceSchema.parse(input);
+
+  try {
+    await db
+      .updateTable("orders")
+      .set({ order_reference: parsed.reference })
+      .where("id", "=", parsed.orderId)
+      .execute();
+  } catch (e) {
+    // 23505 = unique_violation on orders_order_reference_key (partial unique
+    // index over non-null order_reference values).
+    if (typeof e === "object" && e !== null && "code" in e && e.code === "23505") {
+      throw new Error("That order reference is already used by another order.");
+    }
+    throw e;
+  }
+
+  revalidatePath(`/orders/${parsed.orderId}`);
+  revalidatePath("/orders");
 }

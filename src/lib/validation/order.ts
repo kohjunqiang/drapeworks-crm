@@ -275,3 +275,18 @@ export const orderEditSchema = z.object({
 export type OrderEditInput = z.infer<typeof orderEditSchema>;
 export type RoomEditInput = z.infer<typeof roomEditSchema>;
 export type WindowEditInput = z.infer<typeof windowEditSchema>;
+
+// Phase 13A — the vendor/delivery-facing identifier. Blank input clears it
+// rather than storing an empty string, so the partial unique index only ever
+// sees real values.
+export const orderReferenceSchema = z.object({
+  orderId: z.string().uuid(),
+  reference: z
+    .string()
+    .max(64, "Reference must be 64 characters or fewer")
+    .nullable()
+    .transform((v) => {
+      const trimmed = v?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : null;
+    }),
+});

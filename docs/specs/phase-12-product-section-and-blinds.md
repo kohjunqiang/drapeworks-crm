@@ -1,6 +1,6 @@
 # Phase 12 — Product section & blinds
 
-**Status:** spec only, not yet implemented
+**Status:** implemented 2026-08-17 (see §10 for what remains)
 **Date:** 2026-08-16
 **Depends on:** Phase 8/8b (curtain catalogue), Phase 9 (pricing foundation), Phase 10 (promotions & combos), Phase 11 (mesh)
 
@@ -387,16 +387,31 @@ Following the `mesh-calculator.test.ts` pattern:
 
 ## 10. Rollout
 
-1. Migration + `db:codegen`
-2. Validation schemas + tests
-3. Calculator + tests
-4. Admin Product section (routes, layout, nav, redirects, parameterised catalogue)
-5. Consultation form (toggle, option filtering, chooser relabel)
-6. Read surfaces (§8)
-7. Seed the first blind series through the admin UI, end-to-end quote check
+1. ✅ Migration + `db:codegen` — two migrations: `20260817090000_product_line_and_blinds`
+   (columns + the rewritten shape trigger) and `20260817091000_curtain_product_line_enum`
+   (text+CHECK → a real Postgres enum, for a typed `CurtainProductLine`)
+2. ✅ Validation schemas + tests
+3. ✅ Calculator + tests
+4. ✅ Admin Product section (routes, layout, nav, redirects, parameterised catalogue)
+5. ✅ Consultation form (toggle, option filtering, chooser relabel)
+6. ✅ Read surfaces (§8)
+7. ⬜ **Seed the first blind series through the admin UI** — needs real data: series
+   name, vendor, cost (RMB/m) and sale (SGD/m). Until then the Blinds tab is empty and
+   the Curtains/Blinds toggle stays hidden on consultations, by design.
+8. ⬜ **Browser QA while logged in** — the automated verification below covers the data
+   and pricing paths, but nobody has clicked through the Product tabs or the toggle in a
+   real session yet.
 
-Steps 1–4 are shippable without step 5: blinds are manageable in admin and simply not
-yet offered on consultations. That is a safe intermediate state.
+**Verification done.** `tsc` clean, lint clean, production build passes, 193 unit tests
+pass (20 new). Two rolled-back-transaction checks against the live schema: all eight
+`validate_window_shape` cases behave as specified (§3.1), and the full blind path —
+blind series → blind type with null category → blind window in a Master Toilet →
+quote join → S$140 on 2.0m at S$70/m with no style multiplier, installed at the blinds
+rate — round-trips correctly.
+
+Steps 1–4 were shippable without step 5 only because the option loader filters on
+product line (§6.2); without that filter, blinds would have leaked into the toilet
+curtain picker the moment one existed.
 
 ## 11. Out of scope
 

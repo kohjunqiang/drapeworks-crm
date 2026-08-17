@@ -217,31 +217,51 @@ export function panelBillableArea(
   };
 }
 
-// The category's per-ft² rate scaled by this panel's area, plus the colour's
-// flat surcharge and — on a double draw — the system's flat surcharge. Neither
-// surcharge is scaled: both are per-panel charges, not per-ft² ones.
-export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
+/** A panel's price, itemised. The three sum to what `panelQuote` returns. */
+export type PanelParts = { mesh: Money; colour: Money; double: Money };
+
+const ZERO_PARTS: PanelParts = { mesh: ZERO, colour: ZERO, double: ZERO };
+
+// The category's per-ft² rate scaled by this panel's area, the colour's flat
+// surcharge, and — on a double draw — the system's flat surcharge, kept apart
+// so the cost breakdown can show them one per line. Neither surcharge is
+// scaled: both are per-panel charges, not per-ft² ones.
+//
+// An unpriced category or an unmeasured panel zeroes the WHOLE panel, colour
+// surcharge included — a surcharge on a panel we can't price is not a charge.
+export function panelParts(p: MeshPanel, book: MeshPriceBook): PanelParts {
   const rate = rateFor(p, book);
-  if (!rate) return ZERO;
+  if (!rate) return ZERO_PARTS;
 
   // The floored area, not the measured one — and the same figure on both
   // sides, so a minimum never flatters the margin.
   const billable = panelBillableArea(p, book);
-  if (billable == null) return ZERO;
+  if (billable == null) return ZERO_PARTS;
   const area = billable.billableCm2;
 
   const colour = p.colourId ? book.colours[p.colourId] : undefined;
-  const double = doubleDrawSurcharge(p, book);
 
   return {
+    mesh: {
+      costRmbCents: scaleByArea(area, rate.costRmbCentsPerSqft ?? 0),
+      saleSgdCents: scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0),
+    },
+    colour: {
+      costRmbCents: colour?.costRmbCents ?? 0,
+      saleSgdCents: colour?.saleSgdCents ?? 0,
+    },
+    double: doubleDrawSurcharge(p, book),
+  };
+}
+
+/** The panel's total — mesh + colour + double-draw hardware. */
+export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
+  const { mesh, colour, double } = panelParts(p, book);
+  return {
     costRmbCents:
-      scaleByArea(area, rate.costRmbCentsPerSqft ?? 0) +
-      (colour?.costRmbCents ?? 0) +
-      double.costRmbCents,
+      mesh.costRmbCents + colour.costRmbCents + double.costRmbCents,
     saleSgdCents:
-      scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0) +
-      (colour?.saleSgdCents ?? 0) +
-      double.saleSgdCents,
+      mesh.saleSgdCents + colour.saleSgdCents + double.saleSgdCents,
   };
 }
 
@@ -255,18 +275,40 @@ export function computeMeshQuote(
 ): QuoteResult {
   const totals = panels.reduce(
     (acc, p) => {
-      const q = panelQuote(p, book);
+      const parts = panelParts(p, book);
       return {
-        costRmbCents: acc.costRmbCents + q.costRmbCents,
-        saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
+        costRmbCents:
+          acc.costRmbCents +
+          parts.mesh.costRmbCents +
+          parts.colour.costRmbCents +
+          parts.double.costRmbCents,
+        saleSgdCents:
+          acc.saleSgdCents +
+          parts.mesh.saleSgdCents +
+          parts.colour.saleSgdCents +
+          parts.double.saleSgdCents,
+        meshRmbCents: acc.meshRmbCents + parts.mesh.costRmbCents,
+        colourRmbCents: acc.colourRmbCents + parts.colour.costRmbCents,
+        doubleRmbCents: acc.doubleRmbCents + parts.double.costRmbCents,
       };
     },
-    { costRmbCents: 0, saleSgdCents: 0 },
+    {
+      costRmbCents: 0,
+      saleSgdCents: 0,
+      meshRmbCents: 0,
+      colourRmbCents: 0,
+      doubleRmbCents: 0,
+    },
   );
 
   return finaliseQuote(
     {
       cogsRmbCents: totals.costRmbCents,
+      cogsLines: [
+        { key: "mesh", rmbCents: totals.meshRmbCents },
+        { key: "colour", rmbCents: totals.colourRmbCents },
+        { key: "double_draw", rmbCents: totals.doubleRmbCents },
+      ],
       // Unlike curtains, mesh bills freight on the full panel COGS — there are
       // no add-ons or tracks to exclude.
       freightBaseRmbCents: totals.costRmbCents,

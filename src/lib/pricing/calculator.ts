@@ -68,6 +68,27 @@ export type CalcWindow = {
   comboPriceSgdCents?: number | null;
 };
 
+// COGS is a sum of distinct things — fabric, each add-on, the rail — and the
+// cost breakdown shows them one per line rather than as a single lump. Carried
+// as a key, never a label, so pricing stays free of presentation; the UI maps
+// key → label (see `cogs-labels.ts`).
+//
+// The keys of both product lines live together because `finaliseQuote` is
+// shared: it passes the lines through without knowing which engine built them.
+export type CogsKey =
+  // curtains
+  | "curtains"
+  | "blinds"
+  | "s_fold"
+  | "slim_tracks"
+  | "track"
+  // mesh
+  | "mesh"
+  | "colour"
+  | "double_draw";
+
+export type CogsLine = { key: CogsKey; rmbCents: number };
+
 type Money = { costRmbCents: number; saleSgdCents: number };
 
 const ZERO: Money = { costRmbCents: 0, saleSgdCents: 0 };
@@ -132,11 +153,40 @@ function addonLeg(
 
 export type Offering = "none" | "single" | "double" | "blind";
 
+/** This window's COGS, itemised. The five always sum to `costRmbCents`. */
+export type WindowCogs = {
+  curtains: number;
+  blinds: number;
+  sFold: number;
+  slimTracks: number;
+  track: number;
+};
+
+const ZERO_COGS: WindowCogs = {
+  curtains: 0,
+  blinds: 0,
+  sFold: 0,
+  slimTracks: 0,
+  track: 0,
+};
+
+export const addCogs = (a: WindowCogs, b: WindowCogs): WindowCogs => ({
+  curtains: a.curtains + b.curtains,
+  blinds: a.blinds + b.blinds,
+  sFold: a.sFold + b.sFold,
+  slimTracks: a.slimTracks + b.slimTracks,
+  track: a.track + b.track,
+});
+
 export function windowQuote(
   win: CalcWindow,
   book: CalcAddonBook,
   styleMultiplier: number,
-): Money & { curtainCostRmbCents: number; offering: Offering } {
+): Money & {
+  curtainCostRmbCents: number;
+  offering: Offering;
+  cogs: WindowCogs;
+} {
   // A blind window is priced and installed on its own terms: per metre of
   // width, with NO style multiplier (that models gathered fabric fullness, and
   // a blind doesn't gather), no S-Fold/Slim-Tracks (curtain hardware) and no
@@ -157,6 +207,7 @@ export function windowQuote(
       saleSgdCents: leg.saleSgdCents,
       curtainCostRmbCents: leg.costRmbCents,
       offering: measured ? "blind" : "none",
+      cogs: { ...ZERO_COGS, blinds: leg.costRmbCents },
     };
   }
 
@@ -166,10 +217,10 @@ export function windowQuote(
   const dayLeg = curtainLeg(win.dayPrice, win.widthCm, styleMultiplier);
   const nightLeg = curtainLeg(win.nightPrice, win.widthCm, styleMultiplier);
 
-  let total: Money = add(add(ZERO, dayLeg), nightLeg);
-  if (win.addSFold) total = add(total, addonLeg(book.sFold, win.widthCm));
-  if (win.addSlimTracks)
-    total = add(total, addonLeg(book.slimTracks, win.widthCm));
+  const sFoldLeg = win.addSFold ? addonLeg(book.sFold, win.widthCm) : ZERO;
+  const slimLeg = win.addSlimTracks
+    ? addonLeg(book.slimTracks, win.widthCm)
+    : ZERO;
 
   // Track: double if both day + night, single if just one. The rail is a cost
   // we bear, not a customer line item (unlike the opt-in add-ons above) — so
@@ -178,10 +229,18 @@ export function windowQuote(
     costRmbCents: m.costRmbCents,
     saleSgdCents: 0,
   });
-  if (hasDay && hasNight)
-    total = add(total, trackCost(addonLeg(book.doubleTrack, null)));
-  else if (hasDay || hasNight)
-    total = add(total, trackCost(addonLeg(book.singleTrack, null)));
+  const trackLeg = trackCost(
+    hasDay && hasNight
+      ? addonLeg(book.doubleTrack, null)
+      : hasDay || hasNight
+        ? addonLeg(book.singleTrack, null)
+        : ZERO,
+  );
+
+  const total: Money = [dayLeg, nightLeg, sFoldLeg, slimLeg, trackLeg].reduce(
+    add,
+    ZERO,
+  );
 
   // Offering drives the per-window installation cost.
   const offering: Offering =
@@ -199,11 +258,20 @@ export function windowQuote(
     saleSgdCents,
     curtainCostRmbCents: dayLeg.costRmbCents + nightLeg.costRmbCents,
     offering,
+    cogs: {
+      curtains: dayLeg.costRmbCents + nightLeg.costRmbCents,
+      blinds: 0,
+      sFold: sFoldLeg.costRmbCents,
+      slimTracks: slimLeg.costRmbCents,
+      track: trackLeg.costRmbCents,
+    },
   };
 }
 
 export type QuoteResult = {
   cogsRmbCents: number;
+  /** What `cogsRmbCents` is made of. Sums to it exactly; may contain zero rows. */
+  cogsLines: CogsLine[];
   freightRmbCents: number;
   otherCostRmbCents: number;
   gstRmbCents: number;
@@ -246,6 +314,12 @@ const installFor = (offering: Offering, a: CalcAssumptions): number =>
 // add-ons and tracks, per the Excel sheet.
 export type QuoteTotals = {
   cogsRmbCents: number;
+  /**
+   * The itemised COGS. Product-specific — each engine names its own components
+   * — and passed through untouched, since freight/other/GST are computed on the
+   * total and never on a single line.
+   */
+  cogsLines: CogsLine[];
   freightBaseRmbCents: number;
   saleSgdCents: number;
   installSgdCents: number;
@@ -288,6 +362,7 @@ export function finaliseQuote(
 
   return {
     cogsRmbCents: cogs,
+    cogsLines: totals.cogsLines,
     freightRmbCents: freight,
     otherCostRmbCents: other,
     gstRmbCents: gst,
@@ -319,9 +394,16 @@ export function computeQuote(
         saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
         curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
         installSgdCents: acc.installSgdCents + installFor(q.offering, a),
+        cogs: addCogs(acc.cogs, q.cogs),
       };
     },
-    { costRmbCents: 0, saleSgdCents: 0, curtainCostRmbCents: 0, installSgdCents: 0 },
+    {
+      costRmbCents: 0,
+      saleSgdCents: 0,
+      curtainCostRmbCents: 0,
+      installSgdCents: 0,
+      cogs: ZERO_COGS,
+    },
   );
 
   // Curtains bill air freight on curtain-only COGS — add-ons and tracks are
@@ -329,6 +411,13 @@ export function computeQuote(
   return finaliseQuote(
     {
       cogsRmbCents: totals.costRmbCents,
+      cogsLines: [
+        { key: "curtains", rmbCents: totals.cogs.curtains },
+        { key: "blinds", rmbCents: totals.cogs.blinds },
+        { key: "s_fold", rmbCents: totals.cogs.sFold },
+        { key: "slim_tracks", rmbCents: totals.cogs.slimTracks },
+        { key: "track", rmbCents: totals.cogs.track },
+      ],
       freightBaseRmbCents: totals.curtainCostRmbCents,
       saleSgdCents: totals.saleSgdCents,
       installSgdCents: totals.installSgdCents,

@@ -265,6 +265,50 @@ describe("panelQuote", () => {
   });
 });
 
+// The breakdown the cost panel renders: mesh, colour surcharge and double-draw
+// hardware on their own lines, disjoint, summing to the COGS that freight /
+// other / GST are then charged on.
+describe("computeMeshQuote — itemised COGS", () => {
+  const cogsLine = (q: ReturnType<typeof computeMeshQuote>, key: string) =>
+    q.cogsLines.find((l) => l.key === key)?.rmbCents;
+
+  it("separates the mesh from the colour and double-draw surcharges", () => {
+    const q = computeMeshQuote(
+      [panel({ colourId: BRONZE, draw: "Double" })],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(cogsLine(q, "colour")).toBe(2000); // Bronze, per panel
+    expect(cogsLine(q, "double_draw")).toBe(4000); // System 55 hardware
+    expect(cogsLine(q, "mesh")).toBe(
+      q.cogsRmbCents - 2000 - 4000, // the rest is area × rate
+    );
+  });
+
+  it("the lines sum to COGS exactly — no component double-counted or dropped", () => {
+    const q = computeMeshQuote(
+      [
+        panel(),
+        panel({ colourId: BRONZE, draw: "Double" }),
+        panel({ categoryId: UNPRICED }),
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    const sum = q.cogsLines.reduce((n, l) => n + l.rmbCents, 0);
+    expect(sum).toBe(q.cogsRmbCents);
+  });
+
+  it("neither other cost nor GST appears as a COGS component", () => {
+    const q = computeMeshQuote([panel({ colourId: BRONZE })], BOOK, ASSUMPTIONS);
+    expect(q.otherCostRmbCents).toBe(Math.round((q.cogsRmbCents * 1000) / 10000));
+    expect(q.gstRmbCents).toBe(Math.round((q.cogsRmbCents * 900) / 10000));
+    expect(q.grossCostRmbCents).toBe(
+      q.cogsRmbCents + q.freightRmbCents + q.otherCostRmbCents + q.gstRmbCents,
+    );
+  });
+});
+
 describe("computeMeshQuote", () => {
   it("charges install per measured panel and bills freight on full panel COGS", () => {
     const q = computeMeshQuote([panel(), panel()], BOOK, ASSUMPTIONS);

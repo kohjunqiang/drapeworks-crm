@@ -5,6 +5,7 @@ import { useFormContext, useWatch } from "react-hook-form";
 
 import { useQuoteAutofill } from "@/components/orders/consultation-form/use-quote-autofill";
 import { formatSGD } from "@/lib/money";
+import { COGS_LABELS, visibleCogsLines } from "@/lib/pricing/cogs-labels";
 import {
   computeMeshQuote,
   meshQuoteWarnings,
@@ -163,10 +164,14 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
               China costs (RMB)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
-              <div className="flex justify-between">
-                <dt>Panels (COGS)</dt>
-                <dd>{rmb(quote.cogsRmbCents)}</dd>
-              </div>
+              {/* One row per cost component — mesh, colour surcharge,
+                  double-draw hardware — rather than a single lump. */}
+              {visibleCogsLines(quote.cogsLines).map((line) => (
+                <div key={line.key} className="flex justify-between">
+                  <dt>{COGS_LABELS[line.key]}</dt>
+                  <dd>{rmb(line.rmbCents)}</dd>
+                </div>
+              ))}
               <div className="flex justify-between">
                 <dt>Freight ({freightMode === "sea" ? "sea" : "air"})</dt>
                 <dd>{rmb(quote.freightRmbCents)}</dd>

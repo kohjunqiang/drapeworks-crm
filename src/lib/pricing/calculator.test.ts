@@ -54,6 +54,14 @@ describe("windowQuote", () => {
       saleSgdCents: 47600,
       curtainCostRmbCents: 28560,
       offering: "single",
+      // COGS itemised: 28560 fabric + 3080 s-fold + 2500 rail = 34140.
+      cogs: {
+        curtains: 28560,
+        blinds: 0,
+        sFold: 3080,
+        slimTracks: 0,
+        track: 2500,
+      },
     });
   });
 
@@ -77,6 +85,14 @@ describe("windowQuote", () => {
       saleSgdCents: 54000,
       curtainCostRmbCents: 61200,
       offering: "double",
+      // 61200 fabric + 2500 double rail = 63700; no add-ons ordered.
+      cogs: {
+        curtains: 61200,
+        blinds: 0,
+        sFold: 0,
+        slimTracks: 0,
+        track: 2500,
+      },
     });
   });
 
@@ -131,7 +147,108 @@ describe("windowQuote", () => {
       saleSgdCents: 0,
       curtainCostRmbCents: 0,
       offering: "none",
+      cogs: {
+        curtains: 0,
+        blinds: 0,
+        sFold: 0,
+        slimTracks: 0,
+        track: 0,
+      },
     });
+  });
+});
+
+// The breakdown the cost panel renders. Its whole point is that the parts are
+// disjoint — a component appears on exactly one line, and the lines sum to the
+// COGS that freight/other/GST are then charged on. Nothing is counted twice.
+describe("computeQuote — itemised COGS", () => {
+  const cogsLine = (q: ReturnType<typeof computeQuote>, key: string) =>
+    q.cogsLines.find((l) => l.key === key)?.rmbCents;
+
+  it("splits COGS into goods, each add-on and the rail", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 280,
+          dayPrice: SIGNATURE,
+          nightPrice: null,
+          addSFold: true,
+          addSlimTracks: true,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    // fabric 2.8×2×5100, s-fold 2.8×1100, slim 2.8×3500, single rail 2500
+    expect(cogsLine(q, "curtains")).toBe(28560);
+    expect(cogsLine(q, "s_fold")).toBe(3080);
+    expect(cogsLine(q, "slim_tracks")).toBe(9800);
+    expect(cogsLine(q, "track")).toBe(2500);
+    expect(cogsLine(q, "blinds")).toBe(0);
+  });
+
+  it("the lines sum to COGS exactly — no component double-counted or dropped", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 280,
+          dayPrice: SIGNATURE,
+          nightPrice: SIGNATURE,
+          addSFold: true,
+          addSlimTracks: true,
+        },
+        {
+          widthCm: 150,
+          blindPrice: SIGNATURE,
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    const sum = q.cogsLines.reduce((n, l) => n + l.rmbCents, 0);
+    expect(sum).toBe(q.cogsRmbCents);
+  });
+
+  it("a blind's goods land on the blinds line, not the curtains one", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 150,
+          blindPrice: SIGNATURE,
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(cogsLine(q, "blinds")).toBe(7650); // 1.5×5100, no style multiplier
+    expect(cogsLine(q, "curtains")).toBe(0);
+    expect(cogsLine(q, "track")).toBe(0); // a blind carries its own headrail
+  });
+
+  it("neither other cost nor GST appears as a COGS component", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 280,
+          dayPrice: SIGNATURE,
+          nightPrice: null,
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    // They are charged ON the COGS, so folding either back in would compound.
+    expect(q.otherCostRmbCents).toBe(Math.round((q.cogsRmbCents * 1000) / 10000));
+    expect(q.gstRmbCents).toBe(Math.round((q.cogsRmbCents * 900) / 10000));
+    expect(q.grossCostRmbCents).toBe(
+      q.cogsRmbCents + q.freightRmbCents + q.otherCostRmbCents + q.gstRmbCents,
+    );
   });
 });
 

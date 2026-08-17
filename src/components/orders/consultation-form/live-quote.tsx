@@ -11,6 +11,7 @@ import {
   type CalcWindow,
   type SeriesPrice,
 } from "@/lib/pricing/calculator";
+import { COGS_LABELS, visibleCogsLines } from "@/lib/pricing/cogs-labels";
 import type { CalcConfig } from "@/lib/pricing/order-quote";
 import type { OrderEditInput } from "@/lib/validation/order";
 
@@ -200,10 +201,15 @@ export function LiveQuote({
               China costs (RMB)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
-              <div className="flex justify-between">
-                <dt>Goods + add-ons (COGS)</dt>
-                <dd>{rmb(quote.cogsRmbCents)}</dd>
-              </div>
+              {/* One row per cost component — goods, each add-on, the rail —
+                  rather than a single lump, so the consultant can see what the
+                  COGS is actually made of. */}
+              {visibleCogsLines(quote.cogsLines).map((line) => (
+                <div key={line.key} className="flex justify-between">
+                  <dt>{COGS_LABELS[line.key]}</dt>
+                  <dd>{rmb(line.rmbCents)}</dd>
+                </div>
+              ))}
               <div className="flex justify-between">
                 <dt>Freight ({freightMode === "sea" ? "sea" : "air"})</dt>
                 <dd>{rmb(quote.freightRmbCents)}</dd>

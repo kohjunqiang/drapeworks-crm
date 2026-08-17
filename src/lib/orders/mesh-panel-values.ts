@@ -11,7 +11,8 @@ export type MeshPanelLike = {
   width_cm?: number | null;
   height_cm?: number | null;
   has_window?: boolean;
-  has_inset?: boolean;
+  has_inset_horizontal?: boolean;
+  has_inset_vertical?: boolean;
   draw?: MeshDraw;
   split_left_cm?: number | null;
   split_right_cm?: number | null;
@@ -25,7 +26,8 @@ export type MeshPanelColumnValues = {
   width_cm: number | null;
   height_cm: number | null;
   has_window: boolean;
-  has_inset: boolean;
+  has_inset_horizontal: boolean;
+  has_inset_vertical: boolean;
   draw: MeshDraw | null;
   split_left_cm: number | null;
   split_right_cm: number | null;
@@ -63,7 +65,9 @@ export function meshPanelValues(
     // Absent means yes — the normal installation, matching the column default.
     has_window: panel.has_window ?? true,
     // Set into the wall: make it to size, no overhang. Absent means no inset.
-    has_inset: panel.has_inset ?? false,
+    // Horizontal also shortens the track by the system's clearance (§5.9).
+    has_inset_horizontal: panel.has_inset_horizontal ?? false,
+    has_inset_vertical: panel.has_inset_vertical ?? false,
     draw: panel.draw ?? null,
     split_left_cm: isDouble ? (panel.split_left_cm ?? null) : null,
     split_right_cm: isDouble ? (panel.split_right_cm ?? null) : null,

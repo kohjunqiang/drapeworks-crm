@@ -74,6 +74,8 @@ export const meshSystemSchema = z.object({
   side_track_cm: mmField,
   track_height_cm: mmField,
   track_depth_cm: mmField,
+  // Clearance taken off the track when the opening is inset horizontally.
+  inset_deduction_cm: mmField,
   // Flat per-panel surcharge for a double draw — one extra roller-and-handle
   // set, not scaled by area. Blank = no surcharge.
   double_cost_rmb: priceField,

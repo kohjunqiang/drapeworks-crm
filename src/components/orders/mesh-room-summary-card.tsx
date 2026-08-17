@@ -13,7 +13,8 @@ export type MeshPanelSummary = {
   width_cm: number | null;
   height_cm: number | null;
   has_window: boolean;
-  has_inset: boolean;
+  has_inset_horizontal: boolean;
+  has_inset_vertical: boolean;
   draw: string | null;
   /** Derived from width and draw at render time, never stored (§5.9). */
   system: string | null;
@@ -36,6 +37,21 @@ const cm = (v: number | null): string => (v == null ? "—" : `${v}`);
 function dims(p: MeshPanelSummary): string {
   if (p.width_cm == null && p.height_cm == null) return "—";
   return `${cm(p.width_cm)} × ${cm(p.height_cm)}`;
+}
+
+/** Area in m², shown alongside the raw measurements. Null until both are set. */
+function areaSqm(p: MeshPanelSummary): string | null {
+  if (p.width_cm == null || p.height_cm == null) return null;
+  return ((p.width_cm * p.height_cm) / 10_000).toFixed(2);
+}
+
+// Two axes, two different constraints, so they are named rather than collapsed
+// into one "inset" marker: only the horizontal one shortens the track.
+function insetLabel(p: MeshPanelSummary): string | null {
+  if (p.has_inset_horizontal && p.has_inset_vertical) return "inset H+V";
+  if (p.has_inset_horizontal) return "inset H";
+  if (p.has_inset_vertical) return "inset V";
+  return null;
 }
 
 // A split only exists for a double draw, and the server nulls it otherwise, so
@@ -61,6 +77,7 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
               <th className="text-left px-4 py-2 font-medium">Category</th>
               <th className="text-left px-4 py-2 font-medium">Colour</th>
               <th className="text-left px-4 py-2 font-medium">W × H (cm)</th>
+              <th className="text-left px-4 py-2 font-medium">Area (m²)</th>
               <th className="text-left px-4 py-2 font-medium">Fixing to</th>
               <th className="text-left px-4 py-2 font-medium">Draw</th>
               <th className="text-left px-4 py-2 font-medium">System</th>
@@ -85,12 +102,15 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
                     {/* Rides with the size rather than getting its own column,
                         because that is what it constrains: made to size, no
                         overhang. */}
-                    {p.has_inset && (
+                    {insetLabel(p) && (
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
-                        inset
+                        {insetLabel(p)}
                       </span>
                     )}
                   </span>
+                </td>
+                <td className="px-4 py-2 text-slate-600 tabular-nums">
+                  {areaSqm(p) ?? "—"}
                 </td>
                 <td className="px-4 py-2 text-slate-600">
                   {p.has_window ? (

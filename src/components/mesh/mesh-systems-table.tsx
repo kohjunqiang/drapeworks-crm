@@ -46,6 +46,7 @@ const BLANK: MeshSystemInput = {
   side_track_cm: "",
   track_height_cm: "",
   track_depth_cm: "",
+  inset_deduction_cm: "",
   double_cost_rmb: "",
   double_sale_sgd: "",
 };
@@ -56,6 +57,7 @@ const FIELDS = [
   ["side_track_cm", "Side track (cm)"],
   ["track_height_cm", "Track height (cm)"],
   ["track_depth_cm", "Track depth (cm)"],
+  ["inset_deduction_cm", "Inset clearance (cm)"],
 ] as const;
 
 function SystemDialog({
@@ -242,6 +244,7 @@ export function MeshSystemsTable({ systems }: { systems: MeshSystemRow[] }) {
         side_track_cm: mmToCm(editing.side_track_mm),
         track_height_cm: mmToCm(editing.track_height_mm),
         track_depth_cm: mmToCm(editing.track_depth_mm),
+        inset_deduction_cm: mmToCm(editing.inset_deduction_mm),
         double_cost_rmb:
           editing.double_cost_rmb_cents == null
             ? ""
@@ -274,6 +277,7 @@ export function MeshSystemsTable({ systems }: { systems: MeshSystemRow[] }) {
               <th className="text-right px-4 py-3 font-medium">Handle</th>
               <th className="text-right px-4 py-3 font-medium">Side track</th>
               <th className="text-right px-4 py-3 font-medium">Track h × d</th>
+              <th className="text-right px-4 py-3 font-medium">Inset −</th>
               <th className="text-right px-4 py-3 font-medium">
                 Double +¥ / +S$
               </th>
@@ -299,6 +303,9 @@ export function MeshSystemsTable({ systems }: { systems: MeshSystemRow[] }) {
                 <td className="px-4 py-3 text-right tabular-nums text-slate-500">
                   {formatMmAsCm(s.track_height_mm)} ×{" "}
                   {formatMmAsCm(s.track_depth_mm)}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-slate-500">
+                  {formatMmAsCm(s.inset_deduction_mm)}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                   {s.double_cost_rmb_cents == null &&
@@ -334,7 +341,7 @@ export function MeshSystemsTable({ systems }: { systems: MeshSystemRow[] }) {
 
         <p className="px-4 py-3 text-xs text-slate-500 border-t border-slate-100">
           All in cm. Stored to the millimetre so the track length stays exact —
-          a 200 cm single draw on System 68 is 200 − 13.3 − 1.5 = 185.2 cm.
+          a 200 cm single draw on System 68 is 200 − 13.3 − 1.5 = 185.2 cm. The inset clearance comes off on top when the opening has wall to its left and right.
         </p>
       </CatalogueSection>
 

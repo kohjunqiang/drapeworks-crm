@@ -532,7 +532,8 @@ export interface MeshPanels {
   colour_id: string | null;
   created_at: Generated<Timestamp>;
   draw: MeshDrawDirection | null;
-  has_inset: Generated<boolean>;
+  has_inset_horizontal: Generated<boolean>;
+  has_inset_vertical: Generated<boolean>;
   has_window: Generated<boolean>;
   height_cm: number | null;
   id: Generated<string>;
@@ -563,6 +564,7 @@ export interface MeshSystems {
   double_sale_sgd_cents: number | null;
   handle_mm: number;
   id: Generated<string>;
+  inset_deduction_mm: Generated<number>;
   is_active: Generated<boolean>;
   name: string;
   position: Generated<number>;

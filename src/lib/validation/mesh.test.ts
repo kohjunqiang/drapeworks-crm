@@ -70,14 +70,29 @@ describe("meshPanelSchema", () => {
     if (r.success) expect(r.data.has_window).toBe(false);
   });
 
-  it("defaults to no inset, and accepts one when flagged", () => {
-    const plain = meshPanelSchema.safeParse(panel());
-    expect(plain.success).toBe(true);
-    if (plain.success) expect(plain.data.has_inset).toBe(false);
+  it("defaults both inset axes to false", () => {
+    const r = meshPanelSchema.safeParse(panel());
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.has_inset_horizontal).toBe(false);
+      expect(r.data.has_inset_vertical).toBe(false);
+    }
+  });
 
-    const inset = meshPanelSchema.safeParse(panel({ has_inset: true }));
-    expect(inset.success).toBe(true);
-    if (inset.success) expect(inset.data.has_inset).toBe(true);
+  it("accepts each inset axis independently", () => {
+    // They constrain different things, so one must not imply the other.
+    const h = meshPanelSchema.safeParse(panel({ has_inset_horizontal: true }));
+    expect(h.success).toBe(true);
+    if (h.success) {
+      expect(h.data.has_inset_horizontal).toBe(true);
+      expect(h.data.has_inset_vertical).toBe(false);
+    }
+
+    const both = meshPanelSchema.safeParse(
+      panel({ has_inset_horizontal: true, has_inset_vertical: true }),
+    );
+    expect(both.success).toBe(true);
+    if (both.success) expect(both.data.has_inset_vertical).toBe(true);
   });
 
   it("rejects a measurement beyond the 1000 cm sanity cap", () => {

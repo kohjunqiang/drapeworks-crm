@@ -174,6 +174,7 @@ export async function upsertMeshSystem(input: unknown) {
     side_track_mm: cmToMm(parsed.side_track_cm),
     track_height_mm: cmToMm(parsed.track_height_cm),
     track_depth_mm: cmToMm(parsed.track_depth_cm),
+    inset_deduction_mm: cmToMm(parsed.inset_deduction_cm),
     double_cost_rmb_cents: money(parsed.double_cost_rmb),
     double_sale_sgd_cents: money(parsed.double_sale_sgd),
   };

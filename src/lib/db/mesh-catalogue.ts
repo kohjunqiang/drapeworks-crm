@@ -37,6 +37,7 @@ export type MeshSystemRow = {
   side_track_mm: number;
   track_height_mm: number;
   track_depth_mm: number;
+  inset_deduction_mm: number;
   double_cost_rmb_cents: number | null;
   double_sale_sgd_cents: number | null;
   position: number;
@@ -54,6 +55,7 @@ export async function loadMeshSystems(): Promise<MeshSystemRow[]> {
       "side_track_mm",
       "track_height_mm",
       "track_depth_mm",
+      "inset_deduction_mm",
       "double_cost_rmb_cents",
       "double_sale_sgd_cents",
       "position",
@@ -69,7 +71,13 @@ export async function loadMeshSystems(): Promise<MeshSystemRow[]> {
 export async function loadActiveMeshSystemSpecs(): Promise<MeshSystemSpec[]> {
   const rows = await db
     .selectFrom("mesh_systems")
-    .select(["name", "roller_mm", "handle_mm", "side_track_mm"])
+    .select([
+      "name",
+      "roller_mm",
+      "handle_mm",
+      "side_track_mm",
+      "inset_deduction_mm",
+    ])
     .where("is_active", "=", true)
     .execute();
 
@@ -78,6 +86,7 @@ export async function loadActiveMeshSystemSpecs(): Promise<MeshSystemSpec[]> {
     rollerMm: r.roller_mm,
     handleMm: r.handle_mm,
     sideTrackMm: r.side_track_mm,
+    insetDeductionMm: r.inset_deduction_mm,
   }));
 }
 

@@ -25,6 +25,13 @@ export type MeshSystemBand = {
 export type MeshSystemPanel = {
   widthCm: number | null;
   draw: MeshDraw | undefined;
+  /**
+   * Wall to the left and right of the opening. The track is cut short by the
+   * system's clearance so the panel can be tilted into place. A VERTICAL inset
+   * constrains the height instead and does not reach the track, which is why
+   * only this axis appears here.
+   */
+  hasInsetHorizontal?: boolean;
 };
 
 /**
@@ -40,6 +47,8 @@ export type MeshSystemSpec = {
   rollerMm: number;
   handleMm: number;
   sideTrackMm: number;
+  /** Clearance taken off the track when the opening is inset horizontally. */
+  insetDeductionMm: number;
 };
 
 export type MeshTrackResult =
@@ -58,6 +67,8 @@ export type MeshTrackResult =
       sideTrackMm: number;
       /** Roller-and-handle sets: 1 on a single draw, 2 on a double. */
       leaves: 1 | 2;
+      /** Clearance taken off for a horizontal inset; zero when there is none. */
+      insetMm: number;
     }
   /** Not enough entered yet, or no system resolves. */
   | { status: "incomplete" }
@@ -150,7 +161,9 @@ export function resolveMeshTrack(
   const isDouble = isDoubleDraw(panel.draw);
   const leaves = isDouble ? 2 : 1;
   const sideTrackMm = isDouble ? 0 : spec.sideTrackMm;
-  const hardwareMm = (spec.rollerMm + spec.handleMm) * leaves + sideTrackMm;
+  const insetMm = panel.hasInsetHorizontal ? spec.insetDeductionMm : 0;
+  const hardwareMm =
+    (spec.rollerMm + spec.handleMm) * leaves + sideTrackMm + insetMm;
 
   // widthCm is non-null here: resolveMeshSystem only resolves when it is set.
   const trackMm = (panel.widthCm as number) * 10 - hardwareMm;
@@ -171,6 +184,7 @@ export function resolveMeshTrack(
     handleMm: spec.handleMm,
     sideTrackMm,
     leaves,
+    insetMm,
   };
 }
 
@@ -181,8 +195,11 @@ export function resolveMeshTrack(
  *   double:  roller · handle · track · handle · roller
  *
  * A double mirrors the hardware on the far leaf instead of a side track, which
- * is why the sequence is symmetric. The segments always sum to the window
- * width, and that is the point: it reads as a check, not as a formula.
+ * is why the sequence is symmetric. A horizontal inset appends its clearance as
+ * a further segment.
+ *
+ * The segments always sum to the window width, and that is the point: it reads
+ * as a check, not as a formula.
  */
 export type MeshTrackSegment = { mm: number; label: string };
 
@@ -193,9 +210,14 @@ export function meshTrackSegments(
   const handle = { mm: r.handleMm, label: "handle" };
   const track = { mm: r.trackMm, label: "track" };
 
-  return r.leaves === 2
-    ? [roller, handle, track, handle, roller]
-    : [roller, handle, track, { mm: r.sideTrackMm, label: "side track" }];
+  const layout =
+    r.leaves === 2
+      ? [roller, handle, track, handle, roller]
+      : [roller, handle, track, { mm: r.sideTrackMm, label: "side track" }];
+
+  return r.insetMm > 0
+    ? [...layout, { mm: r.insetMm, label: "inset" }]
+    : layout;
 }
 
 /** Millimetres as centimetres for display: 1852 → "185.2". */

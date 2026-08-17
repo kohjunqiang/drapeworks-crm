@@ -199,7 +199,8 @@ export default async function OrderDetailPage({
             "mesh_panels.width_cm as width_cm",
             "mesh_panels.height_cm as height_cm",
             "mesh_panels.has_window as has_window",
-            "mesh_panels.has_inset as has_inset",
+            "mesh_panels.has_inset_horizontal as has_inset_horizontal",
+            "mesh_panels.has_inset_vertical as has_inset_vertical",
             "mesh_panels.draw as draw",
             "mesh_panels.split_left_cm as split_left_cm",
             "mesh_panels.split_right_cm as split_right_cm",
@@ -223,7 +224,11 @@ export default async function OrderDetailPage({
   const panelsByRoom = new Map<string, MeshPanelSummary[]>();
   for (const p of meshPanels) {
     const list = panelsByRoom.get(p.room_id) ?? [];
-    const key = { widthCm: p.width_cm, draw: p.draw ?? undefined };
+    const key = {
+      widthCm: p.width_cm,
+      draw: p.draw ?? undefined,
+      hasInsetHorizontal: p.has_inset_horizontal,
+    };
     const resolved = resolveMeshSystem(key, systemBands);
     const track = resolveMeshTrack(key, systemBands, systemSpecs);
     list.push({

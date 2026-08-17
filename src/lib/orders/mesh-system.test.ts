@@ -14,9 +14,9 @@ import {
 // The shipped specs, in millimetres. 55: 6.5 + 4.3, 68: 7.8 + 5.5,
 // 80: 9.0 + 5.5, side track 1.5 throughout.
 const SPECS: MeshSystemSpec[] = [
-  { name: "System 55", rollerMm: 65, handleMm: 43, sideTrackMm: 15 },
-  { name: "System 68", rollerMm: 78, handleMm: 55, sideTrackMm: 15 },
-  { name: "System 80", rollerMm: 90, handleMm: 55, sideTrackMm: 15 },
+  { name: "System 55", rollerMm: 65, handleMm: 43, sideTrackMm: 15, insetDeductionMm: 5 },
+  { name: "System 68", rollerMm: 78, handleMm: 55, sideTrackMm: 15, insetDeductionMm: 5 },
+  { name: "System 80", rollerMm: 90, handleMm: 55, sideTrackMm: 15, insetDeductionMm: 5 },
 ];
 
 // The shipped matrix, in the order an admin would NOT enter it — resolution
@@ -139,6 +139,7 @@ describe("resolveMeshTrack", () => {
       handleMm: 55,
       sideTrackMm: 15,
       leaves: 1,
+      insetMm: 0,
     });
   });
 
@@ -154,6 +155,7 @@ describe("resolveMeshTrack", () => {
       // as the system's figure the UI would then have to know to ignore.
       sideTrackMm: 0,
       leaves: 2,
+      insetMm: 0,
     });
   });
 
@@ -186,11 +188,44 @@ describe("resolveMeshTrack", () => {
 
   it("matches the system name case-insensitively", () => {
     const shouty: MeshSystemSpec[] = [
-      { name: "  SYSTEM 68 ", rollerMm: 78, handleMm: 55, sideTrackMm: 15 },
+      {
+        name: "  SYSTEM 68 ",
+        rollerMm: 78,
+        handleMm: 55,
+        sideTrackMm: 15,
+        insetDeductionMm: 5,
+      },
     ];
     expect(
       resolveMeshTrack({ widthCm: 200, draw: "Single Left" }, BANDS, shouty),
     ).toMatchObject({ trackMm: 1852 });
+  });
+
+  it("takes the clearance off the track for a horizontal inset", () => {
+    const plain = resolveMeshTrack(
+      { widthCm: 200, draw: "Single Left" },
+      BANDS,
+      SPECS,
+    );
+    const inset = resolveMeshTrack(
+      { widthCm: 200, draw: "Single Left", hasInsetHorizontal: true },
+      BANDS,
+      SPECS,
+    );
+
+    expect(plain).toMatchObject({ trackMm: 1852, insetMm: 0 });
+    // 0.5 cm shorter so the panel can be tilted into place.
+    expect(inset).toMatchObject({ trackMm: 1847, insetMm: 5 });
+  });
+
+  it("applies the clearance on a double draw too", () => {
+    expect(
+      resolveMeshTrack(
+        { widthCm: 200, draw: "Double", hasInsetHorizontal: true },
+        BANDS,
+        SPECS,
+      ),
+    ).toMatchObject({ trackMm: 1779, insetMm: 5 });
   });
 
   it("refuses a window narrower than its own hardware", () => {
@@ -224,14 +259,34 @@ describe("meshTrackSegments", () => {
     );
   });
 
+  it("appends the clearance when the opening is inset horizontally", () => {
+    const r = resolveMeshTrack(
+      { widthCm: 240, draw: "Double", hasInsetHorizontal: true },
+      BANDS,
+      SPECS,
+    );
+    if (r.status !== "resolved") throw new Error("unresolved");
+    expect(
+      meshTrackSegments(r)
+        .map((seg) => `${formatMmAsCm(seg.mm)} (${seg.label})`)
+        .join(" + "),
+    ).toBe(
+      "6.5 (roller) + 4.3 (handle) + 217.9 (track) + 4.3 (handle) + 6.5 (roller) + 0.5 (inset)",
+    );
+  });
+
   it("always sums back to the window width", () => {
-    for (const [widthCm, draw] of [
-      [240, "Double"],
-      [200, "Single Left"],
-      [150, "Single Left"],
-      [700, "Double"],
+    for (const [widthCm, draw, inset] of [
+      [240, "Double", false],
+      [200, "Single Left", false],
+      [150, "Single Left", true],
+      [700, "Double", true],
     ] as const) {
-      const r = resolveMeshTrack({ widthCm, draw }, BANDS, SPECS);
+      const r = resolveMeshTrack(
+        { widthCm, draw, hasInsetHorizontal: inset },
+        BANDS,
+        SPECS,
+      );
       if (r.status !== "resolved") throw new Error("unresolved");
       const total = meshTrackSegments(r).reduce((a, s) => a + s.mm, 0);
       expect(total).toBe(widthCm * 10);

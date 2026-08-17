@@ -52,10 +52,16 @@ export const meshPanelSchema = z.object({
   // price — install is per panel regardless of mount surface.
   has_window: z.boolean().default(true),
   // The opening is set into the wall, so the panel has to fit within it — it
-  // may match the measured size exactly but never exceed it. A flag, not a
-  // measurement: the lengths change nothing, "make it to size, no overhang"
-  // does. Never affects price.
-  has_inset: z.boolean().default(false),
+  // may match the measured size exactly but never exceed it. Flags, not
+  // measurements: the lengths change nothing, "make it to size, no overhang"
+  // does. Neither affects price.
+  //
+  // Split by axis because they constrain different things. Wall to the LEFT
+  // and RIGHT shortens the track by the system's clearance so the panel can be
+  // tilted in; wall ABOVE and BELOW constrains the height and leaves the track
+  // alone.
+  has_inset_horizontal: z.boolean().default(false),
+  has_inset_vertical: z.boolean().default(false),
   draw: z.enum(MESH_DRAWS).optional(),
   // Double draw only. Recorded as two cm measurements rather than a preset
   // ratio so every split is expressible and the factory gets exact numbers.

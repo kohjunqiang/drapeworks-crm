@@ -62,6 +62,8 @@ export function MeshPanelFields({
   const categoryId = useWatch({ control, name: `${base}.category_id` });
   const colourId = useWatch({ control, name: `${base}.colour_id` });
   const widthCm = useWatch({ control, name: `${base}.width_cm` });
+  const heightCm = useWatch({ control, name: `${base}.height_cm` });
+  const insetH = useWatch({ control, name: `${base}.has_inset_horizontal` });
   const splitLeft = useWatch({ control, name: `${base}.split_left_cm` });
   const splitRight = useWatch({ control, name: `${base}.split_right_cm` });
 
@@ -77,9 +79,18 @@ export function MeshPanelFields({
 
   // Derived, never stored and never editable: width and draw decide it, and one
   // source of truth means changing the matrix changes every order.
-  const panel = { widthCm: width > 0 ? width : null, draw };
+  const panel = {
+    widthCm: width > 0 ? width : null,
+    draw,
+    hasInsetHorizontal: !!insetH,
+  };
   const system = resolveMeshSystem(panel, systemBands);
   const track = resolveMeshTrack(panel, systemBands, systemSpecs);
+
+  // Shown beside the measurements so a consultant can sanity-check the size
+  // that drives the price without doing the sum on a phone.
+  const height = Number(heightCm ?? 0);
+  const areaSqm = width > 0 && height > 0 ? (width * height) / 10_000 : null;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-3">
@@ -127,26 +138,44 @@ export function MeshPanelFields({
           className={INPUT_CLS}
           {...register(`${base}.height_cm`)}
         />
+        {areaSqm != null && (
+          <p className="mt-1 text-[11px] text-slate-400 tabular-nums">
+            {width} × {height} = {areaSqm.toFixed(2)} m²
+          </p>
+        )}
       </div>
 
       {/* Sits with the measurements because it qualifies them: an inset panel
-          must be made to size exactly, where a normal one has slack. */}
+          must be made to size exactly, where a normal one has slack. Split by
+          axis — only the horizontal one reaches the track. */}
       <div className="col-span-2 sm:col-span-2">
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-            {...register(`${base}.has_inset`)}
-          />
-          <span>
-            <span className="block text-xs font-medium text-slate-600">
-              Inset
+        <span className="block text-xs font-medium text-slate-600 mb-1">
+          Inset
+        </span>
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+              {...register(`${base}.has_inset_horizontal`)}
+            />
+            <span className="text-xs text-slate-600">
+              Horizontal{" "}
+              <span className="text-slate-400">— wall left &amp; right</span>
             </span>
-            <span className="block text-[11px] text-slate-400">
-              Set into the wall — make to size, no overhang
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+              {...register(`${base}.has_inset_vertical`)}
+            />
+            <span className="text-xs text-slate-600">
+              Vertical{" "}
+              <span className="text-slate-400">— wall top &amp; bottom</span>
             </span>
-          </span>
-        </label>
+          </label>
+        </div>
       </div>
 
       <div className="sm:col-span-2">

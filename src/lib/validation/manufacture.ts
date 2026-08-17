@@ -16,3 +16,37 @@ export const allowanceSchema = z.object({
   widthDeltaCm: deltaCm,
   heightDeltaCm: deltaCm,
 });
+
+// The confirm payload.
+//
+// Deltas and computed manufacturing dimensions are DELIBERATELY absent. The
+// client sends only what a human typed — an override and the reason for it —
+// and the server recomputes every defaulted value from the allowance table.
+// Arithmetic that arrives from a browser is arithmetic nobody can vouch for,
+// and these numbers get cut into fabric.
+export const manufactureLineSchema = z
+  .object({
+    lineId: z.string().uuid(),
+    kind: z.enum(["window", "mesh_panel"]),
+    overrideWidthCm: z.number().int().positive().nullable().optional(),
+    overrideHeightCm: z.number().int().positive().nullable().optional(),
+    overrideReason: z.string().trim().max(500).nullable().optional(),
+  })
+  .refine(
+    (v) =>
+      (v.overrideWidthCm == null && v.overrideHeightCm == null) ||
+      (v.overrideReason != null && v.overrideReason.length > 0),
+    {
+      message: "An overridden measurement needs a reason",
+      path: ["overrideReason"],
+    },
+  );
+
+export type ManufactureLineInput = z.infer<typeof manufactureLineSchema>;
+
+// min(1): confirming an empty order would advance it to sent_to_vendor with no
+// measurements behind it.
+export const confirmManufactureSchema = z.object({
+  orderId: z.string().uuid(),
+  lines: z.array(manufactureLineSchema).min(1),
+});

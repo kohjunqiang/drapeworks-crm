@@ -53,6 +53,7 @@ implementation would hook in.
 | Curtain behaviour | Applies to blinds? | Why |
 |---|---|---|
 | Per-metre-of-width rate | **Yes** | §2.1 |
+| `draw` direction | **Yes**, as control side | A blind has a chain/control side. Reuses the existing column, restricted to the two single values and relabelled — see §5. |
 | Style multiplier on cost | No | The multiplier models gathered fabric fullness (~2× material). Blinds don't gather. |
 | S-Fold / Slim Tracks add-ons | No | Curtain-specific hardware. |
 | Track cost (single/double) | No | No `blinds_track` add-on is introduced. |
@@ -145,7 +146,12 @@ The Curtains and Blinds pages are the **same components** parameterised by produ
   `productLine: 'curtain' | 'blind'` prop.
 - `loadSeriesForCatalogue()` takes a product-line argument and filters on it.
 - On the Blinds tab the Day/Night category field is **hidden** and submitted as null;
-  on the Curtains tab it is required, as today.
+  on the Curtains tab it is required, as today. The category **badge column and the
+  category filter dropdown** are hidden on the Blinds tab too — otherwise both would
+  render permanently blank.
+- Blinds get **no replacement taxonomy**. The blind family (Zebra, Roller, Roman…) is
+  carried by the series name, e.g. a series called `Zebra — Ivory Range`. If filtering
+  by family is wanted later, it should be a real column, not a reuse of `category`.
 - Copy adapts: "curtain type" → "blind" in headings, empty states and button labels.
 
 **Series creation.** The active tab sets `product_line` on a new series — there is no
@@ -165,9 +171,14 @@ it depends on the series row, which the client form does not authoritatively hol
 `src/lib/validation/order.ts` gains a third member of the window discriminated union:
 
 ```ts
+// A blind's chain/control side. "Double" is a curtain concept (two leaves
+// meeting in the middle) and is not offered.
+const BLIND_CONTROL_SIDES = ["Single Left", "Single Right"] as const;
+
 const blindWindow = baseWindow.extend({
   variant: z.literal("blind"),
   blind_type_id: optionalTypeId,
+  draw: z.enum(BLIND_CONTROL_SIDES).optional(),
 });
 
 export const windowSchema = z.discriminatedUnion("variant", [
@@ -181,6 +192,33 @@ This is what enforces "curtains or blinds, never both". A blind window has no
 `day_curtain_type_id` field to set, so the rule holds at the type level rather than as a
 runtime guard that someone can forget to call. The same addition is made to the draft
 and edit variants (`windowEditSchema`, and the relaxed draft schema's `variant` enum).
+
+**One `blind` variant covers both room types.** The `toilet` variant exists because a
+toilet window takes *one* covering instead of a day/night pair. A blind window is
+already one covering, so it needs no toilet-specific counterpart — a blind in a Master
+Toilet and a blind in a Living Room are the same shape. Blinds are therefore allowed in
+every room type, and no fourth variant is introduced.
+
+### 5.1 The variant ↔ room-type guard must change
+
+`src/lib/actions/orders.ts` currently *derives* the window shape from the room type in
+three places, and all three reject or destroy a blind window as written:
+
+| Location | Today | Must become |
+|---|---|---|
+| `createOrder` (~L95) | throws unless `isToilet ? 'toilet' : 'regular'` | `blind` is valid in **any** room; otherwise the existing match still applies |
+| `updateOrder` (~L219) | same throw | same change |
+| `saveDraft` (~L445) | **overwrites** `variant` with the room-derived value | preserve `variant` when it is `blind`; derive only between `regular` and `toilet` |
+
+The `saveDraft` case is the dangerous one: as written it would silently convert a
+half-filled blind window into a curtain window on every autosave, discarding
+`blind_type_id`. It must be fixed in the same commit as the schema change, not later.
+
+`src/lib/orders/window-values.ts` widens its `variant` union to include `blind` and
+nulls the opposite variants' columns — `blind_type_id` on curtain windows,
+`day/night/curtain_type_id` plus `add_s_fold`, `add_slim_tracks` and `combo_id` on blind
+windows. Keeping every branch explicitly null is what stops a variant switch from
+leaving stale ids behind.
 
 ## 6. Consultation form
 
@@ -201,16 +239,22 @@ Room: Living Room
  │   Curtains  [ Blinds ]              │
  │ Width   Height   Install width      │
  │ Blind [Zebra Blind — Ivory   ▾]     │
+ │ Control side  ( ) Left  (•) Right   │
  └─────────────────────────────────────┘
 ```
 
-Switching to Blinds clears `day_curtain_type_id`, `night_curtain_type_id`, `draw`,
-`add_s_fold`, `add_slim_tracks` and `combo_id`. Switching back clears `blind_type_id`.
-Measurements (`width_cm`, `height_cm`, `install_width_cm`) and `notes` survive the
-switch — they describe the opening, not the covering.
+Switching to Blinds clears `day_curtain_type_id`, `night_curtain_type_id`,
+`curtain_type_id`, `add_s_fold`, `add_slim_tracks` and `combo_id`. Switching back clears
+`blind_type_id`. Measurements (`width_cm`, `height_cm`, `install_width_cm`) and `notes`
+survive the switch — they describe the opening, not the covering.
 
-The toggle appears on **regular windows only**. Toilet-room windows stay curtain-only,
-as they are today.
+`draw` also survives, but is **relabelled "Control side"** and offers only Left / Right
+(a blind has no `Double`). If a curtain window on `Double` is switched to Blinds, `draw`
+is cleared rather than silently coerced.
+
+The toggle appears on **every window, including toilet-room windows** — a blind in a
+toilet is the same shape as a blind anywhere else (§5). A toilet window on Curtains
+keeps its single curtain select; on Blinds it looks identical to the card above.
 
 ### 6.2 Option loading
 
@@ -277,7 +321,10 @@ passes `handymanBlindsSgdCents` through from `pricing_assumptions`.
 Each needs to render a blind line where it renders Day/Night rows today:
 
 - `consultation-form/live-quote.tsx` and `use-quote-autofill.ts`
-- `consultation-form/window-fields.tsx`, `room-card.tsx`
+- `consultation-form/window-fields.tsx`
+- `consultation-form/room-card.tsx` — its room-type-change effect (~L52) rewrites every
+  window's variant, the client-side twin of the `saveDraft` bug in §5.1. It must skip
+  windows already set to `blind`.
 - `quote-card.tsx`
 - `room-summary-card.tsx`
 - `room-edit-card.tsx`
@@ -298,6 +345,12 @@ Following the `mesh-calculator.test.ts` pattern:
 - schema-level: a window cannot carry both `blind_type_id` and a day/night type
 - order-level promotion discount applies to a mixed curtain + blind order
 - `loadActiveCurtainTypeOptions` filtering by product line
+- a blind window is accepted in a toilet room **and** in a regular room (§5.1)
+- `saveDraft` preserves a `blind` variant instead of coercing it from the room type —
+  the regression that would otherwise silently drop `blind_type_id` on autosave
+- `windowValues` nulls the opposite variant's columns in all three directions
+  (regular → blind, toilet → blind, blind → regular)
+- `draw` on a blind rejects `Double` and accepts Left / Right
 
 ## 10. Rollout
 
@@ -317,6 +370,6 @@ yet offered on consultations. That is a safe intermediate state.
 - Area-based (`by_sqm`) blind pricing — see §2.1
 - A `blinds_track` add-on
 - Combos on blind windows
-- Blinds in toilet-room windows
+- A blind-family taxonomy column (Zebra / Roller / Roman) — series name carries it, §4.4
 - Removing the now-inert `pricing_calc_method` enum
 - Any change to mesh beyond moving its route

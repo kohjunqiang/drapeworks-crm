@@ -501,6 +501,14 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface ManufactureAllowances {
+  height_delta_cm: number | null;
+  product_line: string;
+  updated_at: Generated<Timestamp>;
+  updated_by: string | null;
+  width_delta_cm: number | null;
+}
+
 export interface MeshCategories {
   cost_rmb_cents_per_sqft: number | null;
   created_at: Generated<Timestamp>;
@@ -916,6 +924,7 @@ export interface DB {
   customers: Customers;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  manufacture_allowances: ManufactureAllowances;
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
   mesh_minimum_areas: MeshMinimumAreas;

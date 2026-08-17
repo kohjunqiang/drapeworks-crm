@@ -22,6 +22,16 @@ describe("STATUS_FLOW", () => {
     ]);
   });
 
+  // STATUS_FLOW is typed FulfilmentStatus[], not an exhaustive tuple. A ninth
+  // status added to the enum would be forced into STATUS_LABELS and
+  // STATUS_COLOURS by their Record type, but nothing forces it into the flow —
+  // and an order sitting on a status the flow omits can never advance, because
+  // statusIndex returns -1 and nextStatus then returns null. This is the only
+  // thing that catches that.
+  it("contains every status the type defines", () => {
+    expect([...STATUS_FLOW].sort()).toEqual(Object.keys(STATUS_LABELS).sort());
+  });
+
   it("labels and colours every status", () => {
     for (const s of STATUS_FLOW) {
       expect(STATUS_LABELS[s]).toBeTruthy();

@@ -601,6 +601,7 @@ export interface Orders {
   id: Generated<string>;
   is_draft: Generated<boolean>;
   move_in_date: Timestamp | null;
+  order_reference: string | null;
   price_calc_at_quote_cents: number | null;
   price_quoted_cents: Generated<number>;
   product_line: Generated<ProductLine>;

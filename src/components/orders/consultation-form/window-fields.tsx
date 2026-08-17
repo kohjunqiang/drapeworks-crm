@@ -10,7 +10,10 @@ import type { OrderEditInput } from "@/lib/validation/order";
 export type CurtainTypeOption = {
   id: string;
   label: string;
-  category: "Day" | "Night";
+  // Null for a blind. The day/night filters below compare against the literals,
+  // so a blind never falls into either list even before the Blinds UI lands.
+  category: "Day" | "Night" | null;
+  productLine: "curtain" | "blind";
   photoUrl: string | null;
   costRmbCents: number | null;
   saleSgdCents: number | null;
@@ -83,8 +86,14 @@ export function WindowFields({
   const { register, control } = useFormContext<OrderEditInput>();
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
 
-  const dayTypes = curtainTypes.filter((c) => c.category === "Day");
-  const nightTypes = curtainTypes.filter((c) => c.category === "Night");
+  // Every curtain picker takes curtain-line options only. The day/night
+  // filters would exclude a blind anyway (its category is null), but the
+  // toilet picker below has no category filter to hide behind.
+  const curtainOptions = curtainTypes.filter(
+    (c) => c.productLine === "curtain",
+  );
+  const dayTypes = curtainOptions.filter((c) => c.category === "Day");
+  const nightTypes = curtainOptions.filter((c) => c.category === "Night");
 
   const dayId = useWatch({ control, name: `${base}.day_curtain_type_id` });
   const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
@@ -105,12 +114,12 @@ export function WindowFields({
             control={control}
             name={`${base}.curtain_type_id`}
             noneLabel="— Select —"
-            options={curtainTypes.map((c) => ({
+            options={curtainOptions.map((c) => ({
               value: c.id,
-              label: `${c.label} (${c.category})`,
+              label: c.category ? `${c.label} (${c.category})` : c.label,
             }))}
           />
-          <Preview options={curtainTypes} selectedId={toiletId} />
+          <Preview options={curtainOptions} selectedId={toiletId} />
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">

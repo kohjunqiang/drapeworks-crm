@@ -64,7 +64,7 @@ implementation would hook in.
 
 ## 3. Data model
 
-One migration, `data/migrations/20260816120000_product_line_and_blinds.ts`. No new
+One migration, `data/migrations/20260817090000_product_line_and_blinds.ts`. No new
 tables — blinds reuse the entire curtain series/types machinery.
 
 ```sql
@@ -93,6 +93,34 @@ the column becomes nullable; validation requires it only for types in a curtain 
 
 **RLS.** No new tables, so no new policies. `curtain_series`, `curtain_types` and
 `windows` keep the policies they have.
+
+### 3.1 The `validate_window_shape` trigger must be rewritten
+
+`windows_validate_shape` (before insert or update on `windows`, last redefined in
+`20260709140000_remove_fabrics`) enforces the curtains-only rule **in the database**:
+
+```
+toilet room     → draw, day_curtain_type_id, night_curtain_type_id must all be NULL
+non-toilet room → curtain_type_id must be NULL
+```
+
+A blind in a toilet sets `draw` as its control side (§2.2), so the current trigger
+**rejects it at the database** regardless of what the app layer allows. This is not
+optional cleanup — without it, the toilet-blinds decision cannot ship. The new rule:
+
+```
+blind window (blind_type_id is not null)
+  → day_curtain_type_id, night_curtain_type_id, curtain_type_id must all be NULL
+  → draw is allowed in ANY room type (it is the control side)
+curtain window, toilet room
+  → draw, day_curtain_type_id, night_curtain_type_id must all be NULL
+curtain window, non-toilet room
+  → curtain_type_id must be NULL
+```
+
+The trigger is the real enforcement of "curtains or blinds, never both" — the Zod
+discriminated union (§5) is the ergonomic front end to the same invariant, and the
+`windowValues` nulling (§5.1) is what keeps them agreeing.
 
 **`down()`** drops the two added columns. It does **not** restore the `NOT NULL` on
 `category`, because by then blind types with a null category may exist and the

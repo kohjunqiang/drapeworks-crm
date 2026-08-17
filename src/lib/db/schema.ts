@@ -25,6 +25,8 @@ export type AuthOneTimeTokenType = "confirmation_token" | "email_change_token_cu
 
 export type CurtainCategory = "Day" | "Night";
 
+export type CurtainProductLine = "blind" | "curtain";
+
 export type CurtainTypeStatus = "Active" | "Archived";
 
 export type DrawDirection = "Double" | "Single Left" | "Single Right";
@@ -411,13 +413,14 @@ export interface CurtainSeries {
   id: Generated<string>;
   is_active: Generated<boolean>;
   name: string;
+  product_line: Generated<CurtainProductLine>;
   sale_sgd_cents: number | null;
   updated_at: Generated<Timestamp>;
   vendor_id: string | null;
 }
 
 export interface CurtainTypes {
-  category: CurtainCategory;
+  category: CurtainCategory | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   id: Generated<string>;
@@ -857,6 +860,7 @@ export interface Vendors {
 export interface Windows {
   add_s_fold: Generated<boolean>;
   add_slim_tracks: Generated<boolean>;
+  blind_type_id: string | null;
   combo_id: string | null;
   created_at: Generated<Timestamp>;
   curtain_type_id: string | null;

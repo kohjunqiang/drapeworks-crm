@@ -22,7 +22,9 @@ import type { CurtainTypeInput } from "@/lib/validation/curtain-type";
 export type CurtainTypeRow = {
   id: string;
   label: string;
-  category: CurtainCategory;
+  // Null for a blind — Day/Night is curtain sheerness. See the Blinds tab,
+  // which hides the badge column and the category filter entirely.
+  category: CurtainCategory | null;
   status: CurtainTypeStatus;
   photo_path: string | null;
   photoUrl: string | null;
@@ -75,7 +77,8 @@ function Thumb({
   );
 }
 
-function CategoryBadge({ category }: { category: CurtainCategory }) {
+function CategoryBadge({ category }: { category: CurtainCategory | null }) {
+  if (!category) return <span className="text-slate-400">—</span>;
   const cls =
     category === "Day"
       ? "bg-amber-50 text-amber-700"
@@ -163,7 +166,7 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
         isNew: false,
         id: editing.id,
         label: editing.label,
-        category: editing.category,
+        category: editing.category ?? undefined,
         series_id: editing.series_id ?? "",
         page: editing.page ?? undefined,
         photo_path: editing.photo_path ?? undefined,

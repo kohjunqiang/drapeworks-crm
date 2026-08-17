@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
+import type { CurtainCategory, CurtainProductLine } from "@/lib/db/schema";
 import { db } from "@/lib/db/kysely";
 import { centsToDisplay } from "@/lib/money";
 import { adminClient } from "@/lib/supabase/admin";
@@ -61,7 +62,14 @@ export const signCurtainTypePhotoUrls = cache(
 export type CurtainTypeOptionRow = {
   id: string;
   label: string; // formatted: "Series #index · Page — Label"
-  category: "Day" | "Night";
+  // Null for a blind: Day/Night is a curtain sheerness taxonomy and means
+  // nothing for a blind, which is identified by its series' product line.
+  category: CurtainCategory | null;
+  // Which line the option belongs to. Consumers MUST filter on this — the
+  // day/night selects take 'curtain' only, the blind select takes 'blind'
+  // only. A leftJoin can yield null for a type with no series; treated as a
+  // curtain, which is what such a row has always been.
+  productLine: CurtainProductLine;
   photoUrl: string | null;
   // Series pricing, so the live quote can price a selection client-side.
   costRmbCents: number | null;
@@ -87,6 +95,7 @@ export async function loadActiveCurtainTypeOptions(): Promise<
       "curtain_series.name as series_name",
       "curtain_series.cost_rmb_cents as cost_rmb_cents",
       "curtain_series.sale_sgd_cents as sale_sgd_cents",
+      "curtain_series.product_line as product_line",
     ])
     .where("curtain_types.status", "=", "Active")
     .orderBy("curtain_series.name", "asc")
@@ -107,6 +116,7 @@ export async function loadActiveCurtainTypeOptions(): Promise<
       label: r.label,
     }),
     category: r.category,
+    productLine: r.product_line ?? "curtain",
     photoUrl: r.photo_path ? (urls.get(r.photo_path) ?? null) : null,
     costRmbCents: r.cost_rmb_cents,
     saleSgdCents: r.sale_sgd_cents,

@@ -2,6 +2,8 @@ import {
   CurtainTypesTable,
   type CurtainTypeRow,
 } from "@/components/curtain-types/curtain-types-table";
+import Link from "next/link";
+
 import type { CurtainProductLine } from "@/lib/db/schema";
 import {
   loadSeriesForCatalogue,
@@ -91,12 +93,41 @@ export async function CataloguePage({
 
   const copy = COPY[productLine];
 
+  // The consultation form offers PRICED blinds only — an unpriced one would
+  // quote at S$0 while still charging install. Without this notice an admin
+  // would add blinds, see nothing appear on a consultation, and have no way to
+  // tell why. Mirrors the mesh tab's sellable gate.
+  const sellable = series.some((s) => s.is_active && s.sale_sgd != null);
+
   return (
     <>
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-slate-900">{copy.title}</h2>
         <p className="text-sm text-slate-500 mt-1">{copy.blurb}</p>
       </div>
+
+      {productLine === "blind" && !sellable && series.length > 0 && (
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-medium">
+            Blinds aren&rsquo;t available on consultations yet.
+          </p>
+          <p className="mt-1.5">
+            No blind series has a sale price. Open{" "}
+            <span className="font-medium">Manage series</span> below and set the
+            cost (RMB/m) and sale (SGD/m) on at least one active series —
+            everything in that series inherits it. Until then the
+            Curtains/Blinds toggle stays hidden, so nothing can be quoted at
+            S$0.
+          </p>
+          <p className="mt-1.5">
+            Install cost is set separately in{" "}
+            <Link href="/admin/pricing-settings" className="underline font-medium">
+              Pricing settings
+            </Link>
+            .
+          </p>
+        </div>
+      )}
       <CurtainTypesTable
         curtainTypes={curtainTypes}
         series={series}

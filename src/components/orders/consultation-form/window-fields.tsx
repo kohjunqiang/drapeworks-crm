@@ -163,7 +163,14 @@ export function WindowFields({
   const curtainOptions = curtainTypes.filter(
     (c) => c.productLine === "curtain",
   );
-  const blindOptions = curtainTypes.filter((c) => c.productLine === "blind");
+  // PRICED blinds only. An unpriced blind would quote at S$0 sale while still
+  // charging the blinds install rate — a silently negative margin — so it is
+  // never offered. This is also what gates the Curtains/Blinds toggle: with no
+  // priced blind in the catalogue there is nothing to switch to, and the toggle
+  // stays hidden. Same "don't offer what can't be quoted" rule as the Mesh card.
+  const blindOptions = curtainTypes.filter(
+    (c) => c.productLine === "blind" && c.saleSgdCents != null,
+  );
   const dayTypes = curtainOptions.filter((c) => c.category === "Day");
   const nightTypes = curtainOptions.filter((c) => c.category === "Night");
 

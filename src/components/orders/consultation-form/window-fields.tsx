@@ -89,15 +89,27 @@ function CoveringToggle({
   onChange: (next: "curtain" | "blind") => void;
   blindsAvailable: boolean;
 }) {
-  // With no blind in the catalogue the toggle would lead to an empty picker,
-  // so it stays hidden until an admin has added one — the same "don't offer
-  // what can't be quoted" rule the Mesh card follows on the product chooser.
-  if (!blindsAvailable) return null;
+  // With no priced blind in the catalogue the toggle would lead to an empty
+  // picker, so it stays hidden until an admin has added one — the same "don't
+  // offer what can't be quoted" rule the Mesh card follows on the product
+  // chooser.
+  //
+  // A window that already IS a blind is the exception: hiding the toggle there
+  // strands it on the blind layout with no way back to curtains. That is
+  // reachable in practice — a recovered draft (or an order saved while blinds
+  // were priced) can hold a blind window after the prices come off. The way out
+  // must never depend on the catalogue.
+  if (!blindsAvailable && !isBlind) return null;
 
   const cls = (active: boolean) =>
     active
       ? "px-3 py-1 text-xs font-medium rounded bg-white text-slate-900 shadow-sm"
       : "px-3 py-1 text-xs text-slate-500 hover:text-slate-700";
+
+  // The escape-hatch case above: this window is a blind, but no blind can be
+  // quoted any more. Say so, since switching away is one-way — once it's a
+  // curtain the toggle disappears again.
+  const stranded = isBlind && !blindsAvailable;
 
   return (
     <div className="col-span-2 sm:col-span-6">
@@ -123,6 +135,13 @@ function CoveringToggle({
           Blinds
         </button>
       </div>
+      {stranded && (
+        <p className="mt-1 text-xs text-amber-700">
+          ⚠ No blind has a sale price, so this window can&rsquo;t be quoted.
+          Switch it to Curtains, or price a blind series under Product →
+          Blinds.
+        </p>
+      )}
     </div>
   );
 }

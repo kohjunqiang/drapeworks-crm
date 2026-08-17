@@ -597,6 +597,190 @@ describe("windowQuote — blinds", () => {
   });
 });
 
+// ── Manufacturing width (Phase 13B) ───────────────────────────────────────
+//
+// Once a manufacturing set is confirmed, the vendor cuts a piece SMALLER than
+// the opening (curtains: −2 cm wide). COGS must follow what is actually being
+// made — but the sale must not, because that is the price the customer already
+// agreed and paid a deposit against.
+
+describe("costWidthCm", () => {
+  const base = {
+    widthCm: 300,
+    dayPrice: SIGNATURE,
+    addSFold: false,
+    addSlimTracks: false,
+  };
+
+  it("lowers the cost and leaves the sale exactly where it was", () => {
+    const measured = windowQuote(base, BOOK, ASSUMPTIONS.styleMultiplier);
+    const made = windowQuote(
+      { ...base, costWidthCm: 298 },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+
+    // 2.98m × 2.0 × ¥51 = ¥303.96, against ¥306.00 on the measured 3.00m.
+    expect(made.curtainCostRmbCents).toBe(30396);
+    expect(measured.curtainCostRmbCents).toBe(30600);
+    expect(made.costRmbCents).toBeLessThan(measured.costRmbCents);
+    // The customer's number does not move.
+    expect(made.saleSgdCents).toBe(measured.saleSgdCents);
+    expect(made.saleSgdCents).toBe(27000);
+  });
+
+  it("is byte-identical to today when absent", () => {
+    // The expectations are lifted verbatim from the day-only 2.8m window above.
+    const today = {
+      costRmbCents: 34140,
+      saleSgdCents: 47600,
+      curtainCostRmbCents: 28560,
+      offering: "single",
+      trackRmbCents: 2500,
+      trackKind: "single",
+    };
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      nightPrice: null,
+      addSFold: true,
+      addSlimTracks: false,
+    };
+    // Omitted (no confirmed set) and explicitly null (a row that never arrived)
+    // must both behave as they did before the field existed.
+    expect(windowQuote(win, BOOK, ASSUMPTIONS.styleMultiplier)).toEqual(today);
+    expect(
+      windowQuote(
+        { ...win, costWidthCm: null },
+        BOOK,
+        ASSUMPTIONS.styleMultiplier,
+      ),
+    ).toEqual(today);
+  });
+
+  it("applies to the night leg as well as the day leg", () => {
+    const q = windowQuote(
+      { ...base, nightPrice: SIGNATURE, costWidthCm: 298 },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    // Both legs cut at 2.98m: 2 × ¥303.96.
+    expect(q.curtainCostRmbCents).toBe(2 * 30396);
+    expect(q.saleSgdCents).toBe(54000); // 2 × 3.00m × S$90
+  });
+
+  it("applies to the blind leg", () => {
+    const made = windowQuote(
+      {
+        widthCm: 200,
+        costWidthCm: 198,
+        blindPrice: BLIND,
+        addSFold: false,
+        addSlimTracks: false,
+      },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(made.costRmbCents).toBe(7920); // 1.98m × ¥40
+    expect(made.saleSgdCents).toBe(14000); // still 2.00m × S$70
+  });
+
+  it("costs per-metre add-ons on the manufacturing width, sells them on the measured one", () => {
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      addSFold: true,
+      addSlimTracks: true,
+    };
+    const made = windowQuote(
+      { ...win, costWidthCm: 278 },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    const measured = windowQuote(win, BOOK, ASSUMPTIONS.styleMultiplier);
+
+    // fabric 2.78×2×5100=28356, s-fold 2.78×1100=3058,
+    // slim tracks 2.78×3500=9730, single track 2500 (per unit).
+    expect(made.costRmbCents).toBe(28356 + 3058 + 9730 + 2500);
+    expect(measured.costRmbCents).toBe(28560 + 3080 + 9800 + 2500);
+    // Sale: fabric 25200 + s-fold 22400 + slim tracks 14000, both times.
+    expect(made.saleSgdCents).toBe(61600);
+    expect(measured.saleSgdCents).toBe(61600);
+  });
+
+  it("leaves a per-unit add-on flat whatever either width says", () => {
+    const perUnit: CalcAddonBook = {
+      ...BOOK,
+      sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_unit" },
+    };
+    const win = { ...base, costWidthCm: 150 }; // an absurd gap, to make a scaling bug loud
+    const off = windowQuote(win, perUnit, ASSUMPTIONS.styleMultiplier);
+    const on = windowQuote(
+      { ...win, addSFold: true },
+      perUnit,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(on.costRmbCents - off.costRmbCents).toBe(1100);
+    expect(on.saleSgdCents - off.saleSgdCents).toBe(8000);
+    // The rail is per-unit too, and stays the same rail.
+    expect(on.trackRmbCents).toBe(2500);
+  });
+
+  it("still lets a combo fix the sale while cost follows the manufacturing width", () => {
+    const q = windowQuote(
+      {
+        ...base,
+        nightPrice: SIGNATURE,
+        costWidthCm: 298,
+        comboPriceSgdCents: 45000,
+      },
+      BOOK,
+      ASSUMPTIONS.styleMultiplier,
+    );
+    expect(q.saleSgdCents).toBe(45000);
+    expect(q.curtainCostRmbCents).toBe(2 * 30396);
+  });
+
+  it("still applies the style multiplier to cost only", () => {
+    const win = { ...base, costWidthCm: 298 };
+    const double = windowQuote(win, BOOK, 20000);
+    const triple = windowQuote(win, BOOK, 30000);
+    expect(double.curtainCostRmbCents).toBe(30396); // 2.98 × 2.0 × 5100
+    expect(triple.curtainCostRmbCents).toBe(45594); // 2.98 × 3.0 × 5100
+    expect(triple.saleSgdCents).toBe(double.saleSgdCents);
+  });
+
+  // The zero-guards still key off the MEASURED width alone. An unmeasured
+  // window is free on both sides; a missing or nonsensical manufacturing width
+  // falls back to the measured one rather than zeroing COGS, because a zero
+  // cost would report a ~100% margin — a far more dangerous wrong answer.
+  it("stays free on an unmeasured window even with a manufacturing width", () => {
+    expect(
+      windowQuote(
+        { widthCm: null, costWidthCm: 298, dayPrice: SIGNATURE, addSFold: true, addSlimTracks: true },
+        BOOK,
+        ASSUMPTIONS.styleMultiplier,
+      ),
+    ).toEqual({
+      costRmbCents: 0,
+      saleSgdCents: 0,
+      curtainCostRmbCents: 0,
+      offering: "none",
+      trackRmbCents: 0,
+      trackKind: null,
+    });
+  });
+
+  it("falls back to the measured width when the manufacturing one is nonsense", () => {
+    const measured = windowQuote(base, BOOK, ASSUMPTIONS.styleMultiplier);
+    for (const costWidthCm of [0, -5]) {
+      expect(
+        windowQuote({ ...base, costWidthCm }, BOOK, ASSUMPTIONS.styleMultiplier),
+      ).toEqual(measured);
+    }
+  });
+});
+
 describe("installation cost by offering", () => {
   const measure = (win: Parameters<typeof computeQuote>[0][number]) =>
     computeQuote([win], BOOK, ASSUMPTIONS, "sea", 0, 0).installationSgdCents;

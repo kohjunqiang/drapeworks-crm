@@ -114,6 +114,11 @@ export type CalcAddonBook = {
 
 export type CalcWindow = BreakdownIdentity & {
   widthCm: number | null;
+  /**
+   * Manufacturing width, when a set has been confirmed (Phase 13B). Cost only —
+   * the sale side always uses widthCm, which is what the customer was quoted on.
+   */
+  costWidthCm?: number | null;
   dayPrice?: SeriesPrice | null;
   nightPrice?: SeriesPrice | null;
   // Phase 12 — a blind occupies the window INSTEAD of curtains, so this is
@@ -135,18 +140,37 @@ const add = (a: Money, b: Money): Money => ({
   saleSgdCents: a.saleSgdCents + b.saleSgdCents,
 });
 
+/**
+ * The width the COST side prices on: what the vendor is actually cutting once a
+ * manufacturing set has been confirmed, and the measured width until then.
+ *
+ * A missing or nonsensical manufacturing width falls back to the measured one
+ * rather than zeroing the cost — a zero COGS reports a ~100% margin, which is a
+ * far more dangerous wrong answer than a slightly generous one. The zero-guards
+ * below therefore stay keyed on the measured width alone: an unmeasured window
+ * is free on both sides, whatever any manufacturing row says.
+ */
+function costWidthOf(
+  widthCm: number,
+  costWidthCm: number | null | undefined,
+): number {
+  return costWidthCm != null && costWidthCm > 0 ? costWidthCm : widthCm;
+}
+
 // A curtain (day or night) priced by width. Cost applies the style multiplier
 // (more fabric); the sale rate already includes fullness so it doesn't.
 function curtainLeg(
   price: SeriesPrice | null | undefined,
   widthCm: number | null,
+  costWidthCm: number | null | undefined,
   styleMultiplier: number,
 ): Money {
   if (!price || widthCm == null || widthCm <= 0) return ZERO;
   const widthM = widthCm / 100;
+  const costWidthM = costWidthOf(widthCm, costWidthCm) / 100;
   const mult = styleMultiplier / 10000;
   return {
-    costRmbCents: Math.round(widthM * mult * (price.costRmbCents ?? 0)),
+    costRmbCents: Math.round(costWidthM * mult * (price.costRmbCents ?? 0)),
     saleSgdCents: Math.round(widthM * (price.saleSgdCents ?? 0)),
   };
 }
@@ -160,11 +184,13 @@ function curtainLeg(
 function blindLeg(
   price: SeriesPrice | null | undefined,
   widthCm: number | null,
+  costWidthCm: number | null | undefined,
 ): Money {
   if (!price || widthCm == null || widthCm <= 0) return ZERO;
   const widthM = widthCm / 100;
+  const costWidthM = costWidthOf(widthCm, costWidthCm) / 100;
   return {
-    costRmbCents: Math.round(widthM * (price.costRmbCents ?? 0)),
+    costRmbCents: Math.round(costWidthM * (price.costRmbCents ?? 0)),
     saleSgdCents: Math.round(widthM * (price.saleSgdCents ?? 0)),
   };
 }
@@ -173,6 +199,7 @@ function blindLeg(
 function addonLeg(
   addon: AddonPrice | null | undefined,
   widthCm: number | null,
+  costWidthCm?: number | null,
 ): Money {
   if (!addon) return ZERO;
   if (addon.basis === "per_unit") {
@@ -183,8 +210,9 @@ function addonLeg(
   }
   if (widthCm == null || widthCm <= 0) return ZERO;
   const widthM = widthCm / 100;
+  const costWidthM = costWidthOf(widthCm, costWidthCm) / 100;
   return {
-    costRmbCents: Math.round(widthM * (addon.costRmbCents ?? 0)),
+    costRmbCents: Math.round(costWidthM * (addon.costRmbCents ?? 0)),
     saleSgdCents: Math.round(widthM * (addon.saleSgdCents ?? 0)),
   };
 }
@@ -309,7 +337,7 @@ export function windowQuote(
   // Returned before the curtain path so a stale add-on flag left on the form
   // mid-switch can't add a charge to a blind.
   if (win.blindPrice) {
-    const leg = blindLeg(win.blindPrice, win.widthCm);
+    const leg = blindLeg(win.blindPrice, win.widthCm, win.costWidthCm);
     const measured = win.widthCm != null && win.widthCm > 0;
     // A combo is a curtain bundle (day + night + track at a fixed price) and is
     // deliberately NOT honoured here — comboPriceSgdCents is ignored rather
@@ -329,13 +357,24 @@ export function windowQuote(
   const hasDay = !!win.dayPrice && win.widthCm != null && win.widthCm > 0;
   const hasNight = !!win.nightPrice && win.widthCm != null && win.widthCm > 0;
 
-  const dayLeg = curtainLeg(win.dayPrice, win.widthCm, styleMultiplier);
-  const nightLeg = curtainLeg(win.nightPrice, win.widthCm, styleMultiplier);
+  const dayLeg = curtainLeg(
+    win.dayPrice,
+    win.widthCm,
+    win.costWidthCm,
+    styleMultiplier,
+  );
+  const nightLeg = curtainLeg(
+    win.nightPrice,
+    win.widthCm,
+    win.costWidthCm,
+    styleMultiplier,
+  );
 
   let total: Money = add(add(ZERO, dayLeg), nightLeg);
-  if (win.addSFold) total = add(total, addonLeg(book.sFold, win.widthCm));
+  if (win.addSFold)
+    total = add(total, addonLeg(book.sFold, win.widthCm, win.costWidthCm));
   if (win.addSlimTracks)
-    total = add(total, addonLeg(book.slimTracks, win.widthCm));
+    total = add(total, addonLeg(book.slimTracks, win.widthCm, win.costWidthCm));
 
   // Track: double if both day + night, single if just one. The rail is a cost
   // we bear, not a customer line item (unlike the opt-in add-ons above) — so

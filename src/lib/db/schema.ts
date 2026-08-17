@@ -33,7 +33,7 @@ export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
 export type FreightMode = "air" | "sea";
 
-export type FulfilmentStatus = "completed" | "delivered_checked" | "fulfilment" | "order_made" | "sent_logistic" | "shipping_sg";
+export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>

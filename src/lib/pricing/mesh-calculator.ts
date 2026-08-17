@@ -49,6 +49,14 @@ export type MeshPanel = BreakdownIdentity & {
    * per-panel surcharge on the system it resolves to.
    */
   draw: MeshDraw | null;
+  /**
+   * Manufacturing dimensions, when a set has been confirmed (Phase 13B). Cost
+   * only — the sale side always uses widthCm/heightCm, which is the area the
+   * customer was quoted on. The track system is NOT re-resolved from these:
+   * the band picks hardware for the opening, not for the fabric being cut.
+   */
+  costWidthCm?: number | null;
+  costHeightCm?: number | null;
 };
 
 export type MeshRate = {
@@ -222,6 +230,55 @@ export function panelBillableArea(
   };
 }
 
+/**
+ * One axis of what is actually being cut: the manufacturing figure when a set
+ * has been confirmed, the measured figure otherwise.
+ *
+ * A missing or nonsensical manufacturing figure falls back to the measured one
+ * rather than zeroing the area — a zero COGS reports a ~100% margin, which is a
+ * far more dangerous wrong answer than a slightly generous one.
+ */
+const costDimensionCm = (
+  cost: number | null | undefined,
+  measured: number | null,
+): number | null => (cost != null && cost > 0 ? cost : measured);
+
+/** The area actually being cut. Falls back to the measured area, axis by axis. */
+export function panelCostAreaCm2(p: MeshPanel): number | null {
+  return panelAreaCm2({
+    ...p,
+    widthCm: costDimensionCm(p.costWidthCm, p.widthCm),
+    heightCm: costDimensionCm(p.costHeightCm, p.heightCm),
+  });
+}
+
+/**
+ * The area the COST side is charged on.
+ *
+ * The floor is the same one the sale side gets — it is resolved from the
+ * MEASURED width, because the band picks a physical track system for the
+ * opening, a survey decision about the window rather than a property of the
+ * fabric being cut (spec §11.2). Each side then clears that floor on its own
+ * area, so a panel above it as measured and below it as made is floored on the
+ * cost side alone.
+ */
+export function panelCostBillableArea(
+  p: MeshPanel,
+  book: MeshPriceBook,
+): MeshBillableArea | null {
+  const measured = panelBillableArea(p, book);
+  if (measured == null) return null;
+
+  const actualCm2 = panelCostAreaCm2(p);
+  if (actualCm2 == null) return measured;
+
+  return {
+    actualCm2,
+    minimumCm2: measured.minimumCm2,
+    billableCm2: Math.max(actualCm2, measured.minimumCm2),
+  };
+}
+
 // The category's per-ft² rate scaled by this panel's area, plus the colour's
 // flat surcharge and — on a double draw — the system's flat surcharge. Neither
 // surcharge is scaled: both are per-panel charges, not per-ft² ones.
@@ -229,22 +286,25 @@ export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
   const rate = rateFor(p, book);
   if (!rate) return ZERO;
 
-  // The floored area, not the measured one — and the same figure on both
-  // sides, so a minimum never flatters the margin.
+  // The floored area, not the measured one — and the SAME FLOOR on both sides,
+  // so a minimum never flatters the margin. The two sides differ only in the
+  // area they clear it with: the sale on what was measured and quoted, the cost
+  // on what is actually being cut.
   const billable = panelBillableArea(p, book);
   if (billable == null) return ZERO;
-  const area = billable.billableCm2;
+  const saleArea = billable.billableCm2;
+  const costArea = panelCostBillableArea(p, book)?.billableCm2 ?? saleArea;
 
   const colour = p.colourId ? book.colours[p.colourId] : undefined;
   const double = doubleDrawSurcharge(p, book);
 
   return {
     costRmbCents:
-      scaleByArea(area, rate.costRmbCentsPerSqft ?? 0) +
+      scaleByArea(costArea, rate.costRmbCentsPerSqft ?? 0) +
       (colour?.costRmbCents ?? 0) +
       double.costRmbCents,
     saleSgdCents:
-      scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0) +
+      scaleByArea(saleArea, rate.saleSgdCentsPerSqft ?? 0) +
       (colour?.saleSgdCents ?? 0) +
       double.saleSgdCents,
   };

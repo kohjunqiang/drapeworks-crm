@@ -309,6 +309,10 @@ type MeshPanelRow = {
   height_cm: number | null;
   draw: MeshDraw | null;
   // Presentation only, for the cost breakdown's room -> panel tree.
+  // Present only once the order's manufacturing set has been confirmed. Cost
+  // side only — see MeshPanel.costWidthCm.
+  mfg_width_cm: number | null;
+  mfg_height_cm: number | null;
   room_label: string | null;
   room_position: number | null;
   category_name: string | null;
@@ -319,6 +323,8 @@ const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
   colourId: p.colour_id,
   widthCm: p.width_cm,
   heightCm: p.height_cm,
+  costWidthCm: p.mfg_width_cm,
+  costHeightCm: p.mfg_height_cm,
   // Carried into pricing because a double draw attracts a system surcharge.
   draw: p.draw,
   roomIndex: p.room_position ?? undefined,
@@ -335,6 +341,12 @@ type WindowPriceRow = {
   room_label: string | null;
   room_position: number | null;
   width_cm: number | null;
+  /**
+   * The width the vendor is actually cutting, present only once the order's
+   * manufacturing set has been confirmed. Cost side only — see
+   * CalcWindow.costWidthCm.
+   */
+  mfg_width_cm: number | null;
   add_s_fold: boolean;
   add_slim_tracks: boolean;
   day_cost: number | null;
@@ -364,6 +376,7 @@ function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
     return {
       ...where,
       widthCm: w.width_cm,
+      costWidthCm: w.mfg_width_cm,
       blindPrice: {
         costRmbCents: w.blind_cost,
         saleSgdCents: w.blind_sale,
@@ -402,6 +415,7 @@ function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
   return {
     ...where,
     widthCm: w.width_cm,
+    costWidthCm: w.mfg_width_cm,
     dayPrice,
     nightPrice,
     addSFold: w.add_s_fold,
@@ -472,10 +486,15 @@ export async function computeOrderQuote(
       .leftJoin("curtain_types as bct", "bct.id", "windows.blind_type_id")
       .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
       .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
+      // At most one row per window (unique index), so this cannot fan out. Null
+      // until the order's manufacturing set is confirmed, which is exactly when
+      // COGS should still be costed off the measured width.
+      .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
       .select([
         "rooms.label as room_label",
         "rooms.position as room_position",
         "windows.width_cm as width_cm",
+        "mm.mfg_width_cm as mfg_width_cm",
         "windows.add_s_fold as add_s_fold",
         "windows.add_slim_tracks as add_slim_tracks",
         "dcs.cost_rmb_cents as day_cost",
@@ -526,11 +545,18 @@ export async function computeOrderQuote(
                 "mesh_categories.id",
                 "mesh_panels.category_id",
               )
+              .leftJoin(
+                "manufacture_measurements as mm",
+                "mm.mesh_panel_id",
+                "mesh_panels.id",
+              )
               .select([
                 "mesh_panels.category_id as category_id",
                 "mesh_panels.colour_id as colour_id",
                 "mesh_panels.width_cm as width_cm",
                 "mesh_panels.height_cm as height_cm",
+                "mm.mfg_width_cm as mfg_width_cm",
+                "mm.mfg_height_cm as mfg_height_cm",
                 "mesh_panels.draw as draw",
                 "rooms.label as room_label",
                 "rooms.position as room_position",
@@ -624,11 +650,17 @@ export async function orderStaleFlags(
         .leftJoin("curtain_types as bct", "bct.id", "windows.blind_type_id")
         .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
         .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
+        // Joined for the same reason as above. It cannot change a stale flag —
+        // staleness compares sale prices and the manufacturing width is a cost
+        // input — but the sweep quotes through the same mapper, so it selects
+        // the same columns.
+        .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
         .select([
           "rooms.order_id as order_id",
           "rooms.label as room_label",
           "rooms.position as room_position",
           "windows.width_cm as width_cm",
+          "mm.mfg_width_cm as mfg_width_cm",
           "windows.add_s_fold as add_s_fold",
           "windows.add_slim_tracks as add_slim_tracks",
           "dcs.cost_rmb_cents as day_cost",
@@ -658,12 +690,19 @@ export async function orderStaleFlags(
           "mesh_categories.id",
           "mesh_panels.category_id",
         )
+        .leftJoin(
+          "manufacture_measurements as mm",
+          "mm.mesh_panel_id",
+          "mesh_panels.id",
+        )
         .select([
           "rooms.order_id as order_id",
           "mesh_panels.category_id as category_id",
           "mesh_panels.colour_id as colour_id",
           "mesh_panels.width_cm as width_cm",
           "mesh_panels.height_cm as height_cm",
+          "mm.mfg_width_cm as mfg_width_cm",
+          "mm.mfg_height_cm as mfg_height_cm",
           "mesh_panels.draw as draw",
           "rooms.label as room_label",
           "rooms.position as room_position",

@@ -486,6 +486,116 @@ describe("panelBillableArea", () => {
   });
 });
 
+// ── Manufacturing dimensions (Phase 13B) ─────────────────────────────────
+//
+// A confirmed manufacturing set cuts the mesh smaller than the opening. COGS
+// follows what is cut; the sale stays on what was measured and quoted.
+
+describe("panelQuote — manufacturing dimensions", () => {
+  it("costs less and sells the same", () => {
+    const made = panelQuote(
+      panel({ costWidthCm: 98, costHeightCm: 146 }), // 14 308 cm² cut
+      BOOK,
+    );
+    expect(made).toEqual({
+      costRmbCents: scaleByArea(14_308, 400),
+      saleSgdCents: SALE_15000,
+    });
+    expect(made.costRmbCents).toBeLessThan(COST_15000);
+  });
+
+  it("is byte-identical to today when the manufacturing dimensions are absent", () => {
+    expect(panelQuote(panel(), BOOK)).toEqual({
+      costRmbCents: COST_15000,
+      saleSgdCents: SALE_15000,
+    });
+    expect(
+      panelQuote(panel({ costWidthCm: null, costHeightCm: null }), BOOK),
+    ).toEqual({ costRmbCents: COST_15000, saleSgdCents: SALE_15000 });
+  });
+
+  it("honours the minimum-area floor independently on each side", () => {
+    // 105 × 100 = 1.05 m², over AirGuard's 1 m² floor. Cut down to 95 × 96 it
+    // is 0.912 m² and falls under — so the COST side floors and the SALE side,
+    // which the customer agreed, does not.
+    const p = panel({
+      widthCm: 105,
+      heightCm: 100,
+      costWidthCm: 95,
+      costHeightCm: 96,
+    });
+    expect(panelQuote(p, BOOK)).toEqual({
+      costRmbCents: scaleByArea(10_000, 400),
+      saleSgdCents: scaleByArea(10_500, 800),
+    });
+  });
+
+  it("leaves the colour and double-draw surcharges flat — they are per panel", () => {
+    const over = { colourId: BRONZE, draw: "Double" as const };
+    const plain = panelQuote(panel(over), BOOK);
+    const made = panelQuote(
+      panel({ ...over, costWidthCm: 98, costHeightCm: 146 }),
+      BOOK,
+    );
+    // Only the area-scaled part moves; both surcharges are unchanged.
+    expect(plain).toEqual({
+      costRmbCents: COST_15000 + 2000 + 4000,
+      saleSgdCents: SALE_15000 + 3500 + 6000,
+    });
+    expect(made).toEqual({
+      costRmbCents: scaleByArea(14_308, 400) + 2000 + 4000,
+      saleSgdCents: SALE_15000 + 3500 + 6000,
+    });
+  });
+
+  it("resolves the system band from the MEASURED width, not the manufacturing one", () => {
+    // The band picks a physical track system for the OPENING — a survey
+    // decision about the window, not a property of the fabric being cut.
+    const banded: MeshPriceBook = {
+      ...BOOK,
+      bands: [
+        { maxWidthCm: 200, singleSystem: "System 55", doubleSystem: "System 55" },
+        { maxWidthCm: 760, singleSystem: "System 68", doubleSystem: "System 55" },
+      ],
+      minimumAreas: {
+        ...BOOK.minimumAreas,
+        // A floor big enough that resolving to System 55 would be unmissable.
+        [minimumKey(AIR, "System 55")]: 60_000,
+      },
+    };
+    // Measured 201 cm is over the 200 cm boundary → System 68 (1 m² floor).
+    // Cut to 199 cm it would fall into System 55 (6 m² floor).
+    const p = panel({
+      widthCm: 201,
+      heightCm: 150,
+      costWidthCm: 199,
+      costHeightCm: 146,
+    });
+    expect(panelQuote(p, banded)).toEqual({
+      costRmbCents: scaleByArea(199 * 146, 400), // unfloored: still System 68
+      saleSgdCents: scaleByArea(201 * 150, 800),
+    });
+  });
+
+  it("falls back to the measured dimension on the axis that has none", () => {
+    // manufacture_measurements always carries both, but a half-populated panel
+    // must never zero a dimension — that would zero COGS and report a ~100%
+    // margin, a far more dangerous wrong answer than a slightly generous one.
+    expect(panelQuote(panel({ costWidthCm: 98 }), BOOK).costRmbCents).toBe(
+      scaleByArea(98 * 150, 400),
+    );
+    expect(
+      panelQuote(panel({ costWidthCm: 0, costHeightCm: -4 }), BOOK),
+    ).toEqual(panelQuote(panel(), BOOK));
+  });
+
+  it("stays free on an unmeasured panel even with manufacturing dimensions", () => {
+    expect(
+      panelQuote(panel({ widthCm: null, costWidthCm: 98, costHeightCm: 146 }), BOOK),
+    ).toEqual({ costRmbCents: 0, saleSgdCents: 0 });
+  });
+});
+
 describe("panelQuote — minimum billable area", () => {
   it("prices a floored panel on the minimum, not the measurement", () => {
     const small = panel({ widthCm: 60, heightCm: 100 }); // 0.6 m² → floored to 1

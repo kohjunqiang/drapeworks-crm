@@ -322,11 +322,27 @@ one stack and a fixed side track down the far edge. Everything is stored in inte
 too (185.2), so centimetres would force floats into a measurement chain — the same
 hazard the money-in-cents rule exists to prevent.
 
-The consultation form shows the panel laid out left to right, which sums back to the
-measured width and so reads as a check rather than a formula:
+**Drop** is the vertical counterpart — what is left of the height once the rails are
+subtracted:
+
+```
+drop = height − 2 × track height − vertical inset clearance
+```
+
+Both rails are the same profile, so one figure is charged twice. Unlike the track it
+does **not** vary with the draw: a double draw splits the opening horizontally, never
+vertically (§2), so both leaves are full height.
+
+The two inset axes each deduct from their own dimension and nothing else — horizontal
+from the track, vertical from the drop. Together, track × drop is the mesh's cut size,
+which is what the factory works to.
+
+The consultation form shows the panel laid out along both axes. Each line sums back to
+the measurement it came from, so it reads as a check rather than a formula:
 
 ```
 6.5 (roller) + 4.3 (handle) + 218.4 (track) + 4.3 (handle) + 6.5 (roller) = 240 cm
+2.5 (top track) + 145 (drop) + 2.5 (bottom track) = 150 cm
 ```
 
 **Systems link to the matrix by name**, case-insensitively and trimmed, because the

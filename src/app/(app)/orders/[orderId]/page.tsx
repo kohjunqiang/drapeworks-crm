@@ -25,6 +25,7 @@ import {
 } from "@/lib/db/mesh-catalogue";
 import {
   formatMmAsCm,
+  resolveMeshDrop,
   resolveMeshSystem,
   resolveMeshTrack,
 } from "@/lib/orders/mesh-system";
@@ -226,16 +227,20 @@ export default async function OrderDetailPage({
     const list = panelsByRoom.get(p.room_id) ?? [];
     const key = {
       widthCm: p.width_cm,
+      heightCm: p.height_cm,
       draw: p.draw ?? undefined,
       hasInsetHorizontal: p.has_inset_horizontal,
+      hasInsetVertical: p.has_inset_vertical,
     };
     const resolved = resolveMeshSystem(key, systemBands);
     const track = resolveMeshTrack(key, systemBands, systemSpecs);
+    const drop = resolveMeshDrop(key, systemBands, systemSpecs);
     list.push({
       ...p,
       system: resolved.status === "resolved" ? resolved.system : null,
       trackCm:
         track.status === "resolved" ? formatMmAsCm(track.trackMm) : null,
+      dropCm: drop.status === "resolved" ? formatMmAsCm(drop.dropMm) : null,
     });
     panelsByRoom.set(p.room_id, list);
   }

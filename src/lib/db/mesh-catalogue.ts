@@ -76,6 +76,7 @@ export async function loadActiveMeshSystemSpecs(): Promise<MeshSystemSpec[]> {
       "roller_mm",
       "handle_mm",
       "side_track_mm",
+      "track_height_mm",
       "inset_deduction_mm",
     ])
     .where("is_active", "=", true)
@@ -86,6 +87,7 @@ export async function loadActiveMeshSystemSpecs(): Promise<MeshSystemSpec[]> {
     rollerMm: r.roller_mm,
     handleMm: r.handle_mm,
     sideTrackMm: r.side_track_mm,
+    trackHeightMm: r.track_height_mm,
     insetDeductionMm: r.inset_deduction_mm,
   }));
 }

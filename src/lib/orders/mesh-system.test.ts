@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   formatMmAsCm,
   isDoubleDraw,
+  meshDropSegments,
   meshSystemProblems,
   meshTrackSegments,
+  resolveMeshDrop,
   resolveMeshSystem,
   resolveMeshTrack,
   type MeshSystemBand,
@@ -14,9 +16,9 @@ import {
 // The shipped specs, in millimetres. 55: 6.5 + 4.3, 68: 7.8 + 5.5,
 // 80: 9.0 + 5.5, side track 1.5 throughout.
 const SPECS: MeshSystemSpec[] = [
-  { name: "System 55", rollerMm: 65, handleMm: 43, sideTrackMm: 15, insetDeductionMm: 5 },
-  { name: "System 68", rollerMm: 78, handleMm: 55, sideTrackMm: 15, insetDeductionMm: 5 },
-  { name: "System 80", rollerMm: 90, handleMm: 55, sideTrackMm: 15, insetDeductionMm: 5 },
+  { name: "System 55", rollerMm: 65, handleMm: 43, sideTrackMm: 15, trackHeightMm: 25, insetDeductionMm: 5 },
+  { name: "System 68", rollerMm: 78, handleMm: 55, sideTrackMm: 15, trackHeightMm: 25, insetDeductionMm: 5 },
+  { name: "System 80", rollerMm: 90, handleMm: 55, sideTrackMm: 15, trackHeightMm: 25, insetDeductionMm: 5 },
 ];
 
 // The shipped matrix, in the order an admin would NOT enter it — resolution
@@ -193,6 +195,7 @@ describe("resolveMeshTrack", () => {
         rollerMm: 78,
         handleMm: 55,
         sideTrackMm: 15,
+        trackHeightMm: 25,
         insetDeductionMm: 5,
       },
     ];
@@ -339,5 +342,107 @@ describe("meshSystemProblems", () => {
         BANDS,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("resolveMeshDrop", () => {
+  const drop = (heightCm: number, over: Record<string, unknown> = {}) =>
+    resolveMeshDrop(
+      { widthCm: 200, heightCm, draw: "Single Left", ...over },
+      BANDS,
+      SPECS,
+    );
+
+  it("subtracts the top and bottom rails", () => {
+    // 150 cm tall, 2.5 cm of rail at each edge → 145.
+    expect(drop(150)).toEqual({
+      status: "resolved",
+      dropMm: 1450,
+      system: "System 68",
+      trackHeightMm: 25,
+      insetMm: 0,
+    });
+  });
+
+  it("does not vary with the draw — a double splits horizontally only", () => {
+    const single = drop(150);
+    const double = drop(150, { draw: "Double" });
+    if (single.status !== "resolved" || double.status !== "resolved") {
+      throw new Error("unresolved");
+    }
+    expect(double.dropMm).toBe(single.dropMm);
+    // ...even though the two resolve to different systems.
+    expect(double.system).not.toBe(single.system);
+  });
+
+  it("takes the clearance off for a vertical inset", () => {
+    expect(drop(150, { hasInsetVertical: true })).toMatchObject({
+      dropMm: 1445,
+      insetMm: 5,
+    });
+  });
+
+  it("ignores a horizontal inset — that one is the track's business", () => {
+    expect(drop(150, { hasInsetHorizontal: true })).toMatchObject({
+      dropMm: 1450,
+      insetMm: 0,
+    });
+  });
+
+  it("is incomplete before a height is entered", () => {
+    expect(drop(0)).toEqual({ status: "incomplete" });
+    expect(
+      resolveMeshDrop(
+        { widthCm: 200, heightCm: null, draw: "Single Left" },
+        BANDS,
+        SPECS,
+      ),
+    ).toEqual({ status: "incomplete" });
+  });
+
+  it("refuses a window shorter than its own rails", () => {
+    expect(drop(4)).toEqual({
+      status: "too-short",
+      system: "System 68",
+      minimumMm: 50,
+    });
+  });
+
+  it("reports a system with no dimensions rather than guessing", () => {
+    expect(
+      resolveMeshDrop(
+        { widthCm: 200, heightCm: 150, draw: "Single Left" },
+        BANDS,
+        [],
+      ),
+    ).toEqual({ status: "unknown-system", system: "System 68" });
+  });
+});
+
+describe("meshDropSegments", () => {
+  it("stacks top rail, drop, bottom rail — summing to the height", () => {
+    const r = resolveMeshDrop(
+      { widthCm: 200, heightCm: 150, draw: "Single Left" },
+      BANDS,
+      SPECS,
+    );
+    if (r.status !== "resolved") throw new Error("unresolved");
+
+    expect(
+      meshDropSegments(r)
+        .map((s) => `${formatMmAsCm(s.mm)} (${s.label})`)
+        .join(" + "),
+    ).toBe("2.5 (top track) + 145 (drop) + 2.5 (bottom track)");
+    expect(meshDropSegments(r).reduce((a, s) => a + s.mm, 0)).toBe(1500);
+  });
+
+  it("appends the clearance for a vertical inset and still sums", () => {
+    const r = resolveMeshDrop(
+      { widthCm: 200, heightCm: 150, draw: "Single Left", hasInsetVertical: true },
+      BANDS,
+      SPECS,
+    );
+    if (r.status !== "resolved") throw new Error("unresolved");
+    expect(meshDropSegments(r).reduce((a, s) => a + s.mm, 0)).toBe(1500);
   });
 });

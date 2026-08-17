@@ -18,8 +18,9 @@ export type MeshPanelSummary = {
   draw: string | null;
   /** Derived from width and draw at render time, never stored (§5.9). */
   system: string | null;
-  /** Cut length after the hardware, in cm. Derived alongside the system. */
+  /** Cut sizes after the hardware, in cm. Derived alongside the system. */
   trackCm: string | null;
+  dropCm: string | null;
   split_left_cm: number | null;
   split_right_cm: number | null;
   notes: string | null;
@@ -81,7 +82,9 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
               <th className="text-left px-4 py-2 font-medium">Fixing to</th>
               <th className="text-left px-4 py-2 font-medium">Draw</th>
               <th className="text-left px-4 py-2 font-medium">System</th>
-              <th className="text-left px-4 py-2 font-medium">Track (cm)</th>
+              <th className="text-left px-4 py-2 font-medium">
+                Track × drop (cm)
+              </th>
               <th className="text-left px-4 py-2 font-medium">Split (cm)</th>
               <th className="text-left px-4 py-2 font-medium">Notes</th>
             </tr>
@@ -127,8 +130,13 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
                 <td className="px-4 py-2 font-medium text-slate-900">
                   {p.system ?? "—"}
                 </td>
+                {/* The mesh's cut size. The two belong together — they are
+                    what the factory works to — so they share a column rather
+                    than widening the table further. */}
                 <td className="px-4 py-2 font-medium text-slate-900 tabular-nums">
-                  {p.trackCm ?? "—"}
+                  {p.trackCm == null && p.dropCm == null
+                    ? "—"
+                    : `${p.trackCm ?? "—"} × ${p.dropCm ?? "—"}`}
                 </td>
                 <td className="px-4 py-2 text-slate-600">{split(p)}</td>
                 <td className="px-4 py-2 text-slate-500">{p.notes ?? "—"}</td>

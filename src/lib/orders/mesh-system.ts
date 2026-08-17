@@ -24,6 +24,8 @@ export type MeshSystemBand = {
 
 export type MeshSystemPanel = {
   widthCm: number | null;
+  /** Only the drop needs it; the system itself is decided by width and draw. */
+  heightCm?: number | null;
   draw: MeshDraw | undefined;
   /**
    * Wall to the left and right of the opening. The track is cut short by the
@@ -32,6 +34,8 @@ export type MeshSystemPanel = {
    * only this axis appears here.
    */
   hasInsetHorizontal?: boolean;
+  /** Wall above and below. Takes the same clearance off the drop. */
+  hasInsetVertical?: boolean;
 };
 
 /**
@@ -47,7 +51,9 @@ export type MeshSystemSpec = {
   rollerMm: number;
   handleMm: number;
   sideTrackMm: number;
-  /** Clearance taken off the track when the opening is inset horizontally. */
+  /** The top and bottom rail profile — one figure, charged at both edges. */
+  trackHeightMm: number;
+  /** Clearance taken off when the opening is inset on that axis. */
   insetDeductionMm: number;
 };
 
@@ -186,6 +192,87 @@ export function resolveMeshTrack(
     leaves,
     insetMm,
   };
+}
+
+export type MeshDropResult =
+  /**
+   * The cut height of the mesh, with the rails that were subtracted. The
+   * vertical counterpart of MeshTrackResult.
+   */
+  | {
+      status: "resolved";
+      dropMm: number;
+      system: string;
+      trackHeightMm: number;
+      /** Clearance taken off for a vertical inset; zero when there is none. */
+      insetMm: number;
+    }
+  | { status: "incomplete" }
+  | { status: "unknown-system"; system: string }
+  | { status: "too-short"; system: string; minimumMm: number };
+
+/**
+ * The drop: what is left of the height once the top and bottom rails are
+ * subtracted.
+ *
+ *   drop = height − 2 × track height − vertical inset clearance
+ *
+ * Both rails are the same profile, so one figure is charged twice. Unlike the
+ * track this does not vary with the draw — a double draw splits the opening
+ * horizontally, never vertically (§2), so both leaves are full height.
+ *
+ * The system still comes from width and draw: the drop uses whichever system
+ * the panel is already being built on.
+ */
+export function resolveMeshDrop(
+  panel: MeshSystemPanel,
+  bands: MeshSystemBand[],
+  specs: MeshSystemSpec[],
+): MeshDropResult {
+  const resolved = resolveMeshSystem(panel, bands);
+  if (resolved.status !== "resolved") return { status: "incomplete" };
+
+  const heightCm = panel.heightCm;
+  if (heightCm == null || heightCm <= 0) return { status: "incomplete" };
+
+  const key = resolved.system.trim().toLowerCase();
+  const spec = specs.find((s) => s.name.trim().toLowerCase() === key);
+  if (!spec) return { status: "unknown-system", system: resolved.system };
+
+  const insetMm = panel.hasInsetVertical ? spec.insetDeductionMm : 0;
+  const railsMm = spec.trackHeightMm * 2 + insetMm;
+  const dropMm = heightCm * 10 - railsMm;
+
+  if (dropMm <= 0) {
+    return {
+      status: "too-short",
+      system: resolved.system,
+      minimumMm: railsMm,
+    };
+  }
+
+  return {
+    status: "resolved",
+    dropMm,
+    system: resolved.system,
+    trackHeightMm: spec.trackHeightMm,
+    insetMm,
+  };
+}
+
+/**
+ * The panel stacked top to bottom, mirroring meshTrackSegments. Always sums to
+ * the measured height.
+ */
+export function meshDropSegments(
+  r: Extract<MeshDropResult, { status: "resolved" }>,
+): MeshTrackSegment[] {
+  const rail = (label: string) => ({ mm: r.trackHeightMm, label });
+  const stack = [rail("top track"), { mm: r.dropMm, label: "drop" }, rail("bottom track")];
+
+  return r.insetMm > 0
+    ? [...stack, { mm: r.insetMm, label: "inset" }]
+    : stack;
 }
 
 /**

@@ -5,8 +5,10 @@ import { useFormContext, useWatch } from "react-hook-form";
 import { FormSelect } from "@/components/ui/app-select";
 import {
   formatMmAsCm,
+  meshDropSegments,
   meshSystemErrorMessage,
   meshTrackSegments,
+  resolveMeshDrop,
   resolveMeshSystem,
   resolveMeshTrack,
   type MeshSystemBand,
@@ -64,6 +66,7 @@ export function MeshPanelFields({
   const widthCm = useWatch({ control, name: `${base}.width_cm` });
   const heightCm = useWatch({ control, name: `${base}.height_cm` });
   const insetH = useWatch({ control, name: `${base}.has_inset_horizontal` });
+  const insetV = useWatch({ control, name: `${base}.has_inset_vertical` });
   const splitLeft = useWatch({ control, name: `${base}.split_left_cm` });
   const splitRight = useWatch({ control, name: `${base}.split_right_cm` });
 
@@ -79,17 +82,20 @@ export function MeshPanelFields({
 
   // Derived, never stored and never editable: width and draw decide it, and one
   // source of truth means changing the matrix changes every order.
+  const height = Number(heightCm ?? 0);
   const panel = {
     widthCm: width > 0 ? width : null,
+    heightCm: height > 0 ? height : null,
     draw,
     hasInsetHorizontal: !!insetH,
+    hasInsetVertical: !!insetV,
   };
   const system = resolveMeshSystem(panel, systemBands);
   const track = resolveMeshTrack(panel, systemBands, systemSpecs);
+  const drop = resolveMeshDrop(panel, systemBands, systemSpecs);
 
   // Shown beside the measurements so a consultant can sanity-check the size
   // that drives the price without doing the sum on a phone.
-  const height = Number(heightCm ?? 0);
   const areaSqm = width > 0 && height > 0 ? (width * height) / 10_000 : null;
 
   return (
@@ -275,6 +281,14 @@ export function MeshPanelFields({
                 <span className="font-semibold text-slate-900">
                   {formatMmAsCm(track.trackMm)} cm
                 </span>
+                {drop.status === "resolved" && (
+                  <>
+                    {" · "}Drop{" "}
+                    <span className="font-semibold text-slate-900">
+                      {formatMmAsCm(drop.dropMm)} cm
+                    </span>
+                  </>
+                )}
               </span>
             )}
             {track.status === "unknown-system" && (
@@ -305,6 +319,28 @@ export function MeshPanelFields({
               </span>
             ))}
             <span className="tabular-nums"> = {width} cm</span>
+          </p>
+        )}
+
+        {drop.status === "resolved" && (
+          <p className="mt-0.5 px-3 text-[11px] text-slate-400">
+            {meshDropSegments(drop).map((seg, i) => (
+              <span key={i}>
+                {i > 0 && " + "}
+                <span className="tabular-nums text-slate-500">
+                  {formatMmAsCm(seg.mm)}
+                </span>
+                <span className="text-slate-400"> ({seg.label})</span>
+              </span>
+            ))}
+            <span className="tabular-nums"> = {height} cm</span>
+          </p>
+        )}
+
+        {drop.status === "too-short" && (
+          <p className="mt-0.5 px-3 text-[11px] text-red-600">
+            Shorter than the top and bottom rails (
+            {formatMmAsCm(drop.minimumMm)} cm)
           </p>
         )}
 

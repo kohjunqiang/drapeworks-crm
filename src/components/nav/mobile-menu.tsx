@@ -15,30 +15,7 @@ import {
 import { signOut } from "@/lib/actions/auth";
 import type { Role } from "@/lib/auth/get-session";
 
-const baseLinks = [
-  { href: "/orders", label: "Orders" },
-  { href: "/orders/new", label: "New Consultation", roles: ["consultant", "admin"] as Role[] },
-  {
-    href: "/admin/digital-catalogue",
-    label: "Digital Catalogue",
-    roles: ["admin"] as Role[],
-  },
-  {
-    href: "/admin/vendors",
-    label: "Vendors",
-    roles: ["admin"] as Role[],
-  },
-  {
-    href: "/admin/mesh",
-    label: "Mesh",
-    roles: ["admin"] as Role[],
-  },
-  {
-    href: "/admin/pricing-settings",
-    label: "Pricing",
-    roles: ["admin"] as Role[],
-  },
-];
+import { linksForRole } from "./links";
 
 type Props = {
   role: Role;
@@ -49,7 +26,7 @@ export function MobileMenu({ role }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const allLinks = baseLinks.filter((l) => !l.roles || l.roles.includes(role));
+  const allLinks = linksForRole(role);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -65,11 +42,7 @@ export function MobileMenu({ role }: Props) {
         </SheetHeader>
         <div className="px-4 py-2 space-y-1">
           {allLinks.map((l) => {
-            const active =
-              pathname === l.href ||
-              (l.href === "/orders" &&
-                pathname.startsWith("/orders/") &&
-                !pathname.startsWith("/orders/new"));
+            const active = l.match(pathname);
             return (
               <Link
                 key={l.href}

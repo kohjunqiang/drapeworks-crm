@@ -6,7 +6,7 @@
 // draw is not buildable at all.
 //
 // Pure and data-driven: the bands come from `mesh_system_bands`, which an admin
-// edits in /admin/mesh. Nothing here knows about the database, so the same
+// edits in /admin/product/mesh. Nothing here knows about the database, so the same
 // function serves the consultation form, the server actions and the tests.
 //
 // The system is a FABRICATION SPEC, not a price input. It is printed on the

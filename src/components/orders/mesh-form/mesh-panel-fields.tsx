@@ -227,7 +227,7 @@ export function MeshPanelFields({
 
       {/* Closes the panel: everything above is measured, this is what those
           measurements produce. Read-only and derived — width and draw decide
-          it, and the matrix in /admin/mesh is the single source of truth. */}
+          it, and the matrix in /admin/product/mesh is the single source of truth. */}
       <div className="col-span-2 sm:col-span-6">
         {system.status === "resolved" && (
           <div className="flex items-baseline gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2">

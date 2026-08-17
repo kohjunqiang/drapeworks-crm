@@ -138,9 +138,12 @@ export type CurtainSeriesRow = {
 // All series (active + archived) with how many curtain types reference each,
 // plus the series' pricing + chosen vendor name, for the admin management
 // dialog. The form assignment dropdown filters to the active ones.
-export async function loadSeriesForCatalogue(): Promise<CurtainSeriesRow[]> {
+export async function loadSeriesForCatalogue(
+  productLine: CurtainProductLine = "curtain",
+): Promise<CurtainSeriesRow[]> {
   const rows = await db
     .selectFrom("curtain_series")
+    .where("curtain_series.product_line", "=", productLine)
     .leftJoin("curtain_types", "curtain_types.series_id", "curtain_series.id")
     .leftJoin("vendors", "vendors.id", "curtain_series.vendor_id")
     .select((eb) => [

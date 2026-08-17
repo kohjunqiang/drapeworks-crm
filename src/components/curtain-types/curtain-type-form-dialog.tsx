@@ -50,12 +50,16 @@ type Props = {
   defaultValues?: Partial<CurtainTypeInput>;
   photoUrl?: string | null;
   seriesIndex?: number | null; // shown read-only on edit (auto-assigned)
+  // Day/Night is curtain sheerness, so the field is hidden entirely on the
+  // Blinds tab and submitted as undefined. The server rejects the mismatched
+  // combination either way — it is the only side that knows the series' line.
+  productLine: "curtain" | "blind";
 };
 
 const BLANK: CurtainTypeInput = {
   isNew: true,
   label: "",
-  category: "Day",
+  category: undefined,
   series_id: "",
   page: undefined,
   photo_path: undefined,
@@ -133,7 +137,9 @@ export function CurtainTypeFormDialog({
   defaultValues,
   photoUrl,
   seriesIndex,
+  productLine,
 }: Props) {
+  const isBlind = productLine === "blind";
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [file, setFile] = useState<File | null>(null);
@@ -221,6 +227,7 @@ export function CurtainTypeFormDialog({
                   </FormItem>
                 )}
               />
+              {!isBlind && (
               <FormField
                 name="category"
                 control={form.control}
@@ -233,7 +240,7 @@ export function CurtainTypeFormDialog({
                         onValueChange={field.onChange}
                       >
                         <SelectTrigger className="w-full">
-                          <SelectValue />
+                          <SelectValue placeholder="— Select —" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Day">Day</SelectItem>
@@ -245,6 +252,7 @@ export function CurtainTypeFormDialog({
                   </FormItem>
                 )}
               />
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

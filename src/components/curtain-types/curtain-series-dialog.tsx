@@ -32,6 +32,11 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   series: CurtainSeriesRow[];
   vendors: VendorOption[];
+  // The tab this dialog was opened from. New series are stamped with it; there
+  // is deliberately no picker, and existing series can't be moved between
+  // lines — that would retroactively change how every window using them is
+  // priced and installed.
+  productLine: "curtain" | "blind";
 };
 
 const PRICE_RE = /^\d+(\.\d{1,2})?$/;
@@ -160,7 +165,9 @@ export function CurtainSeriesDialog({
   onOpenChange,
   series,
   vendors,
+  productLine,
 }: Props) {
+  const noun = productLine === "blind" ? "blind" : "curtain";
   const router = useRouter();
   const [newName, setNewName] = useState("");
   const [pending, startTransition] = useTransition();
@@ -170,7 +177,11 @@ export function CurtainSeriesDialog({
     if (!name) return;
     startTransition(async () => {
       try {
-        await upsertCurtainSeries({ isNew: true, name });
+        await upsertCurtainSeries({
+          isNew: true,
+          name,
+          product_line: productLine,
+        });
         toast.success("Series added");
         setNewName("");
         router.refresh();
@@ -187,7 +198,7 @@ export function CurtainSeriesDialog({
           <DialogTitle>Manage series &amp; pricing</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-slate-500">
-          Pricing is set per series — every curtain type in a series inherits its
+          Pricing is set per series — every {noun} in a series inherits its
           vendor, cost and sale price.
         </p>
 

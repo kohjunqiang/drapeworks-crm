@@ -16,7 +16,7 @@ import {
   meshSystemSchema,
 } from "@/lib/validation/mesh-catalogue";
 
-const PATH = "/admin/mesh";
+const PATH = "/admin/product/mesh";
 
 const money = (v: string | undefined): number | null =>
   v && v !== "" ? dollarsToCents(v) : null;

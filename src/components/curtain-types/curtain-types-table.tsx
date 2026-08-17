@@ -42,6 +42,10 @@ type Props = {
   curtainTypes: CurtainTypeRow[];
   series: CurtainSeriesRow[];
   vendors: VendorOption[];
+  // Which catalogue tab this is. Rows and series are already filtered by the
+  // page; this drives copy, the category column, and what new series/types are
+  // stamped with.
+  productLine: "curtain" | "blind";
 };
 
 function Thumb({
@@ -102,7 +106,18 @@ function StatusBadge({ status }: { status: CurtainTypeStatus }) {
   );
 }
 
-export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
+export function CurtainTypesTable({
+  curtainTypes,
+  series,
+  vendors,
+  productLine,
+}: Props) {
+  // The Curtains and Blinds tabs are the same table over the same rows,
+  // filtered by product line. Only the copy and the category column differ:
+  // Day/Night is curtain sheerness, so on the Blinds tab the badge column and
+  // its filter are hidden rather than rendered permanently blank.
+  const isBlind = productLine === "blind";
+  const noun = isBlind ? "blind" : "curtain type";
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<"" | CurtainCategory>("");
   const [filterStatus, setFilterStatus] = useState<"" | CurtainTypeStatus>("");
@@ -186,7 +201,7 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
           onClick={openAdd}
           className="bg-teal-600 hover:bg-teal-700 text-white"
         >
-          + Add curtain type
+          + Add {noun}
         </Button>
       </div>
 
@@ -210,16 +225,18 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
               label: `${s.name}${s.is_active ? "" : " (archived)"}`,
             }))}
           />
-          <AppSelect
-            value={filterCategory}
-            onChange={(v) => setFilterCategory(v as "" | CurtainCategory)}
-            noneLabel="All categories"
-            triggerClassName="w-full sm:w-36"
-            options={[
-              { value: "Day", label: "Day" },
-              { value: "Night", label: "Night" },
-            ]}
-          />
+          {!isBlind && (
+            <AppSelect
+              value={filterCategory}
+              onChange={(v) => setFilterCategory(v as "" | CurtainCategory)}
+              noneLabel="All categories"
+              triggerClassName="w-full sm:w-36"
+              options={[
+                { value: "Day", label: "Day" },
+                { value: "Night", label: "Night" },
+              ]}
+            />
+          )}
           <AppSelect
             value={filterStatus}
             onChange={(v) => setFilterStatus(v as "" | CurtainTypeStatus)}
@@ -247,7 +264,9 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
                 Vendor / Price
                 <span className="font-normal text-slate-400"> (series)</span>
               </th>
-              <th className="text-left px-4 py-3 font-medium">Category</th>
+              {!isBlind && (
+                <th className="text-left px-4 py-3 font-medium">Category</th>
+              )}
               <th className="text-left px-4 py-3 font-medium">Status</th>
               <th className="text-right px-4 py-3 font-medium">Actions</th>
             </tr>
@@ -287,9 +306,11 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
                     <span className="text-slate-400 text-xs">Not priced</span>
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  <CategoryBadge category={c.category} />
-                </td>
+                {!isBlind && (
+                  <td className="px-4 py-3">
+                    <CategoryBadge category={c.category} />
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   <StatusBadge status={c.status} />
                 </td>
@@ -313,7 +334,7 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
         </table>
         {filtered.length === 0 && (
           <div className="text-center py-12 text-sm text-slate-500">
-            No curtain types match your filters.
+            No {noun}s match your filters.
           </div>
         )}
       </div>
@@ -348,7 +369,7 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <CategoryBadge category={c.category} />
+                  {!isBlind && <CategoryBadge category={c.category} />}
                   <StatusBadge status={c.status} />
                 </div>
               </div>
@@ -371,7 +392,7 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
         ))}
         {filtered.length === 0 && (
           <div className="text-center py-12 text-sm text-slate-500">
-            No curtain types match your filters.
+            No {noun}s match your filters.
           </div>
         )}
       </div>
@@ -383,12 +404,14 @@ export function CurtainTypesTable({ curtainTypes, series, vendors }: Props) {
         defaultValues={editValues}
         photoUrl={editing?.photoUrl}
         seriesIndex={editing?.series_index}
+        productLine={productLine}
       />
       <CurtainSeriesDialog
         open={seriesDialogOpen}
         onOpenChange={setSeriesDialogOpen}
         series={series}
         vendors={vendors}
+        productLine={productLine}
       />
 
       {/* Photo lightbox */}

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // Admin-managed mesh catalogue: categories (which carry the per-ft² rates) and
-// colours. Everything here is created through /admin/mesh — there is
+// colours. Everything here is created through /admin/product/mesh — there is
 // deliberately no seed script, so the app has exactly one answer to "where do
 // mesh categories come from".
 

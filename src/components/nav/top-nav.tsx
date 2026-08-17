@@ -5,47 +5,9 @@ import { usePathname } from "next/navigation";
 
 import type { SessionData } from "@/lib/auth/get-session";
 
+import { linksForRole } from "./links";
 import { MobileMenu } from "./mobile-menu";
 import { UserMenu } from "./user-menu";
-
-const baseLinks = [
-  {
-    href: "/orders",
-    label: "Orders",
-    match: (p: string) =>
-      p === "/orders" ||
-      (p.startsWith("/orders/") && !p.startsWith("/orders/new")),
-  },
-  {
-    href: "/orders/new",
-    label: "New Consultation",
-    match: (p: string) => p === "/orders/new",
-  },
-  {
-    href: "/admin/digital-catalogue",
-    label: "Digital Catalogue",
-    match: (p: string) => p.startsWith("/admin/digital-catalogue"),
-    adminOnly: true,
-  },
-  {
-    href: "/admin/vendors",
-    label: "Vendors",
-    match: (p: string) => p.startsWith("/admin/vendors"),
-    adminOnly: true,
-  },
-  {
-    href: "/admin/mesh",
-    label: "Mesh",
-    match: (p: string) => p.startsWith("/admin/mesh"),
-    adminOnly: true,
-  },
-  {
-    href: "/admin/pricing-settings",
-    label: "Pricing",
-    match: (p: string) => p.startsWith("/admin/pricing-settings"),
-    adminOnly: true,
-  },
-];
 
 type Props = {
   profile: SessionData["profile"];
@@ -53,12 +15,7 @@ type Props = {
 
 export function TopNav({ profile }: Props) {
   const pathname = usePathname();
-  const canCreate = profile.role === "consultant" || profile.role === "admin";
-  const isAdmin = profile.role === "admin";
-  const links = baseLinks.filter(
-    (l) =>
-      (l.href !== "/orders/new" || canCreate) && (!l.adminOnly || isAdmin),
-  );
+  const links = linksForRole(profile.role);
 
   return (
     <nav className="bg-white border-b border-slate-200">

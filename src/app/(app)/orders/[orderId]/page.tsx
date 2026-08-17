@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
+import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
 import { RequoteBanner } from "@/components/orders/requote-banner";
@@ -69,6 +70,7 @@ export default async function OrderDetailPage({
     .select([
       "orders.id as id",
       "orders.display_id as display_id",
+      "orders.order_reference as order_reference",
       "orders.consultant_id as consultant_id",
       "orders.product_line as product_line",
       "orders.current_status as current_status",
@@ -614,6 +616,19 @@ export default async function OrderDetailPage({
                   </div>
                 );
               })()}
+              <div>
+                <dt className="text-xs text-slate-500">Order reference</dt>
+                <dd className="mt-0.5">
+                  <OrderReferenceField
+                    orderId={order.id}
+                    reference={order.order_reference}
+                    canEdit={
+                      session.profile.role === "ops" ||
+                      session.profile.role === "admin"
+                    }
+                  />
+                </dd>
+              </div>
               <div>
                 <dt className="text-xs text-slate-500">Created</dt>
                 <dd className="text-slate-800">

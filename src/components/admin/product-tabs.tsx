@@ -11,6 +11,7 @@ const TABS = [
   { href: "/admin/product/curtains", label: "Curtains" },
   { href: "/admin/product/blinds", label: "Blinds" },
   { href: "/admin/product/mesh", label: "Mesh" },
+  { href: "/admin/product/allowances", label: "Allowances" },
 ];
 
 export function ProductTabs() {

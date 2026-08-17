@@ -51,5 +51,11 @@ export function statusIndex(s: FulfilmentStatus): number {
 // manufacturing input) and so do status, notes, photos and amendments — those
 // write to other tables.
 export function isLocked(s: FulfilmentStatus): boolean {
-  return statusIndex(s) >= statusIndex("sent_to_vendor");
+  const i = statusIndex(s);
+  // Fail CLOSED on a status this build does not know about. If someone adds a
+  // value to the database enum before STATUS_FLOW catches up, statusIndex
+  // returns -1, and treating that as "not locked" would leave orders editable
+  // precisely when nobody knows what stage they are at.
+  if (i < 0) return true;
+  return i >= statusIndex("sent_to_vendor");
 }

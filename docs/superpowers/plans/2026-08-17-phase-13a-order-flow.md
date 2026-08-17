@@ -25,9 +25,9 @@ a unit test that mocks the database to close it.
 ## File Structure
 
 **Created:**
-- `data/migrations/20260817120000_order_flow_statuses.ts` — enum rename + two new values + transition validator
-- `data/migrations/20260817121000_order_reference.ts` — `orders.order_reference` + partial unique index
-- `data/migrations/20260817122000_drop_install_width.ts` — drops `windows.install_width_cm`
+- `data/migrations/20260817150000_order_flow_statuses.ts` — enum rename + two new values + transition validator
+- `data/migrations/20260817151000_order_reference.ts` — `orders.order_reference` + partial unique index
+- `data/migrations/20260817152000_drop_install_width.ts` — drops `windows.install_width_cm`
 - `src/lib/status-flow.test.ts` — flow ordering and label/colour completeness
 - `src/components/orders/order-reference-field.tsx` — inline edit for the reference
 
@@ -50,11 +50,11 @@ a unit test that mocks the database to close it.
 ## Task 1: Status enum migration
 
 **Files:**
-- Create: `data/migrations/20260817120000_order_flow_statuses.ts`
+- Create: `data/migrations/20260817150000_order_flow_statuses.ts`
 
 - [ ] **Step 1: Write the migration**
 
-Create `data/migrations/20260817120000_order_flow_statuses.ts`:
+Create `data/migrations/20260817150000_order_flow_statuses.ts`:
 
 ```ts
 import { sql, type Kysely } from "kysely";
@@ -207,7 +207,7 @@ Expected: FAIL, with errors at `src/lib/status-flow.ts`, `src/lib/actions/orders
 - [ ] **Step 6: Commit**
 
 ```bash
-git add data/migrations/20260817120000_order_flow_statuses.ts src/lib/db/schema.ts
+git add data/migrations/20260817150000_order_flow_statuses.ts src/lib/db/schema.ts
 git commit -m "feat(orders): rename order_made to order_recorded, add deposit_received and sent_to_vendor"
 ```
 
@@ -496,7 +496,7 @@ git commit -m "feat(orders): label the deposit step explicitly on the advance CT
 ## Task 5: `order_reference` migration
 
 **Files:**
-- Create: `data/migrations/20260817121000_order_reference.ts`
+- Create: `data/migrations/20260817151000_order_reference.ts`
 
 - [ ] **Step 1: Write the migration**
 
@@ -539,7 +539,7 @@ Expected: migration executed; `Orders` in `src/lib/db/schema.ts` gains `order_re
 - [ ] **Step 3: Commit**
 
 ```bash
-git add data/migrations/20260817121000_order_reference.ts src/lib/db/schema.ts
+git add data/migrations/20260817151000_order_reference.ts src/lib/db/schema.ts
 git commit -m "feat(orders): add optional order_reference"
 ```
 
@@ -953,7 +953,7 @@ git commit -m "refactor(orders): remove install_width_cm, a prototype artefact w
 ## Task 9: Drop the `install_width_cm` column
 
 **Files:**
-- Create: `data/migrations/20260817122000_drop_install_width.ts`
+- Create: `data/migrations/20260817152000_drop_install_width.ts`
 
 - [ ] **Step 1: Write the migration**
 
@@ -1003,7 +1003,7 @@ Expected: all PASS. 21 files, 246 tests.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add data/migrations/20260817122000_drop_install_width.ts src/lib/db/schema.ts
+git add data/migrations/20260817152000_drop_install_width.ts src/lib/db/schema.ts
 git commit -m "feat(orders): drop the install_width_cm column"
 ```
 

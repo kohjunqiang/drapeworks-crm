@@ -1,7 +1,9 @@
 import type { FulfilmentStatus } from "@/lib/db/schema";
 
 export const STATUS_FLOW: FulfilmentStatus[] = [
-  "order_made",
+  "order_recorded",
+  "deposit_received",
+  "sent_to_vendor",
   "sent_logistic",
   "shipping_sg",
   "delivered_checked",
@@ -10,7 +12,9 @@ export const STATUS_FLOW: FulfilmentStatus[] = [
 ];
 
 export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
-  order_made: "Order Made",
+  order_recorded: "Order Recorded",
+  deposit_received: "Deposit Received",
+  sent_to_vendor: "Sent to Vendor",
   sent_logistic: "Sent to Logistic Partner",
   shipping_sg: "Shipping to SG",
   delivered_checked: "Delivered & Checked",
@@ -19,7 +23,9 @@ export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
 };
 
 export const STATUS_COLOURS: Record<FulfilmentStatus, string> = {
-  order_made: "bg-slate-100 text-slate-700",
+  order_recorded: "bg-slate-100 text-slate-700",
+  deposit_received: "bg-amber-100 text-amber-700",
+  sent_to_vendor: "bg-orange-100 text-orange-700",
   sent_logistic: "bg-indigo-100 text-indigo-700",
   shipping_sg: "bg-blue-100 text-blue-700",
   delivered_checked: "bg-emerald-100 text-emerald-700",

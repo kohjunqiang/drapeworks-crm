@@ -7,7 +7,21 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
-import { allowanceSchema } from "@/lib/validation/manufacture";
+import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import {
+  loadAllowanceBook,
+  loadManufactureLines,
+} from "@/lib/manufacture/load";
+import { checkConfirmPreconditions } from "@/lib/manufacture/preconditions";
+import {
+  allowanceSchema,
+  confirmManufactureSchema,
+} from "@/lib/validation/manufacture";
+
+// A message we wrote for a human, as opposed to something Postgres said. It
+// survives the catch below unchanged; everything else is replaced by a
+// fallback, since a constraint name in a toast helps nobody.
+class AuthoredError extends Error {}
 
 export async function saveManufactureAllowance(input: unknown): Promise<void> {
   const session = await requireRole(["admin"]);
@@ -43,4 +57,125 @@ export async function saveManufactureAllowance(input: unknown): Promise<void> {
   }
 
   revalidatePath("/admin/product/allowances");
+}
+
+/**
+ * Freeze an order's manufacturing measurements and hand it to the vendor.
+ *
+ * Everything happens in ONE transaction — the status re-read, the line-item
+ * load, the precondition check, the measurement rows and the status advance —
+ * so a failure part-way leaves no half-confirmed order: no rows, no status
+ * change, nothing for the next person to unpick.
+ */
+export async function confirmManufactureMeasurements(
+  input: unknown,
+): Promise<void> {
+  const session = await requireRole(["ops", "admin"]);
+  const parsed = confirmManufactureSchema.parse(input);
+
+  try {
+    await db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom("orders")
+        .select("current_status")
+        .where("id", "=", parsed.orderId)
+        .executeTakeFirst();
+      if (!order) throw new AuthoredError("Order not found");
+
+      // Read through the transaction, so the lines that are checked are exactly
+      // the lines that get written — not a snapshot from a second ago.
+      const lines = await loadManufactureLines(parsed.orderId, trx);
+      const book = await loadAllowanceBook(trx);
+
+      const overrides = new Map(parsed.lines.map((l) => [l.lineId, l]));
+
+      // A payload naming a line this order doesn't have means the page was
+      // built against a different version of the order. Silently dropping that
+      // person's override would be the worst possible outcome.
+      const known = new Set(lines.map((l) => l.lineId));
+      if (parsed.lines.some((l) => !known.has(l.lineId))) {
+        throw new AuthoredError(
+          "This order has changed since the page was loaded. Reload and check the measurements again.",
+        );
+      }
+
+      const check = checkConfirmPreconditions(
+        lines,
+        book,
+        order.current_status,
+        overrides,
+      );
+      if (!check.ok) throw new AuthoredError(check.reasons.join(" "));
+
+      const rows = lines.map((line) => {
+        const allowance = resolveAllowance(book, line.line);
+        const applied = allowance
+          ? applyAllowance(
+              { widthCm: line.widthCm, heightCm: line.heightCm },
+              allowance,
+            )
+          : null;
+        // Unreachable: the precondition check above rejects both cases. It
+        // stays because the alternative is a non-null assertion that would go
+        // quietly wrong if the two ever drifted apart.
+        if (!applied) {
+          throw new AuthoredError(
+            "Could not derive the manufacturing measurements for this order.",
+          );
+        }
+
+        const override = overrides.get(line.lineId);
+        const isOverridden =
+          override?.overrideWidthCm != null ||
+          override?.overrideHeightCm != null;
+        const mfgWidthCm = override?.overrideWidthCm ?? applied.mfgWidthCm;
+        const mfgHeightCm = override?.overrideHeightCm ?? applied.mfgHeightCm;
+
+        return {
+          order_id: parsed.orderId,
+          window_id: line.kind === "window" ? line.lineId : null,
+          mesh_panel_id: line.kind === "mesh_panel" ? line.lineId : null,
+          source_width_cm: applied.sourceWidthCm,
+          source_height_cm: applied.sourceHeightCm,
+          // Derived from the stored result, not copied from the allowance, so
+          // source + delta = mfg holds on an overridden row too. A reader must
+          // never have to wonder why the three numbers disagree.
+          width_delta_cm: mfgWidthCm - applied.sourceWidthCm,
+          height_delta_cm: mfgHeightCm - applied.sourceHeightCm,
+          mfg_width_cm: mfgWidthCm,
+          mfg_height_cm: mfgHeightCm,
+          is_overridden: isOverridden,
+          override_reason: isOverridden
+            ? (override?.overrideReason?.trim() || null)
+            : null,
+          confirmed_by: session.user.id,
+        };
+      });
+
+      await trx.insertInto("manufacture_measurements").values(rows).execute();
+
+      // The ordinary status-events path: the validate_status_transition trigger
+      // and the RLS advance policy apply unchanged, orders.current_status is
+      // updated by that trigger rather than written here, and the move is
+      // recorded with an actor and a timestamp like any other.
+      await trx
+        .insertInto("order_status_events")
+        .values({
+          order_id: parsed.orderId,
+          status: "sent_to_vendor",
+          note: null,
+          created_by: session.user.id,
+        })
+        .execute();
+    });
+  } catch (e) {
+    if (e instanceof AuthoredError) throw new Error(e.message);
+    throw new Error(
+      userMessage(e, "Could not confirm the manufacturing measurements."),
+    );
+  }
+
+  revalidatePath(`/orders/${parsed.orderId}`);
+  revalidatePath(`/orders/${parsed.orderId}/manufacture`);
+  revalidatePath("/orders");
 }

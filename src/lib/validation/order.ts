@@ -53,7 +53,6 @@ const baseWindow = z.object({
   position: z.number().int().min(0),
   width_cm: optionalInt,
   height_cm: optionalInt,
-  install_width_cm: optionalInt,
   notes: z.string().max(2000).optional(),
 });
 

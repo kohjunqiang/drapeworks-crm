@@ -9,7 +9,6 @@ export type WindowLike = {
   variant: "regular" | "toilet" | "blind";
   width_cm?: number | null;
   height_cm?: number | null;
-  install_width_cm?: number | null;
   notes?: string;
   curtain_type_id?: string;
   day_curtain_type_id?: string;
@@ -29,7 +28,6 @@ export type WindowColumnValues = {
   position: number;
   width_cm: number | null;
   height_cm: number | null;
-  install_width_cm: number | null;
   notes: string | null;
   curtain_type_id: string | null;
   day_curtain_type_id: string | null;
@@ -49,7 +47,6 @@ export function windowValues(
     position,
     width_cm: win.width_cm ?? null,
     height_cm: win.height_cm ?? null,
-    install_width_cm: win.install_width_cm ?? null,
     notes: win.notes || null,
   } as const;
 

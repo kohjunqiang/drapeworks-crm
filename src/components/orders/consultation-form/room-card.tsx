@@ -92,7 +92,6 @@ export function RoomCard({
             curtain_type_id: "",
             width_cm: null,
             height_cm: null,
-            install_width_cm: null,
             notes: "",
           }
         : {
@@ -103,7 +102,6 @@ export function RoomCard({
             draw: "Double",
             width_cm: null,
             height_cm: null,
-            install_width_cm: null,
             notes: "",
             add_s_fold: false,
             add_slim_tracks: false,

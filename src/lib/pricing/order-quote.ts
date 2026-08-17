@@ -10,6 +10,7 @@ import {
 } from "./calculator";
 import {
   computeMeshQuote,
+  minimumKey,
   type MeshCalcAssumptions,
   type MeshPanel,
   type MeshPriceBook,
@@ -147,8 +148,9 @@ const uniq = (xs: string[]): string[] => [...new Set(xs)];
 //
 // Neither query filters on is_active: an archived category or colour must keep
 // resolving to the rate an existing order was quoted at (§9).
-async function loadMeshPriceBook(): Promise<MeshPriceBook> {
-  const [categoryRows, colourRows, bandRows, systemRows] = await Promise.all([
+export async function loadMeshPriceBook(): Promise<MeshPriceBook> {
+  const [categoryRows, colourRows, bandRows, systemRows, minimumRows] =
+    await Promise.all([
     db
       .selectFrom("mesh_categories")
       .select(["id", "cost_rmb_cents_per_sqft", "sale_sgd_cents_per_sqft"])
@@ -169,6 +171,18 @@ async function loadMeshPriceBook(): Promise<MeshPriceBook> {
       .selectFrom("mesh_systems")
       .select(["name", "double_cost_rmb_cents", "double_sale_sgd_cents"])
       .where("is_active", "=", true)
+      .execute(),
+    // Joined to resolve the system name the grid is keyed on. Not filtered on
+    // is_active: a minimum must keep applying to an order already quoted under
+    // a since-archived system.
+    db
+      .selectFrom("mesh_minimum_areas")
+      .innerJoin("mesh_systems", "mesh_systems.id", "mesh_minimum_areas.system_id")
+      .select([
+        "mesh_minimum_areas.category_id as category_id",
+        "mesh_systems.name as system_name",
+        "mesh_minimum_areas.min_area_cm2_per_leaf as min_area_cm2_per_leaf",
+      ])
       .execute(),
   ]);
 
@@ -196,9 +210,16 @@ async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     };
   }
 
+  const minimumAreas: MeshPriceBook["minimumAreas"] = {};
+  for (const r of minimumRows) {
+    minimumAreas[minimumKey(r.category_id, r.system_name)] =
+      r.min_area_cm2_per_leaf;
+  }
+
   return {
     rates,
     colours,
+    minimumAreas,
     bands: bandRows.map((b) => ({
       maxWidthCm: b.max_width_cm,
       singleSystem: b.single_system,

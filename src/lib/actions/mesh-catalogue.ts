@@ -12,8 +12,10 @@ import {
   cmToMm,
   meshCategorySchema,
   meshColourSchema,
+  meshMinimumCellSchema,
   meshSystemBandSchema,
   meshSystemSchema,
+  sqmToCm2,
 } from "@/lib/validation/mesh-catalogue";
 
 const PATH = "/admin/product/mesh";
@@ -208,6 +210,45 @@ export async function upsertMeshSystem(input: unknown) {
 export async function toggleMeshSystemActive(id: string) {
   await requireRole(["admin"]);
   await toggleActive("mesh_systems", id, "system");
+}
+
+// ── minimum areas ────────────────────────────────────────────────────────
+
+// One cell of the category × system grid. Upsert on the pair so an admin can
+// fill cells in any order. A blank clears the minimum rather than storing zero
+// — "no floor" and "a floor of nothing" should not be two states.
+export async function upsertMeshMinimumArea(input: unknown) {
+  await requireRole(["admin"]);
+  const parsed = meshMinimumCellSchema.parse(input);
+  const cm2 = sqmToCm2(parsed.min_sqm_per_leaf);
+
+  try {
+    if (cm2 == null) {
+      await db
+        .deleteFrom("mesh_minimum_areas")
+        .where("category_id", "=", parsed.category_id)
+        .where("system_id", "=", parsed.system_id)
+        .execute();
+    } else {
+      await db
+        .insertInto("mesh_minimum_areas")
+        .values({
+          category_id: parsed.category_id,
+          system_id: parsed.system_id,
+          min_area_cm2_per_leaf: cm2,
+        })
+        .onConflict((oc) =>
+          oc
+            .columns(["category_id", "system_id"])
+            .doUpdateSet({ min_area_cm2_per_leaf: cm2 }),
+        )
+        .execute();
+    }
+  } catch (err) {
+    throw new Error(userMessage(err, "Could not save minimum"));
+  }
+
+  revalidatePath(PATH);
 }
 
 // ── shared ───────────────────────────────────────────────────────────────

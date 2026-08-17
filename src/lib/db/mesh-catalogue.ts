@@ -136,6 +136,19 @@ export async function loadActiveMeshSystemBands(): Promise<MeshSystemBand[]> {
   }));
 }
 
+export type MeshMinimumRow = {
+  category_id: string;
+  system_id: string;
+  min_area_cm2_per_leaf: number;
+};
+
+export async function loadMeshMinimumAreas(): Promise<MeshMinimumRow[]> {
+  return db
+    .selectFrom("mesh_minimum_areas")
+    .select(["category_id", "system_id", "min_area_cm2_per_leaf"])
+    .execute();
+}
+
 export async function loadMeshCategories(): Promise<MeshCategoryRow[]> {
   return db
     .selectFrom("mesh_categories")

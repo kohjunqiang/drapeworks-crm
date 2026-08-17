@@ -31,7 +31,11 @@ import {
 } from "@/lib/orders/mesh-system";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import { formatSGD } from "@/lib/money";
-import { computeOrderQuote } from "@/lib/pricing/order-quote";
+import { panelBillableArea } from "@/lib/pricing/mesh-calculator";
+import {
+  computeOrderQuote,
+  loadMeshPriceBook,
+} from "@/lib/pricing/order-quote";
 
 export const dynamic = "force-dynamic";
 
@@ -202,6 +206,8 @@ export default async function OrderDetailPage({
             "mesh_panels.has_window as has_window",
             "mesh_panels.has_inset_horizontal as has_inset_horizontal",
             "mesh_panels.has_inset_vertical as has_inset_vertical",
+            "mesh_panels.category_id as category_id",
+            "mesh_panels.colour_id as colour_id",
             "mesh_panels.draw as draw",
             "mesh_panels.split_left_cm as split_left_cm",
             "mesh_panels.split_right_cm as split_right_cm",
@@ -215,12 +221,13 @@ export default async function OrderDetailPage({
 
   // The track system is derived, never stored (§5.9), so it is resolved here
   // for the factory sheet rather than read off the row.
-  const [systemBands, systemSpecs] = isMesh
+  const [systemBands, systemSpecs, meshBook] = isMesh
     ? await Promise.all([
         loadActiveMeshSystemBands(),
         loadActiveMeshSystemSpecs(),
+        loadMeshPriceBook(),
       ])
-    : [[], []];
+    : [[], [], null];
 
   const panelsByRoom = new Map<string, MeshPanelSummary[]>();
   for (const p of meshPanels) {
@@ -235,12 +242,30 @@ export default async function OrderDetailPage({
     const resolved = resolveMeshSystem(key, systemBands);
     const track = resolveMeshTrack(key, systemBands, systemSpecs);
     const drop = resolveMeshDrop(key, systemBands, systemSpecs);
+    // Only set when a minimum actually floors the panel, so the column shows
+    // the uplift rather than repeating the measured area.
+    const billable = meshBook
+      ? panelBillableArea(
+          {
+            categoryId: p.category_id,
+            colourId: p.colour_id,
+            widthCm: p.width_cm,
+            heightCm: p.height_cm,
+            draw: p.draw ?? null,
+          },
+          meshBook,
+        )
+      : null;
     list.push({
       ...p,
       system: resolved.status === "resolved" ? resolved.system : null,
       trackCm:
         track.status === "resolved" ? formatMmAsCm(track.trackMm) : null,
       dropCm: drop.status === "resolved" ? formatMmAsCm(drop.dropMm) : null,
+      billedSqm:
+        billable && billable.billableCm2 > billable.actualCm2
+          ? (billable.billableCm2 / 10_000).toFixed(2)
+          : null,
     });
     panelsByRoom.set(p.room_id, list);
   }

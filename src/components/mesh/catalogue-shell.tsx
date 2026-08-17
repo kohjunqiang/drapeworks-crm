@@ -58,8 +58,9 @@ export function CatalogueSection({
 }: {
   title: string;
   description: string;
-  addLabel: string;
-  onAdd: () => void;
+  // Optional: a grid of cells edited in place has nothing to add.
+  addLabel?: string;
+  onAdd?: () => void;
   isEmpty: boolean;
   emptyMessage: string;
   children: ReactNode;
@@ -71,12 +72,14 @@ export function CatalogueSection({
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
           <p className="text-sm text-slate-500 mt-0.5">{description}</p>
         </div>
-        <Button
-          onClick={onAdd}
-          className="bg-teal-600 hover:bg-teal-700 text-white shrink-0"
-        >
-          {addLabel}
-        </Button>
+        {onAdd && (
+          <Button
+            onClick={onAdd}
+            className="bg-teal-600 hover:bg-teal-700 text-white shrink-0"
+          >
+            {addLabel}
+          </Button>
+        )}
       </div>
 
       <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">

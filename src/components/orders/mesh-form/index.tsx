@@ -287,6 +287,7 @@ export function MeshConsultationForm({
                   colours={meshConfig.colours}
                   systemBands={systemBands}
                   systemSpecs={systemSpecs}
+                  priceBook={meshConfig.book}
                   mode={mode}
                   roomId={persistedRoomId}
                   photos={

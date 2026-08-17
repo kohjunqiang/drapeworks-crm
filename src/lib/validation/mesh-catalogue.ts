@@ -92,6 +92,34 @@ export function mmToCm(v: number): string {
   return String(v / 10);
 }
 
+// One cell of the minimum-area grid. Typed in m² as the supplier's table
+// quotes it ("2", "2.5"), stored as integer cm² so the comparison against a
+// panel's measured area never touches a float. Blank = no minimum.
+export const meshMinimumCellSchema = z.object({
+  category_id: z.string().uuid(),
+  system_id: z.string().uuid(),
+  min_sqm_per_leaf: z
+    .union([
+      z.literal(""),
+      z.string().regex(/^\d+(\.\d{1,2})?$/, "Enter an area in m² (e.g. 2.5)"),
+    ])
+    .optional(),
+});
+
+/** m² as typed → integer cm². "2.5" → 25000. Blank → null. */
+export function sqmToCm2(v: string | undefined): number | null {
+  if (v === undefined || v === "") return null;
+  return Math.round(Number(v) * 10_000);
+}
+
+/** Integer cm² → m² for display. 25000 → "2.5". */
+export function cm2ToSqm(v: number | null): string {
+  if (v == null) return "";
+  return String(v / 10_000);
+}
+
+export type MeshMinimumCellInput = z.infer<typeof meshMinimumCellSchema>;
+
 export type MeshCategoryInput = z.infer<typeof meshCategorySchema>;
 export type MeshSystemInput = z.infer<typeof meshSystemSchema>;
 export type MeshColourInput = z.infer<typeof meshColourSchema>;

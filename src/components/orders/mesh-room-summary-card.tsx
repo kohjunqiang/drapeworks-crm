@@ -21,6 +21,8 @@ export type MeshPanelSummary = {
   /** Cut sizes after the hardware, in cm. Derived alongside the system. */
   trackCm: string | null;
   dropCm: string | null;
+  /** Set only when a minimum floors this panel above its measured area. */
+  billedSqm: string | null;
   split_left_cm: number | null;
   split_right_cm: number | null;
   notes: string | null;
@@ -114,6 +116,14 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
                 </td>
                 <td className="px-4 py-2 text-slate-600 tabular-nums">
                   {areaSqm(p) ?? "—"}
+                  {p.billedSqm && (
+                    <span
+                      className="ml-1 text-amber-700"
+                      title="Billed at the category minimum for this system"
+                    >
+                      → {p.billedSqm}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-slate-600">
                   {p.has_window ? (

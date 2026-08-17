@@ -11,6 +11,7 @@ import type {
   MeshSystemBand,
   MeshSystemSpec,
 } from "@/lib/orders/mesh-system";
+import type { MeshPriceBook } from "@/lib/pricing/mesh-calculator";
 import type { MeshCatalogueOption } from "@/lib/pricing/order-quote";
 import type { MeshOrderEditInput } from "@/lib/validation/mesh";
 
@@ -29,6 +30,7 @@ type Props = {
   colours: MeshCatalogueOption[];
   systemBands: MeshSystemBand[];
   systemSpecs: MeshSystemSpec[];
+  priceBook: MeshPriceBook;
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
@@ -41,6 +43,7 @@ export function MeshRoomCard({
   colours,
   systemBands,
   systemSpecs,
+  priceBook,
   mode,
   roomId,
   photos,
@@ -93,6 +96,7 @@ export function MeshRoomCard({
             colours={colours}
             systemBands={systemBands}
             systemSpecs={systemSpecs}
+            priceBook={priceBook}
           />
         </LineItemRow>
       ))}

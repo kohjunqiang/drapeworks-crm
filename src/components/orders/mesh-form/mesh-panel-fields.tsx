@@ -14,6 +14,10 @@ import {
   type MeshSystemBand,
   type MeshSystemSpec,
 } from "@/lib/orders/mesh-system";
+import {
+  panelBillableArea,
+  type MeshPriceBook,
+} from "@/lib/pricing/mesh-calculator";
 import type { MeshCatalogueOption } from "@/lib/pricing/order-quote";
 import {
   MESH_DRAW_VALUES,
@@ -30,6 +34,7 @@ type Props = {
   colours: MeshCatalogueOption[];
   systemBands: MeshSystemBand[];
   systemSpecs: MeshSystemSpec[];
+  priceBook: MeshPriceBook;
 };
 
 // A catalogue select. Archived rows reach us only because this order already
@@ -56,6 +61,7 @@ export function MeshPanelFields({
   colours,
   systemBands,
   systemSpecs,
+  priceBook,
 }: Props) {
   const { control, register } = useFormContext<MeshOrderEditInput>();
   const base = `rooms.${roomIndex}.panels.${panelIndex}` as const;
@@ -95,8 +101,27 @@ export function MeshPanelFields({
   const drop = resolveMeshDrop(panel, systemBands, systemSpecs);
 
   // Shown beside the measurements so a consultant can sanity-check the size
-  // that drives the price without doing the sum on a phone.
+  // that drives the price without doing the sum on a phone — and, when a
+  // minimum kicks in, so they can explain the price on site rather than have
+  // the customer find it in the quote.
   const areaSqm = width > 0 && height > 0 ? (width * height) / 10_000 : null;
+  const billable =
+    categoryId && width > 0 && height > 0
+      ? panelBillableArea(
+          {
+            categoryId,
+            colourId: colourId ?? null,
+            widthCm: width,
+            heightCm: height,
+            draw: draw ?? null,
+          },
+          priceBook,
+        )
+      : null;
+  const flooredSqm =
+    billable && billable.billableCm2 > billable.actualCm2
+      ? billable.billableCm2 / 10_000
+      : null;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 sm:gap-3">
@@ -145,8 +170,16 @@ export function MeshPanelFields({
           {...register(`${base}.height_cm`)}
         />
         {areaSqm != null && (
-          <p className="mt-1 text-[11px] text-slate-400 tabular-nums">
-            {width} × {height} = {areaSqm.toFixed(2)} m²
+          <p className="mt-1 text-[11px] tabular-nums">
+            <span className="text-slate-400">
+              {width} × {height} = {areaSqm.toFixed(2)} m²
+            </span>
+            {flooredSqm != null && (
+              <span className="text-amber-700">
+                {" "}
+                → billed {flooredSqm.toFixed(2)} m² (minimum)
+              </span>
+            )}
           </p>
         )}
       </div>

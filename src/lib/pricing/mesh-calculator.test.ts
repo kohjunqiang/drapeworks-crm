@@ -6,6 +6,8 @@ import {
   isPriced,
   meshInstallUnits,
   meshQuoteWarnings,
+  minimumKey,
+  panelBillableArea,
   panelQuote,
   scaleByArea,
   type MeshCalcAssumptions,
@@ -55,6 +57,12 @@ const BOOK: MeshPriceBook = {
   doubleSurcharges: {
     "system 55": { costRmbCents: 4000, saleSgdCents: 6000 },
     "system 68": { costRmbCents: 5000, saleSgdCents: 7500 },
+  },
+  // AirGuard floors at 1 m² per leaf on System 68 (the band every width in
+  // these tests resolves to for a single draw); MaxGuard at 2 m² on System 55.
+  minimumAreas: {
+    [minimumKey(AIR, "System 68")]: 10_000,
+    [minimumKey(MAX, "System 55")]: 20_000,
   },
 };
 
@@ -371,5 +379,84 @@ describe("meshQuoteWarnings", () => {
     );
     expect(w.unpricedPanels).toEqual([0, 1]);
     expect(w.reasons).toEqual(["no-category"]);
+  });
+});
+
+describe("panelBillableArea", () => {
+  it("bills the measured area when it clears the minimum", () => {
+    // 100 × 150 = 1.5 m², above AirGuard's 1 m² single-draw floor.
+    expect(panelBillableArea(panel(), BOOK)).toEqual({
+      actualCm2: 15_000,
+      minimumCm2: 10_000,
+      billableCm2: 15_000,
+    });
+  });
+
+  it("floors a small panel to the minimum", () => {
+    const small = panel({ widthCm: 60, heightCm: 100 }); // 0.6 m²
+    expect(panelBillableArea(small, BOOK)).toEqual({
+      actualCm2: 6_000,
+      minimumCm2: 10_000,
+      billableCm2: 10_000,
+    });
+  });
+
+  it("doubles the floor for a double draw — one minimum per leaf", () => {
+    // The worked example: 240 cm MaxGuard double resolves to System 55, whose
+    // floor is 2 m² per leaf, so the panel bills at 4 m² even though it
+    // measures 2.964.
+    const p = panel({
+      categoryId: MAX,
+      widthCm: 240,
+      heightCm: 123,
+      draw: "Double",
+    });
+    expect(panelBillableArea(p, BOOK)).toEqual({
+      actualCm2: 29_520,
+      minimumCm2: 40_000,
+      billableCm2: 40_000,
+    });
+  });
+
+  it("has no floor when the (category, system) cell is empty", () => {
+    // MaxGuard has no minimum configured on System 68.
+    const p = panel({ categoryId: MAX, widthCm: 200, draw: "Single Left" });
+    expect(panelBillableArea(p, BOOK)).toMatchObject({
+      minimumCm2: 0,
+      billableCm2: 30_000, // 200 × 150, billed as measured
+    });
+  });
+
+  it("has no floor when no system resolves", () => {
+    const p = panel({ widthCm: 900, draw: "Single Left" });
+    expect(panelBillableArea(p, BOOK)).toMatchObject({ minimumCm2: 0 });
+  });
+
+  it("is null for an unmeasured panel", () => {
+    expect(panelBillableArea(panel({ widthCm: null }), BOOK)).toBeNull();
+  });
+});
+
+describe("panelQuote — minimum billable area", () => {
+  it("prices a floored panel on the minimum, not the measurement", () => {
+    const small = panel({ widthCm: 60, heightCm: 100 }); // 0.6 m² → floored to 1
+    const q = panelQuote(small, BOOK);
+    expect(q.saleSgdCents).toBe(scaleByArea(10_000, 800));
+  });
+
+  it("floors COST as well as SALE, so the margin stays honest", () => {
+    // Flooring the sale alone would report a margin that climbs on every
+    // under-minimum panel -- flattering, and wrong.
+    const small = panel({ widthCm: 60, heightCm: 100 });
+    expect(panelQuote(small, BOOK)).toEqual({
+      costRmbCents: scaleByArea(10_000, 400),
+      saleSgdCents: scaleByArea(10_000, 800),
+    });
+  });
+
+  it("charges a small panel the same as one exactly at the minimum", () => {
+    const tiny = panelQuote(panel({ widthCm: 40, heightCm: 50 }), BOOK);
+    const atFloor = panelQuote(panel({ widthCm: 100, heightCm: 100 }), BOOK);
+    expect(tiny).toEqual(atFloor);
   });
 });

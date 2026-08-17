@@ -69,7 +69,16 @@ export type MeshPriceBook = {
   bands: MeshSystemBand[];
   /** Per-panel double-draw surcharge, keyed by lower-cased system name. */
   doubleSurcharges: Record<string, MeshColourSurcharge>;
+  /**
+   * Minimum billable area PER LEAF in cm², keyed
+   * `${categoryId}:${lower-cased system name}`. Absent = no minimum.
+   */
+  minimumAreas: Record<string, number>;
 };
+
+/** Key for the minimum-area grid. */
+export const minimumKey = (categoryId: string, system: string): string =>
+  `${categoryId}:${system.trim().toLowerCase()}`;
 
 // 1 ft = 30.48 cm exactly, so 1 ft² = 929.0304 cm². Held as an integer pair so
 // the conversion is exact integer arithmetic up to a single final rounding —
@@ -117,8 +126,10 @@ export function rateFor(p: MeshPanel, book: MeshPriceBook): MeshRate | null {
  *
  * Rounding per panel rather than on the order total is deliberate: each panel is
  * a line item the customer can see, so the printed lines must sum to the printed
- * total. There is no minimum billable area — a small panel bills at its true
- * size.
+ * total.
+ *
+ * Takes the area it is given. Applying the minimum is `panelBillableArea`'s job,
+ * so this stays a pure conversion.
  */
 export function scaleByArea(areaCm2: number, ratePerSqft: number): number {
   return Math.round(
@@ -162,6 +173,50 @@ export function doubleDrawSurcharge(
   };
 }
 
+export type MeshBillableArea = {
+  /** What was measured. */
+  actualCm2: number;
+  /** The floor for this panel — 0 when none is configured. */
+  minimumCm2: number;
+  /** What the price is actually calculated on. */
+  billableCm2: number;
+};
+
+/**
+ * The area a panel is charged on: the larger of what was measured and the
+ * minimum for its category and system.
+ *
+ * The floor is stored per leaf, so a double draw takes it twice — a double is
+ * two leaves and each carries its own minimum. A panel whose system does not
+ * resolve, or whose (category, system) cell is empty, has no floor and bills at
+ * what was measured.
+ */
+export function panelBillableArea(
+  p: MeshPanel,
+  book: MeshPriceBook,
+): MeshBillableArea | null {
+  const actualCm2 = panelAreaCm2(p);
+  if (actualCm2 == null || !p.categoryId) return null;
+
+  const resolved = resolveMeshSystem(
+    { widthCm: p.widthCm, draw: p.draw ?? undefined },
+    book.bands,
+  );
+
+  const perLeaf =
+    resolved.status === "resolved"
+      ? (book.minimumAreas[minimumKey(p.categoryId, resolved.system)] ?? 0)
+      : 0;
+
+  const minimumCm2 = perLeaf * (isDoubleDraw(p.draw ?? undefined) ? 2 : 1);
+
+  return {
+    actualCm2,
+    minimumCm2,
+    billableCm2: Math.max(actualCm2, minimumCm2),
+  };
+}
+
 // The category's per-ft² rate scaled by this panel's area, plus the colour's
 // flat surcharge and — on a double draw — the system's flat surcharge. Neither
 // surcharge is scaled: both are per-panel charges, not per-ft² ones.
@@ -169,8 +224,11 @@ export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
   const rate = rateFor(p, book);
   if (!rate) return ZERO;
 
-  const area = panelAreaCm2(p);
-  if (area == null) return ZERO;
+  // The floored area, not the measured one — and the same figure on both
+  // sides, so a minimum never flatters the margin.
+  const billable = panelBillableArea(p, book);
+  if (billable == null) return ZERO;
+  const area = billable.billableCm2;
 
   const colour = p.colourId ? book.colours[p.colourId] : undefined;
   const double = doubleDrawSurcharge(p, book);

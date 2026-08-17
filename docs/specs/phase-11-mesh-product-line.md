@@ -388,7 +388,39 @@ customer can see, so the printed lines must sum to the printed total. A
 consequence worth expecting: doubling a panel's area does not always exactly
 double its price (12917 → 25833, not 25834).
 
-There is **no minimum billable area** — a small panel bills at its true size.
+### Minimum billable area
+
+A small panel still costs a full frame, a full trip and a minimum order from the
+supplier, so each one bills at no less than a floor area:
+
+```
+billable = max(measured area, minimum × leaves)
+```
+
+The **area** is floored, not the price — the panel is charged as though it were
+exactly that size, at the category's usual per-ft² rate, with the colour and
+double-draw surcharges added on top unchanged.
+
+The floor is stored **per leaf** in `mesh_minimum_areas`, keyed by
+(category, system), and multiplied by the number of leaves: a single draw takes it
+once, a double takes it twice. That is what the supplier's table describes — MaxGuard
+on System 55 is 2 m² single and "2 × 2" double, on System 68 it is 2.5 and "2 × 2.5".
+The double figure is always exactly twice the single, which is the tell that it is one
+minimum applied to each leaf rather than two independent numbers.
+
+It varies on both axes: MaxGuard's floor climbs with the system, while AirGuard and
+HomeGuard hold the same floor whatever system they land on. Stored as an explicit grid
+of cells rather than a default with overrides, so there is no hidden fallback to reason
+about when a number looks wrong. An empty cell means no floor.
+
+**It floors cost as well as sale.** Flooring the sale alone would report a margin that
+climbs on every under-minimum panel — exactly the flattering error that gets found in a
+P&L rather than on screen.
+
+Because the system comes from the width, widening a panel can move it to a heavier
+system and raise its minimum again. The consultation form shows the uplift as it
+happens — `2.96 m² → billed 4.00 m² (minimum)` — so a consultant can explain the price
+on site rather than have the customer find it in the quote.
 
 The colour surcharge is added *after* the area scaling and is **not** scaled:
 a colour premium is a per-panel charge. The same applies to the double-draw

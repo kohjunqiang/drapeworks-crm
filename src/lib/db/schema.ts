@@ -527,6 +527,15 @@ export interface MeshColours {
   updated_at: Generated<Timestamp>;
 }
 
+export interface MeshMinimumAreas {
+  category_id: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  min_area_cm2_per_leaf: number;
+  system_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface MeshPanels {
   category_id: string | null;
   colour_id: string | null;
@@ -909,6 +918,7 @@ export interface DB {
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
+  mesh_minimum_areas: MeshMinimumAreas;
   mesh_panels: MeshPanels;
   mesh_system_bands: MeshSystemBands;
   mesh_systems: MeshSystems;

@@ -42,6 +42,7 @@ const MESH_BOOK: MeshPriceBook = {
     { maxWidthCm: 760, singleSystem: "System 68", doubleSystem: "System 55" },
   ],
   doubleSurcharges: {},
+  minimumAreas: {},
 };
 
 const MESH_PANEL: MeshPanel = {

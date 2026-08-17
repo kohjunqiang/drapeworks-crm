@@ -148,6 +148,7 @@ export function Reconciliation({
               <ReconciliationRow
                 key={line.lineId}
                 line={line}
+                roomLabel={room.label}
                 draft={drafts[line.lineId] ?? draftFor(line)}
                 state={states.get(line.lineId)!}
                 disabled={pending}

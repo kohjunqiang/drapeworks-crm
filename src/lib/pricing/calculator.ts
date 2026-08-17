@@ -483,6 +483,13 @@ export function finaliseQuote(
   const sale = totals.saleSgdCents;
 
   // Air = rate × curtain COGS, clamped. Sea = flat per-m³ charge.
+  //
+  // Note for anyone asking why a confirmed order's MARGIN improved with no
+  // price change: freightBaseRmbCents follows COGS, and COGS follows the
+  // manufacturing width once a set is confirmed (see costWidthCm). Smaller
+  // piece → lower cost → lower freight → higher margin. That is intended.
+  // Only the SALE is frozen; the cost side is meant to track what is actually
+  // being made, and reporting the pre-allowance cost would overstate spend.
   const freight =
     freightMode === "sea"
       ? a.seaFreightRmbCentsPerM3

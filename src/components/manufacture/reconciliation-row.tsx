@@ -124,6 +124,7 @@ function ManufactureRow({
   delta,
   disabled,
   onChange,
+  pieceLabel,
 }: {
   id: string;
   label: string;
@@ -133,6 +134,11 @@ function ManufactureRow({
   delta: number | null;
   disabled: boolean;
   onChange: (v: string) => void;
+  /** Which piece this input belongs to, e.g. "Living Room Window 1". The
+   *  visible label is just "Width", so on a twenty-window order a screen
+   *  reader would otherwise announce forty controls called "Width" or
+   *  "Height" with nothing to tell them apart. */
+  pieceLabel: string;
 }) {
   const border = invalid
     ? "border-rose-400 bg-rose-50 text-rose-900"
@@ -147,6 +153,7 @@ function ManufactureRow({
       <input
         id={id}
         inputMode="numeric"
+        aria-label={`${pieceLabel} manufacturing ${label.toLowerCase()} in cm`}
         aria-invalid={invalid}
         disabled={disabled}
         value={value}
@@ -161,6 +168,7 @@ function ManufactureRow({
 
 export function ReconciliationRow({
   line,
+  roomLabel,
   draft,
   state,
   disabled,
@@ -168,6 +176,9 @@ export function ReconciliationRow({
   onReset,
 }: {
   line: ReconLine;
+  /** Only used for the inputs' accessible names. `line.label` is "Window 1",
+   *  which repeats in every room — the room is what tells them apart. */
+  roomLabel: string;
   draft: RowDraft;
   state: RowState;
   disabled: boolean;
@@ -220,6 +231,7 @@ export function ReconciliationRow({
             <ManufactureRow
               id={`${line.lineId}-w`}
               label="Width"
+              pieceLabel={`${roomLabel} ${line.label}`}
               value={draft.width}
               invalid={state.widthCm == null}
               overridden={state.widthOverridden}
@@ -230,6 +242,7 @@ export function ReconciliationRow({
             <ManufactureRow
               id={`${line.lineId}-h`}
               label="Height"
+              pieceLabel={`${roomLabel} ${line.label}`}
               value={draft.height}
               invalid={state.heightCm == null}
               overridden={state.heightOverridden}

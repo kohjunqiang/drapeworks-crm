@@ -74,12 +74,12 @@ git diff --staged          # review what's actually going in
 
 If migrations are included, also check:
 ```bash
-ls supabase/migrations/    # confirm only intended files added
+ls data/migrations/        # confirm only intended files added
 ```
 
 ## After committing migrations
 
-If the commit includes a migration that's been pushed to Supabase, also regenerate types and amend / new-commit the regenerated `src/lib/supabase/types.ts`. Don't merge a PR where types and migrations are out of sync.
+If the commit includes a migration that's been applied, also run `npm run db:codegen` and commit the regenerated `src/lib/db/schema.ts`. Don't merge a PR where types and migrations are out of sync.
 
 ## .gitignore (already configured)
 
@@ -100,4 +100,4 @@ If you add a new artifact directory (e.g. `coverage/`), add it to `.gitignore`.
 - Force-pushing to `main`
 - Skipping commit hooks
 - `git add .` without a `git status` check first
-- Committing generated `src/lib/supabase/types.ts` that's out of sync with the migrations in the same commit
+- Committing a generated `src/lib/db/schema.ts` that's out of sync with the migrations in the same commit

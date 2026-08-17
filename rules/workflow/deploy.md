@@ -59,9 +59,9 @@ Then `curl http://localhost:3000/api/health` to confirm.
 
 When a phase includes a migration:
 
-1. Apply locally: `npx supabase db push --linked` (this applies to the linked **remote** project — there's only one Supabase project; local CLI is a tool, not a separate DB)
-2. Regenerate types: `npx supabase gen types typescript --linked > src/lib/supabase/types.ts`
-3. Commit both the migration file and the regenerated types
+1. Apply: `npm run db:migrate` (Kysely, from `data/migrations/`; runs against the **remote** project via `DATABASE_URL` — there is no local stack)
+2. Regenerate types: `npm run db:codegen` (writes `src/lib/db/schema.ts`)
+3. Commit the migration file and the regenerated schema together
 4. Push code to `main` → Railway redeploys
 
 **The order matters**: the migration is live on Supabase BEFORE the new app code references the new columns. If you deploy app code first, Railway will boot a service that queries non-existent tables and crashes.

@@ -93,24 +93,30 @@ Don't silently swallow errors. Don't return `null` from query helpers when a mis
 
 ## Type safety
 
-Use generated types throughout:
+Use the generated types throughout. They come from kysely-codegen
+(`npm run db:codegen` → `src/lib/db/schema.ts`), one interface per table plus a
+string-literal union per Postgres enum:
 
 ```ts
-import type { Database } from '@/lib/supabase/types';
-
-type Order = Database['public']['Tables']['orders']['Row'];
+import type { Orders, CurtainProductLine } from '@/lib/db/schema';
 ```
 
-For complex joins, define a local type that matches the select shape:
+Kysely infers the result type of a select from the columns you list, so a query needs no
+hand-written row type. Name the shape only where it crosses a boundary — a component
+prop, or a loader's return type:
 
 ```ts
-type OrderDetail = Order & {
-  customer: Database['public']['Tables']['customers']['Row'];
-  rooms: Array<Database['public']['Tables']['rooms']['Row'] & {
-    windows: Database['public']['Tables']['windows']['Row'][];
-  }>;
+export type CurtainTypeOptionRow = {
+  id: string;
+  label: string;
+  category: CurtainCategory | null;
+  productLine: CurtainProductLine;
 };
 ```
+
+Prefer the generated enum union (`CurtainProductLine`) over re-declaring
+`"curtain" | "blind"` by hand — then adding a value to the enum surfaces every place
+that needs updating as a type error.
 
 ## Forbidden
 

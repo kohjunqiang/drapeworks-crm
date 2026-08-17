@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { userMessage } from "@/lib/errors";
 import { windowValues } from "@/lib/orders/window-values";
 import { computeOrderQuote } from "@/lib/pricing/order-quote";
 import { adminClient } from "@/lib/supabase/admin";
@@ -511,7 +512,9 @@ export async function setOrderReference(input: unknown): Promise<void> {
     if (typeof e === "object" && e !== null && "code" in e && e.code === "23505") {
       throw new Error("That order reference is already used by another order.");
     }
-    throw e;
+    // Everything else goes through userMessage so a raw Postgres string never
+    // reaches a toast — the same guard every other action in this file uses.
+    throw new Error(userMessage(e, "Could not save the order reference."));
   }
 
   revalidatePath(`/orders/${parsed.orderId}`);

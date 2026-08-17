@@ -2,6 +2,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import {
+  AmendDialog,
+  type AmendLine,
+} from "@/components/manufacture/amend-dialog";
+import {
   FrozenMeasurements,
   type FrozenLine,
   type FrozenRoom,
@@ -110,7 +114,11 @@ export default async function ManufacturePage({
   return (
     <Shell order={order}>
       {locked ? (
-        <FrozenView orderId={order.id} lines={lines} />
+        <FrozenView
+          orderId={order.id}
+          lines={lines}
+          canAmend={session.profile.role === "admin"}
+        />
       ) : (
         <EditableView order={order} lines={lines} />
       )}
@@ -286,9 +294,11 @@ async function EditableView({
 async function FrozenView({
   orderId,
   lines,
+  canAmend,
 }: {
   orderId: string;
   lines: ManufactureLine[];
+  canAmend: boolean;
 }) {
   const stored = await db
     .selectFrom("manufacture_measurements")
@@ -343,14 +353,32 @@ async function FrozenView({
     return earliest && earliest <= at ? earliest : at;
   }, null);
 
+  // Flattened for the amend dialog, which edits across rooms in one pass and
+  // so needs the room in each label to keep two "Window 1"s apart.
+  const amendLines: AmendLine[] = rooms.flatMap((room) =>
+    room.lines.map((l) => ({
+      lineId: l.lineId,
+      label: `${room.label} — ${l.label}`,
+      sourceWidthCm: l.sourceWidthCm,
+      sourceHeightCm: l.sourceHeightCm,
+      mfgWidthCm: l.mfgWidthCm,
+      mfgHeightCm: l.mfgHeightCm,
+    })),
+  );
+
   return (
     <>
-      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
-        <p>
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <p className="text-sm text-slate-600">
           These measurements are frozen. They are what the vendor was given
           {confirmedAt && ` on ${SG_DATE.format(confirmedAt)}`}, and they do not
           change if an allowance is edited later.
         </p>
+        {canAmend && amendLines.length > 0 && (
+          <div className="self-start">
+            <AmendDialog orderId={orderId} lines={amendLines} />
+          </div>
+        )}
       </div>
       <FrozenMeasurements rooms={rooms} />
     </>

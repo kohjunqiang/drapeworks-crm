@@ -73,8 +73,15 @@ export function Reconciliation({
   const errorCount = [...states.values()].filter(
     (s) => s.errors.length > 0,
   ).length;
+  // Null deltas mean the field does not currently parse; such a row is counted
+  // under "to fix", not under "resized", or an unreadable number would be
+  // reported as a difference nobody can see on the row.
   const resizedCount = [...states.values()].filter(
-    (s) => !s.overridden && (s.widthDeltaCm !== 0 || s.heightDeltaCm !== 0),
+    (s) =>
+      !s.overridden &&
+      s.widthDeltaCm != null &&
+      s.heightDeltaCm != null &&
+      (s.widthDeltaCm !== 0 || s.heightDeltaCm !== 0),
   ).length;
   const canConfirm = errorCount === 0 && lines.length > 0 && !pending;
 

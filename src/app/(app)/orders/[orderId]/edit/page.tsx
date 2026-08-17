@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { ConsultationForm } from "@/components/orders/consultation-form";
 import { MeshConsultationForm } from "@/components/orders/mesh-form";
@@ -15,6 +15,7 @@ import {
   loadActiveMeshSystemSpecs,
 } from "@/lib/db/mesh-catalogue";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
+import { isLocked } from "@/lib/status-flow";
 import {
   isToiletRoom,
   type OrderEditInput,
@@ -48,6 +49,7 @@ export default async function EditOrderPage({
       "orders.id as id",
       "orders.display_id as display_id",
       "orders.consultant_id as consultant_id",
+      "orders.current_status as current_status",
       "orders.product_line as product_line",
       "orders.property_type as property_type",
       "orders.development as development",
@@ -69,6 +71,14 @@ export default async function EditOrderPage({
     .where("orders.id", "=", orderId)
     .executeTakeFirst();
   if (!order) notFound();
+
+  // Once the order has gone to the vendor its measurements are being cut, and
+  // the consultation behind them is frozen. The Server Action and RLS both
+  // refuse the write; this exists so nobody spends ten minutes retyping a room
+  // before finding that out.
+  if (isLocked(order.current_status)) {
+    redirect(`/orders/${orderId}`);
+  }
 
   const isOwner = order.consultant_id === session.user.id;
   const isAdmin = session.profile.role === "admin";

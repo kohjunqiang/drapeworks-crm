@@ -50,3 +50,40 @@ export const confirmManufactureSchema = z.object({
   orderId: z.string().uuid(),
   lines: z.array(manufactureLineSchema).min(1),
 });
+
+// The amendment payload.
+//
+// Unlike the confirm payload this DOES carry manufacturing dimensions, because
+// there is nothing left to derive them from: the row was frozen at
+// confirmation and the point of an amendment is to replace those numbers with
+// ones a person chose. The deltas are still not accepted — the action
+// recomputes them against the STORED source, so source + delta = mfg keeps
+// holding.
+export const amendManufactureLineSchema = z.object({
+  lineId: z.string().uuid(),
+  mfgWidthCm: z
+    .number()
+    .int("Manufacturing width must be a whole number of centimetres")
+    .positive("Manufacturing width must be above zero"),
+  mfgHeightCm: z
+    .number()
+    .int("Manufacturing height must be a whole number of centimetres")
+    .positive("Manufacturing height must be above zero"),
+});
+
+// A reason is mandatory, not optional-with-a-default. An amendment changes what
+// a vendor is already building; the timeline note explaining why is the only
+// record anyone downstream will have.
+export const amendManufactureSchema = z.object({
+  orderId: z.string().uuid(),
+  lines: z
+    .array(amendManufactureLineSchema)
+    .min(1, "Change at least one measurement before amending"),
+  reason: z
+    .string()
+    .trim()
+    .min(1, "An amendment needs a reason")
+    .max(500, "Keep the reason under 500 characters"),
+});
+
+export type AmendManufactureInput = z.infer<typeof amendManufactureSchema>;

@@ -355,6 +355,20 @@ export default async function OrderDetailPage({
     .orderBy("created_at", "desc")
     .execute();
 
+  // Once the order is with the vendor the consultation is frozen. The date
+  // comes from the EARLIEST sent_to_vendor event: an admin amendment writes a
+  // second event at the same status, and "locked on" means when it happened,
+  // not when it was last touched.
+  const locked = isLocked(order.current_status);
+  const lockedAt = locked
+    ? (events
+        .filter((e) => e.status === "sent_to_vendor")
+        .reduce<Date | null>((earliest, e) => {
+          const at = new Date(e.created_at);
+          return earliest && earliest <= at ? earliest : at;
+        }, null) ?? null)
+    : null;
+
   const photos =
     roomIds.length === 0
       ? []
@@ -421,8 +435,9 @@ export default async function OrderDetailPage({
         </div>
         {(() => {
           const canEdit =
-            session.profile.role === "admin" ||
-            order.consultant_id === session.user.id;
+            !locked &&
+            (session.profile.role === "admin" ||
+              order.consultant_id === session.user.id);
           const isAdvancer =
             session.profile.role === "ops" ||
             session.profile.role === "admin";
@@ -436,10 +451,24 @@ export default async function OrderDetailPage({
               ? "Record deposit received"
               : undefined;
 
-          if (!canEdit && !isAdvancer) return null;
+          // A locked order still renders the row, so a consultant who can no
+          // longer edit is told why rather than shown an empty header.
+          if (!canEdit && !isAdvancer && !locked) return null;
 
           return (
             <div className="flex flex-wrap items-center gap-2">
+              {/* Stands in for Edit and Delete rather than sitting beside a
+                  disabled pair: a greyed-out button invites a click and then
+                  explains nothing. */}
+              {locked && (
+                <span
+                  title={`This order is at "${STATUS_LABELS[order.current_status]}". The consultation cannot be edited once it has gone to the vendor.`}
+                  className="px-2.5 py-1.5 text-xs sm:text-sm rounded border border-slate-300 bg-slate-100 text-slate-600"
+                >
+                  🔒 Locked — sent to the vendor
+                  {lockedAt && ` on ${formatDate(lockedAt)}`}
+                </span>
+              )}
               {canEdit && (
                 <Link
                   href={`/orders/${order.id}/edit`}
@@ -477,7 +506,7 @@ export default async function OrderDetailPage({
                   ctaLabel={ctaLabel}
                 />
               )}
-              {session.profile.role === "admin" && (
+              {session.profile.role === "admin" && !locked && (
                 <DeleteOrderDialog
                   orderId={order.id}
                   displayId={order.display_id}
@@ -609,13 +638,29 @@ export default async function OrderDetailPage({
                 </dd>
               </div>
             </dl>
-            {quote?.isStale && (
-              <RequoteBanner
-                orderId={order.id}
-                lockedCents={order.price_quoted_cents}
-                liveCents={quote.discountedSaleSgdCents}
-              />
-            )}
+            {/* The drift is still worth stating on a locked order — someone
+                may need to explain the number to the customer — but re-quoting
+                is an edit, and the goods are already being cut. */}
+            {quote?.isStale &&
+              (locked ? (
+                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  Pricing has since changed (now calculates to{" "}
+                  <span className="font-semibold">
+                    {formatSGD(quote.discountedSaleSgdCents)}
+                  </span>
+                  ), but this order is locked at{" "}
+                  <span className="font-semibold">
+                    {formatSGD(order.price_quoted_cents)}
+                  </span>
+                  .
+                </p>
+              ) : (
+                <RequoteBanner
+                  orderId={order.id}
+                  lockedCents={order.price_quoted_cents}
+                  liveCents={quote.discountedSaleSgdCents}
+                />
+              ))}
           </section>
 
           {quote && <QuoteCard quote={quote} />}

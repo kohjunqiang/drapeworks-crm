@@ -14,8 +14,10 @@ import {
   loadManufactureLines,
 } from "@/lib/manufacture/load";
 import { checkConfirmPreconditions } from "@/lib/manufacture/preconditions";
+import { STATUS_LABELS } from "@/lib/status-flow";
 import {
   allowanceSchema,
+  amendManufactureSchema,
   confirmManufactureSchema,
 } from "@/lib/validation/manufacture";
 
@@ -218,4 +220,121 @@ export async function confirmManufactureMeasurements(
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath(`/orders/${parsed.orderId}/manufacture`);
   revalidatePath("/orders");
+}
+
+/**
+ * Correct the manufacturing measurements of an order already with the vendor.
+ *
+ * The order STAYS at sent_to_vendor. An amendment corrects what the vendor is
+ * building; it is not a step backwards through the flow, and reverting the
+ * status would misdescribe where the order actually is.
+ *
+ * Rows are UPDATED, never re-inserted — there is exactly one measurement row
+ * per line item (two partial unique indexes enforce it), and the history of
+ * what changed lives in the status timeline, which the whole team already
+ * reads, rather than in a pile of superseded rows nobody looks at.
+ */
+export async function amendManufactureMeasurements(
+  input: unknown,
+): Promise<void> {
+  const session = await requireRole(["admin"]);
+  const parsed = parseOrThrow(
+    amendManufactureSchema,
+    input,
+    "That amendment is not valid.",
+  );
+
+  try {
+    await db.transaction().execute(async (trx) => {
+      const order = await trx
+        .selectFrom("orders")
+        .select("current_status")
+        .where("id", "=", parsed.orderId)
+        .executeTakeFirst();
+      if (!order) throw new AuthoredError("Order not found");
+
+      // Only from sent_to_vendor. Earlier and the measurements are not frozen
+      // yet (that is the reconciliation screen's job); later and the goods have
+      // shipped, so changing what we "told the vendor" would be fiction.
+      if (order.current_status !== "sent_to_vendor") {
+        throw new AuthoredError(
+          `This order is at "${STATUS_LABELS[order.current_status]}". Manufacturing measurements can only be amended while it is at "${STATUS_LABELS.sent_to_vendor}".`,
+        );
+      }
+
+      // Last-wins on a repeated id would silently drop one of the two edits.
+      const ids = new Set(parsed.lines.map((l) => l.lineId));
+      if (ids.size !== parsed.lines.length) {
+        throw new AuthoredError(
+          "The same line item was submitted twice. Reload and try again.",
+        );
+      }
+
+      const existing = await trx
+        .selectFrom("manufacture_measurements")
+        .select([
+          "id",
+          "window_id",
+          "mesh_panel_id",
+          "source_width_cm",
+          "source_height_cm",
+        ])
+        .where("order_id", "=", parsed.orderId)
+        .execute();
+
+      const byLine = new Map(
+        existing.map((r) => [(r.window_id ?? r.mesh_panel_id) as string, r]),
+      );
+
+      for (const line of parsed.lines) {
+        const row = byLine.get(line.lineId);
+        // No insert fallback on purpose: a line with no frozen row was never
+        // sent to the vendor, and inventing one here would put a measurement
+        // into the record that no reconciliation screen ever showed a human.
+        if (!row) {
+          throw new AuthoredError(
+            "That line item has no confirmed measurement on this order. Reload and try again.",
+          );
+        }
+
+        // Deltas are recomputed from the STORED source, never re-snapshotted
+        // from the window: source records what the set was originally derived
+        // from, and the order is locked so it cannot have moved.
+        await trx
+          .updateTable("manufacture_measurements")
+          .set({
+            mfg_width_cm: line.mfgWidthCm,
+            mfg_height_cm: line.mfgHeightCm,
+            width_delta_cm: line.mfgWidthCm - row.source_width_cm,
+            height_delta_cm: line.mfgHeightCm - row.source_height_cm,
+            is_overridden: true,
+            override_reason: parsed.reason,
+          })
+          .where("id", "=", row.id)
+          .execute();
+      }
+
+      // Same status, so validate_status_transition's "new = current" branch
+      // and the ose_insert_advance_or_note RLS policy both allow it. The
+      // amendment lands in the timeline the whole team already reads instead
+      // of in a log only a developer would find.
+      await trx
+        .insertInto("order_status_events")
+        .values({
+          order_id: parsed.orderId,
+          status: "sent_to_vendor",
+          note: `[MEASUREMENTS AMENDED] ${parsed.reason}`,
+          created_by: session.user.id,
+        })
+        .execute();
+    });
+  } catch (e) {
+    if (e instanceof AuthoredError) throw new Error(e.message);
+    throw new Error(
+      userMessage(e, "Could not amend the manufacturing measurements."),
+    );
+  }
+
+  revalidatePath(`/orders/${parsed.orderId}`);
+  revalidatePath(`/orders/${parsed.orderId}/manufacture`);
 }

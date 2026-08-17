@@ -3,6 +3,7 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
@@ -23,9 +24,33 @@ import {
 // fallback, since a constraint name in a toast helps nobody.
 class AuthoredError extends Error {}
 
+/**
+ * Parse, turning a ZodError into something a human can act on.
+ *
+ * A bare `schema.parse()` throws a ZodError, which Next.js masks in production
+ * to a generic server-error string — so "Allowance must be a whole number of
+ * centimetres" never reaches the toast. Doing this here means the action is
+ * self-sufficient: a caller that forgets to pre-validate still gets a readable
+ * message, rather than the guarantee resting on one screen remembering to.
+ */
+function parseOrThrow<T>(
+  schema: z.ZodType<T>,
+  input: unknown,
+  fallback: string,
+): T {
+  const result = schema.safeParse(input);
+  if (result.success) return result.data;
+  const messages = result.error.issues.map((i) => i.message).filter(Boolean);
+  throw new AuthoredError(messages.length ? messages.join(" ") : fallback);
+}
+
 export async function saveManufactureAllowance(input: unknown): Promise<void> {
   const session = await requireRole(["admin"]);
-  const parsed = allowanceSchema.parse(input);
+  const parsed = parseOrThrow(
+    allowanceSchema,
+    input,
+    "That allowance is not valid.",
+  );
 
   try {
     // updated_at is stamped by the manufacture_allowances_set_updated_at
@@ -71,7 +96,11 @@ export async function confirmManufactureMeasurements(
   input: unknown,
 ): Promise<void> {
   const session = await requireRole(["ops", "admin"]);
-  const parsed = confirmManufactureSchema.parse(input);
+  const parsed = parseOrThrow(
+    confirmManufactureSchema,
+    input,
+    "Those manufacturing measurements are not valid.",
+  );
 
   try {
     await db.transaction().execute(async (trx) => {

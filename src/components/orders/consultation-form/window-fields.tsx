@@ -17,6 +17,8 @@ export type CurtainTypeOption = {
   photoUrl: string | null;
   costRmbCents: number | null;
   saleSgdCents: number | null;
+  // Series name alone, for the live quote's cost breakdown.
+  seriesName: string | null;
 };
 
 const INPUT_CLS =

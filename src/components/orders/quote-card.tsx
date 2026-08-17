@@ -1,5 +1,5 @@
+import { CogsRoomRows } from "@/components/orders/cogs-rooms";
 import { formatSGD } from "@/lib/money";
-import { COGS_LABELS, visibleCogsLines } from "@/lib/pricing/cogs-labels";
 import type { OrderQuote } from "@/lib/pricing/order-quote";
 
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
@@ -83,14 +83,8 @@ export function QuoteCard({ quote }: { quote: OrderQuote }) {
           Cost breakdown
         </summary>
         <dl className="mt-2 space-y-1 text-xs text-slate-500">
-          {/* COGS itemised — goods, each add-on, the rail — so the figures
-              freight/other/GST are computed from are visible, not a lump. */}
-          {visibleCogsLines(quote.cogsLines).map((line) => (
-            <div key={line.key} className="flex justify-between">
-              <dt>{COGS_LABELS[line.key]}</dt>
-              <dd>{rmb(line.rmbCents)}</dd>
-            </div>
-          ))}
+          {/* COGS room by room, so it's visible which room drives the cost. */}
+          <CogsRoomRows rooms={quote.cogsRooms} extras={quote.cogsExtras} />
           <div className="flex justify-between">
             <dt>Freight (air)</dt>
             <dd>{rmb(quote.freightRmbCents)}</dd>

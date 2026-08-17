@@ -265,47 +265,52 @@ describe("panelQuote", () => {
   });
 });
 
-// The breakdown the cost panel renders: mesh, colour surcharge and double-draw
-// hardware on their own lines, disjoint, summing to the COGS that freight /
-// other / GST are then charged on.
-describe("computeMeshQuote — itemised COGS", () => {
-  const cogsLine = (q: ReturnType<typeof computeMeshQuote>, key: string) =>
-    q.cogsLines.find((l) => l.key === key)?.rmbCents;
+// The mesh half of the same breakdown: panels grouped under their room, named
+// by category, still summing to COGS.
+describe("computeMeshQuote — cost breakdown by room", () => {
+  const inRoom = (roomIndex: number, roomLabel: string, over = {}) =>
+    panel({
+      roomIndex,
+      roomLabel,
+      itemDetail: "AirGuard",
+      ...over,
+    });
 
-  it("separates the mesh from the colour and double-draw surcharges", () => {
-    const q = computeMeshQuote(
-      [panel({ colourId: BRONZE, draw: "Double" })],
-      BOOK,
-      ASSUMPTIONS,
-    );
-    expect(cogsLine(q, "colour")).toBe(2000); // Bronze, per panel
-    expect(cogsLine(q, "double_draw")).toBe(4000); // System 55 hardware
-    expect(cogsLine(q, "mesh")).toBe(
-      q.cogsRmbCents - 2000 - 4000, // the rest is area × rate
-    );
-  });
-
-  it("the lines sum to COGS exactly — no component double-counted or dropped", () => {
+  it("groups panels under their room and names the category", () => {
     const q = computeMeshQuote(
       [
-        panel(),
-        panel({ colourId: BRONZE, draw: "Double" }),
-        panel({ categoryId: UNPRICED }),
+        inRoom(0, "Balcony"),
+        inRoom(0, "Balcony", { draw: "Double" }),
+        inRoom(1, "Kitchen"),
       ],
       BOOK,
       ASSUMPTIONS,
     );
-    const sum = q.cogsLines.reduce((n, l) => n + l.rmbCents, 0);
-    expect(sum).toBe(q.cogsRmbCents);
+    expect(q.cogsRooms.map((r) => r.label)).toEqual(["Balcony", "Kitchen"]);
+    expect(q.cogsRooms[0].items.map((i) => i.label)).toEqual([
+      "Panel 1",
+      "Panel 2",
+    ]);
+    expect(q.cogsRooms[0].items[0].detail).toBe("AirGuard");
   });
 
-  it("neither other cost nor GST appears as a COGS component", () => {
-    const q = computeMeshQuote([panel({ colourId: BRONZE })], BOOK, ASSUMPTIONS);
-    expect(q.otherCostRmbCents).toBe(Math.round((q.cogsRmbCents * 1000) / 10000));
-    expect(q.gstRmbCents).toBe(Math.round((q.cogsRmbCents * 900) / 10000));
-    expect(q.grossCostRmbCents).toBe(
-      q.cogsRmbCents + q.freightRmbCents + q.otherCostRmbCents + q.gstRmbCents,
+  it("room subtotals sum to COGS", () => {
+    const q = computeMeshQuote(
+      [inRoom(0, "Balcony"), inRoom(1, "Kitchen", { colourId: BRONZE })],
+      BOOK,
+      ASSUMPTIONS,
     );
+    expect(q.cogsRooms.reduce((n, r) => n + r.rmbCents, 0)).toBe(q.cogsRmbCents);
+  });
+
+  it("a panel's row carries its surcharges, not just the mesh", () => {
+    const q = computeMeshQuote(
+      [inRoom(0, "Balcony", { colourId: BRONZE, draw: "Double" })],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    // area cost + Bronze 2000 + System 55 double-draw 4000.
+    expect(q.cogsRooms[0].items[0].rmbCents).toBe(COST_15000 + 2000 + 4000);
   });
 });
 

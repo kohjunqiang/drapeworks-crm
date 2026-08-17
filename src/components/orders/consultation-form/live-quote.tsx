@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
+import { CogsRoomRows } from "@/components/orders/cogs-rooms";
 import type { ActiveCombo } from "@/lib/db/combos";
 import { formatSGD } from "@/lib/money";
 import {
@@ -11,7 +12,6 @@ import {
   type CalcWindow,
   type SeriesPrice,
 } from "@/lib/pricing/calculator";
-import { COGS_LABELS, visibleCogsLines } from "@/lib/pricing/cogs-labels";
 import type { CalcConfig } from "@/lib/pricing/order-quote";
 import type { OrderEditInput } from "@/lib/validation/order";
 
@@ -54,6 +54,7 @@ export function LiveQuote({
       m.set(c.id, {
         costRmbCents: c.costRmbCents,
         saleSgdCents: c.saleSgdCents,
+        label: c.seriesName,
       });
     }
     return m;
@@ -69,13 +70,18 @@ export function LiveQuote({
     const priceOf = (id: string | undefined): SeriesPrice | null =>
       id ? (priceById.get(id) ?? null) : null;
 
-    const windows: CalcWindow[] = (rooms ?? []).flatMap((r) =>
+    const windows: CalcWindow[] = (rooms ?? []).flatMap((r, roomIndex) =>
       (r?.windows ?? []).map((w) => {
+        // Carried through pricing untouched, for the cost breakdown's room →
+        // window tree. The label is whatever the consultant typed; a room they
+        // haven't named yet falls back to its number.
+        const where = { roomIndex, roomLabel: r?.label || null };
         // A blind carries no curtain, no add-ons and no combo — mirroring
         // windowValues on the server so the live figure and the saved quote
         // agree on what a blind window costs.
         if (w.variant === "blind") {
           return {
+            ...where,
             widthCm: toWidthCm(w.width_cm),
             blindPrice: priceOf(w.blind_type_id || undefined),
             addSFold: false,
@@ -91,6 +97,7 @@ export function LiveQuote({
           ? undefined
           : (w as { combo_id?: string }).combo_id;
         return {
+          ...where,
           widthCm: toWidthCm(w.width_cm),
           dayPrice: priceOf(dayId || undefined),
           nightPrice: priceOf(nightId || undefined),
@@ -201,15 +208,9 @@ export function LiveQuote({
               China costs (RMB)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
-              {/* One row per cost component — goods, each add-on, the rail —
-                  rather than a single lump, so the consultant can see what the
-                  COGS is actually made of. */}
-              {visibleCogsLines(quote.cogsLines).map((line) => (
-                <div key={line.key} className="flex justify-between">
-                  <dt>{COGS_LABELS[line.key]}</dt>
-                  <dd>{rmb(line.rmbCents)}</dd>
-                </div>
-              ))}
+              {/* Room by room, window by window — so it's clear which window
+                  is carrying the cost, not just what the order totals. */}
+              <CogsRoomRows rooms={quote.cogsRooms} extras={quote.cogsExtras} />
               <div className="flex justify-between">
                 <dt>Freight ({freightMode === "sea" ? "sea" : "air"})</dt>
                 <dd>{rmb(quote.freightRmbCents)}</dd>

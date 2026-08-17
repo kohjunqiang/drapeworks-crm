@@ -3,9 +3,9 @@
 import { useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
+import { CogsRoomRows } from "@/components/orders/cogs-rooms";
 import { useQuoteAutofill } from "@/components/orders/consultation-form/use-quote-autofill";
 import { formatSGD } from "@/lib/money";
-import { COGS_LABELS, visibleCogsLines } from "@/lib/pricing/cogs-labels";
 import {
   computeMeshQuote,
   meshQuoteWarnings,
@@ -39,9 +39,17 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
   const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
 
+  // Category names for the cost breakdown — the price book is keyed by id and
+  // carries no names, so the panel brings its own label to pricing.
+  const categoryNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of config.categories) m.set(c.id, c.name);
+    return m;
+  }, [config.categories]);
+
   const panels: MeshPanel[] = useMemo(() => {
     const out: MeshPanel[] = [];
-    for (const room of rooms ?? []) {
+    (rooms ?? []).forEach((room, roomIndex) => {
       for (const p of room?.panels ?? []) {
         out.push({
           categoryId: p?.category_id || null,
@@ -49,11 +57,16 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
           widthCm: toNum(p?.width_cm),
           heightCm: toNum(p?.height_cm),
           draw: p?.draw ?? null,
+          roomIndex,
+          roomLabel: room?.label || null,
+          itemDetail: p?.category_id
+            ? (categoryNameById.get(p.category_id) ?? null)
+            : null,
         });
       }
-    }
+    });
     return out;
-  }, [rooms]);
+  }, [rooms, categoryNameById]);
 
   const quote = useMemo(
     () =>
@@ -164,14 +177,8 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
               China costs (RMB)
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
-              {/* One row per cost component — mesh, colour surcharge,
-                  double-draw hardware — rather than a single lump. */}
-              {visibleCogsLines(quote.cogsLines).map((line) => (
-                <div key={line.key} className="flex justify-between">
-                  <dt>{COGS_LABELS[line.key]}</dt>
-                  <dd>{rmb(line.rmbCents)}</dd>
-                </div>
-              ))}
+              {/* Room by room, panel by panel. */}
+              <CogsRoomRows rooms={quote.cogsRooms} extras={quote.cogsExtras} />
               <div className="flex justify-between">
                 <dt>Freight ({freightMode === "sea" ? "sea" : "air"})</dt>
                 <dd>{rmb(quote.freightRmbCents)}</dd>

@@ -54,14 +54,9 @@ describe("windowQuote", () => {
       saleSgdCents: 47600,
       curtainCostRmbCents: 28560,
       offering: "single",
-      // COGS itemised: 28560 fabric + 3080 s-fold + 2500 rail = 34140.
-      cogs: {
-        curtains: 28560,
-        blinds: 0,
-        sFold: 3080,
-        slimTracks: 0,
-        track: 2500,
-      },
+      // Reported apart so the breakdown can list the rails on their own line.
+      trackRmbCents: 2500,
+      trackKind: "single",
     });
   });
 
@@ -85,14 +80,8 @@ describe("windowQuote", () => {
       saleSgdCents: 54000,
       curtainCostRmbCents: 61200,
       offering: "double",
-      // 61200 fabric + 2500 double rail = 63700; no add-ons ordered.
-      cogs: {
-        curtains: 61200,
-        blinds: 0,
-        sFold: 0,
-        slimTracks: 0,
-        track: 2500,
-      },
+      trackRmbCents: 2500,
+      trackKind: "double",
     });
   });
 
@@ -147,103 +136,231 @@ describe("windowQuote", () => {
       saleSgdCents: 0,
       curtainCostRmbCents: 0,
       offering: "none",
-      cogs: {
-        curtains: 0,
-        blinds: 0,
-        sFold: 0,
-        slimTracks: 0,
-        track: 0,
-      },
+      // No curtain, so no rail to buy.
+      trackRmbCents: 0,
+      trackKind: null,
     });
   });
 });
 
-// The breakdown the cost panel renders. Its whole point is that the parts are
-// disjoint — a component appears on exactly one line, and the lines sum to the
-// COGS that freight/other/GST are then charged on. Nothing is counted twice.
-describe("computeQuote — itemised COGS", () => {
-  const cogsLine = (q: ReturnType<typeof computeQuote>, key: string) =>
-    q.cogsLines.find((l) => l.key === key)?.rmbCents;
+// The breakdown the cost panel renders: COGS room by room, window by window.
+// The room subtotals must still add up to the COGS that freight, other cost and
+// GST are charged on — nothing counted twice, nothing dropped.
+describe("computeQuote — cost breakdown by room", () => {
+  const ESSENTIAL = { ...SIGNATURE, label: "Essential" };
+  const NIGHT = { ...SIGNATURE, label: "Signature" };
 
-  it("splits COGS into goods, each add-on and the rail", () => {
-    const q = computeQuote(
+  const order = () =>
+    computeQuote(
       [
         {
+          roomIndex: 0,
+          roomLabel: "Living Room",
           widthCm: 280,
-          dayPrice: SIGNATURE,
-          nightPrice: null,
+          dayPrice: ESSENTIAL,
+          nightPrice: NIGHT,
           addSFold: true,
-          addSlimTracks: true,
-        },
-      ],
-      BOOK,
-      ASSUMPTIONS,
-    );
-    // fabric 2.8×2×5100, s-fold 2.8×1100, slim 2.8×3500, single rail 2500
-    expect(cogsLine(q, "curtains")).toBe(28560);
-    expect(cogsLine(q, "s_fold")).toBe(3080);
-    expect(cogsLine(q, "slim_tracks")).toBe(9800);
-    expect(cogsLine(q, "track")).toBe(2500);
-    expect(cogsLine(q, "blinds")).toBe(0);
-  });
-
-  it("the lines sum to COGS exactly — no component double-counted or dropped", () => {
-    const q = computeQuote(
-      [
-        {
-          widthCm: 280,
-          dayPrice: SIGNATURE,
-          nightPrice: SIGNATURE,
-          addSFold: true,
-          addSlimTracks: true,
-        },
-        {
-          widthCm: 150,
-          blindPrice: SIGNATURE,
-          addSFold: false,
           addSlimTracks: false,
         },
-      ],
-      BOOK,
-      ASSUMPTIONS,
-    );
-    const sum = q.cogsLines.reduce((n, l) => n + l.rmbCents, 0);
-    expect(sum).toBe(q.cogsRmbCents);
-  });
-
-  it("a blind's goods land on the blinds line, not the curtains one", () => {
-    const q = computeQuote(
-      [
         {
+          roomIndex: 0,
+          roomLabel: "Living Room",
           widthCm: 150,
-          blindPrice: SIGNATURE,
-          addSFold: false,
-          addSlimTracks: false,
-        },
-      ],
-      BOOK,
-      ASSUMPTIONS,
-    );
-    expect(cogsLine(q, "blinds")).toBe(7650); // 1.5×5100, no style multiplier
-    expect(cogsLine(q, "curtains")).toBe(0);
-    expect(cogsLine(q, "track")).toBe(0); // a blind carries its own headrail
-  });
-
-  it("neither other cost nor GST appears as a COGS component", () => {
-    const q = computeQuote(
-      [
-        {
-          widthCm: 280,
-          dayPrice: SIGNATURE,
+          dayPrice: ESSENTIAL,
           nightPrice: null,
           addSFold: false,
           addSlimTracks: false,
         },
+        {
+          roomIndex: 1,
+          roomLabel: "Bedroom",
+          widthCm: 150,
+          blindPrice: { ...SIGNATURE, label: "Korean Combi" },
+          addSFold: false,
+          addSlimTracks: false,
+        },
       ],
       BOOK,
       ASSUMPTIONS,
     );
-    // They are charged ON the COGS, so folding either back in would compound.
+
+  it("groups windows under their room, in capture order", () => {
+    const rooms = order().cogsRooms;
+    expect(rooms.map((r) => r.label)).toEqual(["Living Room", "Bedroom"]);
+    expect(rooms[0].items.map((i) => i.label)).toEqual(["Window 1", "Window 2"]);
+    // Numbered within the room, not across the order.
+    expect(rooms[1].items.map((i) => i.label)).toEqual(["Window 1"]);
+  });
+
+  it("names each window by the series it was quoted from", () => {
+    const rooms = order().cogsRooms;
+    // Day and night from different series — both named, in that order.
+    expect(rooms[0].items[0].detail).toBe("Essential + Signature");
+    // Day only.
+    expect(rooms[0].items[1].detail).toBe("Essential");
+    // A blind says so: it is priced by different rules.
+    expect(rooms[1].items[0].detail).toBe("Korean Combi (blind)");
+  });
+
+  it("says a series once when day and night share it", () => {
+    const q = computeQuote(
+      [
+        {
+          roomIndex: 0,
+          roomLabel: "Study",
+          widthCm: 200,
+          dayPrice: ESSENTIAL,
+          nightPrice: { ...ESSENTIAL },
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.cogsRooms[0].items[0].detail).toBe("Essential");
+  });
+
+  it("leaves the detail null when the series has no name", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 200,
+          dayPrice: SIGNATURE, // no label
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.cogsRooms[0].items[0].detail).toBeNull();
+  });
+
+  it("rooms plus the rails sum to COGS, and each room to its windows", () => {
+    const q = order();
+    const rooms = q.cogsRooms.reduce((n, r) => n + r.rmbCents, 0);
+    const extras = q.cogsExtras.reduce((n, e) => n + e.rmbCents, 0);
+    expect(rooms + extras).toBe(q.cogsRmbCents);
+    for (const room of q.cogsRooms) {
+      expect(room.items.reduce((n, i) => n + i.rmbCents, 0)).toBe(room.rmbCents);
+    }
+  });
+
+  it("a window's row carries its add-ons but NOT its rail", () => {
+    const q = computeQuote(
+      [
+        {
+          roomIndex: 0,
+          roomLabel: "Living Room",
+          widthCm: 280,
+          dayPrice: ESSENTIAL,
+          nightPrice: null,
+          addSFold: true,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    // fabric 28560 + s-fold 3080. The 2500 rail is counted separately.
+    expect(q.cogsRooms[0].items[0].rmbCents).toBe(31640);
+    expect(q.cogsExtras).toEqual([
+      { label: "Track (single)", count: 1, rmbCents: 2500 },
+    ]);
+  });
+
+  it("counts the rails once for the whole order, not once per window", () => {
+    const win = (roomIndex: number) => ({
+      roomIndex,
+      roomLabel: `Room ${roomIndex + 1}`,
+      widthCm: 200,
+      dayPrice: ESSENTIAL,
+      nightPrice: null,
+      addSFold: false,
+      addSlimTracks: false,
+    });
+    const q = computeQuote(
+      [win(0), win(1), win(2), win(3)],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    // Four windows, one rail each: ONE line of four, not four lines.
+    expect(q.cogsExtras).toEqual([
+      { label: "Track (single)", count: 4, rmbCents: 4 * 2500 },
+    ]);
+  });
+
+  it("keeps single and double rails on separate lines — different hardware", () => {
+    const single = {
+      roomIndex: 0,
+      roomLabel: "Living Room",
+      widthCm: 200,
+      dayPrice: ESSENTIAL,
+      nightPrice: null,
+      addSFold: false,
+      addSlimTracks: false,
+    };
+    const double = { ...single, nightPrice: NIGHT };
+    const q = computeQuote([single, double, double], BOOK, ASSUMPTIONS);
+    expect(q.cogsExtras).toEqual([
+      { label: "Track (single)", count: 1, rmbCents: 2500 },
+      { label: "Track (double)", count: 2, rmbCents: 5000 },
+    ]);
+  });
+
+  it("a blind contributes no rail — it carries its own headrail", () => {
+    const q = computeQuote(
+      [
+        {
+          roomIndex: 0,
+          roomLabel: "Bedroom",
+          widthCm: 150,
+          blindPrice: { ...SIGNATURE, label: "Korean Combi" },
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.cogsExtras).toEqual([]);
+  });
+
+  it("keeps two rooms of the same name apart", () => {
+    const win = (roomIndex: number) => ({
+      roomIndex,
+      roomLabel: "Bedroom",
+      widthCm: 200,
+      dayPrice: ESSENTIAL,
+      addSFold: false,
+      addSlimTracks: false,
+    });
+    const q = computeQuote([win(0), win(1)], BOOK, ASSUMPTIONS);
+    expect(q.cogsRooms).toHaveLength(2);
+    expect(q.cogsRooms.every((r) => r.items.length === 1)).toBe(true);
+  });
+
+  it("falls back to the room's number when it hasn't been named", () => {
+    const q = computeQuote(
+      [
+        {
+          roomIndex: 2,
+          roomLabel: null,
+          widthCm: 200,
+          dayPrice: ESSENTIAL,
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.cogsRooms[0].label).toBe("Room 3");
+  });
+
+  it("neither other cost nor GST appears as a room — they are charged ON the COGS", () => {
+    const q = order();
     expect(q.otherCostRmbCents).toBe(Math.round((q.cogsRmbCents * 1000) / 10000));
     expect(q.gstRmbCents).toBe(Math.round((q.cogsRmbCents * 900) / 10000));
     expect(q.grossCostRmbCents).toBe(

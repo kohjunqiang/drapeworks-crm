@@ -308,6 +308,10 @@ type MeshPanelRow = {
   width_cm: number | null;
   height_cm: number | null;
   draw: MeshDraw | null;
+  // Presentation only, for the cost breakdown's room -> panel tree.
+  room_label: string | null;
+  room_position: number | null;
+  category_name: string | null;
 };
 
 const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
@@ -317,34 +321,54 @@ const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
   heightCm: p.height_cm,
   // Carried into pricing because a double draw attracts a system surcharge.
   draw: p.draw,
+  roomIndex: p.room_position ?? undefined,
+  roomLabel: p.room_label,
+  itemDetail: p.category_name,
 });
 
 // The window row shape (window measurement/toggles + its resolved day/night/
 // toilet series prices + combo price) that both the single-order quote and the
 // batched staleness sweep select and map into a `CalcWindow`.
 type WindowPriceRow = {
+  // Room identity, for the cost breakdown's room -> window tree. Position (not
+  // the label) groups, so two rooms both called "Bedroom" stay two rooms.
+  room_label: string | null;
+  room_position: number | null;
   width_cm: number | null;
   add_s_fold: boolean;
   add_slim_tracks: boolean;
   day_cost: number | null;
   day_sale: number | null;
+  day_series: string | null;
   night_cost: number | null;
   night_sale: number | null;
+  night_series: string | null;
   toilet_cost: number | null;
   toilet_sale: number | null;
+  toilet_series: string | null;
   blind_cost: number | null;
   blind_sale: number | null;
+  blind_series: string | null;
   combo_price: number | null;
 };
 
 function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
+  // Presentation only — never priced on. `position` is 0-based, matching the
+  // roomIndex the live quote passes, so both surfaces number rooms alike.
+  const where = { roomIndex: w.room_position ?? undefined, roomLabel: w.room_label };
+
   // A blind occupies the window instead of curtains, so it short-circuits:
   // no day/night leg, no add-ons, no combo. windowQuote applies the same rule
   // itself, but sending clean input keeps the two engines honest.
   if (w.blind_sale != null || w.blind_cost != null) {
     return {
+      ...where,
       widthCm: w.width_cm,
-      blindPrice: { costRmbCents: w.blind_cost, saleSgdCents: w.blind_sale },
+      blindPrice: {
+        costRmbCents: w.blind_cost,
+        saleSgdCents: w.blind_sale,
+        label: w.blind_series,
+      },
       addSFold: false,
       addSlimTracks: false,
       comboPriceSgdCents: null,
@@ -355,15 +379,28 @@ function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
   // the day leg.
   const dayPrice =
     w.day_sale != null || w.day_cost != null
-      ? { costRmbCents: w.day_cost, saleSgdCents: w.day_sale }
+      ? {
+          costRmbCents: w.day_cost,
+          saleSgdCents: w.day_sale,
+          label: w.day_series,
+        }
       : w.toilet_sale != null || w.toilet_cost != null
-        ? { costRmbCents: w.toilet_cost, saleSgdCents: w.toilet_sale }
+        ? {
+            costRmbCents: w.toilet_cost,
+            saleSgdCents: w.toilet_sale,
+            label: w.toilet_series,
+          }
         : null;
   const nightPrice =
     w.night_sale != null || w.night_cost != null
-      ? { costRmbCents: w.night_cost, saleSgdCents: w.night_sale }
+      ? {
+          costRmbCents: w.night_cost,
+          saleSgdCents: w.night_sale,
+          label: w.night_series,
+        }
       : null;
   return {
+    ...where,
     widthCm: w.width_cm,
     dayPrice,
     nightPrice,
@@ -436,20 +473,29 @@ export async function computeOrderQuote(
       .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
       .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
       .select([
+        "rooms.label as room_label",
+        "rooms.position as room_position",
         "windows.width_cm as width_cm",
         "windows.add_s_fold as add_s_fold",
         "windows.add_slim_tracks as add_slim_tracks",
         "dcs.cost_rmb_cents as day_cost",
         "dcs.sale_sgd_cents as day_sale",
+        "dcs.name as day_series",
         "ncs.cost_rmb_cents as night_cost",
         "ncs.sale_sgd_cents as night_sale",
+        "ncs.name as night_series",
         "tcs.cost_rmb_cents as toilet_cost",
         "tcs.sale_sgd_cents as toilet_sale",
+        "tcs.name as toilet_series",
         "bcs.cost_rmb_cents as blind_cost",
         "bcs.sale_sgd_cents as blind_sale",
+        "bcs.name as blind_series",
         "pc.price_sgd_cents as combo_price",
       ])
       .where("rooms.order_id", "=", orderId)
+      // The breakdown lists rooms and windows in capture order.
+      .orderBy("rooms.position", "asc")
+      .orderBy("windows.position", "asc")
       .execute(),
     db
       .selectFrom("pricing_assumptions")
@@ -475,14 +521,25 @@ export async function computeOrderQuote(
             await db
               .selectFrom("mesh_panels")
               .innerJoin("rooms", "rooms.id", "mesh_panels.room_id")
+              .leftJoin(
+                "mesh_categories",
+                "mesh_categories.id",
+                "mesh_panels.category_id",
+              )
               .select([
                 "mesh_panels.category_id as category_id",
                 "mesh_panels.colour_id as colour_id",
                 "mesh_panels.width_cm as width_cm",
                 "mesh_panels.height_cm as height_cm",
                 "mesh_panels.draw as draw",
+                "rooms.label as room_label",
+                "rooms.position as room_position",
+                "mesh_categories.name as category_name",
               ])
               .where("rooms.order_id", "=", orderId)
+              // The breakdown lists rooms and panels in capture order.
+              .orderBy("rooms.position", "asc")
+              .orderBy("mesh_panels.position", "asc")
               .execute()
           ).map(rowToMeshPanel),
           await loadMeshPriceBook(),
@@ -569,17 +626,23 @@ export async function orderStaleFlags(
         .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
         .select([
           "rooms.order_id as order_id",
+          "rooms.label as room_label",
+          "rooms.position as room_position",
           "windows.width_cm as width_cm",
           "windows.add_s_fold as add_s_fold",
           "windows.add_slim_tracks as add_slim_tracks",
           "dcs.cost_rmb_cents as day_cost",
           "dcs.sale_sgd_cents as day_sale",
+        "dcs.name as day_series",
           "ncs.cost_rmb_cents as night_cost",
           "ncs.sale_sgd_cents as night_sale",
+        "ncs.name as night_series",
           "tcs.cost_rmb_cents as toilet_cost",
           "tcs.sale_sgd_cents as toilet_sale",
+        "tcs.name as toilet_series",
           "bcs.cost_rmb_cents as blind_cost",
           "bcs.sale_sgd_cents as blind_sale",
+        "bcs.name as blind_series",
           "pc.price_sgd_cents as combo_price",
         ])
         .where("rooms.order_id", "in", orderIds)
@@ -590,6 +653,11 @@ export async function orderStaleFlags(
       db
         .selectFrom("mesh_panels")
         .innerJoin("rooms", "rooms.id", "mesh_panels.room_id")
+        .leftJoin(
+          "mesh_categories",
+          "mesh_categories.id",
+          "mesh_panels.category_id",
+        )
         .select([
           "rooms.order_id as order_id",
           "mesh_panels.category_id as category_id",
@@ -597,6 +665,9 @@ export async function orderStaleFlags(
           "mesh_panels.width_cm as width_cm",
           "mesh_panels.height_cm as height_cm",
           "mesh_panels.draw as draw",
+          "rooms.label as room_label",
+          "rooms.position as room_position",
+          "mesh_categories.name as category_name",
         ])
         .where("rooms.order_id", "in", orderIds)
         .execute(),

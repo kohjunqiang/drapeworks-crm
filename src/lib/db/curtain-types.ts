@@ -74,6 +74,10 @@ export type CurtainTypeOptionRow = {
   // Series pricing, so the live quote can price a selection client-side.
   costRmbCents: number | null;
   saleSgdCents: number | null;
+  // The series name on its own ("Essential"), so the live quote's cost
+  // breakdown can name what the goods are. `label` above has it baked into a
+  // longer display string and can't be split back out reliably.
+  seriesName: string | null;
 };
 
 // Active curtain types for the consultation form's pickers, with signed hero
@@ -120,6 +124,7 @@ export async function loadActiveCurtainTypeOptions(): Promise<
     photoUrl: r.photo_path ? (urls.get(r.photo_path) ?? null) : null,
     costRmbCents: r.cost_rmb_cents,
     saleSgdCents: r.sale_sgd_cents,
+    seriesName: r.series_name,
   }));
 }
 

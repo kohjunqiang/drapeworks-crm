@@ -21,6 +21,8 @@ import type { MeshDraw } from "@/lib/validation/mesh";
 
 import {
   finaliseQuote,
+  groupIntoRooms,
+  type BreakdownIdentity,
   type CalcAssumptions,
   type FreightMode,
   type QuoteResult,
@@ -33,7 +35,10 @@ export type MeshCalcAssumptions = CalcAssumptions & {
   handymanMeshSgdCents: number;
 };
 
-export type MeshPanel = {
+// `BreakdownIdentity` adds the room it sits in and the category name to show
+// beside it — presentation only, carried so the cost breakdown can list panels
+// room by room. The price book is keyed by id and holds no names.
+export type MeshPanel = BreakdownIdentity & {
   categoryId: string | null;
   colourId: string | null;
   widthCm: number | null;
@@ -217,51 +222,31 @@ export function panelBillableArea(
   };
 }
 
-/** A panel's price, itemised. The three sum to what `panelQuote` returns. */
-export type PanelParts = { mesh: Money; colour: Money; double: Money };
-
-const ZERO_PARTS: PanelParts = { mesh: ZERO, colour: ZERO, double: ZERO };
-
-// The category's per-ft² rate scaled by this panel's area, the colour's flat
-// surcharge, and — on a double draw — the system's flat surcharge, kept apart
-// so the cost breakdown can show them one per line. Neither surcharge is
-// scaled: both are per-panel charges, not per-ft² ones.
-//
-// An unpriced category or an unmeasured panel zeroes the WHOLE panel, colour
-// surcharge included — a surcharge on a panel we can't price is not a charge.
-export function panelParts(p: MeshPanel, book: MeshPriceBook): PanelParts {
+// The category's per-ft² rate scaled by this panel's area, plus the colour's
+// flat surcharge and — on a double draw — the system's flat surcharge. Neither
+// surcharge is scaled: both are per-panel charges, not per-ft² ones.
+export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
   const rate = rateFor(p, book);
-  if (!rate) return ZERO_PARTS;
+  if (!rate) return ZERO;
 
   // The floored area, not the measured one — and the same figure on both
   // sides, so a minimum never flatters the margin.
   const billable = panelBillableArea(p, book);
-  if (billable == null) return ZERO_PARTS;
+  if (billable == null) return ZERO;
   const area = billable.billableCm2;
 
   const colour = p.colourId ? book.colours[p.colourId] : undefined;
+  const double = doubleDrawSurcharge(p, book);
 
-  return {
-    mesh: {
-      costRmbCents: scaleByArea(area, rate.costRmbCentsPerSqft ?? 0),
-      saleSgdCents: scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0),
-    },
-    colour: {
-      costRmbCents: colour?.costRmbCents ?? 0,
-      saleSgdCents: colour?.saleSgdCents ?? 0,
-    },
-    double: doubleDrawSurcharge(p, book),
-  };
-}
-
-/** The panel's total — mesh + colour + double-draw hardware. */
-export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
-  const { mesh, colour, double } = panelParts(p, book);
   return {
     costRmbCents:
-      mesh.costRmbCents + colour.costRmbCents + double.costRmbCents,
+      scaleByArea(area, rate.costRmbCentsPerSqft ?? 0) +
+      (colour?.costRmbCents ?? 0) +
+      double.costRmbCents,
     saleSgdCents:
-      mesh.saleSgdCents + colour.saleSgdCents + double.saleSgdCents,
+      scaleByArea(area, rate.saleSgdCentsPerSqft ?? 0) +
+      (colour?.saleSgdCents ?? 0) +
+      double.saleSgdCents,
   };
 }
 
@@ -275,40 +260,29 @@ export function computeMeshQuote(
 ): QuoteResult {
   const totals = panels.reduce(
     (acc, p) => {
-      const parts = panelParts(p, book);
+      const q = panelQuote(p, book);
       return {
-        costRmbCents:
-          acc.costRmbCents +
-          parts.mesh.costRmbCents +
-          parts.colour.costRmbCents +
-          parts.double.costRmbCents,
-        saleSgdCents:
-          acc.saleSgdCents +
-          parts.mesh.saleSgdCents +
-          parts.colour.saleSgdCents +
-          parts.double.saleSgdCents,
-        meshRmbCents: acc.meshRmbCents + parts.mesh.costRmbCents,
-        colourRmbCents: acc.colourRmbCents + parts.colour.costRmbCents,
-        doubleRmbCents: acc.doubleRmbCents + parts.double.costRmbCents,
+        costRmbCents: acc.costRmbCents + q.costRmbCents,
+        saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
+        breakdown: [
+          ...acc.breakdown,
+          { ...p, detail: p.itemDetail ?? null, rmbCents: q.costRmbCents },
+        ],
       };
     },
     {
       costRmbCents: 0,
       saleSgdCents: 0,
-      meshRmbCents: 0,
-      colourRmbCents: 0,
-      doubleRmbCents: 0,
+      breakdown: [] as (MeshPanel & { detail: string | null; rmbCents: number })[],
     },
   );
 
   return finaliseQuote(
     {
       cogsRmbCents: totals.costRmbCents,
-      cogsLines: [
-        { key: "mesh", rmbCents: totals.meshRmbCents },
-        { key: "colour", rmbCents: totals.colourRmbCents },
-        { key: "double_draw", rmbCents: totals.doubleRmbCents },
-      ],
+      cogsRooms: groupIntoRooms(totals.breakdown, "Panel"),
+      // Mesh buys no rails: a panel's own system hardware is priced into it.
+      cogsExtras: [],
       // Unlike curtains, mesh bills freight on the full panel COGS — there are
       // no add-ons or tracks to exclude.
       freightBaseRmbCents: totals.costRmbCents,

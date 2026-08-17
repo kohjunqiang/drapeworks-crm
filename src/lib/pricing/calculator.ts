@@ -38,6 +38,65 @@ export type CalcAssumptions = {
 export type SeriesPrice = {
   costRmbCents: number | null;
   saleSgdCents: number | null;
+  /**
+   * The series this price came from ("Essential", "Signature", …), carried so
+   * the cost breakdown can say what a window is made of. Never read by the
+   * arithmetic — a missing name costs a label, not a price.
+   */
+  label?: string | null;
+};
+
+// ── the cost breakdown ───────────────────────────────────────────────────
+//
+// COGS shown the way the order was captured: room by room, window by window. A
+// single lump says the order costs ¥723; this says which window is carrying it.
+// Labels come from the caller — pricing never invents them — and no arithmetic
+// reads any of this.
+//
+// Both product lines share these types because `finaliseQuote` is shared: it
+// passes the tree through without knowing which engine built it.
+
+/** One measured thing — a window, or a mesh panel — and what it cost us. */
+export type CogsItem = {
+  /** "Window 1", "Panel 2". */
+  label: string;
+  /** What it's made of: the series name(s), or the mesh category. */
+  detail: string | null;
+  rmbCents: number;
+};
+
+/** One room, its subtotal, and the items under it. */
+export type CogsRoom = {
+  label: string;
+  rmbCents: number;
+  items: CogsItem[];
+};
+
+/**
+ * An order-level cost line that belongs to no single window — today, the rails.
+ *
+ * A rail is hardware we buy per window and never bill, so burying it inside a
+ * window's figure makes that figure look like the fabric price and isn't. It is
+ * pulled out and counted instead: one line per kind of rail, with how many.
+ */
+export type CogsExtra = {
+  /** "Track (single)". */
+  label: string;
+  /** How many windows contributed one. */
+  count: number;
+  rmbCents: number;
+};
+
+/**
+ * Where a line item sits, for the breakdown alone. `roomIndex` does the
+ * grouping rather than the label, so two rooms both called "Bedroom" stay two
+ * rooms.
+ */
+export type BreakdownIdentity = {
+  roomIndex?: number;
+  roomLabel?: string | null;
+  /** Supplied when the caller knows it (mesh); curtains derive it per window. */
+  itemDetail?: string | null;
 };
 
 export type AddonPrice = {
@@ -53,7 +112,7 @@ export type CalcAddonBook = {
   doubleTrack?: AddonPrice | null;
 };
 
-export type CalcWindow = {
+export type CalcWindow = BreakdownIdentity & {
   widthCm: number | null;
   dayPrice?: SeriesPrice | null;
   nightPrice?: SeriesPrice | null;
@@ -67,27 +126,6 @@ export type CalcWindow = {
   // overriding the per-metre day/night sale. Cost is left untouched.
   comboPriceSgdCents?: number | null;
 };
-
-// COGS is a sum of distinct things — fabric, each add-on, the rail — and the
-// cost breakdown shows them one per line rather than as a single lump. Carried
-// as a key, never a label, so pricing stays free of presentation; the UI maps
-// key → label (see `cogs-labels.ts`).
-//
-// The keys of both product lines live together because `finaliseQuote` is
-// shared: it passes the lines through without knowing which engine built them.
-export type CogsKey =
-  // curtains
-  | "curtains"
-  | "blinds"
-  | "s_fold"
-  | "slim_tracks"
-  | "track"
-  // mesh
-  | "mesh"
-  | "colour"
-  | "double_draw";
-
-export type CogsLine = { key: CogsKey; rmbCents: number };
 
 type Money = { costRmbCents: number; saleSgdCents: number };
 
@@ -151,32 +189,101 @@ function addonLeg(
   };
 }
 
+/**
+ * What a window is made of, for its breakdown row: the series behind each leg.
+ * Day + night from two different series reads "Essential + Signature"; from one
+ * series, once. A blind says so — it is priced by different rules.
+ */
+export function windowDetail(win: CalcWindow): string | null {
+  if (win.blindPrice) {
+    return win.blindPrice.label ? `${win.blindPrice.label} (blind)` : null;
+  }
+  const named = [win.dayPrice?.label, win.nightPrice?.label].filter(
+    (n): n is string => !!n,
+  );
+  const unique = [...new Set(named)];
+  return unique.length > 0 ? unique.join(" + ") : null;
+}
+
+type BreakdownInput = BreakdownIdentity & {
+  detail: string | null;
+  rmbCents: number;
+};
+
+/**
+ * Build the room tree from a flat list of priced items, in the order they were
+ * given — which is the order the consultant entered them, so the breakdown
+ * reads down the form.
+ *
+ * Items are numbered within their room ("Window 1", "Window 2"), not across the
+ * order: the numbering matches what the room's own card shows.
+ */
+export function groupIntoRooms(
+  items: BreakdownInput[],
+  itemNoun: string,
+): CogsRoom[] {
+  const rooms = new Map<string, CogsRoom>();
+
+  for (const item of items) {
+    // Group on the index; fall back to the label only when there is no index
+    // (unit tests, mostly) so identically-named rooms don't merge.
+    const key = String(item.roomIndex ?? item.roomLabel ?? "");
+    let room = rooms.get(key);
+    if (!room) {
+      room = {
+        label:
+          item.roomLabel ||
+          (item.roomIndex != null ? `Room ${item.roomIndex + 1}` : "Order"),
+        rmbCents: 0,
+        items: [],
+      };
+      rooms.set(key, room);
+    }
+    room.items.push({
+      label: `${itemNoun} ${room.items.length + 1}`,
+      detail: item.detail,
+      rmbCents: item.rmbCents,
+    });
+    room.rmbCents += item.rmbCents;
+  }
+
+  return [...rooms.values()];
+}
+
+/**
+ * The order's rails as one line per kind: "Track (single) × 4".
+ *
+ * Counted, not listed per window, because that is how they are bought — four
+ * windows needing a rail is one order of four rails. Singles and doubles stay
+ * apart: they are different hardware at different prices.
+ */
+function countTracks(
+  tracks: { kind: TrackKind; rmbCents: number }[],
+): CogsExtra[] {
+  const byKind = new Map<TrackKind, CogsExtra>();
+  for (const t of tracks) {
+    const existing = byKind.get(t.kind);
+    if (existing) {
+      existing.count += 1;
+      existing.rmbCents += t.rmbCents;
+    } else {
+      byKind.set(t.kind, {
+        label: `Track (${t.kind})`,
+        count: 1,
+        rmbCents: t.rmbCents,
+      });
+    }
+  }
+  // Single before double, so a mixed order always reads the same way round.
+  return (["single", "double"] as const)
+    .map((k) => byKind.get(k))
+    .filter((e): e is CogsExtra => !!e);
+}
+
 export type Offering = "none" | "single" | "double" | "blind";
 
-/** This window's COGS, itemised. The five always sum to `costRmbCents`. */
-export type WindowCogs = {
-  curtains: number;
-  blinds: number;
-  sFold: number;
-  slimTracks: number;
-  track: number;
-};
-
-const ZERO_COGS: WindowCogs = {
-  curtains: 0,
-  blinds: 0,
-  sFold: 0,
-  slimTracks: 0,
-  track: 0,
-};
-
-export const addCogs = (a: WindowCogs, b: WindowCogs): WindowCogs => ({
-  curtains: a.curtains + b.curtains,
-  blinds: a.blinds + b.blinds,
-  sFold: a.sFold + b.sFold,
-  slimTracks: a.slimTracks + b.slimTracks,
-  track: a.track + b.track,
-});
+/** Which rail a window carries, if any — one line per kind in the breakdown. */
+export type TrackKind = "single" | "double";
 
 export function windowQuote(
   win: CalcWindow,
@@ -185,7 +292,13 @@ export function windowQuote(
 ): Money & {
   curtainCostRmbCents: number;
   offering: Offering;
-  cogs: WindowCogs;
+  /**
+   * The rail's cost, already included in `costRmbCents`. Reported separately so
+   * the breakdown can lift it out of the window's figure and count it with the
+   * other rails — it is hardware we buy, not part of what the window is.
+   */
+  trackRmbCents: number;
+  trackKind: TrackKind | null;
 } {
   // A blind window is priced and installed on its own terms: per metre of
   // width, with NO style multiplier (that models gathered fabric fullness, and
@@ -207,7 +320,9 @@ export function windowQuote(
       saleSgdCents: leg.saleSgdCents,
       curtainCostRmbCents: leg.costRmbCents,
       offering: measured ? "blind" : "none",
-      cogs: { ...ZERO_COGS, blinds: leg.costRmbCents },
+      // A blind carries its own headrail — there is no separate track to buy.
+      trackRmbCents: 0,
+      trackKind: null,
     };
   }
 
@@ -217,30 +332,23 @@ export function windowQuote(
   const dayLeg = curtainLeg(win.dayPrice, win.widthCm, styleMultiplier);
   const nightLeg = curtainLeg(win.nightPrice, win.widthCm, styleMultiplier);
 
-  const sFoldLeg = win.addSFold ? addonLeg(book.sFold, win.widthCm) : ZERO;
-  const slimLeg = win.addSlimTracks
-    ? addonLeg(book.slimTracks, win.widthCm)
-    : ZERO;
+  let total: Money = add(add(ZERO, dayLeg), nightLeg);
+  if (win.addSFold) total = add(total, addonLeg(book.sFold, win.widthCm));
+  if (win.addSlimTracks)
+    total = add(total, addonLeg(book.slimTracks, win.widthCm));
 
   // Track: double if both day + night, single if just one. The rail is a cost
   // we bear, not a customer line item (unlike the opt-in add-ons above) — so
   // only its COST feeds COGS; its notional sale price is kept out of the quote.
-  const trackCost = (m: Money): Money => ({
-    costRmbCents: m.costRmbCents,
-    saleSgdCents: 0,
-  });
-  const trackLeg = trackCost(
-    hasDay && hasNight
-      ? addonLeg(book.doubleTrack, null)
-      : hasDay || hasNight
-        ? addonLeg(book.singleTrack, null)
-        : ZERO,
-  );
-
-  const total: Money = [dayLeg, nightLeg, sFoldLeg, slimLeg, trackLeg].reduce(
-    add,
-    ZERO,
-  );
+  const trackKind: TrackKind | null =
+    hasDay && hasNight ? "double" : hasDay || hasNight ? "single" : null;
+  const trackRmbCents =
+    trackKind === "double"
+      ? addonLeg(book.doubleTrack, null).costRmbCents
+      : trackKind === "single"
+        ? addonLeg(book.singleTrack, null).costRmbCents
+        : 0;
+  total = add(total, { costRmbCents: trackRmbCents, saleSgdCents: 0 });
 
   // Offering drives the per-window installation cost.
   const offering: Offering =
@@ -258,20 +366,20 @@ export function windowQuote(
     saleSgdCents,
     curtainCostRmbCents: dayLeg.costRmbCents + nightLeg.costRmbCents,
     offering,
-    cogs: {
-      curtains: dayLeg.costRmbCents + nightLeg.costRmbCents,
-      blinds: 0,
-      sFold: sFoldLeg.costRmbCents,
-      slimTracks: slimLeg.costRmbCents,
-      track: trackLeg.costRmbCents,
-    },
+    trackRmbCents,
+    trackKind,
   };
 }
 
 export type QuoteResult = {
   cogsRmbCents: number;
-  /** What `cogsRmbCents` is made of. Sums to it exactly; may contain zero rows. */
-  cogsLines: CogsLine[];
+  /**
+   * COGS broken out room by room. Together with `cogsExtras` the subtotals sum
+   * to `cogsRmbCents` exactly.
+   */
+  cogsRooms: CogsRoom[];
+  /** Order-level lines that belong to no one window — the rails. */
+  cogsExtras: CogsExtra[];
   freightRmbCents: number;
   otherCostRmbCents: number;
   gstRmbCents: number;
@@ -315,11 +423,11 @@ const installFor = (offering: Offering, a: CalcAssumptions): number =>
 export type QuoteTotals = {
   cogsRmbCents: number;
   /**
-   * The itemised COGS. Product-specific — each engine names its own components
-   * — and passed through untouched, since freight/other/GST are computed on the
-   * total and never on a single line.
+   * The same COGS, room by room. Passed through untouched — freight, other cost
+   * and GST are all charged on the total and never on a single room.
    */
-  cogsLines: CogsLine[];
+  cogsRooms: CogsRoom[];
+  cogsExtras: CogsExtra[];
   freightBaseRmbCents: number;
   saleSgdCents: number;
   installSgdCents: number;
@@ -362,7 +470,8 @@ export function finaliseQuote(
 
   return {
     cogsRmbCents: cogs,
-    cogsLines: totals.cogsLines,
+    cogsRooms: totals.cogsRooms,
+    cogsExtras: totals.cogsExtras,
     freightRmbCents: freight,
     otherCostRmbCents: other,
     gstRmbCents: gst,
@@ -394,7 +503,20 @@ export function computeQuote(
         saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
         curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
         installSgdCents: acc.installSgdCents + installFor(q.offering, a),
-        cogs: addCogs(acc.cogs, q.cogs),
+        // The window's own cost — fabric and its add-ons — with the rail taken
+        // out. The rails are counted below and listed once; between the two,
+        // every cent still lands somewhere.
+        breakdown: [
+          ...acc.breakdown,
+          {
+            ...w,
+            detail: windowDetail(w),
+            rmbCents: q.costRmbCents - q.trackRmbCents,
+          },
+        ],
+        tracks: q.trackKind
+          ? [...acc.tracks, { kind: q.trackKind, rmbCents: q.trackRmbCents }]
+          : acc.tracks,
       };
     },
     {
@@ -402,7 +524,8 @@ export function computeQuote(
       saleSgdCents: 0,
       curtainCostRmbCents: 0,
       installSgdCents: 0,
-      cogs: ZERO_COGS,
+      breakdown: [] as BreakdownInput[],
+      tracks: [] as { kind: TrackKind; rmbCents: number }[],
     },
   );
 
@@ -411,13 +534,8 @@ export function computeQuote(
   return finaliseQuote(
     {
       cogsRmbCents: totals.costRmbCents,
-      cogsLines: [
-        { key: "curtains", rmbCents: totals.cogs.curtains },
-        { key: "blinds", rmbCents: totals.cogs.blinds },
-        { key: "s_fold", rmbCents: totals.cogs.sFold },
-        { key: "slim_tracks", rmbCents: totals.cogs.slimTracks },
-        { key: "track", rmbCents: totals.cogs.track },
-      ],
+      cogsRooms: groupIntoRooms(totals.breakdown, "Window"),
+      cogsExtras: countTracks(totals.tracks),
       freightBaseRmbCents: totals.curtainCostRmbCents,
       saleSgdCents: totals.saleSgdCents,
       installSgdCents: totals.installSgdCents,

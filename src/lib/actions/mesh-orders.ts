@@ -124,7 +124,7 @@ export async function createMeshOrder(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Mesh order created from consultation",
         created_by: session.user.id,
       })
@@ -323,7 +323,7 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Mesh draft created from consultation",
         created_by: session.user.id,
       })

@@ -115,7 +115,7 @@ export async function createOrder(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Order created from consultation",
         created_by: session.user.id,
       })
@@ -476,7 +476,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Draft created from consultation",
         created_by: session.user.id,
       })

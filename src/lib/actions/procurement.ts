@@ -5,9 +5,15 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { randomUUID } from "node:crypto";
+
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
+import { buildPos } from "@/lib/po/build";
+import { loadPoInput } from "@/lib/po/load";
+import { renderPo } from "@/lib/po/render";
+import { createClient } from "@/lib/supabase/server";
 import {
   poOpeningLabelSchema,
   poTypeLabelSchema,
@@ -222,4 +228,200 @@ export async function saveSeriesNameCn(input: unknown): Promise<void> {
   // name here must not disagree after a save.
   revalidatePath(PROCUREMENT_PATH);
   revalidatePath("/admin/product/blinds");
+}
+
+// ── Generating the documents ───────────────────────────────────────────────
+
+const PO_BUCKET = "manufacture-pos";
+
+/** 5 minutes: long enough to click, short enough that a leaked link is dead. */
+const SIGNED_URL_SECONDS = 300;
+
+const orderIdSchema = z.string().uuid("That is not a valid order.");
+const poIdSchema = z.string().uuid("That is not a valid document.");
+
+/**
+ * "PO-10040-Rising.pdf".
+ *
+ * ASCII only, and not because the rest of the system is squeamish about Hanzi —
+ * this string travels in a Content-Disposition header and then becomes a file on
+ * whatever phone or laptop it lands on. The CONTENT is the Chinese document; the
+ * filename only has to survive the trip.
+ */
+function poFileName(poNumber: string, vendorName: string | null): string {
+  const slug = (s: string) =>
+    s.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const parts = ["PO", slug(poNumber), vendorName ? slug(vendorName) : ""].filter(
+    Boolean,
+  );
+  return `${parts.join("-") || "PO"}.pdf`;
+}
+
+/**
+ * Generate one 采购订单 per vendor for an order, from its frozen measurements.
+ *
+ * REFUSES rather than producing a partial document. Every missing Chinese label,
+ * every unset vendor, every window without a frozen dimension comes back as a
+ * named problem and nothing is written — a blank cell on a cutting instruction
+ * does not read as "not applicable" in Shenzhen, it reads as an omission, and
+ * somebody fills it in by guessing. That refusal is the feature; see
+ * lib/po/build.ts.
+ *
+ * Regenerating SUPERSEDES the previous documents instead of deleting them. A
+ * vendor may already be cutting fabric from one, and "what did we actually send,
+ * and when" is the only way to settle an argument about a wrong dimension.
+ */
+export async function generateOrderPos(
+  orderId: string,
+): Promise<{ count: number }> {
+  const session = await requireRole(["ops", "admin"]);
+  const parsedId = parseOrThrow(
+    orderIdSchema,
+    orderId,
+    "That is not a valid order.",
+  );
+
+  // Passed in rather than read inside the builder, so the row we store, the
+  // date on the page and the moment the previous documents stop being current
+  // are all the same instant.
+  const generatedAt = new Date();
+
+  const loaded = await loadPoInput(parsedId, generatedAt);
+  if (!loaded.input) throw new Error(refusal(loaded.problems));
+
+  const { pos, problems } = buildPos(loaded.input);
+  if (problems.length > 0) throw new Error(refusal(problems));
+  if (pos.length === 0) {
+    throw new Error(
+      "There is nothing to put on a purchase order for this order.",
+    );
+  }
+
+  // Render everything BEFORE anything is stored. A font that will not load or a
+  // document that will not paginate should fail with no rows written and no
+  // objects orphaned, rather than half-way through a set of three.
+  //
+  // The id is minted here rather than left to the column default because the
+  // storage path contains it, and the row and the object have to agree.
+  const documents = await Promise.all(
+    pos.map(async (doc) => {
+      const id = randomUUID();
+      return {
+        id,
+        vendorId: doc.vendor.id,
+        // Snapshot: order_reference stays editable after the order locks, and a
+        // document already in Shenzhen cannot be retroactively renamed by
+        // somebody tidying up a reference in the CRM. The row has to keep
+        // saying what the page says.
+        poNumber: doc.poNumber,
+        notes: doc.notes,
+        path: `pos/${parsedId}/${id}.pdf`,
+        bytes: await renderPo(doc),
+      };
+    }),
+  );
+
+  try {
+    // The user's own session, not the service-role client: the bucket's RLS
+    // policies are the access control, exactly as for every table here.
+    //
+    // These bytes do go through the Next.js process, which the upload rule
+    // forbids for photos — but there is no client to upload from. The document
+    // is generated on the server and is a couple of pages of vector PDF.
+    const supabase = await createClient();
+    for (const document of documents) {
+      const { error } = await supabase.storage
+        .from(PO_BUCKET)
+        .upload(document.path, document.bytes, {
+          contentType: "application/pdf",
+          upsert: false,
+        });
+      if (error) {
+        throw new Error(userMessage(error, "Could not store the purchase order."));
+      }
+    }
+
+    await db.transaction().execute(async (trx) => {
+      // Supersede, never delete. Same instant as the new documents' generated_at,
+      // so the record never shows a gap with no document in force.
+      await trx
+        .updateTable("manufacture_pos")
+        .set({ superseded_at: generatedAt })
+        .where("order_id", "=", parsedId)
+        .where("superseded_at", "is", null)
+        .execute();
+
+      await trx
+        .insertInto("manufacture_pos")
+        .values(
+          documents.map((document) => ({
+            id: document.id,
+            order_id: parsedId,
+            vendor_id: document.vendorId,
+            po_number: document.poNumber,
+            storage_path: document.path,
+            notes: document.notes,
+            generated_at: generatedAt,
+            generated_by: session.user.id,
+          })),
+        )
+        .execute();
+    });
+  } catch (e) {
+    throw new Error(userMessage(e, "Could not generate the purchase orders."));
+  }
+
+  revalidatePath(`/orders/${parsedId}/manufacture`);
+  revalidatePath(`/orders/${parsedId}`);
+  return { count: documents.length };
+}
+
+/** Every reason, in one sentence, so nothing has to be discovered twice. */
+function refusal(problems: string[]): string {
+  return problems.length > 0
+    ? `The purchase orders were not generated. ${problems.join(" ")}`
+    : "The purchase orders could not be generated.";
+}
+
+/**
+ * A short-lived signed URL for one generated document.
+ *
+ * The bucket is private and stays private: this is the only way to reach a
+ * document, and it costs a role check every time.
+ */
+export async function getPoDownloadUrl(
+  poId: string,
+): Promise<{ url: string; fileName: string }> {
+  await requireRole(["ops", "admin"]);
+  const parsedId = parseOrThrow(
+    poIdSchema,
+    poId,
+    "That is not a valid document.",
+  );
+
+  const row = await db
+    .selectFrom("manufacture_pos")
+    .leftJoin("vendors", "vendors.id", "manufacture_pos.vendor_id")
+    .select([
+      "manufacture_pos.storage_path as storage_path",
+      "manufacture_pos.po_number as po_number",
+      "vendors.name as vendor_name",
+    ])
+    .where("manufacture_pos.id", "=", parsedId)
+    .executeTakeFirst();
+  if (!row) throw new Error("That purchase order no longer exists.");
+
+  const fileName = poFileName(row.po_number, row.vendor_name);
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(PO_BUCKET)
+    .createSignedUrl(row.storage_path, SIGNED_URL_SECONDS, {
+      download: fileName,
+    });
+  if (error || !data) {
+    throw new Error(userMessage(error, "Could not open that purchase order."));
+  }
+
+  return { url: data.signedUrl, fileName };
 }

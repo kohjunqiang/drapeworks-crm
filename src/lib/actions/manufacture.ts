@@ -21,6 +21,29 @@ import {
   confirmManufactureSchema,
 } from "@/lib/validation/manufacture";
 
+import { generateOrderPos } from "./procurement";
+
+/**
+ * Produce the vendor documents, and never let that undo what just happened.
+ *
+ * Called OUTSIDE the transaction on purpose. By the time this runs the
+ * measurements are frozen and the order is genuinely with the vendor; a missing
+ * Chinese label, a font that will not load or a storage hiccup must not roll
+ * that back. Most orders will land here and fail today, because most of the
+ * labels are still null — the frozen screen says so, lists exactly what is
+ * missing, and offers Regenerate once it is filled in.
+ */
+async function generatePosQuietly(
+  orderId: string,
+  after: "confirm" | "amend",
+): Promise<void> {
+  try {
+    await generateOrderPos(orderId);
+  } catch (e) {
+    console.error(`[po] generation failed after ${after}`, e);
+  }
+}
+
 // A message we wrote for a human, as opposed to something Postgres said. It
 // survives the catch below unchanged; everything else is replaced by a
 // fallback, since a constraint name in a toast helps nobody.
@@ -217,6 +240,8 @@ export async function confirmManufactureMeasurements(
     );
   }
 
+  await generatePosQuietly(parsed.orderId, "confirm");
+
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath(`/orders/${parsed.orderId}/manufacture`);
   revalidatePath("/orders");
@@ -334,6 +359,11 @@ export async function amendManufactureMeasurements(
       userMessage(e, "Could not amend the manufacturing measurements."),
     );
   }
+
+  // An amendment supersedes and reissues: the vendor's copy now states a
+  // dimension we no longer intend, and the corrected document is the whole
+  // point of having amended.
+  await generatePosQuietly(parsed.orderId, "amend");
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath(`/orders/${parsed.orderId}/manufacture`);

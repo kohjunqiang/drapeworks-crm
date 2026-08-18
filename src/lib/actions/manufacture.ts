@@ -36,11 +36,18 @@ import { generateOrderPos } from "./procurement";
 async function generatePosQuietly(
   orderId: string,
   after: "confirm" | "amend",
-): Promise<void> {
+): Promise<string | null> {
   try {
     await generateOrderPos(orderId);
+    return null;
   } catch (e) {
     console.error(`[po] generation failed after ${after}`, e);
+    // Returned, not thrown. The caller reports it to the person standing there
+    // rather than only to a server log: a document that silently failed to
+    // appear reads as "the app made me press an extra button", and the reason
+    // — usually a label nobody has filled in — never reaches anyone who could
+    // act on it.
+    return e instanceof Error ? e.message : "The purchase orders were not generated.";
   }
 }
 
@@ -119,7 +126,7 @@ export async function saveManufactureAllowance(input: unknown): Promise<void> {
  */
 export async function confirmManufactureMeasurements(
   input: unknown,
-): Promise<void> {
+): Promise<{ poWarning: string | null }> {
   const session = await requireRole(["ops", "admin"]);
   const parsed = parseOrThrow(
     confirmManufactureSchema,
@@ -240,11 +247,13 @@ export async function confirmManufactureMeasurements(
     );
   }
 
-  await generatePosQuietly(parsed.orderId, "confirm");
+  const poWarning = await generatePosQuietly(parsed.orderId, "confirm");
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath(`/orders/${parsed.orderId}/manufacture`);
   revalidatePath("/orders");
+
+  return { poWarning };
 }
 
 /**

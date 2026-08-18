@@ -254,6 +254,12 @@ export function Reconciliation({
                 Move it to{" "}
                 <span className="font-medium">Sent to Vendor</span>.
               </li>
+              <li>
+                <span className="font-medium">
+                  Generate the purchase order
+                </span>{" "}
+                for each vendor.
+              </li>
             </ul>
             <p className="text-xs text-slate-500">
               Only an admin can amend the measurements afterwards, and every

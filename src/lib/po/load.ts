@@ -150,9 +150,12 @@ export async function loadPoInput(
   );
   problems.push(...lineProblems);
 
-  if (lines.length === 0) {
+  // Only when nothing else has already said why. Every skipped window has named
+  // itself above, and repeating the total underneath reads as a second, separate
+  // fault — the list is meant to be a to-do, not an echo.
+  if (lines.length === 0 && lineProblems.length === 0) {
     problems.push(
-      "This order has nothing a vendor could make: no window carries a curtain or a blind with a frozen measurement.",
+      "This order has nothing a vendor could make: no window carries a curtain or a blind.",
     );
   }
 

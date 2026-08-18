@@ -10,6 +10,7 @@ import {
   type FrozenLine,
   type FrozenRoom,
 } from "@/components/manufacture/frozen-measurements";
+import { PoList, type PoListItem } from "@/components/manufacture/po-list";
 import {
   Reconciliation,
   type ReconRoom,
@@ -18,6 +19,9 @@ import type { ReconLine } from "@/components/manufacture/reconciliation-row";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { loadOrderPos } from "@/lib/db/procurement";
+import { buildPos } from "@/lib/po/build";
+import { loadPoInput } from "@/lib/po/load";
 import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
 import type { AllowanceLine } from "@/lib/manufacture/allowance";
 import {
@@ -36,6 +40,21 @@ const SG_DATE = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "short",
   year: "numeric",
+});
+
+// Documents are stamped to the minute: two regenerations on one afternoon have
+// to be told apart, and "which one did we send" is the question this screen
+// exists to answer. Singapore time explicitly — the business's clock, not the
+// server's, and not the reader's browser either, since the string is formatted
+// here and shipped as text.
+const SG_DATE_TIME = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "Asia/Singapore",
 });
 
 const LINE_LABELS: Record<AllowanceLine, string> = {
@@ -362,6 +381,29 @@ async function FrozenView({
     }))
     .filter((room) => room.lines.length > 0);
 
+  // The documents, and — from the same loader generation itself uses — why
+  // there are none. Asking both every time is what lets the screen say "these
+  // are stale and here is what is blocking a fresh one", which is the state an
+  // amendment leaves behind when generation refuses.
+  const [poRows, poLoad] = await Promise.all([
+    loadOrderPos(orderId),
+    loadPoInput(orderId, new Date()),
+  ]);
+  const poProblems = poLoad.input
+    ? buildPos(poLoad.input).problems
+    : poLoad.problems;
+  const pos: PoListItem[] = poRows.map((row) => ({
+    id: row.id,
+    vendorName: row.vendor_name,
+    vendorNameCn: row.vendor_name_cn,
+    poNumber: row.po_number,
+    generatedLabel: SG_DATE_TIME.format(new Date(row.generated_at)),
+    supersededLabel: row.superseded_at
+      ? SG_DATE_TIME.format(new Date(row.superseded_at))
+      : null,
+    notes: row.notes,
+  }));
+
   const confirmedAt = stored.reduce<Date | null>((earliest, r) => {
     const at = new Date(r.confirmed_at);
     return earliest && earliest <= at ? earliest : at;
@@ -393,6 +435,9 @@ async function FrozenView({
             <AmendDialog orderId={orderId} lines={amendLines} />
           </div>
         )}
+      </div>
+      <div className="mb-4">
+        <PoList orderId={orderId} pos={pos} problems={poProblems} />
       </div>
       <FrozenMeasurements rooms={rooms} />
     </>

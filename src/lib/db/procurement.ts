@@ -3,9 +3,48 @@ import "server-only";
 import { db } from "@/lib/db/kysely";
 import type { RoomType } from "@/lib/db/schema";
 
-// Reads for the Admin → Procurement screen. Everything here is small, fixed-size
-// configuration — five type labels, three openings, ten room types — so each is
-// loaded whole rather than filtered.
+// Reads for the Admin → Procurement screen, plus the generated documents one
+// order's frozen-measurements screen lists. Everything configuration-shaped here
+// is small and fixed-size — five type labels, three openings, ten room types —
+// so each is loaded whole rather than filtered.
+
+export type OrderPoRow = {
+  id: string;
+  po_number: string;
+  notes: string | null;
+  generated_at: Date;
+  superseded_at: Date | null;
+  vendor_name: string | null;
+  vendor_name_cn: string | null;
+};
+
+/**
+ * Every purchase order ever generated for one order, current and superseded.
+ *
+ * Superseded rows are INCLUDED, and that is the point: a vendor may still be
+ * working from one, so "what did we send, and when did it stop being current"
+ * has to be answerable from the screen. Newest first, and within one instant by
+ * vendor name, so a regeneration's three documents keep a stable order rather
+ * than shuffling on each render.
+ */
+export async function loadOrderPos(orderId: string): Promise<OrderPoRow[]> {
+  return db
+    .selectFrom("manufacture_pos")
+    .leftJoin("vendors", "vendors.id", "manufacture_pos.vendor_id")
+    .select([
+      "manufacture_pos.id as id",
+      "manufacture_pos.po_number as po_number",
+      "manufacture_pos.notes as notes",
+      "manufacture_pos.generated_at as generated_at",
+      "manufacture_pos.superseded_at as superseded_at",
+      "vendors.name as vendor_name",
+      "vendors.name_cn as vendor_name_cn",
+    ])
+    .where("manufacture_pos.order_id", "=", orderId)
+    .orderBy("manufacture_pos.generated_at", "desc")
+    .orderBy("vendors.name", "asc")
+    .execute();
+}
 
 export type ProcurementSettingsRow = {
   company_name: string;

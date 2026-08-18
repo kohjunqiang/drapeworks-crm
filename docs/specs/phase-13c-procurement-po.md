@@ -1,6 +1,6 @@
 # Phase 13C — Procurement PO (采购订单)
 
-**Status:** specified 2026-08-18, not implemented
+**Status:** implemented 2026-08-18. Document generation verified end to end against the real samples; the storage upload and the interactive dialogs are unverified (see the plan's Task 8). Open items in §8 remain — most labels are still NULL and generation refuses until the business supplies them.
 **Date:** 2026-08-18
 **Depends on:** Phase 13B (manufacturing measurements), Phase 9 (vendors), Phase 12 (blinds)
 **Source documents:** `resource/documents/40 Omar 957B Tampines_{Day,Night,Blinds} PO.pdf`

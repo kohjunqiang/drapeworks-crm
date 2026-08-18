@@ -1,7 +1,9 @@
 import type { FulfilmentStatus } from "@/lib/db/schema";
 
 export const STATUS_FLOW: FulfilmentStatus[] = [
-  "order_made",
+  "order_recorded",
+  "deposit_received",
+  "sent_to_vendor",
   "sent_logistic",
   "shipping_sg",
   "delivered_checked",
@@ -10,7 +12,9 @@ export const STATUS_FLOW: FulfilmentStatus[] = [
 ];
 
 export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
-  order_made: "Order Made",
+  order_recorded: "Order Recorded",
+  deposit_received: "Deposit Received",
+  sent_to_vendor: "Sent to Vendor",
   sent_logistic: "Sent to Logistic Partner",
   shipping_sg: "Shipping to SG",
   delivered_checked: "Delivered & Checked",
@@ -19,7 +23,9 @@ export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
 };
 
 export const STATUS_COLOURS: Record<FulfilmentStatus, string> = {
-  order_made: "bg-slate-100 text-slate-700",
+  order_recorded: "bg-slate-100 text-slate-700",
+  deposit_received: "bg-amber-100 text-amber-700",
+  sent_to_vendor: "bg-orange-100 text-orange-700",
   sent_logistic: "bg-indigo-100 text-indigo-700",
   shipping_sg: "bg-blue-100 text-blue-700",
   delivered_checked: "bg-emerald-100 text-emerald-700",
@@ -37,4 +43,19 @@ export function nextStatus(
 
 export function statusIndex(s: FulfilmentStatus): number {
   return STATUS_FLOW.indexOf(s);
+}
+
+// Once an order has gone to the vendor, its measurements are being cut. Editing
+// the consultation behind that is how a customer ends up with curtains for a
+// different window. The order reference stays editable (it is paperwork, not a
+// manufacturing input) and so do status, notes, photos and amendments — those
+// write to other tables.
+export function isLocked(s: FulfilmentStatus): boolean {
+  const i = statusIndex(s);
+  // Fail CLOSED on a status this build does not know about. If someone adds a
+  // value to the database enum before STATUS_FLOW catches up, statusIndex
+  // returns -1, and treating that as "not locked" would leave orders editable
+  // precisely when nobody knows what stage they are at.
+  if (i < 0) return true;
+  return i >= statusIndex("sent_to_vendor");
 }

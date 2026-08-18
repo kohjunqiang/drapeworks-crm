@@ -207,11 +207,7 @@
                         <label class="block text-xs font-medium text-slate-600 mb-1">Height (cm)</label>
                         <input type="number" x-model="win.height" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
                       </div>
-                      <div class="col-span-2 sm:col-span-1">
-                        <label class="block text-xs font-medium text-slate-600 mb-1">Installation Width (cm)</label>
-                        <input type="number" x-model="win.installWidth" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
-                      </div>
-                      <div class="col-span-2 sm:col-span-3">
+                      <div class="col-span-2 sm:col-span-4">
                         <label class="block text-xs font-medium text-slate-600 mb-1">Special Notes</label>
                         <input type="text" x-model="win.notes" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" placeholder="e.g. corner window, no rod possible..." />
                       </div>
@@ -239,17 +235,13 @@
                           </template>
                         </select>
                       </div>
-                      <div class="sm:col-span-2">
+                      <div class="sm:col-span-3">
                         <label class="block text-xs font-medium text-slate-600 mb-1">Width (cm)</label>
                         <input type="number" x-model="win.width" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
                       </div>
-                      <div class="sm:col-span-2">
+                      <div class="sm:col-span-3">
                         <label class="block text-xs font-medium text-slate-600 mb-1">Height (cm)</label>
                         <input type="number" x-model="win.height" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
-                      </div>
-                      <div class="col-span-2 sm:col-span-2">
-                        <label class="block text-xs font-medium text-slate-600 mb-1">Installation Width (cm)</label>
-                        <input type="number" x-model="win.installWidth" class="w-full px-2.5 py-1.5 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500" />
                       </div>
                       <div class="col-span-2 sm:col-span-2">
                         <label class="block text-xs font-medium text-slate-600 mb-1">Draw</label>
@@ -320,8 +312,8 @@
       const isToilet = (t) => t && t.toLowerCase().includes('toilet');
 
       const newWindow = (type) => isToilet(type)
-        ? { uid: uid(), curtainCode: '', width: '', height: '', installWidth: '', notes: '' }
-        : { uid: uid(), dayCurtain: '', nightCurtain: '', width: '', height: '', installWidth: '', draw: 'Double', notes: '' };
+        ? { uid: uid(), curtainCode: '', width: '', height: '', notes: '' }
+        : { uid: uid(), dayCurtain: '', nightCurtain: '', width: '', height: '', draw: 'Double', notes: '' };
 
       const fabrics = [
         { code: 'DW-D-101', name: 'Linen Sheer Ivory', type: 'Day' },

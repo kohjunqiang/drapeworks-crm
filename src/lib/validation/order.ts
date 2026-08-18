@@ -9,6 +9,9 @@ const ROOM_TYPES = [
   "Kitchen",
   "Study Room",
   "Balcony",
+  // Phase 13C — a standard HDB feature the enum was missing, and the room the
+  // Blinds sample PO is for. Must stay in step with public.room_type.
+  "Service Yard",
   "Other",
 ] as const;
 
@@ -53,7 +56,6 @@ const baseWindow = z.object({
   position: z.number().int().min(0),
   width_cm: optionalInt,
   height_cm: optionalInt,
-  install_width_cm: optionalInt,
   notes: z.string().max(2000).optional(),
 });
 
@@ -275,3 +277,18 @@ export const orderEditSchema = z.object({
 export type OrderEditInput = z.infer<typeof orderEditSchema>;
 export type RoomEditInput = z.infer<typeof roomEditSchema>;
 export type WindowEditInput = z.infer<typeof windowEditSchema>;
+
+// Phase 13A — the vendor/delivery-facing identifier. Blank input clears it
+// rather than storing an empty string, so the partial unique index only ever
+// sees real values.
+export const orderReferenceSchema = z.object({
+  orderId: z.string().uuid(),
+  reference: z
+    .string()
+    .max(64, "Reference must be 64 characters or fewer")
+    .nullable()
+    .transform((v) => {
+      const trimmed = v?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : null;
+    }),
+});

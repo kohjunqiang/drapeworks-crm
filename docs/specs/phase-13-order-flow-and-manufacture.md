@@ -1,6 +1,6 @@
 # Phase 13 — Order flow & manufacturing measurements
 
-**Status:** specified 2026-08-17, not yet implemented
+**Status:** 13A implemented and verified 2026-08-17; 13B implemented and verified 2026-08-18; 13C specified in `phase-13c-procurement-po.md`, not implemented
 **Date:** 2026-08-17
 **Depends on:** Phase 6 (status workflow), Phase 9 (pricing foundation), Phase 11 (mesh), Phase 12 (blinds)
 
@@ -28,14 +28,14 @@ inspected against the measured ones, adjusted if needed, and frozen.
 
 ## 2. Scope & phasing
 
-Three sub-phases. **A** and **B** are specified here in full. **C** is architecturally
-decided but cannot be written until a vendor Excel sample exists (§15).
+Three sub-phases. **A** and **B** are specified here in full. **C** has its own spec,
+`phase-13c-procurement-po.md`, written from the real POs in `resource/documents/`.
 
 | | Scope | Blocked on |
 |---|---|---|
 | **13A** | Status flow, deposit CTA, order reference, remove `install_width_cm` | nothing |
 | **13B** | Allowance config, manufacture measurements, reconciliation view, locking, costing | blind + mesh allowance values (fillable in the UI, so not a code blocker) |
-| **13C** | Vendor PDF generation | a sample vendor Excel |
+| **13C** | Procurement PO generation | vendor details, and the Chinese labels listed in 13C §8 |
 
 ---
 
@@ -63,7 +63,7 @@ been *recorded*; the company is waiting on a deposit.
 
 ### 3.1 Migration
 
-`data/migrations/20260817120000_order_flow_statuses.ts`
+`data/migrations/20260817150000_order_flow_statuses.ts`
 
 ```sql
 alter type public.fulfilment_status rename value 'order_made' to 'order_recorded';
@@ -176,7 +176,7 @@ record anything. `orders.deposit_cents` remains the *quoted* deposit and is not 
 the order's identity across the dashboard, the detail page and URLs. Making it editable would
 make past orders hard to find.
 
-Instead, `data/migrations/20260817121000_order_reference.ts`:
+Instead, `data/migrations/20260817151000_order_reference.ts`:
 
 ```sql
 alter table public.orders add column order_reference text;
@@ -223,7 +223,7 @@ Leaving an undefined field adjacent to a new manufacturing-measurement feature i
 invitation to mis-enter data, which is why this is removed in the same phase rather than left
 alone.
 
-`data/migrations/20260817122000_drop_install_width.ts` drops the column. The `down()` migration
+`data/migrations/20260817152000_drop_install_width.ts` drops the column. The `down()` migration
 re-adds it as a nullable int; the values are not recoverable and are not worth recovering.
 
 > **If the vendor sheet turns out to need a mount depth or track projection** (13C, once the
@@ -542,8 +542,12 @@ them (§10.1).
 
 ## 15. Vendor PDF — Phase 13C
 
-Not specified here. **Blocked on a sample vendor Excel.** The layout is the entire substance
-of this sub-phase and cannot be invented.
+**Now specified in full: `docs/specs/phase-13c-procurement-po.md`.**
+
+The samples turned up in `resource/documents/` — three real POs for one order. Two
+things in the sketch below were wrong and are corrected in that spec: the documents
+are Chinese-language 采购订单, and their dimensions are in METRES, not centimetres.
+The per-vendor split guessed here was right.
 
 The architecture is decided:
 

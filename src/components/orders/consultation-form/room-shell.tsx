@@ -32,6 +32,7 @@ const ROOM_TYPE_OPTIONS: RoomType[] = [
   "Kitchen",
   "Study Room",
   "Balcony",
+  "Service Yard",
   "Other",
 ];
 

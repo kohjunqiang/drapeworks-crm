@@ -33,7 +33,7 @@ export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
 export type FreightMode = "air" | "sea";
 
-export type FulfilmentStatus = "completed" | "delivered_checked" | "fulfilment" | "order_made" | "sent_logistic" | "shipping_sg";
+export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
@@ -65,7 +65,7 @@ export type ProductLine = "curtain" | "mesh";
 
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
 
-export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Study Room";
+export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Service Yard" | "Study Room";
 
 export type SalesChannel = "carousell" | "standard";
 
@@ -413,6 +413,7 @@ export interface CurtainSeries {
   id: Generated<string>;
   is_active: Generated<boolean>;
   name: string;
+  name_cn: string | null;
   product_line: Generated<CurtainProductLine>;
   sale_sgd_cents: number | null;
   updated_at: Generated<Timestamp>;
@@ -499,6 +500,44 @@ export interface ExtensionsPgStatStatements {
 export interface ExtensionsPgStatStatementsInfo {
   dealloc: Int8 | null;
   stats_reset: Timestamp | null;
+}
+
+export interface ManufactureAllowances {
+  height_delta_cm: number | null;
+  product_line: string;
+  updated_at: Generated<Timestamp>;
+  updated_by: string | null;
+  width_delta_cm: number | null;
+}
+
+export interface ManufactureMeasurements {
+  confirmed_at: Generated<Timestamp>;
+  confirmed_by: string | null;
+  height_delta_cm: number;
+  id: Generated<string>;
+  is_overridden: Generated<boolean>;
+  mesh_panel_id: string | null;
+  mfg_height_cm: number;
+  mfg_width_cm: number;
+  order_id: string;
+  override_reason: string | null;
+  source_height_cm: number;
+  source_width_cm: number;
+  updated_at: Generated<Timestamp>;
+  width_delta_cm: number;
+  window_id: string | null;
+}
+
+export interface ManufacturePos {
+  generated_at: Generated<Timestamp>;
+  generated_by: string | null;
+  id: Generated<string>;
+  notes: string | null;
+  order_id: string;
+  po_number: string;
+  storage_path: string;
+  superseded_at: Timestamp | null;
+  vendor_id: string | null;
 }
 
 export interface MeshCategories {
@@ -601,6 +640,7 @@ export interface Orders {
   id: Generated<string>;
   is_draft: Generated<boolean>;
   move_in_date: Timestamp | null;
+  order_reference: string | null;
   price_calc_at_quote_cents: number | null;
   price_quoted_cents: Generated<number>;
   product_line: Generated<ProductLine>;
@@ -624,6 +664,18 @@ export interface OrderStatusEvents {
 export interface OrderYearCounters {
   last_seq: Generated<number>;
   year: number;
+}
+
+export interface PoOpeningLabels {
+  draw: string;
+  label_cn: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface PoTypeLabels {
+  key: string;
+  label_cn: string | null;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface PricingAddons {
@@ -667,6 +719,25 @@ export interface PricingCombos {
   night_series_id: string | null;
   price_sgd_cents: number;
   updated_at: Generated<Timestamp>;
+}
+
+export interface ProcurementSettings {
+  address_line1: string;
+  address_line2: string;
+  air_shipping_mark: string | null;
+  company_name: string;
+  company_uen: string;
+  curtain_style_cn: string | null;
+  delivery_phone: string | null;
+  floor_clearance_cm: number | null;
+  heat_setting_cn: string | null;
+  phone: string;
+  recipient_cn: string | null;
+  singleton: Generated<boolean>;
+  updated_at: Generated<Timestamp>;
+  warehouse_address_cn: string | null;
+  website: string;
+  wechat: string;
 }
 
 export interface Profiles {
@@ -736,6 +807,13 @@ export interface Rooms {
   order_id: string;
   position: number;
   type: RoomType;
+}
+
+export interface RoomTypeLabels {
+  code: string;
+  name_cn: string | null;
+  room_type: RoomType;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface StorageBuckets {
@@ -859,12 +937,16 @@ export interface VaultSecrets {
 }
 
 export interface Vendors {
+  address_cn: string | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   id: Generated<string>;
+  internal_ref: string | null;
   is_active: Generated<boolean>;
   name: string;
+  name_cn: string | null;
   notes: string | null;
+  phone: string | null;
   updated_at: Generated<Timestamp>;
 }
 
@@ -879,7 +961,6 @@ export interface Windows {
   draw: DrawDirection | null;
   height_cm: number | null;
   id: Generated<string>;
-  install_width_cm: number | null;
   night_curtain_type_id: string | null;
   notes: string | null;
   position: number;
@@ -916,6 +997,9 @@ export interface DB {
   customers: Customers;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  manufacture_allowances: ManufactureAllowances;
+  manufacture_measurements: ManufactureMeasurements;
+  manufacture_pos: ManufacturePos;
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
   mesh_minimum_areas: MeshMinimumAreas;
@@ -925,15 +1009,19 @@ export interface DB {
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;
+  po_opening_labels: PoOpeningLabels;
+  po_type_labels: PoTypeLabels;
   pricing_addons: PricingAddons;
   pricing_assumptions: PricingAssumptions;
   pricing_combos: PricingCombos;
+  procurement_settings: ProcurementSettings;
   profiles: Profiles;
   promotions: Promotions;
   "realtime.messages": RealtimeMessages;
   "realtime.schema_migrations": RealtimeSchemaMigrations;
   "realtime.subscription": RealtimeSubscription;
   room_photos: RoomPhotos;
+  room_type_labels: RoomTypeLabels;
   rooms: Rooms;
   "storage.buckets": StorageBuckets;
   "storage.buckets_analytics": StorageBucketsAnalytics;

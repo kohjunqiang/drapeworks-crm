@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
+import { vendorProcurementFieldsSchema } from "@/lib/validation/procurement";
 import { vendorSchema } from "@/lib/validation/vendor";
 
 function revalidateVendors() {
@@ -17,6 +18,10 @@ export async function upsertVendor(input: unknown) {
   const session = await requireRole(["admin"]);
   const parsed = vendorSchema.parse(input);
   const notes = parsed.notes && parsed.notes.length > 0 ? parsed.notes : null;
+  // A blank PO field must land as NULL, not "": the PO omits a null line and
+  // prints an empty one for "", which on a factory document reads as an
+  // omission somebody then fills in by guessing.
+  const po = vendorProcurementFieldsSchema.parse(parsed);
 
   try {
     if (parsed.isNew) {
@@ -25,6 +30,7 @@ export async function upsertVendor(input: unknown) {
         .values({
           name: parsed.name,
           notes,
+          ...po,
           created_by: session.user.id,
         })
         .execute();
@@ -32,7 +38,7 @@ export async function upsertVendor(input: unknown) {
       if (!parsed.id) throw new Error("Missing vendor id");
       await db
         .updateTable("vendors")
-        .set({ name: parsed.name, notes })
+        .set({ name: parsed.name, notes, ...po })
         .where("id", "=", parsed.id)
         .execute();
     }

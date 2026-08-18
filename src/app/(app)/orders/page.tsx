@@ -57,8 +57,12 @@ export default async function OrdersDashboardPage({
         .as("active"),
       eb.fn
         .count<number>("id")
+        // Manufactured or in transit. order_recorded and deposit_received are
+        // deliberately excluded: an order with no deposit is not awaiting
+        // shipment, which is what the pre-Phase-13 flow got wrong. Both remain
+        // in "Active orders" and in the status filter.
         .filterWhere("current_status", "in", [
-          "order_made",
+          "sent_to_vendor",
           "sent_logistic",
           "shipping_sg",
         ])

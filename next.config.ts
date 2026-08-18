@@ -8,6 +8,14 @@ const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The purchase-order renderer reads its CJK font off disk at runtime
+  // (src/lib/po/render.ts). Standalone output traces IMPORTS, so a file only
+  // ever opened by fs is left behind — and the failure mode is a PDF whose
+  // Chinese cells are blank rather than an error, working perfectly in dev and
+  // arriving empty at the factory.
+  outputFileTracingIncludes: {
+    "/**": ["./assets/fonts/*.ttf"],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "12mb",

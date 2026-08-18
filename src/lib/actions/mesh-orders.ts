@@ -10,6 +10,7 @@ import { db } from "@/lib/db/kysely";
 import { loadActiveMeshSystemBands } from "@/lib/db/mesh-catalogue";
 import { meshPanelValues } from "@/lib/orders/mesh-panel-values";
 import { meshSystemProblems } from "@/lib/orders/mesh-system";
+import { isLocked } from "@/lib/status-flow";
 import {
   SEQ_PLACEHOLDERS,
   collectOrphanPhotoPaths,
@@ -124,7 +125,7 @@ export async function createMeshOrder(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Mesh order created from consultation",
         created_by: session.user.id,
       })
@@ -155,7 +156,13 @@ export async function updateMeshOrder(
   await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
-      .select(["id", "customer_id", "consultant_id", "product_line"])
+      .select([
+        "id",
+        "customer_id",
+        "consultant_id",
+        "product_line",
+        "current_status",
+      ])
       .where("id", "=", orderId)
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
@@ -166,6 +173,12 @@ export async function updateMeshOrder(
     const isOwner = order.consultant_id === session.user.id;
     const isAdmin = session.profile.role === "admin";
     if (!isOwner && !isAdmin) throw new Error("Forbidden");
+
+    if (isLocked(order.current_status)) {
+      throw new Error(
+        "This order is locked — it has been sent to the vendor. Ask an admin to amend the manufacturing measurements instead.",
+      );
+    }
 
     await trx
       .updateTable("customers")
@@ -323,7 +336,7 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Mesh draft created from consultation",
         created_by: session.user.id,
       })

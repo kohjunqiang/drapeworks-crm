@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
+import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
 import { RequoteBanner } from "@/components/orders/requote-banner";
@@ -14,7 +15,12 @@ import {
 import type { PhotoTile } from "@/components/orders/photo-strip";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { StatusTimeline } from "@/components/orders/status-timeline";
-import { STATUS_FLOW, STATUS_LABELS, statusIndex } from "@/lib/status-flow";
+import {
+  STATUS_FLOW,
+  STATUS_LABELS,
+  isLocked,
+  statusIndex,
+} from "@/lib/status-flow";
 import { requireSession } from "@/lib/auth/require-role";
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
@@ -69,6 +75,7 @@ export default async function OrderDetailPage({
     .select([
       "orders.id as id",
       "orders.display_id as display_id",
+      "orders.order_reference as order_reference",
       "orders.consultant_id as consultant_id",
       "orders.product_line as product_line",
       "orders.current_status as current_status",
@@ -152,7 +159,6 @@ export default async function OrderDetailPage({
             "windows.position as position",
             "windows.width_cm as width_cm",
             "windows.height_cm as height_cm",
-            "windows.install_width_cm as install_width_cm",
             "windows.notes as notes",
             "windows.draw as draw",
             "windows.add_s_fold as add_s_fold",
@@ -298,7 +304,6 @@ export default async function OrderDetailPage({
     position: w.position,
     width_cm: w.width_cm,
     height_cm: w.height_cm,
-    install_width_cm: w.install_width_cm,
     notes: w.notes,
     draw: w.draw,
     add_s_fold: w.add_s_fold,
@@ -349,6 +354,20 @@ export default async function OrderDetailPage({
     .where("order_id", "=", order.id)
     .orderBy("created_at", "desc")
     .execute();
+
+  // Once the order is with the vendor the consultation is frozen. The date
+  // comes from the EARLIEST sent_to_vendor event: an admin amendment writes a
+  // second event at the same status, and "locked on" means when it happened,
+  // not when it was last touched.
+  const locked = isLocked(order.current_status);
+  const lockedAt = locked
+    ? (events
+        .filter((e) => e.status === "sent_to_vendor")
+        .reduce<Date | null>((earliest, e) => {
+          const at = new Date(e.created_at);
+          return earliest && earliest <= at ? earliest : at;
+        }, null) ?? null)
+    : null;
 
   const photos =
     roomIds.length === 0
@@ -416,8 +435,9 @@ export default async function OrderDetailPage({
         </div>
         {(() => {
           const canEdit =
-            session.profile.role === "admin" ||
-            order.consultant_id === session.user.id;
+            !locked &&
+            (session.profile.role === "admin" ||
+              order.consultant_id === session.user.id);
           const isAdvancer =
             session.profile.role === "ops" ||
             session.profile.role === "admin";
@@ -426,11 +446,36 @@ export default async function OrderDetailPage({
           const nextLabel = atEnd
             ? undefined
             : STATUS_LABELS[STATUS_FLOW[currentIdx + 1]];
+          const ctaLabel =
+            order.current_status === "order_recorded"
+              ? "Record deposit received"
+              : undefined;
+          // Recording the deposit exists to unblock the measurements review, so
+          // go straight there rather than returning to this page and asking for
+          // a second click to do the thing the first click was for.
+          const advanceTo =
+            order.current_status === "order_recorded"
+              ? `/orders/${order.id}/manufacture`
+              : undefined;
 
-          if (!canEdit && !isAdvancer) return null;
+          // A locked order still renders the row, so a consultant who can no
+          // longer edit is told why rather than shown an empty header.
+          if (!canEdit && !isAdvancer && !locked) return null;
 
           return (
             <div className="flex flex-wrap items-center gap-2">
+              {/* Stands in for Edit and Delete rather than sitting beside a
+                  disabled pair: a greyed-out button invites a click and then
+                  explains nothing. */}
+              {locked && (
+                <span
+                  title={`This order is at "${STATUS_LABELS[order.current_status]}". The consultation cannot be edited once it has gone to the vendor.`}
+                  className="px-2.5 py-1.5 text-xs sm:text-sm rounded border border-slate-300 bg-slate-100 text-slate-600"
+                >
+                  🔒 Locked — sent to the vendor
+                  {lockedAt && ` on ${formatDate(lockedAt)}`}
+                </span>
+              )}
               {canEdit && (
                 <Link
                   href={`/orders/${order.id}/edit`}
@@ -439,15 +484,37 @@ export default async function OrderDetailPage({
                   Edit
                 </Link>
               )}
+              {/* The manufacturing set is derived once the deposit is in, and
+                  stays readable forever after. Ops and admin only — it is the
+                  screen that hands the order to a vendor. */}
+              {isAdvancer &&
+                order.current_status === "deposit_received" && (
+                  <Link
+                    href={`/orders/${order.id}/manufacture`}
+                    className="px-3 py-1.5 text-xs sm:text-sm border border-teal-600 text-teal-700 rounded hover:bg-teal-50 font-medium"
+                  >
+                    Review manufacturing measurements
+                  </Link>
+                )}
+              {isAdvancer && isLocked(order.current_status) && (
+                <Link
+                  href={`/orders/${order.id}/manufacture`}
+                  className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
+                >
+                  Manufacturing measurements
+                </Link>
+              )}
               <PrintButton />
               {isAdvancer && (
                 <AdvanceStatusButton
                   orderId={order.id}
                   atEnd={atEnd}
                   nextLabel={nextLabel}
+                  ctaLabel={ctaLabel}
+                  advanceTo={advanceTo}
                 />
               )}
-              {session.profile.role === "admin" && (
+              {session.profile.role === "admin" && !locked && (
                 <DeleteOrderDialog
                   orderId={order.id}
                   displayId={order.display_id}
@@ -579,16 +646,37 @@ export default async function OrderDetailPage({
                 </dd>
               </div>
             </dl>
-            {quote?.isStale && (
-              <RequoteBanner
-                orderId={order.id}
-                lockedCents={order.price_quoted_cents}
-                liveCents={quote.discountedSaleSgdCents}
-              />
-            )}
+            {/* The drift is still worth stating on a locked order — someone
+                may need to explain the number to the customer — but re-quoting
+                is an edit, and the goods are already being cut. */}
+            {quote?.isStale &&
+              (locked ? (
+                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  Pricing has since changed (now calculates to{" "}
+                  <span className="font-semibold">
+                    {formatSGD(quote.discountedSaleSgdCents)}
+                  </span>
+                  ), but this order is locked at{" "}
+                  <span className="font-semibold">
+                    {formatSGD(order.price_quoted_cents)}
+                  </span>
+                  .
+                </p>
+              ) : (
+                <RequoteBanner
+                  orderId={order.id}
+                  lockedCents={order.price_quoted_cents}
+                  liveCents={quote.discountedSaleSgdCents}
+                />
+              ))}
           </section>
 
-          {quote && <QuoteCard quote={quote} />}
+          {quote && (
+            <QuoteCard
+              quote={quote}
+              quotedCents={order.price_quoted_cents}
+            />
+          )}
 
           <section className="bg-white rounded-lg border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-900 mb-3">
@@ -609,6 +697,19 @@ export default async function OrderDetailPage({
                   </div>
                 );
               })()}
+              <div>
+                <dt className="text-xs text-slate-500">Order reference</dt>
+                <dd className="mt-0.5">
+                  <OrderReferenceField
+                    orderId={order.id}
+                    reference={order.order_reference}
+                    canEdit={
+                      session.profile.role === "ops" ||
+                      session.profile.role === "admin"
+                    }
+                  />
+                </dd>
+              </div>
               <div>
                 <dt className="text-xs text-slate-500">Created</dt>
                 <dd className="text-slate-800">

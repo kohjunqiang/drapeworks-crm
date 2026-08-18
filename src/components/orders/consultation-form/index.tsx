@@ -53,7 +53,6 @@ function makeWindow(roomType: RoomType, position: number) {
       curtain_type_id: "",
       width_cm: null,
       height_cm: null,
-      install_width_cm: null,
       notes: "",
     };
   }
@@ -65,7 +64,6 @@ function makeWindow(roomType: RoomType, position: number) {
     draw: "Double" as const,
     width_cm: null,
     height_cm: null,
-    install_width_cm: null,
     notes: "",
     add_s_fold: false,
     add_slim_tracks: false,

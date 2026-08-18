@@ -71,7 +71,7 @@ These come up constantly. Full detail in `rules/` (see `rules/README.md` for the
 
 - **Default to React Server Components.** Add `'use client'` only when the subtree needs state, effects, or browser APIs. (`rules/code/components.md`)
 - **Every Server Action starts with `await requireRole([...])` or `await requireSession()` and validates input with Zod.** No exceptions. (`rules/code/server-actions.md`)
-- **RLS is the source of truth for access control.** Server Action guards are defence-in-depth. Never bypass with the service-role client except in `inviteUser`. (`rules/data/rls.md`)
+- **Server Actions are the access-control surface — RLS is not currently enforced.** The app connects as the table owner, which bypasses RLS entirely, so every action must guard with `requireRole`/`requireSession` and check ownership itself. Keep writing policies on new tables; just never rely on one to catch a missing check. (`rules/data/rls.md`)
 - **Money is integer cents.** Never floats, never `numeric(_,2)`. (`rules/code/typescript.md`)
 - **No hard deletes.** Use status toggles / archive flags. (`rules/data/migrations.md`)
 - **Catalogue labels are stored verbatim.** Vendor codes are the customer's language — never strip a prefix, normalise case, or fix an apparent typo. (`rules/code/forms.md`)

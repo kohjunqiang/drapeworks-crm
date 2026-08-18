@@ -8,8 +8,10 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { userMessage } from "@/lib/errors";
 import { windowValues } from "@/lib/orders/window-values";
 import { computeOrderQuote } from "@/lib/pricing/order-quote";
+import { isLocked } from "@/lib/status-flow";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   PHOTO_BUCKET,
@@ -21,6 +23,7 @@ import {
   orderCreateSchema,
   orderDraftSchema,
   orderEditSchema,
+  orderReferenceSchema,
   type OrderCreateInput,
   type OrderDraftInput,
   type OrderEditInput,
@@ -115,7 +118,7 @@ export async function createOrder(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Order created from consultation",
         created_by: session.user.id,
       })
@@ -145,7 +148,7 @@ export async function updateOrder(
   await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
-      .select(["id", "customer_id", "consultant_id"])
+      .select(["id", "customer_id", "consultant_id", "current_status"])
       .where("id", "=", orderId)
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
@@ -154,6 +157,12 @@ export async function updateOrder(
     const isAdmin = session.profile.role === "admin";
     if (!isOwner && !isAdmin) {
       throw new Error("Forbidden");
+    }
+
+    if (isLocked(order.current_status)) {
+      throw new Error(
+        "This order is locked — it has been sent to the vendor. Ask an admin to amend the manufacturing measurements instead.",
+      );
     }
 
     await trx
@@ -307,7 +316,7 @@ export async function requoteOrder(orderId: string): Promise<void> {
 
   const order = await db
     .selectFrom("orders")
-    .select(["id", "consultant_id"])
+    .select(["id", "consultant_id", "current_status"])
     .where("id", "=", orderId)
     .executeTakeFirst();
   if (!order) throw new Error("Order not found");
@@ -315,6 +324,14 @@ export async function requoteOrder(orderId: string): Promise<void> {
   const isOwner = order.consultant_id === session.user.id;
   const isAdmin = session.profile.role === "admin";
   if (!isOwner && !isAdmin) throw new Error("Forbidden");
+
+  // Re-quoting rewrites price_quoted_cents on an order the customer has
+  // already paid a deposit against and whose goods are in production.
+  if (isLocked(order.current_status)) {
+    throw new Error(
+      "This order is locked — it has been sent to the vendor. Ask an admin to amend the manufacturing measurements instead.",
+    );
+  }
 
   const quote = await computeOrderQuote(orderId);
   if (!quote) throw new Error("Nothing priced to re-quote");
@@ -346,13 +363,19 @@ export async function deleteOrder(input: {
 
   const order = await db
     .selectFrom("orders")
-    .select(["id", "display_id"])
+    .select(["id", "display_id", "current_status"])
     .where("id", "=", input.orderId)
     .executeTakeFirst();
   if (!order) throw new Error("Order not found");
 
   if (input.confirmDisplayId.trim() !== order.display_id) {
     throw new Error(`Type ${order.display_id} exactly to confirm deletion`);
+  }
+
+  if (isLocked(order.current_status)) {
+    throw new Error(
+      "This order is locked — it has been sent to the vendor. Ask an admin to amend the manufacturing measurements instead.",
+    );
   }
 
   // Capture every photo's storage_path before the cascade fires so we can
@@ -476,7 +499,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
       .insertInto("order_status_events")
       .values({
         order_id: order.id,
-        status: "order_made",
+        status: "order_recorded",
         note: "Draft created from consultation",
         created_by: session.user.id,
       })
@@ -488,4 +511,33 @@ export async function createOrderDraft(input: unknown): Promise<never> {
   await stampQuoteBaseline(orderId);
 
   redirect(`/orders/${orderId}`);
+}
+
+// The vendor/delivery-facing identifier (Phase 13A). Deliberately NOT
+// status-gated: it's a paperwork identifier rather than a manufacturing
+// input, and a vendor may ask for a renumber mid-production even after the
+// order locks at sent_to_vendor.
+export async function setOrderReference(input: unknown): Promise<void> {
+  await requireRole(["ops", "admin"]);
+  const parsed = orderReferenceSchema.parse(input);
+
+  try {
+    await db
+      .updateTable("orders")
+      .set({ order_reference: parsed.reference })
+      .where("id", "=", parsed.orderId)
+      .execute();
+  } catch (e) {
+    // 23505 = unique_violation on orders_order_reference_key (partial unique
+    // index over non-null order_reference values).
+    if (typeof e === "object" && e !== null && "code" in e && e.code === "23505") {
+      throw new Error("That order reference is already used by another order.");
+    }
+    // Everything else goes through userMessage so a raw Postgres string never
+    // reaches a toast — the same guard every other action in this file uses.
+    throw new Error(userMessage(e, "Could not save the order reference."));
+  }
+
+  revalidatePath(`/orders/${parsed.orderId}`);
+  revalidatePath("/orders");
 }

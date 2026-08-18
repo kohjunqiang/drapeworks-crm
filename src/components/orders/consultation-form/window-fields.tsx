@@ -243,7 +243,7 @@ export function WindowFields({
             ]}
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-3">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Width (cm)
           </label>
@@ -253,7 +253,7 @@ export function WindowFields({
             {...register(`${base}.width_cm`)}
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-3">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Height (cm)
           </label>
@@ -261,16 +261,6 @@ export function WindowFields({
             type="number"
             className={INPUT_CLS}
             {...register(`${base}.height_cm`)}
-          />
-        </div>
-        <div className="col-span-2 sm:col-span-2">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Installation Width (cm)
-          </label>
-          <input
-            type="number"
-            className={INPUT_CLS}
-            {...register(`${base}.install_width_cm`)}
           />
         </div>
         <div className="col-span-2 sm:col-span-6">
@@ -333,17 +323,7 @@ export function WindowFields({
             {...register(`${base}.height_cm`)}
           />
         </div>
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Installation Width (cm)
-          </label>
-          <input
-            type="number"
-            className={INPUT_CLS}
-            {...register(`${base}.install_width_cm`)}
-          />
-        </div>
-        <div className="col-span-2 sm:col-span-3">
+        <div className="col-span-2 sm:col-span-4">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Special Notes
           </label>
@@ -407,16 +387,6 @@ export function WindowFields({
           type="number"
           className={INPUT_CLS}
           {...register(`${base}.height_cm`)}
-        />
-      </div>
-      <div className="col-span-2 sm:col-span-2">
-        <label className="block text-xs font-medium text-slate-600 mb-1">
-          Installation Width (cm)
-        </label>
-        <input
-          type="number"
-          className={INPUT_CLS}
-          {...register(`${base}.install_width_cm`)}
         />
       </div>
       <div className="col-span-2 sm:col-span-2">

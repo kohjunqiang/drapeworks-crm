@@ -331,6 +331,30 @@ Pure logic only, per the project's node-environment Vitest setup:
 - INVOICE REF — blank on two samples and `0` on the third; it is filled in later, off-system.
 - The `[ 42]` cell in the samples' footer, which appears to be a spreadsheet artefact rather than content.
 
+## 7b. Storage runs as service-role, and why
+
+The PO upload and the signed-URL download both use the service-role client, not
+the user's session.
+
+The role `authenticated` holds **no grants on any table in `public`**, and
+`is_admin()` / `is_ops()` are not `SECURITY DEFINER`. So any storage policy
+evaluated as that role fails — first on `permission denied for table rooms`,
+because the room-photos INSERT policy on `storage.objects` is permissive and
+Postgres evaluates it whichever bucket you are writing to, and past that on
+`profiles` via `is_admin()`. The PO upload was the first code in the app to
+actually run as `authenticated`, which is why nothing had hit this before.
+
+Authorization is unaffected: `requireRole(["ops","admin"])` on the action is the
+gate, which is how access control actually works in this codebase today.
+`sweepPhotoStorage` already reaches for the same client for the same reason.
+
+The bucket's own policies are left in place — dormant, but correct for the day
+the grants are fixed. **Making RLS real is its own piece of work**: it needs a
+non-owner database role with explicit grants, and a `SECURITY DEFINER` audit of
+`is_admin`, `is_ops`, `is_consultant`, `sync_order_current_status` and
+`validate_status_transition`. See the header of
+`data/migrations/202608181300_lock_blocks_delete.ts`.
+
 ## 8. Open items — must be answered before implementing
 
 1. **Vendor details** for each vendor: `internal_ref`, `name_cn`, `address_cn`, `phone`.

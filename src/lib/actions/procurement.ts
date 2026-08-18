@@ -14,7 +14,7 @@ import { generateOrderReference } from "@/lib/orders/reference";
 import { buildPos } from "@/lib/po/build";
 import { loadPoInput } from "@/lib/po/load";
 import { renderPo } from "@/lib/po/render";
-import { createClient } from "@/lib/supabase/server";
+import { adminClient } from "@/lib/supabase/admin";
 import {
   poOpeningLabelSchema,
   poTypeLabelSchema,
@@ -377,12 +377,26 @@ export async function generateOrderPos(
 
   try {
     // The user's own session, not the service-role client: the bucket's RLS
-    // policies are the access control, exactly as for every table here.
+    // The service-role client, deliberately, and NOT the user's session.
+    //
+    // The role `authenticated` holds no grants on any table in `public`, and
+    // is_admin()/is_ops() are not SECURITY DEFINER — so any storage policy
+    // evaluated as that role dies on "permission denied for table rooms" (the
+    // room-photos INSERT policy on storage.objects is permissive and Postgres
+    // evaluates it whatever bucket you are writing to) or, past that, on
+    // profiles. This was the first code in the app to actually run as
+    // `authenticated`, which is why nothing had hit it before.
+    //
+    // Authorization is not weakened: requireRole(["ops","admin"]) above is the
+    // gate, which is how access control actually works in this codebase today.
+    // sweepPhotoStorage already reaches for the same client for the same
+    // reason. Making RLS real is a separate piece of work — see the note in
+    // 202608181300_lock_blocks_delete.ts.
     //
     // These bytes do go through the Next.js process, which the upload rule
     // forbids for photos — but there is no client to upload from. The document
     // is generated on the server and is a couple of pages of vector PDF.
-    const supabase = await createClient();
+    const supabase = adminClient();
     for (const document of documents) {
       const { error } = await supabase.storage
         .from(PO_BUCKET)
@@ -467,7 +481,10 @@ export async function getPoDownloadUrl(
 
   const fileName = poFileName(row.po_number, row.vendor_name);
 
-  const supabase = await createClient();
+  // Service-role for the same reason as the upload above: the bucket is
+  // private, the role guard on this action is the access control, and a
+  // session-scoped client cannot evaluate storage policies at all here.
+  const supabase = adminClient();
   const { data, error } = await supabase.storage
     .from(PO_BUCKET)
     .createSignedUrl(row.storage_path, SIGNED_URL_SECONDS, {

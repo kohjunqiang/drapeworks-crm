@@ -17,7 +17,11 @@ export default async function VendorsPage() {
       <div className="mb-6">
         <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Vendors</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Curtain suppliers. Each curtain type is priced against a chosen vendor.
+          Curtain suppliers. Each curtain type is priced against a chosen vendor,
+          and purchase orders are split by vendor — so the Chinese name, address,
+          phone and V005-style internal ref held here are what the 供应商 block
+          of a PO prints. All four are optional; a blank one is omitted from the
+          document.
         </p>
       </div>
       <VendorsTable vendors={vendors} />

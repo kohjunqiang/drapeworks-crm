@@ -44,6 +44,13 @@ export const NAV_LINKS: NavLink[] = [
     roles: ["admin"],
     match: (p) => p.startsWith("/admin/pricing-settings"),
   },
+  {
+    // The Chinese labels and company block a purchase order is built from.
+    href: "/admin/procurement",
+    label: "Procurement",
+    roles: ["admin"],
+    match: (p) => p.startsWith("/admin/procurement"),
+  },
 ];
 
 export function linksForRole(role: Role): NavLink[] {

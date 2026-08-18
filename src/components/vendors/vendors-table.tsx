@@ -34,7 +34,13 @@ export function VendorsTable({ vendors }: Props) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return vendors;
-    return vendors.filter((v) => v.name.toLowerCase().includes(q));
+    // Chinese name and internal ref are searchable too: the samples identify a
+    // vendor as "V006" or 顺金纺织窗材有限公司 as often as by the Latin name.
+    return vendors.filter((v) =>
+      [v.name, v.name_cn, v.internal_ref].some((field) =>
+        (field ?? "").toLowerCase().includes(q),
+      ),
+    );
   }, [vendors, search]);
 
   function openAdd() {
@@ -66,6 +72,12 @@ export function VendorsTable({ vendors }: Props) {
         id: editing.id,
         name: editing.name,
         notes: editing.notes ?? undefined,
+        // A null column and an empty box are the same thing to the form; the
+        // action turns the empty box back into null on the way out.
+        internal_ref: editing.internal_ref ?? undefined,
+        name_cn: editing.name_cn ?? undefined,
+        address_cn: editing.address_cn ?? undefined,
+        phone: editing.phone ?? undefined,
       }
     : undefined;
 
@@ -96,6 +108,7 @@ export function VendorsTable({ vendors }: Props) {
           <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
             <tr>
               <th className="text-left px-4 py-3 font-medium">Name</th>
+              <th className="text-left px-4 py-3 font-medium w-28">PO ref</th>
               <th className="text-left px-4 py-3 font-medium">Notes</th>
               <th className="text-left px-4 py-3 font-medium w-24">Status</th>
               <th className="text-right px-4 py-3 font-medium w-40">Actions</th>
@@ -106,6 +119,14 @@ export function VendorsTable({ vendors }: Props) {
               <tr key={v.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-900">
                   {v.name}
+                  {v.name_cn && (
+                    <div className="text-xs font-normal text-slate-500 mt-0.5">
+                      {v.name_cn}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-slate-500 tabular-nums">
+                  {v.internal_ref ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-slate-500">{v.notes ?? "—"}</td>
                 <td className="px-4 py-3">
@@ -148,6 +169,16 @@ export function VendorsTable({ vendors }: Props) {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="font-medium text-slate-900">{v.name}</div>
+                {v.name_cn && (
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {v.name_cn}
+                  </div>
+                )}
+                {v.internal_ref && (
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    PO ref {v.internal_ref}
+                  </div>
+                )}
                 {v.notes && (
                   <div className="text-xs text-slate-500 mt-0.5">{v.notes}</div>
                 )}

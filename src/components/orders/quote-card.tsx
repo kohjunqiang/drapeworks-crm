@@ -1,12 +1,31 @@
 import { CogsRoomRows } from "@/components/orders/cogs-rooms";
 import { formatSGD } from "@/lib/money";
+import { marginBps as marginOf } from "@/lib/pricing/calculator";
 import type { OrderQuote } from "@/lib/pricing/order-quote";
 
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
 const rmb = (cents: number) => `¥${(cents / 100).toFixed(2)}`;
 
-export function QuoteCard({ quote }: { quote: OrderQuote }) {
-  const belowFloor = quote.marginBps < quote.minMarginBps;
+export function QuoteCard({
+  quote,
+  quotedCents,
+}: {
+  quote: OrderQuote;
+  /** What the customer is actually being charged, when it differs from what the
+   *  calculator worked out. */
+  quotedCents?: number;
+}) {
+  // The margin that matters is the one against the price actually quoted. This
+  // card used to compute it against the CALCULATED sale, so an order priced by
+  // hand above the calculation still showed the calculated margin — and warned
+  // "below the floor" while the real margin was comfortably above it. That is
+  // the one case where a margin warning has to be right, because someone has
+  // deliberately departed from the calculation.
+  const overridden = quotedCents != null && quotedCents !== quote.saleSgdCents;
+  const realMarginBps = overridden
+    ? marginOf(quote.netCostSgdCents, quotedCents)
+    : quote.marginBps;
+  const belowFloor = realMarginBps < quote.minMarginBps;
   const hasDiscount = quote.discountBps > 0;
 
   return (
@@ -57,9 +76,19 @@ export function QuoteCard({ quote }: { quote: OrderQuote }) {
                 : "font-semibold text-teal-700"
             }
           >
-            {pct(quote.marginBps)}
+            {pct(realMarginBps)}
           </dd>
         </div>
+        {overridden && (
+          <div className="flex justify-between text-xs">
+            <dt className="text-slate-400">
+              against the quoted {formatSGD(quotedCents)}
+            </dt>
+            <dd className="text-slate-400">
+              calculated {pct(quote.marginBps)}
+            </dd>
+          </div>
+        )}
       </dl>
 
       {belowFloor && (

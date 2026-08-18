@@ -671,7 +671,12 @@ export default async function OrderDetailPage({
               ))}
           </section>
 
-          {quote && <QuoteCard quote={quote} />}
+          {quote && (
+            <QuoteCard
+              quote={quote}
+              quotedCents={order.price_quoted_cents}
+            />
+          )}
 
           <section className="bg-white rounded-lg border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-900 mb-3">

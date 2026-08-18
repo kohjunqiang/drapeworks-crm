@@ -319,6 +319,8 @@ type ReadyLine = {
   code: string;
   typeLabel: string;
   openingLabel: string;
+  /** curtain_types.label, verbatim, known to be present. */
+  fabricLabel: string;
 };
 
 function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
@@ -330,7 +332,7 @@ function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
     // NOTE: 型号 is still a nullable pass-through and still renders blank when
     // the caller cannot resolve the catalogue label. It is the last cell in
     // this row that can print empty.
-    fabric: line.fabricLabel ?? "",
+    fabric: ready.fabricLabel,
     derived:
       line.kind === "curtain"
         ? fabricLengthM(line.mfgWidthCm, fullnessBps)
@@ -438,7 +440,18 @@ export function buildPos(input: PoInput): {
         `${locate(line)} has no 开法 (opening) label. Set it under Admin → Procurement before generating.`,
       );
     }
-    if (typeLabel == null || openingLabel == null) continue;
+    // 型号 is the cell that says WHICH FABRIC to cut. A blank one is the worst
+    // of the three: a vendor missing a type or an opening will ask, but a
+    // vendor missing a fabric code has nothing to ask about.
+    const { fabricLabel } = line;
+    if (fabricLabel == null) {
+      problems.push(
+        `${locate(line)} has no 型号 (fabric) label — the catalogue entry it points at is missing one.`,
+      );
+    }
+    if (typeLabel == null || openingLabel == null || fabricLabel == null) {
+      continue;
+    }
 
     const lines = byVendor.get(line.vendorId) ?? [];
     lines.push({
@@ -447,6 +460,7 @@ export function buildPos(input: PoInput): {
       code: label.code,
       typeLabel,
       openingLabel,
+      fabricLabel,
     });
     byVendor.set(line.vendorId, lines);
   }

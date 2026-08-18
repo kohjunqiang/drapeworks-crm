@@ -596,6 +596,18 @@ describe("buildPos — labels we do not have", () => {
     expect(pos[0].tables[0].rows).toHaveLength(1);
   });
 
+  // 型号 is the cell naming the fabric to cut. A vendor missing a type or an
+  // opening will query it; a vendor missing a fabric code has nothing to query.
+  it("reports a line with no 型号 label instead of printing an empty cell", () => {
+    const { pos, problems } = buildPos(
+      input({ lines: [line({ lineId: "a", fabricLabel: null })] }),
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("型号");
+    expect(pos).toEqual([]);
+  });
+
   it("returns no problems when every label is present", () => {
     const { pos, problems } = buildPos(input({ lines: [line({ lineId: "a" })] }));
 

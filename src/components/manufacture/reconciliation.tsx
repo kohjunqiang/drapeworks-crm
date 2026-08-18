@@ -172,7 +172,12 @@ export function Reconciliation({
         ))}
       </div>
 
-      <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-white/95 backdrop-blur border-t border-slate-200">
+      {/* Aligned to the room cards, not bled to the page edge. The negative
+          margins this used to carry cancelled the main element's padding, so
+          the bar sat ~24px proud of the cards on each side and read as a
+          mistake. The cards span the full content column, so nothing scrolls
+          past the sides of the bar and there is nothing for a bleed to cover. */}
+      <div className="sticky bottom-0 z-10 px-4 py-3 bg-white/95 backdrop-blur border border-slate-200 rounded">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-600">
             <span className="font-medium text-slate-900">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
@@ -19,6 +20,10 @@ type Props = {
   /** Overrides the generic "Advance →" wording. Used at order_recorded, where
    *  the action is specifically "the deposit has arrived". */
   ctaLabel?: string;
+  /** Where to go after a successful advance. Set at order_recorded so recording
+   *  the deposit lands on the measurements review — the thing recording it was
+   *  for — instead of returning here and asking for a second click. */
+  advanceTo?: string;
 };
 
 export function AdvanceStatusButton({
@@ -26,7 +31,9 @@ export function AdvanceStatusButton({
   atEnd,
   nextLabel,
   ctaLabel,
+  advanceTo,
 }: Props) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -40,6 +47,7 @@ export function AdvanceStatusButton({
         );
         setOpen(false);
         setNote("");
+        if (advanceTo) router.push(advanceTo);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Advance failed");
       }

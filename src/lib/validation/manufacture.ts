@@ -24,23 +24,18 @@ export const allowanceSchema = z.object({
 // and the server recomputes every defaulted value from the allowance table.
 // Arithmetic that arrives from a browser is arithmetic nobody can vouch for,
 // and these numbers get cut into fabric.
-export const manufactureLineSchema = z
-  .object({
-    lineId: z.string().uuid(),
-    kind: z.enum(["window", "mesh_panel"]),
-    overrideWidthCm: z.number().int().positive().nullable().optional(),
-    overrideHeightCm: z.number().int().positive().nullable().optional(),
-    overrideReason: z.string().trim().max(500).nullable().optional(),
-  })
-  .refine(
-    (v) =>
-      (v.overrideWidthCm == null && v.overrideHeightCm == null) ||
-      (v.overrideReason != null && v.overrideReason.length > 0),
-    {
-      message: "An overridden measurement needs a reason",
-      path: ["overrideReason"],
-    },
-  );
+//
+// The reason is OPTIONAL. It used to be mandatory on an overridden line, but
+// the allowance itself is now editable per line, so any manufacturing figure is
+// reachable by adjusting a delta — a required reason would be friction on one
+// path and absent on the other. It is still captured and stored when given.
+export const manufactureLineSchema = z.object({
+  lineId: z.string().uuid(),
+  kind: z.enum(["window", "mesh_panel"]),
+  overrideWidthCm: z.number().int().positive().nullable().optional(),
+  overrideHeightCm: z.number().int().positive().nullable().optional(),
+  overrideReason: z.string().trim().max(500).nullable().optional(),
+});
 
 export type ManufactureLineInput = z.infer<typeof manufactureLineSchema>;
 

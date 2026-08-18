@@ -57,10 +57,6 @@ function locate(line: ManufactureLine): string {
   return `${line.roomLabel} ${noun} ${line.position + 1}`;
 }
 
-function hasReason(o: LineOverride | undefined): boolean {
-  return (o?.overrideReason ?? "").trim().length > 0;
-}
-
 export function checkConfirmPreconditions(
   lines: ManufactureLine[],
   book: AllowanceBook,
@@ -83,10 +79,6 @@ export function checkConfirmPreconditions(
     const override = overrides.get(line.lineId);
     const overridden =
       override?.overrideWidthCm != null || override?.overrideHeightCm != null;
-
-    if (overridden && !hasReason(override)) {
-      reasons.push(`${locate(line)} is overridden without a reason.`);
-    }
 
     const allowance = resolveAllowance(book, line.line);
     if (!allowance) {
@@ -117,7 +109,7 @@ export function checkConfirmPreconditions(
     if (effectiveWidth <= 0 || effectiveHeight <= 0) {
       reasons.push(
         !isManufacturable(applied) && !overridden
-          ? `${locate(line)} works out to ${applied.mfgWidthCm} × ${applied.mfgHeightCm} cm after the allowance, which cannot be manufactured. Override it with a reason, or fix the measurement.`
+          ? `${locate(line)} works out to ${applied.mfgWidthCm} × ${applied.mfgHeightCm} cm after the allowance, which cannot be manufactured. Change the allowance or the measurement.`
           : `${locate(line)} would be manufactured at ${effectiveWidth} × ${effectiveHeight} cm, which is not a buildable size.`,
       );
     }

@@ -136,16 +136,16 @@ describe("checkConfirmPreconditions", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("refuses an override with a blank reason", () => {
+  // A reason is optional now that the allowance is editable per line, so an
+  // adjustment without one is a normal, buildable order — not an error.
+  it("accepts an override with no reason", () => {
     const result = checkConfirmPreconditions(
       [line()],
       BOOK,
       "deposit_received",
-      overrides([["line-1", { overrideWidthCm: 180, overrideReason: "  " }]]),
+      overrides([["line-1", { overrideWidthCm: 180 }]]),
     );
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reasons.join(" ")).toMatch(/reason/i);
+    expect(result.ok).toBe(true);
   });
 
   // Fixing one problem at a time, with a round trip to the server between

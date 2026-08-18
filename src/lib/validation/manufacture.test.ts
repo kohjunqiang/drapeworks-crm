@@ -123,29 +123,32 @@ describe("confirmManufactureSchema", () => {
 
   // The reason is the whole audit trail for a hand-edited dimension. Without
   // it nobody can tell a deliberate adjustment from a typo.
-  it("rejects an override with no reason", () => {
-    expect(() =>
-      confirmManufactureSchema.parse({
-        orderId: ORDER_ID,
-        lines: [{ lineId: LINE_ID, kind: "window", overrideWidthCm: 150 }],
-      }),
-    ).toThrow();
+  // The reason stopped being mandatory once the allowance became editable per
+  // line: every manufacturing figure is reachable by adjusting a delta, so
+  // demanding a why on one route and not the other bought nothing.
+  it("accepts an override with no reason", () => {
+    const out = confirmManufactureSchema.parse({
+      orderId: ORDER_ID,
+      lines: [{ lineId: LINE_ID, kind: "window", overrideWidthCm: 150 }],
+    });
+    expect(out.lines[0].overrideWidthCm).toBe(150);
+    expect(out.lines[0].overrideReason).toBeUndefined();
   });
 
-  it("rejects an override whose reason is only whitespace", () => {
-    expect(() =>
-      confirmManufactureSchema.parse({
-        orderId: ORDER_ID,
-        lines: [
-          {
-            lineId: LINE_ID,
-            kind: "window",
-            overrideHeightCm: 240,
-            overrideReason: "   ",
-          },
-        ],
-      }),
-    ).toThrow();
+  it("trims a whitespace-only reason to an empty string rather than refusing", () => {
+    const out = confirmManufactureSchema.parse({
+      orderId: ORDER_ID,
+      lines: [
+        {
+          lineId: LINE_ID,
+          kind: "window",
+          overrideHeightCm: 240,
+          overrideReason: "   ",
+        },
+      ],
+    });
+    expect(out.lines[0].overrideHeightCm).toBe(240);
+    expect(out.lines[0].overrideReason).toBe("");
   });
 
   it("rejects a non-uuid order id", () => {

@@ -22,6 +22,7 @@ import {
   ReconciliationRow,
   draftFor,
   evaluateRow,
+  syncDraft,
   type ReconLine,
   type RowDraft,
 } from "./reconciliation-row";
@@ -85,8 +86,15 @@ export function Reconciliation({
   ).length;
   const canConfirm = errorCount === 0 && lines.length > 0 && !pending;
 
-  function patch(lineId: string, next: Partial<RowDraft>) {
-    setDrafts((d) => ({ ...d, [lineId]: { ...d[lineId], ...next } }));
+  // The allowance and the manufacturing figure are two views of one number.
+  // Whichever the person typed wins and the other follows; if what they typed
+  // does not parse yet (a lone "-" mid-typing), the paired field is left alone
+  // rather than blanked out from under them.
+  function patch(line: ReconLine, next: Partial<RowDraft>) {
+    setDrafts((d) => ({
+      ...d,
+      [line.lineId]: syncDraft(line, d[line.lineId] ?? draftFor(line), next),
+    }));
   }
 
   function reset(line: ReconLine) {
@@ -139,10 +147,14 @@ export function Reconciliation({
               {room.label}
             </div>
             {/* Column headers live at the room level on desktop; each row
-                repeats them on mobile, where the two columns stack. */}
-            <div className="hidden sm:grid grid-cols-2 gap-3 px-4 py-1.5 border-t border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                repeats them on mobile, where the columns stack.
+                Same column template as the row grid, so the headers sit over
+                as the row grid, so the headers sit over the cells they
+                name instead of near them. */}
+            <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 px-4 py-1.5 border-t border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
               <div>Measured</div>
-              <div className="pl-4">To manufacture</div>
+              <div>Allowance</div>
+              <div>To manufacture</div>
             </div>
             {room.lines.map((line) => (
               <ReconciliationRow
@@ -152,7 +164,7 @@ export function Reconciliation({
                 draft={drafts[line.lineId] ?? draftFor(line)}
                 state={states.get(line.lineId)!}
                 disabled={pending}
-                onChange={(next) => patch(line.lineId, next)}
+                onChange={(next) => patch(line, next)}
                 onReset={() => reset(line)}
               />
             ))}

@@ -450,6 +450,13 @@ export default async function OrderDetailPage({
             order.current_status === "order_recorded"
               ? "Record deposit received"
               : undefined;
+          // Recording the deposit exists to unblock the measurements review, so
+          // go straight there rather than returning to this page and asking for
+          // a second click to do the thing the first click was for.
+          const advanceTo =
+            order.current_status === "order_recorded"
+              ? `/orders/${order.id}/manufacture`
+              : undefined;
 
           // A locked order still renders the row, so a consultant who can no
           // longer edit is told why rather than shown an empty header.
@@ -504,6 +511,7 @@ export default async function OrderDetailPage({
                   atEnd={atEnd}
                   nextLabel={nextLabel}
                   ctaLabel={ctaLabel}
+                  advanceTo={advanceTo}
                 />
               )}
               {session.profile.role === "admin" && !locked && (

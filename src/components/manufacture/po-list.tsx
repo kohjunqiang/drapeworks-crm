@@ -230,7 +230,7 @@ function RegenerateButton({
           ? "Generating…"
           : hasDocuments
             ? "Regenerate"
-            : "Generate purchase orders"}
+            : "Generate now"}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -345,9 +345,11 @@ export function PoList({
         ? problems.length === 0 && (
             <div className="border-t border-slate-100 px-4 py-4">
               <p className="text-sm text-slate-600">
-                No purchase order has been generated for this order yet.
-                Everything one needs is in place, so generating now will produce
-                it.
+                No purchase order exists for this order. Confirming the
+                measurements normally produces one for each vendor, so
+                something stopped it at the time — most often a label that was
+                still missing. Nothing is missing now, so generating will
+                produce them.
               </p>
             </div>
           )

@@ -65,18 +65,37 @@ export type PoLine = {
   position: number;
   /** Decides the fourth column: fabric length for curtains, area for blinds. */
   kind: "curtain" | "blind";
-  /** 窗帘款式 cell — "窗帘 Night", "纱窗 Day", "卷帘". Printed verbatim. */
+  /**
+   * 窗帘款式 cell — "窗帘 Night", "纱窗 Day", "卷帘". Printed verbatim.
+   *
+   * Null means po_type_labels (or the blind's curtain_series.name_cn) has no
+   * Chinese for this piece yet. buildPos REFUSES on null; it does not print an
+   * empty cell. See the note on openingLabel.
+   */
   typeLabel: string | null;
   /** 型号 cell — the catalogue label. Printed verbatim; it is a vendor's code. */
   fabricLabel: string | null;
-  /** 开法 cell — "对开 Double draw", "要罩盒 - with cover". Verbatim. */
+  /**
+   * 开法 cell — "对开 Double draw", "要罩盒 - with cover". Verbatim.
+   *
+   * Null means po_opening_labels has no Chinese for this draw direction. Only
+   * 对开 Double draw is evidenced by the samples; Single Left and Single Right
+   * are seeded NULL and wait for the business.
+   */
   openingLabel: string | null;
   mfgWidthCm: number;
   mfgHeightCm: number;
 };
 
-/** A row of room_type_labels: 客厅 + LR. */
-export type PoRoomLabel = { nameCn: string; code: string };
+/**
+ * A row of room_type_labels: 客厅 + LR.
+ *
+ * `nameCn` is nullable because a row can be half-known: Service Yard's code SR
+ * is evidenced by the Blinds sample, its Chinese name is not. That is the same
+ * state as having no row at all — "we do not know" — and buildPos gives the two
+ * the same behaviour, which is to refuse.
+ */
+export type PoRoomLabel = { nameCn: string | null; code: string };
 
 export type PoInput = {
   settings: PoSettings;
@@ -207,10 +226,13 @@ export function sqmM(widthCm: number, heightCm: number): string {
 /**
  * "客厅 LR", or "次卧 1 BR1" when the type repeats within one document.
  *
- * Name first, then code — always. The Blinds sample prints "SR Service Yard",
- * but only because that row has no Chinese yet and its name_cn holds the
- * English placeholder; the order fixes itself when the business supplies the
- * Hanzi. Special-casing it here would bake the placeholder in.
+ * Name first, then code — always. The Blinds sample prints "SR Service Yard"
+ * the other way round, but only because that row has no Chinese at all and the
+ * document fell back to the English name; the layout it would have used with a
+ * Chinese name is the one every other row on every sample shows.
+ *
+ * TOTAL BY CONSTRUCTION: it takes a name, so it cannot be asked to render an
+ * absent one. Deciding what to do about a missing label is buildPos's job.
  */
 export function roomLabel(
   nameCn: string,
@@ -280,15 +302,34 @@ function numberRooms(lines: readonly PoLine[]): Map<string, number | null> {
   return indexes;
 }
 
-function toRow(
-  line: PoLine,
-  room: string,
-  fullnessBps: number,
-): PoRow {
+/**
+ * A line that has passed every check in buildPos, carrying the strings it will
+ * print already resolved.
+ *
+ * Having a separate type is the point rather than ceremony: on this side of the
+ * boundary nothing is nullable, so no `?? ""` downstream can quietly drop a
+ * blank cell onto a cutting instruction. Everything nullable is decided ONCE,
+ * in buildPos, where a missing value becomes a named problem.
+ */
+type ReadyLine = {
+  line: PoLine;
+  /** room_type_labels.name_cn, known to be present. */
+  nameCn: string;
+  /** room_type_labels.code. */
+  code: string;
+  typeLabel: string;
+  openingLabel: string;
+};
+
+function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
+  const { line } = ready;
   return {
     room,
     // Catalogue and type labels verbatim — they are the vendor's own language.
-    type: line.typeLabel ?? "",
+    type: ready.typeLabel,
+    // NOTE: 型号 is still a nullable pass-through and still renders blank when
+    // the caller cannot resolve the catalogue label. It is the last cell in
+    // this row that can print empty.
     fabric: line.fabricLabel ?? "",
     derived:
       line.kind === "curtain"
@@ -296,7 +337,7 @@ function toRow(
         : sqmM(line.mfgWidthCm, line.mfgHeightCm),
     widthM: cmToM(line.mfgWidthCm),
     heightM: cmToM(line.mfgHeightCm),
-    opening: line.openingLabel ?? "",
+    opening: ready.openingLabel,
   };
 }
 
@@ -334,7 +375,7 @@ export function buildPos(input: PoInput): {
   // Vendor grouping in first-appearance order. The split is by VENDOR, not by
   // product type: an order whose day and night curtains share a vendor is one
   // document, which is what that vendor wants.
-  const byVendor = new Map<string, PoLine[]>();
+  const byVendor = new Map<string, ReadyLine[]>();
 
   for (const line of ordered) {
     const label = input.roomLabels.get(line.roomType);
@@ -345,6 +386,18 @@ export function buildPos(input: PoInput): {
       // this once per window.
       problems.push(
         `Room type "${line.roomType}" has no Chinese name and code. Set it under Admin → Procurement before generating.`,
+      );
+      continue;
+    }
+
+    if (label.nameCn == null) {
+      // The half-known row: Service Yard has an evidenced code (SR, off the
+      // Blinds sample) and no evidenced Chinese at all. Absent row and null
+      // name are ONE state — "we do not know" — and they get one behaviour, so
+      // that seeding a placeholder to satisfy a NOT NULL can never be the thing
+      // that lets English onto a Chinese document.
+      problems.push(
+        `Room type "${line.roomType}" has no Chinese name. Set it under Admin → Procurement before generating.`,
       );
       continue;
     }
@@ -363,8 +416,38 @@ export function buildPos(input: PoInput): {
       continue;
     }
 
+    // 窗帘款式 and 开法. Both are reported together rather than one at a time:
+    // they are fixed in the same place, and a person who has just filled in a
+    // type label should not have to regenerate to discover the opening label
+    // was missing too.
+    //
+    // Neither may render empty. An empty 窗帘款式 does not say "no style" to a
+    // factory, it says nothing, and what happens next is a guess on a cutting
+    // table — the exact substitution this phase exists to remove. Most of these
+    // labels ARE null today: only 纱窗 Day, 窗帘 Night and 对开 Double draw are
+    // evidenced by the samples, and the rest sit null in po_type_labels /
+    // po_opening_labels until the business supplies them.
+    const { typeLabel, openingLabel } = line;
+    if (typeLabel == null) {
+      problems.push(
+        `${locate(line)} has no 窗帘款式 (type) label. Set it under Admin → Procurement before generating.`,
+      );
+    }
+    if (openingLabel == null) {
+      problems.push(
+        `${locate(line)} has no 开法 (opening) label. Set it under Admin → Procurement before generating.`,
+      );
+    }
+    if (typeLabel == null || openingLabel == null) continue;
+
     const lines = byVendor.get(line.vendorId) ?? [];
-    lines.push(line);
+    lines.push({
+      line,
+      nameCn: label.nameCn,
+      code: label.code,
+      typeLabel,
+      openingLabel,
+    });
     byVendor.set(line.vendorId, lines);
   }
 
@@ -372,20 +455,19 @@ export function buildPos(input: PoInput): {
   const delivery = deliveryOf(input);
 
   const pos: PoDocData[] = [];
-  for (const [vendorId, lines] of byVendor) {
-    const roomIndexes = numberRooms(lines);
+  for (const [vendorId, ready] of byVendor) {
+    const roomIndexes = numberRooms(ready.map((r) => r.line));
 
     const rowsFor = (kind: PoLine["kind"]): PoRow[] =>
-      lines
-        .filter((l) => l.kind === kind)
-        .map((l) => {
-          const label = input.roomLabels.get(l.roomType)!;
-          return toRow(
-            l,
-            roomLabel(label.nameCn, label.code, roomIndexes.get(l.roomId)!),
+      ready
+        .filter((r) => r.line.kind === kind)
+        .map((r) =>
+          toRow(
+            r,
+            roomLabel(r.nameCn, r.code, roomIndexes.get(r.line.roomId)!),
             input.fullnessBps,
-          );
-        });
+          ),
+        );
 
     const curtainRows = rowsFor("curtain");
     const blindRows = rowsFor("blind");

@@ -413,6 +413,7 @@ export interface CurtainSeries {
   id: Generated<string>;
   is_active: Generated<boolean>;
   name: string;
+  name_cn: string | null;
   product_line: Generated<CurtainProductLine>;
   sale_sgd_cents: number | null;
   updated_at: Generated<Timestamp>;
@@ -665,6 +666,18 @@ export interface OrderYearCounters {
   year: number;
 }
 
+export interface PoOpeningLabels {
+  draw: string;
+  label_cn: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface PoTypeLabels {
+  key: string;
+  label_cn: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface PricingAddons {
   basis: Generated<PricingAddonBasis>;
   cost_rmb_cents: number | null;
@@ -798,7 +811,7 @@ export interface Rooms {
 
 export interface RoomTypeLabels {
   code: string;
-  name_cn: string;
+  name_cn: string | null;
   room_type: RoomType;
   updated_at: Generated<Timestamp>;
 }
@@ -996,6 +1009,8 @@ export interface DB {
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;
+  po_opening_labels: PoOpeningLabels;
+  po_type_labels: PoTypeLabels;
   pricing_addons: PricingAddons;
   pricing_assumptions: PricingAssumptions;
   pricing_combos: PricingCombos;

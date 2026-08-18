@@ -10,6 +10,7 @@ import {
   sqmM,
   type PoInput,
   type PoLine,
+  type PoRoomLabel,
   type PoSettings,
   type PoVendor,
 } from "./build";
@@ -63,12 +64,20 @@ const SHUNJIN: PoVendor = {
   internalRef: "V007",
 };
 
-const LABELS = new Map([
+// The four rows the seed migration loads — EXCEPT that Service Yard's name_cn
+// is NULL in the database. The Blinds sample prints `SR Service Yard` with no
+// Hanzi anywhere in the cell, so its Chinese is genuinely unknown to us.
+//
+// The placeholder below stands in for the name the business will supply, so
+// that the rest of the Blinds sample — the 平方 column, the blank 订单资料 —
+// can still be exercised here. IT IS A TEST FIXTURE, NOT A TRANSLATION: what
+// the real NULL does is asserted in "buildPos — labels we do not have".
+const LABELS = new Map<string, PoRoomLabel>([
   ["Living Room", { nameCn: "客厅", code: "LR" }],
   ["Master Bedroom", { nameCn: "主卧", code: "MB" }],
   ["Bedroom", { nameCn: "次卧", code: "BR" }],
-  ["Service Yard", { nameCn: "Service Yard", code: "SR" }],
-] as const);
+  ["Service Yard", { nameCn: "(name pending)", code: "SR" }],
+]);
 
 function line(over: Partial<PoLine> & Pick<PoLine, "lineId">): PoLine {
   return {
@@ -310,7 +319,9 @@ describe("buildPos — the Blinds sample", () => {
     expect(problems).toEqual([]);
     expect(pos[0].tables[0].columnSet).toBe("blind");
     expect(pos[0].tables[0].rows[0]).toEqual({
-      room: "Service Yard SR",
+      // See LABELS: the Chinese for a service yard is unknown, so the fixture
+      // supplies a stand-in. The sample's own cell reads `SR Service Yard`.
+      room: "(name pending) SR",
       type: "卷帘",
       fabric: "1079-13",
       derived: "2.46",
@@ -482,6 +493,115 @@ describe("buildPos — room numbering", () => {
     );
 
     expect(problems).toHaveLength(1);
+  });
+});
+
+describe("buildPos — labels we do not have", () => {
+  // The rule this block enforces: a cell we cannot fill BLOCKS the document.
+  //
+  // These are cutting instructions. A blank 窗帘款式 does not tell a factory
+  // "no style", it tells them nothing, and somebody in Shenzhen then guesses —
+  // which is the failure this whole phase exists to remove. Only three of these
+  // labels are evidenced by the samples (纱窗 Day, 窗帘 Night, 对开 Double
+  // draw); every other one is NULL in the database, waiting for the business,
+  // and until it arrives the honest output is a refusal naming the gap.
+
+  it("reports a room type whose label row carries no Chinese name", () => {
+    // Service Yard's real state. The row EXISTS — the code SR is evidenced by
+    // the Blinds sample — but name_cn is NULL, so the row-absence check that
+    // catches Kitchen and Balcony cannot catch this one.
+    const { pos, problems } = buildPos(
+      input({
+        roomLabels: new Map<string, PoRoomLabel>([
+          ["Service Yard", { nameCn: null, code: "SR" }],
+        ]),
+        lines: [
+          line({ lineId: "a", roomType: "Service Yard", kind: "blind" }),
+        ],
+      }),
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("Service Yard");
+    expect(pos).toEqual([]);
+  });
+
+  it("reports a line with no 窗帘款式 label instead of printing an empty cell", () => {
+    const { pos, problems } = buildPos(
+      input({ lines: [line({ lineId: "a", typeLabel: null })] }),
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("窗帘款式");
+    expect(pos).toEqual([]);
+  });
+
+  it("reports a line with no 开法 label instead of printing an empty cell", () => {
+    const { pos, problems } = buildPos(
+      input({ lines: [line({ lineId: "a", openingLabel: null })] }),
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("开法");
+    expect(pos).toEqual([]);
+  });
+
+  it("names the window each missing label belongs to", () => {
+    // Both gaps are reported, not just the first: whoever is fixing this should
+    // see everything wrong with the window in one pass, and the room label and
+    // window number are how they find it on the screen.
+    const { problems } = buildPos(
+      input({
+        lines: [
+          line({ lineId: "ok", roomId: "r1" }),
+          line({
+            lineId: "bad",
+            roomId: "r2",
+            roomLabel: "Kids room",
+            roomType: "Master Bedroom",
+            roomPosition: 1,
+            position: 2,
+            typeLabel: null,
+            openingLabel: null,
+          }),
+        ],
+      }),
+    );
+
+    expect(problems).toHaveLength(2);
+    for (const problem of problems) {
+      expect(problem).toContain("Kids room");
+      expect(problem).toContain("Window 3");
+    }
+  });
+
+  it("keeps the good lines previewable beside the problem", () => {
+    const { pos, problems } = buildPos(
+      input({
+        lines: [
+          line({ lineId: "ok", roomId: "r1" }),
+          line({
+            lineId: "bad",
+            roomId: "r2",
+            roomType: "Master Bedroom",
+            roomPosition: 1,
+            typeLabel: null,
+          }),
+        ],
+      }),
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(pos).toHaveLength(1);
+    expect(pos[0].tables[0].rows).toHaveLength(1);
+  });
+
+  it("returns no problems when every label is present", () => {
+    const { pos, problems } = buildPos(input({ lines: [line({ lineId: "a" })] }));
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows[0].type).toBe("窗帘 Night");
+    expect(pos[0].tables[0].rows[0].opening).toBe("对开 Double draw");
   });
 });
 

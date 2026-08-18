@@ -176,14 +176,36 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   };
 }
 
+// Alignment is deliberately NOT set here. Two same-specificity Tailwind classes
+// resolve by stylesheet order rather than by the order they appear in the
+// attribute, so a per-input `text-center` could not reliably beat a `text-right`
+// baked into this string. Each input states its own alignment instead.
 const INPUT_BASE =
-  "px-2 py-1 border rounded text-sm text-right tabular-nums font-semibold " +
+  "px-2 py-1 border rounded text-sm tabular-nums font-semibold " +
   "focus:outline-none focus:border-teal-500 disabled:bg-slate-50 disabled:text-slate-500";
 
 function toneFor(invalid: boolean, adjusted: boolean): string {
   if (invalid) return "border-rose-400 bg-rose-50 text-rose-900";
   if (adjusted) return "border-amber-400 bg-amber-50 text-amber-900";
   return "border-slate-200 bg-white text-slate-900";
+}
+
+/**
+ * The allowance box is coloured by SIGN, not by validity: red takes material
+ * off the opening, green adds it, and a zero allowance is quiet because it
+ * changes nothing.
+ *
+ * Note that negative is the ordinary case — curtains ship at −2/−4 — so most
+ * rows read red on a healthy order. The colour is answering "which way does
+ * this go", not "is something wrong"; errors still surface on the
+ * manufacturing box and in the row's error list.
+ */
+export function deltaTone(delta: string): string {
+  const d = parseDelta(delta);
+  if (d == null) return "border-slate-300 bg-white text-slate-900";
+  if (d < 0) return "border-rose-300 bg-rose-50 text-rose-700";
+  if (d > 0) return "border-emerald-300 bg-emerald-50 text-emerald-700";
+  return "border-slate-200 bg-white text-slate-400";
 }
 
 /**
@@ -229,7 +251,7 @@ function AxisRow({
         </span>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 sm:justify-center">
         <span className="sm:hidden w-14 shrink-0 text-xs text-slate-500">
           Allowance
         </span>
@@ -240,12 +262,12 @@ function AxisRow({
           disabled={disabled}
           value={delta}
           onChange={(e) => onDelta(e.target.value)}
-          className={`w-16 ${INPUT_BASE} ${toneFor(false, adjusted)}`}
+          className={`w-16 text-center ${INPUT_BASE} ${deltaTone(delta)}`}
         />
         <span className="text-xs text-slate-400">cm</span>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 sm:justify-end">
         <span className="sm:hidden w-14 shrink-0 text-xs text-slate-500">
           Make
         </span>
@@ -257,7 +279,7 @@ function AxisRow({
           disabled={disabled}
           value={size}
           onChange={(e) => onSize(e.target.value)}
-          className={`w-20 ${INPUT_BASE} ${toneFor(invalid, adjusted)}`}
+          className={`w-20 text-right ${INPUT_BASE} ${toneFor(invalid, adjusted)}`}
         />
         <span className="text-xs text-slate-400">cm</span>
       </div>
@@ -313,7 +335,9 @@ export function ReconciliationRow({
       {/* One grid for both axes and all three columns, so Width and Height line
           up by construction rather than by two independent flex rows agreeing
           about their own widths. */}
-      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-2 sm:items-center">
+      {/* 1fr on both flanks puts the allowance in the visual centre, between
+          the two measurements it relates. */}
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-4 gap-y-2 sm:items-center">
         <AxisRow
           axis="Width"
           lineId={line.lineId}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deltaTone,
   draftFor,
   evaluateRow,
   parseDelta,
@@ -161,5 +162,27 @@ describe("evaluateRow", () => {
     const l = line();
     const s = evaluateRow(l, syncDraft(l, draftFor(l), { widthDelta: "-5" }));
     expect(s.errors).toEqual([]);
+  });
+});
+
+describe("deltaTone — the allowance box is coloured by sign", () => {
+  it("is red when material comes off the opening", () => {
+    expect(deltaTone("-2")).toMatch(/rose/);
+    expect(deltaTone("-40")).toMatch(/rose/);
+  });
+
+  it("is green when material is added", () => {
+    expect(deltaTone("3")).toMatch(/emerald/);
+  });
+
+  // A zero allowance changes nothing, so it should not shout either way.
+  it("is quiet at zero", () => {
+    const t = deltaTone("0");
+    expect(t).not.toMatch(/rose|emerald/);
+  });
+
+  it("stays neutral while a value is still being typed", () => {
+    expect(deltaTone("-")).not.toMatch(/rose|emerald/);
+    expect(deltaTone("")).not.toMatch(/rose|emerald/);
   });
 });

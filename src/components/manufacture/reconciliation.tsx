@@ -147,14 +147,13 @@ export function Reconciliation({
               {room.label}
             </div>
             {/* Column headers live at the room level on desktop; each row
-                repeats them on mobile, where the columns stack.
-                Same column template as the row grid, so the headers sit over
-                as the row grid, so the headers sit over the cells they
-                name instead of near them. */}
-            <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 px-4 py-1.5 border-t border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                repeats them on mobile, where the columns stack. Same column
+                template as the row grid, so the headers sit over the cells
+                they name rather than merely near them. */}
+            <div className="hidden sm:grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-4 px-4 py-1.5 border-t border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
               <div>Measured</div>
-              <div>Allowance</div>
-              <div>To manufacture</div>
+              <div className="text-center">Allowance</div>
+              <div className="text-right">To manufacture</div>
             </div>
             {room.lines.map((line) => (
               <ReconciliationRow

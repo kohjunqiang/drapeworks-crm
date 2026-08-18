@@ -9,6 +9,9 @@ const ROOM_TYPES = [
   "Kitchen",
   "Study Room",
   "Balcony",
+  // Phase 13C — a standard HDB feature the enum was missing, and the room the
+  // Blinds sample PO is for. Must stay in step with public.room_type.
+  "Service Yard",
   "Other",
 ] as const;
 

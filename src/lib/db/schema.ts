@@ -65,7 +65,7 @@ export type ProductLine = "curtain" | "mesh";
 
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
 
-export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Study Room";
+export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Service Yard" | "Study Room";
 
 export type SalesChannel = "carousell" | "standard";
 
@@ -527,6 +527,18 @@ export interface ManufactureMeasurements {
   window_id: string | null;
 }
 
+export interface ManufacturePos {
+  generated_at: Generated<Timestamp>;
+  generated_by: string | null;
+  id: Generated<string>;
+  notes: string | null;
+  order_id: string;
+  po_number: string;
+  storage_path: string;
+  superseded_at: Timestamp | null;
+  vendor_id: string | null;
+}
+
 export interface MeshCategories {
   cost_rmb_cents_per_sqft: number | null;
   created_at: Generated<Timestamp>;
@@ -696,6 +708,25 @@ export interface PricingCombos {
   updated_at: Generated<Timestamp>;
 }
 
+export interface ProcurementSettings {
+  address_line1: string;
+  address_line2: string;
+  air_shipping_mark: string | null;
+  company_name: string;
+  company_uen: string;
+  curtain_style_cn: string | null;
+  delivery_phone: string | null;
+  floor_clearance_cm: number | null;
+  heat_setting_cn: string | null;
+  phone: string;
+  recipient_cn: string | null;
+  singleton: Generated<boolean>;
+  updated_at: Generated<Timestamp>;
+  warehouse_address_cn: string | null;
+  website: string;
+  wechat: string;
+}
+
 export interface Profiles {
   created_at: Generated<Timestamp>;
   email: string;
@@ -763,6 +794,13 @@ export interface Rooms {
   order_id: string;
   position: number;
   type: RoomType;
+}
+
+export interface RoomTypeLabels {
+  code: string;
+  name_cn: string;
+  room_type: RoomType;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface StorageBuckets {
@@ -886,12 +924,16 @@ export interface VaultSecrets {
 }
 
 export interface Vendors {
+  address_cn: string | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   id: Generated<string>;
+  internal_ref: string | null;
   is_active: Generated<boolean>;
   name: string;
+  name_cn: string | null;
   notes: string | null;
+  phone: string | null;
   updated_at: Generated<Timestamp>;
 }
 
@@ -944,6 +986,7 @@ export interface DB {
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
   manufacture_allowances: ManufactureAllowances;
   manufacture_measurements: ManufactureMeasurements;
+  manufacture_pos: ManufacturePos;
   mesh_categories: MeshCategories;
   mesh_colours: MeshColours;
   mesh_minimum_areas: MeshMinimumAreas;
@@ -956,12 +999,14 @@ export interface DB {
   pricing_addons: PricingAddons;
   pricing_assumptions: PricingAssumptions;
   pricing_combos: PricingCombos;
+  procurement_settings: ProcurementSettings;
   profiles: Profiles;
   promotions: Promotions;
   "realtime.messages": RealtimeMessages;
   "realtime.schema_migrations": RealtimeSchemaMigrations;
   "realtime.subscription": RealtimeSubscription;
   room_photos: RoomPhotos;
+  room_type_labels: RoomTypeLabels;
   rooms: Rooms;
   "storage.buckets": StorageBuckets;
   "storage.buckets_analytics": StorageBucketsAnalytics;

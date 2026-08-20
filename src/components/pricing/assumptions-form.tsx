@@ -54,6 +54,14 @@ const GROUPS: { title: string; fields: FieldDef[] }[] = [
     fields: [
       { name: "groupbuyDiscountPct", label: "Groupbuy discount", suffix: "%" },
       { name: "styleMultiplier", label: "Style multiplier", prefix: "×", placeholder: "2" },
+      // A cost, never billed, so it has no sale field — and one rate, because a
+      // double rail is two runs of the same rail over the same opening.
+      {
+        name: "trackCostRmb",
+        label: "Track (rail) — cost per metre",
+        prefix: "¥",
+        suffix: "/m",
+      },
     ],
   },
   {

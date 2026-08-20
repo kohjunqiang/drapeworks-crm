@@ -21,13 +21,12 @@ const ASSUMPTIONS: CalcAssumptions = {
   airFreightRateBps: 6000, // 60%
   airFreightFloorRmbCents: 50000, // ¥500
   airFreightCapRmbCents: 140000, // ¥1400
+  trackCostRmbCentsPerM: 2500, // ¥25 per metre of MEASURED width
 };
 
 const BOOK: CalcAddonBook = {
   sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
   slimTracks: { costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
-  singleTrack: { costRmbCents: 2500, saleSgdCents: 3500, basis: "per_unit" },
-  doubleTrack: { costRmbCents: 2500, saleSgdCents: 4000, basis: "per_unit" },
 };
 
 const SIGNATURE = { costRmbCents: 5100, saleSgdCents: 9000 }; // ¥51 / S$90 per m
@@ -43,20 +42,26 @@ describe("windowQuote", () => {
         addSlimTracks: false,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     // day cost 2.8×2×5100=28560, sale 2.8×9000=25200
     // s-fold cost 2.8×1100=3080, sale 2.8×8000=22400
-    // single track cost 2500 (into COGS); its sale is NOT billed to the customer.
+    // single rail 2.8m×¥25=7000 (into COGS); it is NOT billed to the customer.
     // sale = fabric 25200 + s-fold 22400 = 47600; curtain-only cost = day 28560
     expect(q).toEqual({
-      costRmbCents: 34140,
+      costRmbCents: 38640,
       saleSgdCents: 47600,
       curtainCostRmbCents: 28560,
       offering: "single",
       // Reported apart so the breakdown can list the rails on their own line.
-      trackRmbCents: 2500,
+      trackRmbCents: 7000,
       trackKind: "single",
+      // What the window's own figure is made of. The rail is NOT among them —
+      // it is lifted out and counted with the other rails.
+      legs: [
+        { label: "Day curtain", detail: null, rmbCents: 28560 },
+        { label: "S-Fold", detail: null, rmbCents: 3080 },
+      ],
     });
   });
 
@@ -70,18 +75,23 @@ describe("windowQuote", () => {
         addSlimTracks: false,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     // day+night cost 2×(3×2×5100)=61200, sale 2×(3×9000)=54000
-    // double track cost 2500 (into COGS); its sale is NOT billed to the customer.
+    // A double rail is two runs over the same opening: 2×3.0m×¥25=15000 into
+    // COGS. Its cost is NOT billed to the customer.
     // sale = fabric 54000 only; curtain-only cost = 61200
     expect(q).toEqual({
-      costRmbCents: 63700,
+      costRmbCents: 76200,
       saleSgdCents: 54000,
       curtainCostRmbCents: 61200,
       offering: "double",
-      trackRmbCents: 2500,
+      trackRmbCents: 15000,
       trackKind: "double",
+      legs: [
+        { label: "Day curtain", detail: null, rmbCents: 30600 },
+        { label: "Night curtain", detail: null, rmbCents: 30600 },
+      ],
     });
   });
 
@@ -95,12 +105,12 @@ describe("windowQuote", () => {
         addSlimTracks: false,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
-    // Sale is fabric only: 2×(3×9000)=54000 — the S$40 double track is NOT added.
+    // Sale is fabric only: 2×(3×9000)=54000 — no rail reaches the customer.
     expect(q.saleSgdCents).toBe(54000);
-    // Its cost IS still carried: day+night 61200 + track cost 2500 = 63700.
-    expect(q.costRmbCents).toBe(63700);
+    // Its cost IS still carried: day+night 61200 + rail 15000 = 76200.
+    expect(q.costRmbCents).toBe(76200);
   });
 
   it("a combo overrides the sale but leaves cost/COGS unchanged", () => {
@@ -111,11 +121,11 @@ describe("windowQuote", () => {
       addSFold: false,
       addSlimTracks: false,
     };
-    const plain = windowQuote(base, BOOK, ASSUMPTIONS.styleMultiplier);
+    const plain = windowQuote(base, BOOK, ASSUMPTIONS);
     const combo = windowQuote(
       { ...base, comboPriceSgdCents: 45000 }, // S$450 bundle
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     // Sale is fixed to the bundle price; every cost figure is identical.
     expect(combo.saleSgdCents).toBe(45000);
@@ -129,7 +139,7 @@ describe("windowQuote", () => {
       windowQuote(
         { widthCm: null, addSFold: true, addSlimTracks: true },
         BOOK,
-        ASSUMPTIONS.styleMultiplier,
+        ASSUMPTIONS,
       ),
     ).toEqual({
       costRmbCents: 0,
@@ -139,6 +149,7 @@ describe("windowQuote", () => {
       // No curtain, so no rail to buy.
       trackRmbCents: 0,
       trackKind: null,
+      legs: [],
     });
   });
 });
@@ -263,10 +274,10 @@ describe("computeQuote — cost breakdown by room", () => {
       BOOK,
       ASSUMPTIONS,
     );
-    // fabric 28560 + s-fold 3080. The 2500 rail is counted separately.
+    // fabric 28560 + s-fold 3080. The 7000 rail is counted separately.
     expect(q.cogsRooms[0].items[0].rmbCents).toBe(31640);
     expect(q.cogsExtras).toEqual([
-      { label: "Track (single)", count: 1, rmbCents: 2500 },
+      { label: "Track (single)", count: 1, rmbCents: 7000 },
     ]);
   });
 
@@ -286,8 +297,9 @@ describe("computeQuote — cost breakdown by room", () => {
       ASSUMPTIONS,
     );
     // Four windows, one rail each: ONE line of four, not four lines.
+    // 2.0m × ¥25 apiece.
     expect(q.cogsExtras).toEqual([
-      { label: "Track (single)", count: 4, rmbCents: 4 * 2500 },
+      { label: "Track (single)", count: 4, rmbCents: 4 * 5000 },
     ]);
   });
 
@@ -303,9 +315,10 @@ describe("computeQuote — cost breakdown by room", () => {
     };
     const double = { ...single, nightPrice: NIGHT };
     const q = computeQuote([single, double, double], BOOK, ASSUMPTIONS);
+    // Single: 2.0m × ¥25 = 5000. Double: two runs, 2 × 2.0m × ¥25 = 10000 each.
     expect(q.cogsExtras).toEqual([
-      { label: "Track (single)", count: 1, rmbCents: 2500 },
-      { label: "Track (double)", count: 2, rmbCents: 5000 },
+      { label: "Track (single)", count: 1, rmbCents: 5000 },
+      { label: "Track (double)", count: 2, rmbCents: 20000 },
     ]);
   });
 
@@ -384,19 +397,19 @@ describe("computeQuote", () => {
       BOOK,
       ASSUMPTIONS,
     );
-    expect(q.cogsRmbCents).toBe(34140);
-    expect(q.saleSgdCents).toBe(47600); // fabric + s-fold; track sale excluded
+    expect(q.cogsRmbCents).toBe(38640); // fabric 28560 + s-fold 3080 + rail 7000
+    expect(q.saleSgdCents).toBe(47600); // fabric + s-fold; the rail is not sold
     expect(q.freightRmbCents).toBe(50000); // clamped to the ¥500 floor
-    expect(q.otherCostRmbCents).toBe(3414);
-    expect(q.gstRmbCents).toBe(3073);
-    expect(q.grossCostRmbCents).toBe(90627);
-    expect(q.grossCostSgdCents).toBe(17099);
+    expect(q.otherCostRmbCents).toBe(3864);
+    expect(q.gstRmbCents).toBe(3478);
+    expect(q.grossCostRmbCents).toBe(95982);
+    expect(q.grossCostSgdCents).toBe(18110);
     // single-curtain install $60 (not the flat handyman)
     expect(q.installationSgdCents).toBe(6000);
-    expect(q.netCostSgdCents).toBe(23099);
-    expect(q.marginBps).toBe(5147); // 51.47%
+    expect(q.netCostSgdCents).toBe(24110);
+    expect(q.marginBps).toBe(4935); // 49.35%
     expect(q.groupbuySgdCents).toBe(40460);
-    expect(q.groupbuyMarginBps).toBe(4291); // 42.91%
+    expect(q.groupbuyMarginBps).toBe(4041); // 40.41%
   });
 
   it("adds the ad-hoc extra install cost", () => {
@@ -520,7 +533,7 @@ describe("windowQuote — blinds", () => {
     const q = windowQuote(
       { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
 
     // 2.0m × ¥40 = ¥80. A curtain would be ¥160 here (×2.0 fullness).
@@ -533,12 +546,12 @@ describe("windowQuote — blinds", () => {
     const withToggles = windowQuote(
       { widthCm: 200, blindPrice: BLIND, addSFold: true, addSlimTracks: true },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     const without = windowQuote(
       { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(withToggles).toEqual(without);
   });
@@ -553,7 +566,7 @@ describe("windowQuote — blinds", () => {
         comboPriceSgdCents: 999_00,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(14000);
   });
@@ -562,7 +575,7 @@ describe("windowQuote — blinds", () => {
     const q = windowQuote(
       { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(q.curtainCostRmbCents).toBe(8000);
   });
@@ -571,7 +584,7 @@ describe("windowQuote — blinds", () => {
     const q = windowQuote(
       { widthCm: null, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(q.offering).toBe("none");
     expect(q.costRmbCents).toBe(0);
@@ -590,7 +603,7 @@ describe("windowQuote — blinds", () => {
         addSlimTracks: false,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(14000);
     expect(q.costRmbCents).toBe(8000);
@@ -613,11 +626,11 @@ describe("costWidthCm", () => {
   };
 
   it("lowers the cost and leaves the sale exactly where it was", () => {
-    const measured = windowQuote(base, BOOK, ASSUMPTIONS.styleMultiplier);
+    const measured = windowQuote(base, BOOK, ASSUMPTIONS);
     const made = windowQuote(
       { ...base, costWidthCm: 298 },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
 
     // 2.98m × 2.0 × ¥51 = ¥303.96, against ¥306.00 on the measured 3.00m.
@@ -632,12 +645,16 @@ describe("costWidthCm", () => {
   it("is byte-identical to today when absent", () => {
     // The expectations are lifted verbatim from the day-only 2.8m window above.
     const today = {
-      costRmbCents: 34140,
+      costRmbCents: 38640,
       saleSgdCents: 47600,
       curtainCostRmbCents: 28560,
       offering: "single",
-      trackRmbCents: 2500,
+      trackRmbCents: 7000,
       trackKind: "single",
+      legs: [
+        { label: "Day curtain", detail: null, rmbCents: 28560 },
+        { label: "S-Fold", detail: null, rmbCents: 3080 },
+      ],
     };
     const win = {
       widthCm: 280,
@@ -648,12 +665,12 @@ describe("costWidthCm", () => {
     };
     // Omitted (no confirmed set) and explicitly null (a row that never arrived)
     // must both behave as they did before the field existed.
-    expect(windowQuote(win, BOOK, ASSUMPTIONS.styleMultiplier)).toEqual(today);
+    expect(windowQuote(win, BOOK, ASSUMPTIONS)).toEqual(today);
     expect(
       windowQuote(
         { ...win, costWidthCm: null },
         BOOK,
-        ASSUMPTIONS.styleMultiplier,
+        ASSUMPTIONS,
       ),
     ).toEqual(today);
   });
@@ -662,7 +679,7 @@ describe("costWidthCm", () => {
     const q = windowQuote(
       { ...base, nightPrice: SIGNATURE, costWidthCm: 298 },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     // Both legs cut at 2.98m: 2 × ¥303.96.
     expect(q.curtainCostRmbCents).toBe(2 * 30396);
@@ -679,7 +696,7 @@ describe("costWidthCm", () => {
         addSlimTracks: false,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(made.costRmbCents).toBe(7920); // 1.98m × ¥40
     expect(made.saleSgdCents).toBe(14000); // still 2.00m × S$70
@@ -695,14 +712,15 @@ describe("costWidthCm", () => {
     const made = windowQuote(
       { ...win, costWidthCm: 278 },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
-    const measured = windowQuote(win, BOOK, ASSUMPTIONS.styleMultiplier);
+    const measured = windowQuote(win, BOOK, ASSUMPTIONS);
 
     // fabric 2.78×2×5100=28356, s-fold 2.78×1100=3058,
-    // slim tracks 2.78×3500=9730, single track 2500 (per unit).
-    expect(made.costRmbCents).toBe(28356 + 3058 + 9730 + 2500);
-    expect(measured.costRmbCents).toBe(28560 + 3080 + 9800 + 2500);
+    // slim tracks 2.78×3500=9730. The rail bills on the MEASURED 2.80m either
+    // way — it is cut to the opening, not to the panel — so it is 7000 in both.
+    expect(made.costRmbCents).toBe(28356 + 3058 + 9730 + 7000);
+    expect(measured.costRmbCents).toBe(28560 + 3080 + 9800 + 7000);
     // Sale: fabric 25200 + s-fold 22400 + slim tracks 14000, both times.
     expect(made.saleSgdCents).toBe(61600);
     expect(measured.saleSgdCents).toBe(61600);
@@ -714,16 +732,17 @@ describe("costWidthCm", () => {
       sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_unit" },
     };
     const win = { ...base, costWidthCm: 150 }; // an absurd gap, to make a scaling bug loud
-    const off = windowQuote(win, perUnit, ASSUMPTIONS.styleMultiplier);
+    const off = windowQuote(win, perUnit, ASSUMPTIONS);
     const on = windowQuote(
       { ...win, addSFold: true },
       perUnit,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(on.costRmbCents - off.costRmbCents).toBe(1100);
     expect(on.saleSgdCents - off.saleSgdCents).toBe(8000);
-    // The rail is per-unit too, and stays the same rail.
-    expect(on.trackRmbCents).toBe(2500);
+    // The rail bills on the measured 3.00m, so the absurd manufacturing width
+    // does not move it: 3.0 × ¥25.
+    expect(on.trackRmbCents).toBe(7500);
   });
 
   it("still lets a combo fix the sale while cost follows the manufacturing width", () => {
@@ -735,7 +754,7 @@ describe("costWidthCm", () => {
         comboPriceSgdCents: 45000,
       },
       BOOK,
-      ASSUMPTIONS.styleMultiplier,
+      ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(45000);
     expect(q.curtainCostRmbCents).toBe(2 * 30396);
@@ -743,8 +762,14 @@ describe("costWidthCm", () => {
 
   it("still applies the style multiplier to cost only", () => {
     const win = { ...base, costWidthCm: 298 };
-    const double = windowQuote(win, BOOK, 20000);
-    const triple = windowQuote(win, BOOK, 30000);
+    const double = windowQuote(win, BOOK, {
+      ...ASSUMPTIONS,
+      styleMultiplier: 20000,
+    });
+    const triple = windowQuote(win, BOOK, {
+      ...ASSUMPTIONS,
+      styleMultiplier: 30000,
+    });
     expect(double.curtainCostRmbCents).toBe(30396); // 2.98 × 2.0 × 5100
     expect(triple.curtainCostRmbCents).toBe(45594); // 2.98 × 3.0 × 5100
     expect(triple.saleSgdCents).toBe(double.saleSgdCents);
@@ -759,7 +784,7 @@ describe("costWidthCm", () => {
       windowQuote(
         { widthCm: null, costWidthCm: 298, dayPrice: SIGNATURE, addSFold: true, addSlimTracks: true },
         BOOK,
-        ASSUMPTIONS.styleMultiplier,
+        ASSUMPTIONS,
       ),
     ).toEqual({
       costRmbCents: 0,
@@ -768,14 +793,15 @@ describe("costWidthCm", () => {
       offering: "none",
       trackRmbCents: 0,
       trackKind: null,
+      legs: [],
     });
   });
 
   it("falls back to the measured width when the manufacturing one is nonsense", () => {
-    const measured = windowQuote(base, BOOK, ASSUMPTIONS.styleMultiplier);
+    const measured = windowQuote(base, BOOK, ASSUMPTIONS);
     for (const costWidthCm of [0, -5]) {
       expect(
-        windowQuote({ ...base, costWidthCm }, BOOK, ASSUMPTIONS.styleMultiplier),
+        windowQuote({ ...base, costWidthCm }, BOOK, ASSUMPTIONS),
       ).toEqual(measured);
     }
   });
@@ -842,5 +868,217 @@ describe("installation cost by offering", () => {
     expect(total).toBe(
       ASSUMPTIONS.handymanDoubleSgdCents + ASSUMPTIONS.handymanBlindsSgdCents,
     );
+  });
+});
+
+// ── The rail, per metre ───────────────────────────────────────────────────
+//
+// It used to be a flat per-unit charge that ignored the window entirely, and
+// the per-metre option in the admin screen silently zeroed it. One rate, on the
+// MEASURED width — the rail is cut to the opening it is screwed above, not to
+// the panel the vendor cuts.
+
+describe("track", () => {
+  const win = (over: Partial<Parameters<typeof windowQuote>[0]> = {}) => ({
+    widthCm: 240,
+    dayPrice: SIGNATURE,
+    addSFold: false,
+    addSlimTracks: false,
+    ...over,
+  });
+
+  it("bills a single rail at width × rate", () => {
+    // 2.40m × ¥25.
+    expect(windowQuote(win(), BOOK, ASSUMPTIONS).trackRmbCents).toBe(6000);
+  });
+
+  it("bills a double rail at twice the width, at the SAME rate", () => {
+    const single = windowQuote(win(), BOOK, ASSUMPTIONS);
+    const double = windowQuote(
+      win({ nightPrice: SIGNATURE }),
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(double.trackKind).toBe("double");
+    expect(double.trackRmbCents).toBe(2 * single.trackRmbCents);
+  });
+
+  it("follows the width, where the old flat charge did not", () => {
+    const narrow = windowQuote(win({ widthCm: 100 }), BOOK, ASSUMPTIONS);
+    const wide = windowQuote(win({ widthCm: 300 }), BOOK, ASSUMPTIONS);
+    expect(narrow.trackRmbCents).toBe(2500);
+    expect(wide.trackRmbCents).toBe(7500);
+  });
+
+  it("bills on the measured width, never the manufacturing one", () => {
+    const made = windowQuote(
+      win({ costWidthCm: 100 }), // an absurd gap, to make a mix-up loud
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(made.trackRmbCents).toBe(6000); // still 2.40m
+  });
+
+  it("is free when the rate is zero, and charges nothing on a blind", () => {
+    const free = windowQuote(win(), BOOK, {
+      ...ASSUMPTIONS,
+      trackCostRmbCentsPerM: 0,
+    });
+    expect(free.trackRmbCents).toBe(0);
+    const blind = windowQuote(
+      { widthCm: 240, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      BOOK,
+      ASSUMPTIONS,
+    );
+    // A blind carries its own headrail.
+    expect(blind.trackRmbCents).toBe(0);
+  });
+
+  it("stays out of the customer's price whatever the width", () => {
+    const narrow = windowQuote(win({ widthCm: 100 }), BOOK, ASSUMPTIONS);
+    const wide = windowQuote(win({ widthCm: 100 }), BOOK, {
+      ...ASSUMPTIONS,
+      trackCostRmbCentsPerM: 100_000,
+    });
+    expect(wide.saleSgdCents).toBe(narrow.saleSgdCents);
+  });
+});
+
+// ── What a window is made of ──────────────────────────────────────────────
+//
+// The room's subtotal says which room carries the cost; the legs say which
+// COVERING inside a window carries it — the day curtain, the night curtain, the
+// S-Fold over them.
+
+describe("cost breakdown — legs", () => {
+  const ESSENTIAL_L = { ...SIGNATURE, label: "Essential" };
+  const SIGNATURE_L = { ...SIGNATURE, label: "Signature" };
+
+  const legsOf = (win: Parameters<typeof computeQuote>[0][number]) =>
+    computeQuote([win], BOOK, ASSUMPTIONS).cogsRooms[0].items[0].legs;
+
+  it("splits a day + night window into its two curtains", () => {
+    expect(
+      legsOf({
+        widthCm: 300,
+        dayPrice: ESSENTIAL_L,
+        nightPrice: ESSENTIAL_L,
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toEqual([
+      // One series across both, so the window's own row already names it.
+      { label: "Day curtain", detail: null, rmbCents: 30600 },
+      { label: "Night curtain", detail: null, rmbCents: 30600 },
+    ]);
+  });
+
+  it("names the series on each leg when the two differ", () => {
+    expect(
+      legsOf({
+        widthCm: 300,
+        dayPrice: ESSENTIAL_L,
+        nightPrice: SIGNATURE_L,
+        addSFold: false,
+        addSlimTracks: false,
+      })?.map((l) => l.detail),
+    ).toEqual(["Essential", "Signature"]);
+  });
+
+  it("lists the add-ons beside the curtains, in charge order", () => {
+    expect(
+      legsOf({
+        widthCm: 280,
+        dayPrice: ESSENTIAL_L,
+        addSFold: true,
+        addSlimTracks: true,
+      })?.map((l) => l.label),
+    ).toEqual(["Day curtain", "S-Fold", "Slim tracks"]);
+  });
+
+  it("has none when the window is a single covering — nothing to break down", () => {
+    expect(
+      legsOf({
+        widthCm: 280,
+        dayPrice: ESSENTIAL_L,
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toBeUndefined();
+    expect(
+      legsOf({
+        widthCm: 150,
+        blindPrice: { ...SIGNATURE, label: "Korean Combi" },
+        addSFold: false,
+        addSlimTracks: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("sums to the window's own figure — the rail excluded, as on the row", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 280,
+          dayPrice: ESSENTIAL_L,
+          nightPrice: SIGNATURE_L,
+          addSFold: true,
+          addSlimTracks: true,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    const item = q.cogsRooms[0].items[0];
+    expect((item.legs ?? []).reduce((n, l) => n + l.rmbCents, 0)).toBe(
+      item.rmbCents,
+    );
+    // And the rail is on its own line, outside the window.
+    expect(q.cogsExtras).toEqual([
+      { label: "Track (double)", count: 1, rmbCents: 14000 },
+    ]);
+  });
+});
+
+// ── The markups' base ─────────────────────────────────────────────────────
+
+describe("finaliseQuote — what other cost and GST are charged on", () => {
+  it("charges both on COGS alone, never on freight", () => {
+    const q = computeQuote(
+      [
+        {
+          widthCm: 280,
+          dayPrice: SIGNATURE,
+          addSFold: false,
+          addSlimTracks: false,
+        },
+      ],
+      BOOK,
+      ASSUMPTIONS,
+      "sea", // a flat ¥400, so the base is obvious either way
+    );
+    expect(q.otherCostRmbCents).toBe(
+      Math.round((q.cogsRmbCents * ASSUMPTIONS.otherCostBps) / 10000),
+    );
+    expect(q.gstRmbCents).toBe(
+      Math.round((q.cogsRmbCents * ASSUMPTIONS.gstBps) / 10000),
+    );
+    // The freight, had it been in either base, would have moved them.
+    expect(q.freightRmbCents).toBe(40000);
+  });
+
+  it("echoes the rates and the freight mode back, so a breakdown can say so", () => {
+    const win = {
+      widthCm: 280,
+      dayPrice: SIGNATURE,
+      addSFold: false,
+      addSlimTracks: false,
+    };
+    const air = computeQuote([win], BOOK, ASSUMPTIONS, "air");
+    const sea = computeQuote([win], BOOK, ASSUMPTIONS, "sea");
+    expect(air.freightMode).toBe("air");
+    expect(sea.freightMode).toBe("sea");
+    expect(air.otherCostBps).toBe(ASSUMPTIONS.otherCostBps);
+    expect(air.gstBps).toBe(ASSUMPTIONS.gstBps);
   });
 });

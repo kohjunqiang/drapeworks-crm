@@ -707,6 +707,7 @@ export interface PricingAssumptions {
   sea_freight_rmb_cents_per_m3: number;
   singleton: Generated<boolean>;
   style_multiplier: number;
+  track_cost_rmb_cents_per_m: Generated<number>;
   updated_at: Generated<Timestamp>;
 }
 
@@ -831,6 +832,7 @@ export interface StorageBuckets {
   public: Generated<boolean | null>;
   type: Generated<StorageBuckettype>;
   updated_at: Generated<Timestamp | null>;
+  versioning_status: Generated<string>;
 }
 
 export interface StorageBucketsAnalytics {
@@ -858,9 +860,12 @@ export interface StorageMigrations {
 }
 
 export interface StorageObjects {
+  archived_at: Timestamp | null;
   bucket_id: string | null;
   created_at: Generated<Timestamp | null>;
   id: Generated<string>;
+  is_delete_marker: Generated<boolean>;
+  is_versioned: Generated<boolean>;
   last_accessed_at: Generated<Timestamp | null>;
   metadata: Json | null;
   name: string | null;

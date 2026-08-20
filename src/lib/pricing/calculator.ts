@@ -10,7 +10,9 @@
 //  - Curtains priced BY WIDTH: width × style-multiplier × cost/m (cost side);
 //    width × sale/m (sale side — fullness is already baked into the sale rate).
 //  - Add-ons: S-Fold + Slim tracks (per-metre → × width; per-unit → flat).
-//  - Track: single track if one of day/night present, double if both.
+//  - Track: per metre of MEASURED width. Single rail if one of day/night is
+//    present, double (two runs, so twice the width at the same rate) if both.
+//    Cost only — a rail is never billed to the customer.
 //  - Freight: AIR only — clamp(COGS × rate, floor, cap). Sea freight (needs
 //    shipping volume) is deferred.
 //  - Local freight and the exact installation/handyman floor logic from the
@@ -33,7 +35,24 @@ export type CalcAssumptions = {
   airFreightRateBps: number;
   airFreightFloorRmbCents: number;
   airFreightCapRmbCents: number;
+  /**
+   * The rail, in RMB cents per METRE of measured width.
+   *
+   * Not an add-on, deliberately. A rail has no sale price (it is never billed),
+   * no per-unit option and no archive state, and it used to live in
+   * pricing_addons where it had all three: an editable sale price the quote
+   * ignored, and a per-metre/per-unit dropdown that silently zeroed the cost
+   * because the caller passed no width. One rate, one basis, no way to express
+   * a state the arithmetic does not honour.
+   */
+  trackCostRmbCentsPerM: number;
 };
+
+/** The slice of the assumptions a single window's arithmetic actually reads. */
+export type WindowAssumptions = Pick<
+  CalcAssumptions,
+  "styleMultiplier" | "trackCostRmbCentsPerM"
+>;
 
 export type SeriesPrice = {
   costRmbCents: number | null;
@@ -56,13 +75,34 @@ export type SeriesPrice = {
 // Both product lines share these types because `finaliseQuote` is shared: it
 // passes the tree through without knowing which engine built it.
 
-/** One measured thing — a window, or a mesh panel — and what it cost us. */
-export type CogsItem = {
-  /** "Window 1", "Panel 2". */
+/**
+ * One priced thing and what it cost us: an item, or one leg inside an item.
+ *
+ * A leg is what an item is MADE of — the day curtain, the night curtain, the
+ * S-Fold on top of them. Same shape as the item it sits under because it is the
+ * same idea one level down, and `cogsItemLabel` formats either.
+ */
+export type CogsLeg = {
+  /** "Window 1", "Panel 2" — or "Day curtain", "S-Fold" for a leg. */
   label: string;
   /** What it's made of: the series name(s), or the mesh category. */
   detail: string | null;
   rmbCents: number;
+};
+
+/** One measured thing — a window, or a mesh panel — and what it cost us. */
+export type CogsItem = CogsLeg & {
+  /**
+   * What the figure is composed of, when it is composed of more than one thing.
+   *
+   * Absent — never a one-element array — when the item IS its single leg: a
+   * day-only window with no add-ons would otherwise print its own cost twice,
+   * once as the window and once as the only thing in it.
+   *
+   * The rail is NOT here. It is bought by the piece and never billed, so it is
+   * lifted out to `CogsExtra` and counted; see `windowQuote.trackRmbCents`.
+   */
+  legs?: CogsLeg[];
 };
 
 /** One room, its subtotal, and the items under it. */
@@ -108,8 +148,6 @@ export type AddonPrice = {
 export type CalcAddonBook = {
   sFold?: AddonPrice | null;
   slimTracks?: AddonPrice | null;
-  singleTrack?: AddonPrice | null;
-  doubleTrack?: AddonPrice | null;
 };
 
 export type CalcWindow = BreakdownIdentity & {
@@ -236,6 +274,7 @@ export function windowDetail(win: CalcWindow): string | null {
 type BreakdownInput = BreakdownIdentity & {
   detail: string | null;
   rmbCents: number;
+  legs?: CogsLeg[];
 };
 
 /**
@@ -271,6 +310,7 @@ export function groupIntoRooms(
       label: `${itemNoun} ${room.items.length + 1}`,
       detail: item.detail,
       rmbCents: item.rmbCents,
+      ...(item.legs ? { legs: item.legs } : {}),
     });
     room.rmbCents += item.rmbCents;
   }
@@ -316,7 +356,7 @@ export type TrackKind = "single" | "double";
 export function windowQuote(
   win: CalcWindow,
   book: CalcAddonBook,
-  styleMultiplier: number,
+  a: WindowAssumptions,
 ): Money & {
   curtainCostRmbCents: number;
   offering: Offering;
@@ -327,7 +367,20 @@ export function windowQuote(
    */
   trackRmbCents: number;
   trackKind: TrackKind | null;
+  /**
+   * What `costRmbCents − trackRmbCents` is made of, in the order it is charged.
+   * Built here rather than by the breakdown so there is one piece of arithmetic
+   * per leg, not two that can drift.
+   *
+   * Legs that cost nothing are left out — an "S-Fold ¥0" under an unmeasured
+   * window is a blank the consultant has not filled in yet, not information.
+   * Dropping them cannot change the sum.
+   */
+  legs: CogsLeg[];
 } {
+  const { styleMultiplier } = a;
+  const charged = (legs: CogsLeg[]): CogsLeg[] =>
+    legs.filter((leg) => leg.rmbCents !== 0);
   // A blind window is priced and installed on its own terms: per metre of
   // width, with NO style multiplier (that models gathered fabric fullness, and
   // a blind doesn't gather), no S-Fold/Slim-Tracks (curtain hardware) and no
@@ -351,6 +404,15 @@ export function windowQuote(
       // A blind carries its own headrail — there is no separate track to buy.
       trackRmbCents: 0,
       trackKind: null,
+      // One covering, so the window IS its leg: `computeQuote` drops a lone leg
+      // rather than printing the same figure twice.
+      legs: charged([
+        {
+          label: "Blind",
+          detail: win.blindPrice.label ?? null,
+          rmbCents: leg.costRmbCents,
+        },
+      ]),
     };
   }
 
@@ -371,22 +433,62 @@ export function windowQuote(
   );
 
   let total: Money = add(add(ZERO, dayLeg), nightLeg);
-  if (win.addSFold)
-    total = add(total, addonLeg(book.sFold, win.widthCm, win.costWidthCm));
-  if (win.addSlimTracks)
-    total = add(total, addonLeg(book.slimTracks, win.widthCm, win.costWidthCm));
+
+  // The legs, in the order they are charged. A leg names its series only when
+  // the window has more than one: with day and night on the same series the
+  // window's own row already says which, and repeating it under every leg is
+  // noise rather than information.
+  const series = [win.dayPrice?.label, win.nightPrice?.label].filter(
+    (n): n is string => !!n,
+  );
+  const mixed = new Set(series).size > 1;
+  const legs: CogsLeg[] = [];
+  if (hasDay) {
+    legs.push({
+      label: "Day curtain",
+      detail: mixed ? (win.dayPrice?.label ?? null) : null,
+      rmbCents: dayLeg.costRmbCents,
+    });
+  }
+  if (hasNight) {
+    legs.push({
+      label: "Night curtain",
+      detail: mixed ? (win.nightPrice?.label ?? null) : null,
+      rmbCents: nightLeg.costRmbCents,
+    });
+  }
+
+  if (win.addSFold) {
+    const sFold = addonLeg(book.sFold, win.widthCm, win.costWidthCm);
+    total = add(total, sFold);
+    legs.push({ label: "S-Fold", detail: null, rmbCents: sFold.costRmbCents });
+  }
+  if (win.addSlimTracks) {
+    const slim = addonLeg(book.slimTracks, win.widthCm, win.costWidthCm);
+    total = add(total, slim);
+    legs.push({
+      label: "Slim tracks",
+      detail: null,
+      rmbCents: slim.costRmbCents,
+    });
+  }
 
   // Track: double if both day + night, single if just one. The rail is a cost
   // we bear, not a customer line item (unlike the opt-in add-ons above) — so
   // only its COST feeds COGS; its notional sale price is kept out of the quote.
+  //
+  // Priced per metre of MEASURED width: the rail is cut to the opening it is
+  // screwed above, not to the manufacturing width the fabric is cut to. A
+  // double rail is two runs of the same rail over the same opening, so it bills
+  // twice the width at the same rate — there is no separate "double" rate.
   const trackKind: TrackKind | null =
     hasDay && hasNight ? "double" : hasDay || hasNight ? "single" : null;
-  const trackRmbCents =
-    trackKind === "double"
-      ? addonLeg(book.doubleTrack, null).costRmbCents
-      : trackKind === "single"
-        ? addonLeg(book.singleTrack, null).costRmbCents
-        : 0;
+  // hasDay/hasNight are false unless widthCm is a positive number, so a track
+  // kind guarantees a width to bill on.
+  const trackWidthM = trackKind ? (win.widthCm as number) / 100 : 0;
+  const trackRmbCents = Math.round(
+    trackWidthM * (trackKind === "double" ? 2 : 1) * a.trackCostRmbCentsPerM,
+  );
   total = add(total, { costRmbCents: trackRmbCents, saleSgdCents: 0 });
 
   // Offering drives the per-window installation cost.
@@ -407,6 +509,7 @@ export function windowQuote(
     offering,
     trackRmbCents,
     trackKind,
+    legs: charged(legs),
   };
 }
 
@@ -420,8 +523,22 @@ export type QuoteResult = {
   /** Order-level lines that belong to no one window — the rails. */
   cogsExtras: CogsExtra[];
   freightRmbCents: number;
+  /**
+   * Which regime produced `freightRmbCents`. Carried so a breakdown cannot
+   * label a sea order's freight "air" — it used to, on the saved-order card,
+   * because the label was hardcoded where the mode was not in scope.
+   */
+  freightMode: FreightMode;
   otherCostRmbCents: number;
   gstRmbCents: number;
+  /**
+   * The rates the two markups were charged at, echoed back so a breakdown can
+   * name each one's BASE. Both are charged on COGS alone and neither touches
+   * freight; a list that just says "Other cost / GST" under a freight line
+   * reads as though they compound, which is the one thing they do not do.
+   */
+  otherCostBps: number;
+  gstBps: number;
   grossCostRmbCents: number;
   grossCostSgdCents: number;
   installationSgdCents: number; // per-offering install + ad-hoc extra
@@ -519,8 +636,11 @@ export function finaliseQuote(
     cogsRooms: totals.cogsRooms,
     cogsExtras: totals.cogsExtras,
     freightRmbCents: freight,
+    freightMode,
     otherCostRmbCents: other,
     gstRmbCents: gst,
+    otherCostBps: a.otherCostBps,
+    gstBps: a.gstBps,
     grossCostRmbCents: grossCostRmb,
     grossCostSgdCents: grossCostSgd,
     installationSgdCents: installation,
@@ -543,7 +663,7 @@ export function computeQuote(
 ): QuoteResult {
   const totals = windows.reduce(
     (acc, w) => {
-      const q = windowQuote(w, book, a.styleMultiplier);
+      const q = windowQuote(w, book, a);
       return {
         costRmbCents: acc.costRmbCents + q.costRmbCents,
         saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
@@ -558,6 +678,9 @@ export function computeQuote(
             ...w,
             detail: windowDetail(w),
             rmbCents: q.costRmbCents - q.trackRmbCents,
+            // A single leg IS the window — printing it underneath would repeat
+            // the same figure one indent down and say nothing new.
+            ...(q.legs.length > 1 ? { legs: q.legs } : {}),
           },
         ],
         tracks: q.trackKind

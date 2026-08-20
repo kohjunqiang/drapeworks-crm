@@ -29,6 +29,7 @@ export async function loadAssumptions(): Promise<AssumptionsRow | null> {
     air_freight_cap_rmb_cents: r.air_freight_cap_rmb_cents,
     min_margin_bps: r.min_margin_bps,
     min_margin_carousell_bps: r.min_margin_carousell_bps,
+    track_cost_rmb_cents_per_m: r.track_cost_rmb_cents_per_m,
   };
 }
 
@@ -42,6 +43,17 @@ export type AddonRow = {
   is_active: boolean;
 };
 
+/**
+ * Add-ons the rail no longer is.
+ *
+ * The rows are kept (nothing is hard-deleted) but they must not appear on the
+ * settings screen: the calculator stopped reading them when the rail became a
+ * cost per metre on the assumptions row, so editing them here would change a
+ * price that nothing charges. Keeping them listed-but-archived is the same trap
+ * one step removed — the screen has a Reactivate button.
+ */
+const RETIRED_KEYS = ["single_track", "double_track"];
+
 export async function loadAddons(): Promise<AddonRow[]> {
   const rows = await db
     .selectFrom("pricing_addons")
@@ -54,6 +66,7 @@ export async function loadAddons(): Promise<AddonRow[]> {
       "basis",
       "is_active",
     ])
+    .where("key", "not in", RETIRED_KEYS)
     .orderBy("is_active", "desc")
     .orderBy("label", "asc")
     .execute();

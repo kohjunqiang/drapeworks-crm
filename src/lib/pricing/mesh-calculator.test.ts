@@ -28,7 +28,8 @@ const ASSUMPTIONS: MeshCalcAssumptions = {
   seaFreightRmbCentsPerM3: 40000,
   airFreightRateBps: 6000, // 60%
   airFreightFloorRmbCents: 50000, // ¥500
-  airFreightCapRmbCents: 140000, // ¥1400
+  airFreightCapRmbCents: 140000,
+  trackCostRmbCentsPerM: 2500, // ¥1400
 };
 
 const AIR = "cat-airguard";

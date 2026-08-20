@@ -24,6 +24,7 @@ const EXCEL_ROW: AssumptionsRow = {
   air_freight_cap_rmb_cents: 140000,
   min_margin_bps: 3500,
   min_margin_carousell_bps: 3000,
+  track_cost_rmb_cents_per_m: 2500,
 };
 
 describe("assumptions conversion", () => {
@@ -68,6 +69,7 @@ describe("assumptions conversion", () => {
       airFreightCapRmb: "1400",
       minMarginPct: "35",
       minMarginCarousellPct: "30",
+      trackCostRmb: "25",
     });
     expect(assumptionsToStorage(parsed)).toEqual(EXCEL_ROW);
   });

@@ -64,13 +64,12 @@ const ASSUMPTIONS: MeshCalcAssumptions = {
   airFreightRateBps: 6000,
   airFreightFloorRmbCents: 50000,
   airFreightCapRmbCents: 140000,
+  trackCostRmbCentsPerM: 2500,
 };
 
 const BOOK: CalcAddonBook = {
   sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
   slimTracks: { costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
-  singleTrack: { costRmbCents: 2500, saleSgdCents: 3500, basis: "per_unit" },
-  doubleTrack: { costRmbCents: 2500, saleSgdCents: 4000, basis: "per_unit" },
 };
 
 const SIGNATURE = { costRmbCents: 5100, saleSgdCents: 9000 };

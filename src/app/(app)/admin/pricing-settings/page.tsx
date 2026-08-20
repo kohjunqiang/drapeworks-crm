@@ -57,7 +57,9 @@ export default async function PricingSettingsPage() {
       <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-5">
         <h2 className="text-base font-semibold text-slate-900 mb-1">Add-ons</h2>
         <p className="text-xs text-slate-500 mb-3">
-          Extra treatments and hardware priced on top of the base curtain.
+          Extra treatments the customer opts into, priced on top of the base
+          curtain. The rail is not one of them — it is a cost we bear and never
+          bill, so it sits under Assumptions as one cost per metre.
         </p>
         <AddonsTable addons={addons} />
       </section>

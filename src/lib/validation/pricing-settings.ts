@@ -20,6 +20,10 @@ export const assumptionsSchema = z.object({
   airFreightCapRmb: z.coerce.number().min(0).max(10_000_000),
   minMarginPct: z.coerce.number().min(0).max(100),
   minMarginCarousellPct: z.coerce.number().min(0).max(100),
+  // The rail, per metre of the window's measured width. One rate: a double
+  // rail is two runs of the same rail, so it bills twice the width. It has no
+  // sale price — we never bill it — which is why it is here and not an add-on.
+  trackCostRmb: z.coerce.number().min(0).max(10_000_000),
 });
 
 export type AssumptionsInput = z.infer<typeof assumptionsSchema>;
@@ -41,6 +45,7 @@ export type AssumptionsRow = {
   air_freight_cap_rmb_cents: number;
   min_margin_bps: number;
   min_margin_carousell_bps: number;
+  track_cost_rmb_cents_per_m: number;
 };
 
 const pct = (n: number) => Math.round(n * 100); // 9(%)   → 900
@@ -64,6 +69,7 @@ export function assumptionsToStorage(h: AssumptionsInput): AssumptionsRow {
     air_freight_cap_rmb_cents: cents(h.airFreightCapRmb),
     min_margin_bps: pct(h.minMarginPct),
     min_margin_carousell_bps: pct(h.minMarginCarousellPct),
+    track_cost_rmb_cents_per_m: cents(h.trackCostRmb),
   };
 }
 
@@ -84,6 +90,7 @@ export function assumptionsFromStorage(r: AssumptionsRow): AssumptionsInput {
     airFreightCapRmb: r.air_freight_cap_rmb_cents / 100,
     minMarginPct: r.min_margin_bps / 100,
     minMarginCarousellPct: r.min_margin_carousell_bps / 100,
+    trackCostRmb: r.track_cost_rmb_cents_per_m / 100,
   };
 }
 

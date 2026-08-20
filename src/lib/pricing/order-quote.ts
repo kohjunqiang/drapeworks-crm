@@ -51,6 +51,7 @@ function assumptionsRowToCalc(r: {
   air_freight_rate_bps: number;
   air_freight_floor_rmb_cents: number;
   air_freight_cap_rmb_cents: number;
+  track_cost_rmb_cents_per_m: number;
 }): MeshCalcAssumptions {
   return {
     fxSgdToRmb: r.fx_sgd_to_rmb,
@@ -66,6 +67,7 @@ function assumptionsRowToCalc(r: {
     airFreightRateBps: r.air_freight_rate_bps,
     airFreightFloorRmbCents: r.air_freight_floor_rmb_cents,
     airFreightCapRmbCents: r.air_freight_cap_rmb_cents,
+    trackCostRmbCentsPerM: r.track_cost_rmb_cents_per_m,
   };
 }
 
@@ -99,11 +101,11 @@ export async function loadCalcConfig(): Promise<CalcConfig | null> {
 
   return {
     assumptions: assumptionsRowToCalc(assumptionsRow),
+    // The rail is not in here: it is one cost-per-metre on the assumptions row,
+    // not an add-on with a sale price and a basis. See CalcAssumptions.
     book: {
       sFold: toAddon("s_fold"),
       slimTracks: toAddon("slim_tracks"),
-      singleTrack: toAddon("single_track"),
-      doubleTrack: toAddon("double_track"),
     },
     minMarginBps: assumptionsRow.min_margin_bps,
     minMarginCarousellBps: assumptionsRow.min_margin_carousell_bps,
@@ -445,8 +447,6 @@ function addonRowsToBook(
   return {
     sFold: toAddon("s_fold"),
     slimTracks: toAddon("slim_tracks"),
-    singleTrack: toAddon("single_track"),
-    doubleTrack: toAddon("double_track"),
   };
 }
 

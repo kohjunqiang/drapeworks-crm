@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
-import { CogsRoomRows } from "@/components/orders/cogs-rooms";
+import { CostBreakdown } from "@/components/orders/cost-breakdown";
 import type { ActiveCombo } from "@/lib/db/combos";
 import { formatSGD } from "@/lib/money";
 import {
@@ -20,7 +20,6 @@ import { useQuoteAutofill } from "./use-quote-autofill";
 import type { CurtainTypeOption } from "./window-fields";
 
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
-const rmb = (cents: number) => `¥${(cents / 100).toFixed(2)}`;
 
 function toWidthCm(v: unknown): number | null {
   if (v == null || v === "") return null;
@@ -207,30 +206,9 @@ export function LiveQuote({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               China costs (RMB)
             </p>
-            <dl className="mt-1 space-y-0.5 text-slate-500">
-              {/* Room by room, window by window — so it's clear which window
-                  is carrying the cost, not just what the order totals. */}
-              <CogsRoomRows rooms={quote.cogsRooms} extras={quote.cogsExtras} />
-              <div className="flex justify-between">
-                <dt>Freight ({freightMode === "sea" ? "sea" : "air"})</dt>
-                <dd>{rmb(quote.freightRmbCents)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Other cost</dt>
-                <dd>{rmb(quote.otherCostRmbCents)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>GST</dt>
-                <dd>{rmb(quote.gstRmbCents)}</dd>
-              </div>
-              <div className="flex justify-between border-t border-slate-100 pt-0.5 mt-0.5 text-slate-700">
-                <dt>Gross cost</dt>
-                <dd>
-                  {rmb(quote.grossCostRmbCents)} →{" "}
-                  {formatSGD(quote.grossCostSgdCents)}
-                </dd>
-              </div>
-            </dl>
+            {/* Room by room, window by window — so it's clear which window is
+                carrying the cost, not just what the order totals. */}
+            <CostBreakdown quote={quote} />
 
             {/* Installation, its own category, in SGD. */}
             <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">

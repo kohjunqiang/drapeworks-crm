@@ -1,10 +1,9 @@
-import { CogsRoomRows } from "@/components/orders/cogs-rooms";
+import { CostBreakdown } from "@/components/orders/cost-breakdown";
 import { formatSGD } from "@/lib/money";
 import { marginBps as marginOf } from "@/lib/pricing/calculator";
 import type { OrderQuote } from "@/lib/pricing/order-quote";
 
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
-const rmb = (cents: number) => `¥${(cents / 100).toFixed(2)}`;
 
 export function QuoteCard({
   quote,
@@ -111,30 +110,18 @@ export function QuoteCard({
         <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">
           Cost breakdown
         </summary>
-        <dl className="mt-2 space-y-1 text-xs text-slate-500">
+        <div className="mt-2 text-xs">
           {/* COGS room by room, so it's visible which room drives the cost. */}
-          <CogsRoomRows rooms={quote.cogsRooms} extras={quote.cogsExtras} />
-          <div className="flex justify-between">
-            <dt>Freight (air)</dt>
-            <dd>{rmb(quote.freightRmbCents)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt>Other cost</dt>
-            <dd>{rmb(quote.otherCostRmbCents)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt>GST</dt>
-            <dd>{rmb(quote.gstRmbCents)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt>Gross cost (SGD)</dt>
-            <dd>{formatSGD(quote.grossCostSgdCents)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt>Installation</dt>
-            <dd>{formatSGD(quote.installationSgdCents)}</dd>
-          </div>
-        </dl>
+          <CostBreakdown quote={quote} />
+          <dl className="mt-1 space-y-0.5 text-xs text-slate-500">
+            <div className="flex justify-between gap-2">
+              <dt>Installation</dt>
+              <dd className="whitespace-nowrap">
+                {formatSGD(quote.installationSgdCents)}
+              </dd>
+            </div>
+          </dl>
+        </div>
       </details>
     </div>
   );

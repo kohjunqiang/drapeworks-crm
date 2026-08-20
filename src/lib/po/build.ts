@@ -102,7 +102,6 @@ export type PoInput = {
   /** orders.order_reference, snapshotted by the caller. */
   poNumber: string;
   custRef: string | null;
-  invoiceRef: string | null;
   /** Passed in rather than read, so the same input always builds the same PO. */
   generatedAt: Date;
   freightMode: FreightMode;
@@ -169,7 +168,6 @@ export type PoDocData = {
   vendor: PoVendor;
   poNumber: string;
   custRef: string | null;
-  invoiceRef: string | null;
   dateLabel: string;
   /** Null on a sea order: the block we have is the AIR one. */
   delivery: PoDelivery | null;
@@ -499,7 +497,6 @@ export function buildPos(input: PoInput): {
       vendor: vendorsById.get(vendorId)!,
       poNumber: input.poNumber,
       custRef: input.custRef,
-      invoiceRef: input.invoiceRef,
       dateLabel,
       delivery,
       // 订单资料 is curtain-only: every one of its four labels is printed but

@@ -35,10 +35,10 @@ function locate(roomLabel: string, position: number): string {
  * CUST REF — who the order is for, in the words the business already uses.
  *
  * The sample prints `Omar Tampines 957B 08-146`: a customer, a development, a
- * unit. We hold the first three; the trailing figure on the sample is off-system
- * (spec §7 says the same of INVOICE REF). Composed from what we have rather than
- * left blank, because this is the line a vendor quotes back when they ring about
- * a document — and unlike every Chinese cell on the page, it is OURS to write.
+ * unit. We hold the first three; the trailing figure on the sample is off-system.
+ * Composed from what we have rather than left blank, because this is the line a
+ * vendor quotes back when they ring about a document — and unlike every Chinese
+ * cell on the page, it is OURS to write.
  */
 function custRefOf(order: {
   customer_name: string;
@@ -208,9 +208,6 @@ export async function loadPoInput(
       },
       poNumber,
       custRef: custRefOf(order),
-      // Blank on two samples and `0` on the third: it is filled in later, off
-      // system (spec §7).
-      invoiceRef: null,
       generatedAt,
       freightMode: order.freight_mode,
       fullnessBps: assumptions.style_multiplier,

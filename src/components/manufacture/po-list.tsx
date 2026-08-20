@@ -77,8 +77,63 @@ async function fetchPo(poId: string): Promise<{ file: File; url: string }> {
   };
 }
 
+/**
+ * The document itself, on screen, before anyone sends it.
+ *
+ * It renders the STORED PDF rather than a second HTML version of the same
+ * layout. A replica would be one more thing to keep in step with the vendor's
+ * copy, and the day the two drift the preview is worse than none — you would be
+ * approving a page nobody receives. The browser's own viewer shows the bytes
+ * that were uploaded.
+ *
+ * The signed URL is fetched by the caller, before this opens, so there is no
+ * loading state in here to get wrong. iOS Safari will not render a PDF inside
+ * an iframe, so "Open in a new tab" is a real fallback, not decoration.
+ */
+function PreviewDialog({
+  po,
+  url,
+  onClose,
+}: {
+  po: PoListItem;
+  /** Null when nothing is being previewed — the dialog is closed. */
+  url: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={url != null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="text-base">
+            PO {po.poNumber} ·{" "}
+            {po.vendorNameCn ?? po.vendorName ?? "Vendor no longer listed"}
+          </DialogTitle>
+        </DialogHeader>
+        {url && (
+          <>
+            <iframe
+              src={url}
+              title={`Purchase order ${po.poNumber}`}
+              className="w-full h-[65vh] border border-slate-200 rounded bg-slate-50"
+            />
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-teal-700 underline underline-offset-2 hover:text-teal-800"
+            >
+              Open in a new tab
+            </a>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PoRow({ po }: { po: PoListItem }) {
   const [busy, setBusy] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const canShare = useSyncExternalStore(
     subscribeNever,
     hasWebShare,
@@ -102,6 +157,19 @@ function PoRow({ po }: { po: PoListItem }) {
       document.body.appendChild(a);
       a.click();
       a.remove();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not open that PO");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function preview() {
+    setBusy(true);
+    try {
+      // Inline, not as an attachment: this one is meant to be read on screen.
+      const { url } = await getPoDownloadUrl(po.id, "inline");
+      setPreviewUrl(url);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not open that PO");
     } finally {
@@ -175,6 +243,19 @@ function PoRow({ po }: { po: PoListItem }) {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={preview}
+          disabled={busy}
+          className={BUTTON}
+        >
+          Preview
+        </button>
+        <PreviewDialog
+          po={po}
+          url={previewUrl}
+          onClose={() => setPreviewUrl(null)}
+        />
         {canShare && (
           <button type="button" onClick={share} disabled={busy} className={BUTTON}>
             Share

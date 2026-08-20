@@ -102,7 +102,6 @@ function input(over: Partial<PoInput> = {}): PoInput {
     settings: SETTINGS,
     poNumber: "10040",
     custRef: "Omar Tampines 957B 08-146",
-    invoiceRef: null,
     generatedAt: new Date("2026-08-08T02:00:00Z"),
     freightMode: "air",
     fullnessBps: 20000,

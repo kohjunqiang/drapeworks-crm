@@ -254,6 +254,10 @@ export function PoDocument({ data }: { data: PoDocData }) {
             <Text style={styles.companyLine}>网站 : {settings.website}</Text>
           </View>
 
+          {/* No INVOICE REF row. The samples print the label, but the invoice
+              is raised later and off-system, so ours could only ever print an
+              empty ruled line — a blank that looks like a value nobody filled
+              in. Dropped on the user's instruction, 2026-08-20. */}
           <View style={styles.refs}>
             <View style={styles.refRow}>
               <Text style={styles.refLabel}>DATE</Text>
@@ -262,11 +266,6 @@ export function PoDocument({ data }: { data: PoDocData }) {
             <View style={styles.refRow}>
               <Text style={styles.refLabel}>PO #</Text>
               <Text style={styles.refValue}>{data.poNumber}</Text>
-            </View>
-            <View style={styles.refRow}>
-              {/* Filled in later, off-system — the label prints regardless. */}
-              <Text style={styles.refLabel}>INVOICE REF</Text>
-              <Text style={styles.refValue}>{data.invoiceRef ?? ""}</Text>
             </View>
             <View style={styles.refRow}>
               <Text style={styles.refLabel}>CUST REF</Text>

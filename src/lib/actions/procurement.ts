@@ -451,20 +451,34 @@ function refusal(problems: string[]): string {
     : "The purchase orders could not be generated.";
 }
 
+/** How the browser should treat the document behind a signed URL. */
+const poUrlModeSchema = z.enum(["download", "inline"]);
+
 /**
  * A short-lived signed URL for one generated document.
  *
  * The bucket is private and stays private: this is the only way to reach a
  * document, and it costs a role check every time.
+ *
+ * `mode` decides the Content-Disposition. "download" saves the file under a
+ * name a vendor can read; "inline" lets the browser's own PDF viewer render it,
+ * which is what the preview needs — the same bytes, not a second rendering that
+ * could disagree with the one the vendor was sent.
  */
 export async function getPoDownloadUrl(
   poId: string,
+  mode: "download" | "inline" = "download",
 ): Promise<{ url: string; fileName: string }> {
   await requireRole(["ops", "admin"]);
   const parsedId = parseOrThrow(
     poIdSchema,
     poId,
     "That is not a valid document.",
+  );
+  const parsedMode = parseOrThrow(
+    poUrlModeSchema,
+    mode,
+    "That is not a way to open a document.",
   );
 
   const row = await db
@@ -487,9 +501,11 @@ export async function getPoDownloadUrl(
   const supabase = adminClient();
   const { data, error } = await supabase.storage
     .from(PO_BUCKET)
-    .createSignedUrl(row.storage_path, SIGNED_URL_SECONDS, {
-      download: fileName,
-    });
+    .createSignedUrl(
+      row.storage_path,
+      SIGNED_URL_SECONDS,
+      parsedMode === "download" ? { download: fileName } : {},
+    );
   if (error || !data) {
     throw new Error(userMessage(error, "Could not open that purchase order."));
   }

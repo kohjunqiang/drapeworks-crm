@@ -46,7 +46,7 @@ product type.
 
 Drapeworks SG (UEN202609289G)          DATE          08 August 2026
 60 Paya Lebar Road # 06-28             PO #          10040
-Singapore 409051                       INVOICE REF
+Singapore 409051                       INVOICE REF   (removed — see §7)
 电话 : +65 8513 3236                    CUST REF      Omar Tampines 957B 08-146
 微信 : 130 6177 3305
 网站 : http://www.drapeworks.sg
@@ -328,7 +328,10 @@ Pure logic only, per the project's node-environment Vitest setup:
 
 - Editing a PO after generation. Correct the measurements via amend, then regenerate.
 - Emailing or WeChat-ing the PO from the app. It is downloaded and shared by hand.
-- INVOICE REF — blank on two samples and `0` on the third; it is filled in later, off-system.
+- INVOICE REF — blank on two samples and `0` on the third; it is filled in later,
+  off-system. **Removed from our document entirely on 2026-08-20**, on the user's
+  instruction: a label we can never fill prints an empty ruled line, which reads
+  as a value somebody forgot rather than one that lives elsewhere.
 - The `[ 42]` cell in the samples' footer, which appears to be a spreadsheet artefact rather than content.
 
 ## 7b. Storage runs as service-role, and why

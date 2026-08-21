@@ -11,6 +11,7 @@ import {
   type FrozenRoom,
 } from "@/components/manufacture/frozen-measurements";
 import { PoList, type PoListItem } from "@/components/manufacture/po-list";
+import { TrackOrderCard } from "@/components/manufacture/track-order-card";
 import {
   Reconciliation,
   type ReconRoom,
@@ -22,6 +23,8 @@ import { db } from "@/lib/db/kysely";
 import { loadOrderPos } from "@/lib/db/procurement";
 import { buildPos } from "@/lib/po/build";
 import { loadPoInput } from "@/lib/po/load";
+import { trackOrderText } from "@/lib/po/track-order";
+import { loadTrackOrder } from "@/lib/po/track-order-load";
 import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
 import type { AllowanceLine } from "@/lib/manufacture/allowance";
 import {
@@ -385,9 +388,10 @@ async function FrozenView({
   // there are none. Asking both every time is what lets the screen say "these
   // are stale and here is what is blocking a fresh one", which is the state an
   // amendment leaves behind when generation refuses.
-  const [poRows, poLoad] = await Promise.all([
+  const [poRows, poLoad, trackOrder] = await Promise.all([
     loadOrderPos(orderId),
     loadPoInput(orderId, new Date()),
+    loadTrackOrder(orderId),
   ]);
   const poProblems = poLoad.input
     ? buildPos(poLoad.input).problems
@@ -403,6 +407,10 @@ async function FrozenView({
       : null,
     notes: row.notes,
   }));
+
+  // Built on the server so the page ships the finished text: what is copied is
+  // exactly what is on screen, with no second assembly in the browser.
+  const trackOrderLines = trackOrderText(trackOrder.lines, trackOrder.noteCn);
 
   const confirmedAt = stored.reduce<Date | null>((earliest, r) => {
     const at = new Date(r.confirmed_at);
@@ -439,6 +447,16 @@ async function FrozenView({
       <div className="mb-4">
         <PoList orderId={orderId} pos={pos} problems={poProblems} />
       </div>
+      {/* Nothing at all on a blinds-only or mesh order: there are no rails to
+          order, and an empty card is a thing to wonder about. */}
+      {trackOrderLines && (
+        <div className="mb-4">
+          <TrackOrderCard
+            text={trackOrderLines}
+            unmeasured={trackOrder.unmeasured}
+          />
+        </div>
+      )}
       <FrozenMeasurements rooms={rooms} />
     </>
   );

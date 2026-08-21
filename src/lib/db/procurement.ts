@@ -61,6 +61,7 @@ export type ProcurementSettingsRow = {
   curtain_style_cn: string | null;
   heat_setting_cn: string | null;
   floor_clearance_cm: number | null;
+  track_note_cn: string | null;
 };
 
 export async function loadProcurementSettings(): Promise<ProcurementSettingsRow | null> {
@@ -81,6 +82,7 @@ export async function loadProcurementSettings(): Promise<ProcurementSettingsRow 
       "curtain_style_cn",
       "heat_setting_cn",
       "floor_clearance_cm",
+      "track_note_cn",
     ])
     .where("singleton", "=", true)
     .executeTakeFirst();

@@ -89,6 +89,9 @@ export const procurementSettingsSchema = z.object({
   recipientCn: optionalText(120, "Recipient"),
   deliveryPhone: optionalText(60, "Delivery phone"),
   // 订单资料 — curtain POs only; blank on the Blinds sample by design.
+  // The standing lines at the foot of a rail order. Multi-line and roomy: it
+  // is a sentence or two of instruction, not a label.
+  trackNoteCn: optionalText(500, "Track order note"),
   curtainStyleCn: optionalText(60, "Curtain style"),
   heatSettingCn: optionalText(60, "Heat setting"),
   floorClearanceCm,

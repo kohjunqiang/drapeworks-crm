@@ -735,6 +735,7 @@ export interface ProcurementSettings {
   phone: string;
   recipient_cn: string | null;
   singleton: Generated<boolean>;
+  track_note_cn: string | null;
   updated_at: Generated<Timestamp>;
   warehouse_address_cn: string | null;
   website: string;

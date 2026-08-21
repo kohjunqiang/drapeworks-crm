@@ -28,6 +28,7 @@ type Values = {
   warehouseAddressCn: string;
   recipientCn: string;
   deliveryPhone: string;
+  trackNoteCn: string;
   curtainStyleCn: string;
   heatSettingCn: string;
   floorClearanceCm: string;
@@ -50,6 +51,7 @@ function toValues(row: ProcurementSettingsRow): Values {
     warehouseAddressCn: row.warehouse_address_cn ?? "",
     recipientCn: row.recipient_cn ?? "",
     deliveryPhone: row.delivery_phone ?? "",
+    trackNoteCn: row.track_note_cn ?? "",
     curtainStyleCn: row.curtain_style_cn ?? "",
     heatSettingCn: row.heat_setting_cn ?? "",
     floorClearanceCm:
@@ -247,6 +249,29 @@ export function ProcurementSettingsForm({
             onChange={onChange}
           />
         </div>
+      </div>
+
+      <div className="px-4 py-4 space-y-4 border-t border-slate-200">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">
+            Track order — 轨道
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            The standing lines at the foot of every rail order. The widths above
+            them are worked out per window from what was measured; this is the
+            part that is the same every time. Typed exactly as it should be
+            sent — nothing here is corrected on the way out.
+          </p>
+        </div>
+        <Field
+          label="Standing instructions — 备注"
+          hint="One instruction per line. Blank leaves the order as just the widths."
+          name="trackNoteCn"
+          value={draft.trackNoteCn}
+          onChange={onChange}
+          placeholder="多陪连接器和滑轨"
+          multiline
+        />
       </div>
 
       <div className="px-4 py-4 space-y-4 border-t border-slate-200">

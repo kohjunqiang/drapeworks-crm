@@ -71,6 +71,7 @@ export async function saveProcurementSettings(input: unknown): Promise<void> {
         warehouse_address_cn: parsed.warehouseAddressCn,
         recipient_cn: parsed.recipientCn,
         delivery_phone: parsed.deliveryPhone,
+        track_note_cn: parsed.trackNoteCn,
         curtain_style_cn: parsed.curtainStyleCn,
         heat_setting_cn: parsed.heatSettingCn,
         floor_clearance_cm: parsed.floorClearanceCm,

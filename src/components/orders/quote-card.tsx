@@ -120,6 +120,16 @@ export function QuoteCard({
                 {formatSGD(quote.installationSgdCents)}
               </dd>
             </div>
+            {/* The figure the list adds up to. It is on the card above as well,
+                but a breakdown that stops one line short of its own total makes
+                the reader add gross cost and installation themselves to check
+                the two agree — which is the whole reason to open this. */}
+            <div className="flex justify-between gap-2 border-t border-slate-200 pt-1 mt-1 font-medium text-slate-800">
+              <dt>Net cost</dt>
+              <dd className="whitespace-nowrap">
+                {formatSGD(quote.netCostSgdCents)}
+              </dd>
+            </div>
           </dl>
         </div>
       </details>

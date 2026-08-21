@@ -72,10 +72,17 @@ mark", and the mark itself ends in 空 (air). `orders.freight_mode` is already
 the samples and is an open item (§8).
 
 Since 2026-08-21 it is read from **`delivery_vendors`** — one row per address,
-one of them the default, which is the one every PO prints. The row's `label` is
-for the admin screen and is NOT printed: the samples carry the mark, the
-address, the recipient and the phone, and nothing else. Choosing a different
-address **per order** is not built; it needs a rule for how an order picks.
+one of them the default. The row's `label` is for the admin screen and is NOT
+printed: the samples carry the mark, the address, the recipient and the phone,
+and nothing else.
+
+An order ships to `orders.delivery_vendor_id`, or to the default when that is
+null — which is the normal case. Null rather than a copy of the default's id, so
+moving the default moves every order that has not said otherwise. The column is
+on the sent-to-vendor lock's mutable allow-list beside `order_reference`: it is a
+shipping instruction, not a manufacturing input, and a forwarder falling over
+mid-production is exactly when it needs changing. Documents already generated
+keep the address they were generated with until they are regenerated.
 
 ### 2.4 Order details — curtains only
 

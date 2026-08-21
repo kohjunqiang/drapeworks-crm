@@ -321,7 +321,7 @@ export async function toggleDeliveryVendorActive(id: unknown): Promise<void> {
 
   if (current.is_active && current.is_default) {
     throw new Error(
-      "That is the address every purchase order ships to. Make another one the default before archiving it.",
+      "That is the address orders ship to by default. Make another one the default before archiving it.",
     );
   }
 
@@ -336,6 +336,54 @@ export async function toggleDeliveryVendorActive(id: unknown): Promise<void> {
   }
 
   revalidatePath(PROCUREMENT_PATH);
+}
+
+/**
+ * Where one order ships to. Null puts it back on the default.
+ *
+ * Ops as well as admin: this is a logistics decision, made by whoever is
+ * placing the order, and it changes no price and no dimension.
+ *
+ * Deliberately allowed on a LOCKED order — delivery_vendor_id is on the lock's
+ * mutable allow-list beside order_reference, for the same reason. A forwarder
+ * falling over mid-production is exactly when this needs changing, and nothing
+ * about what is being cut depends on it. Documents already generated keep the
+ * address they were generated with until they are regenerated.
+ */
+export async function setOrderDeliveryVendor(
+  orderId: unknown,
+  deliveryVendorId: unknown,
+): Promise<void> {
+  await requireRole(["ops", "admin"]);
+  const parsedOrderId = parseOrThrow(
+    orderIdSchema,
+    orderId,
+    "That is not a valid order.",
+  );
+  const parsedVendorId = parseOrThrow(
+    z.string().uuid().nullable(),
+    deliveryVendorId ?? null,
+    "That is not a valid delivery address.",
+  );
+
+  try {
+    const result = await db
+      .updateTable("orders")
+      .set({ delivery_vendor_id: parsedVendorId })
+      .where("id", "=", parsedOrderId)
+      .execute();
+    if (Number(result[0]?.numUpdatedRows ?? 0) === 0) {
+      throw new AuthoredError("That order no longer exists.");
+    }
+  } catch (e) {
+    if (e instanceof AuthoredError) throw new Error(e.message);
+    // A foreign key violation here means the address was deleted between the
+    // page rendering and the save — worth saying, rather than "could not save".
+    throw new Error(userMessage(e, "Could not set the delivery address."));
+  }
+
+  revalidatePath(`/orders/${parsedOrderId}/manufacture`);
+  revalidatePath(`/orders/${parsedOrderId}`);
 }
 
 // ── Generating the documents ───────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   type FrozenRoom,
 } from "@/components/manufacture/frozen-measurements";
 import { PoList, type PoListItem } from "@/components/manufacture/po-list";
+import { ShipsToSelect } from "@/components/manufacture/ships-to-select";
 import { TrackOrderCard } from "@/components/manufacture/track-order-card";
 import {
   Reconciliation,
@@ -20,7 +21,7 @@ import type { ReconLine } from "@/components/manufacture/reconciliation-row";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
-import { loadOrderPos } from "@/lib/db/procurement";
+import { loadDeliveryVendors, loadOrderPos } from "@/lib/db/procurement";
 import { buildPos } from "@/lib/po/build";
 import { loadPoInput } from "@/lib/po/load";
 import { trackOrderText } from "@/lib/po/track-order";
@@ -32,7 +33,7 @@ import {
   loadManufactureLines,
   type ManufactureLine,
 } from "@/lib/manufacture/load";
-import type { FulfilmentStatus } from "@/lib/db/schema";
+import type { FreightMode, FulfilmentStatus } from "@/lib/db/schema";
 import { isLocked, statusIndex } from "@/lib/status-flow";
 
 export const dynamic = "force-dynamic";
@@ -118,6 +119,8 @@ export default async function ManufacturePage({
       "orders.display_id as display_id",
       "orders.order_reference as order_reference",
       "orders.current_status as current_status",
+      "orders.freight_mode as freight_mode",
+      "orders.delivery_vendor_id as delivery_vendor_id",
       "customers.name as customer_name",
     ])
     .where("orders.id", "=", orderId)
@@ -131,10 +134,27 @@ export default async function ManufacturePage({
   }
 
   const locked = isLocked(order.current_status);
-  const lines = await loadManufactureLines(order.id);
+  const [lines, deliveryAddresses] = await Promise.all([
+    loadManufactureLines(order.id),
+    loadDeliveryVendors(),
+  ]);
 
   return (
     <Shell order={order}>
+      {/* Above both views: the address has to be right BEFORE the documents
+          are generated, and changeable after, since a forwarder can fall over
+          while an order is in production. */}
+      <ShipsToSelect
+        orderId={order.id}
+        addresses={deliveryAddresses.map((a) => ({
+          id: a.id,
+          label: a.label,
+          isDefault: a.is_default,
+          isActive: a.is_active,
+        }))}
+        selectedId={order.delivery_vendor_id}
+        isAir={order.freight_mode === "air"}
+      />
       {locked ? (
         <FrozenView
           orderId={order.id}
@@ -157,6 +177,8 @@ type OrderHeader = {
   display_id: string;
   order_reference: string | null;
   current_status: FulfilmentStatus;
+  freight_mode: FreightMode;
+  delivery_vendor_id: string | null;
   customer_name: string;
 };
 

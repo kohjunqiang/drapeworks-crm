@@ -643,6 +643,7 @@ export interface Orders {
   created_at: Generated<Timestamp>;
   current_status: Generated<FulfilmentStatus>;
   customer_id: string;
+  delivery_vendor_id: string | null;
   deposit_cents: Generated<number>;
   development: string | null;
   discount_bps: Generated<number>;

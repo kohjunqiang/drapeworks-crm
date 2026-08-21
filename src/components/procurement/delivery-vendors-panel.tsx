@@ -4,10 +4,9 @@
 //
 // A list rather than one set of fields, because the business consolidates
 // through a forwarder and a forwarder is something you can change, or have two
-// of. Today exactly one row is in force: the one marked default, which every
-// purchase order prints. A second row is somewhere to put the next one; until
-// an ORDER can say which address it ships to, only the default is ever used,
-// and this screen says so rather than implying otherwise.
+// of. One row is the default: it is what an order ships to unless that order
+// names another, on its manufacturing screen. So moving the default moves every
+// order that has not said otherwise, which is the point of having one.
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -171,7 +170,7 @@ function Editor({
           onChange={(e) => onChange({ isDefault: e.target.checked })}
         />
         <span className="text-sm text-slate-700">
-          Every purchase order ships here
+          Orders ship here unless they say otherwise
           {lockedDefault && (
             <span className="text-slate-500">
               {" "}
@@ -255,7 +254,8 @@ export function DeliveryVendorsPanel({
             Delivery address — 收货地址
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Where the factories send the goods.{" "}
+            Where the factories send the goods. An order ships to the default
+            unless it names another one on its manufacturing screen.{" "}
             <strong>Air freight only</strong>: 空运唛头 is an <em>air</em>{" "}
             shipping mark and the mark itself ends in 空, so a sea order prints
             no delivery block at all — a wrong shipping mark on a crate is worse
@@ -300,7 +300,7 @@ export function DeliveryVendorsPanel({
                   </span>
                   {row.is_default && (
                     <span className="text-[10px] uppercase tracking-wide text-teal-700 border border-teal-200 bg-teal-50 rounded px-1.5 py-0.5">
-                      every PO ships here
+                      default
                     </span>
                   )}
                   {!row.is_active && (

@@ -63,6 +63,7 @@ export async function loadPoInput(
       "orders.current_status as current_status",
       "orders.freight_mode as freight_mode",
       "orders.product_line as product_line",
+      "orders.delivery_vendor_id as delivery_vendor_id",
       "orders.development as development",
       "orders.unit_type as unit_type",
       "customers.name as customer_name",
@@ -128,14 +129,26 @@ export async function loadPoInput(
         .selectFrom("vendors")
         .select(["id", "name", "name_cn", "address_cn", "phone", "internal_ref"])
         .execute(),
-      // The one marked default. A unique partial index guarantees there is at
-      // most one, so this cannot silently pick between two.
-      db
-        .selectFrom("delivery_vendors")
-        .select(["shipping_mark_cn", "address_cn", "recipient_cn", "phone"])
-        .where("is_default", "=", true)
-        .where("is_active", "=", true)
-        .executeTakeFirst(),
+      // Where this order ships. The one it names, or — far more often — the
+      // one marked default, which a unique partial index guarantees there is at
+      // most one of, so this cannot silently pick between two.
+      //
+      // An order's own choice is honoured even if that address has since been
+      // archived: it is where the goods are going, and quietly redirecting a
+      // shipment to a different warehouse because somebody tidied up an admin
+      // screen is not a correction. Archiving only stops it being CHOSEN.
+      order.delivery_vendor_id
+        ? db
+            .selectFrom("delivery_vendors")
+            .select(["shipping_mark_cn", "address_cn", "recipient_cn", "phone"])
+            .where("id", "=", order.delivery_vendor_id)
+            .executeTakeFirst()
+        : db
+            .selectFrom("delivery_vendors")
+            .select(["shipping_mark_cn", "address_cn", "recipient_cn", "phone"])
+            .where("is_default", "=", true)
+            .where("is_active", "=", true)
+            .executeTakeFirst(),
     ]);
 
   if (!settings) {

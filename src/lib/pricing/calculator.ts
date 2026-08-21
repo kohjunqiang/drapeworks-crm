@@ -9,6 +9,8 @@
 // v1 scope + simplifications (flagged for later refinement):
 //  - Curtains priced BY WIDTH: width × style-multiplier × cost/m (cost side);
 //    width × sale/m (sale side — fullness is already baked into the sale rate).
+//  - The COST side rounds a width UP to the next 0.1 m (we are billed in tenths
+//    of a metre); the SALE side never does. See ceilToTenCm.
 //  - Add-ons: S-Fold + Slim tracks (per-metre → × width; per-unit → flat).
 //  - Track: per metre of MEASURED width. Single rail if one of day/night is
 //    present, double (two runs, so twice the width at the same rate) if both.
@@ -179,8 +181,30 @@ const add = (a: Money, b: Money): Money => ({
 });
 
 /**
+ * A costing width, rounded UP to the next 0.1 m: 267 cm → 270, 260 → 260.
+ *
+ * We are billed in tenths of a metre, so 2.67 m of fabric is bought as 2.70 and
+ * the odd 3 cm is spend whether or not it hangs in the window. Costing at the
+ * exact measured figure quietly understates every window by up to 9 cm of
+ * fabric, which is a margin we never had.
+ *
+ * COST ONLY. The customer's price stays on the exact measured width — this
+ * changes what we think an order costs us, never what anybody is charged.
+ */
+export function ceilToTenCm(cm: number): number {
+  return Math.ceil(cm / 10) * 10;
+}
+
+/**
  * The width the COST side prices on: what the vendor is actually cutting once a
- * manufacturing set has been confirmed, and the measured width until then.
+ * manufacturing set has been confirmed, and the measured width until then —
+ * rounded up to the next tenth of a metre either way.
+ *
+ * NOTE the interaction between the two: a manufacturing width is normally the
+ * opening less a couple of centimetres, and the round-up usually swallows that
+ * difference whole (measured 267 → manufacturing 265 → both cost at 270). The
+ * allowance still governs what is CUT; it just stops showing up as a saving in
+ * COGS unless it crosses a tenth-of-a-metre boundary.
  *
  * A missing or nonsensical manufacturing width falls back to the measured one
  * rather than zeroing the cost — a zero COGS reports a ~100% margin, which is a
@@ -192,7 +216,9 @@ function costWidthOf(
   widthCm: number,
   costWidthCm: number | null | undefined,
 ): number {
-  return costWidthCm != null && costWidthCm > 0 ? costWidthCm : widthCm;
+  return ceilToTenCm(
+    costWidthCm != null && costWidthCm > 0 ? costWidthCm : widthCm,
+  );
 }
 
 // A curtain (day or night) priced by width. Cost applies the style multiplier

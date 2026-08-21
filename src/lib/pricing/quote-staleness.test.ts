@@ -94,9 +94,12 @@ const MESH_BOOK: MeshPriceBook = {
 describe("a confirmed manufacturing set does not raise the stale banner", () => {
   it("leaves a curtain + blind order's price exactly where it was quoted", () => {
     const windows = [
+      // Widths that straddle a tenth of a metre, so cutting 2 cm off really
+      // does re-cost: costing rounds a width UP to the next 0.1 m, and an
+      // allowance inside one tenth leaves COGS where it was.
       {
         roomIndex: 0,
-        widthCm: 300,
+        widthCm: 302,
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
         addSFold: true,
@@ -104,7 +107,7 @@ describe("a confirmed manufacturing set does not raise the stale banner", () => 
       },
       {
         roomIndex: 0,
-        widthCm: 240,
+        widthCm: 242,
         blindPrice: BLIND,
         addSFold: false,
         addSlimTracks: false,

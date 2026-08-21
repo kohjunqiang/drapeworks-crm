@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ceilToTenCm,
   computeQuote,
   marginBps,
   windowQuote,
@@ -618,8 +619,11 @@ describe("windowQuote — blinds", () => {
 // agreed and paid a deposit against.
 
 describe("costWidthCm", () => {
+  // 3.02m measured: both widths below round UP to a tenth of a metre on the
+  // cost side, so the pair has to straddle a boundary for the manufacturing
+  // width to show up at all. See the test after this one.
   const base = {
-    widthCm: 300,
+    widthCm: 302,
     dayPrice: SIGNATURE,
     addSFold: false,
     addSlimTracks: false,
@@ -628,18 +632,29 @@ describe("costWidthCm", () => {
   it("lowers the cost and leaves the sale exactly where it was", () => {
     const measured = windowQuote(base, BOOK, ASSUMPTIONS);
     const made = windowQuote(
-      { ...base, costWidthCm: 298 },
+      { ...base, costWidthCm: 300 },
       BOOK,
       ASSUMPTIONS,
     );
 
-    // 2.98m × 2.0 × ¥51 = ¥303.96, against ¥306.00 on the measured 3.00m.
-    expect(made.curtainCostRmbCents).toBe(30396);
-    expect(measured.curtainCostRmbCents).toBe(30600);
+    // Cut at 3.00m: 3.00 × 2.0 × ¥51 = ¥306.00, against the measured 3.02m
+    // rounded up to 3.10 → ¥316.20.
+    expect(made.curtainCostRmbCents).toBe(30600);
+    expect(measured.curtainCostRmbCents).toBe(31620);
     expect(made.costRmbCents).toBeLessThan(measured.costRmbCents);
-    // The customer's number does not move.
+    // The customer's number does not move — and is not rounded: 3.02m × S$90.
     expect(made.saleSgdCents).toBe(measured.saleSgdCents);
-    expect(made.saleSgdCents).toBe(27000);
+    expect(made.saleSgdCents).toBe(27180);
+  });
+
+  it("changes nothing when the allowance stays inside the same tenth", () => {
+    // The normal curtain case: 2 cm off a 3.00m opening. Both widths cost at
+    // 3.00m, so a confirmed set leaves COGS exactly where it was. The allowance
+    // still governs what is CUT; it is only invisible to the money.
+    const win = { ...base, widthCm: 300 };
+    expect(windowQuote({ ...win, costWidthCm: 298 }, BOOK, ASSUMPTIONS)).toEqual(
+      windowQuote(win, BOOK, ASSUMPTIONS),
+    );
   });
 
   it("is byte-identical to today when absent", () => {
@@ -677,19 +692,19 @@ describe("costWidthCm", () => {
 
   it("applies to the night leg as well as the day leg", () => {
     const q = windowQuote(
-      { ...base, nightPrice: SIGNATURE, costWidthCm: 298 },
+      { ...base, nightPrice: SIGNATURE, costWidthCm: 300 },
       BOOK,
       ASSUMPTIONS,
     );
-    // Both legs cut at 2.98m: 2 × ¥303.96.
-    expect(q.curtainCostRmbCents).toBe(2 * 30396);
-    expect(q.saleSgdCents).toBe(54000); // 2 × 3.00m × S$90
+    // Both legs cut at 3.00m: 2 × ¥306.00.
+    expect(q.curtainCostRmbCents).toBe(2 * 30600);
+    expect(q.saleSgdCents).toBe(54360); // 2 × 3.02m × S$90
   });
 
   it("applies to the blind leg", () => {
     const made = windowQuote(
       {
-        widthCm: 200,
+        widthCm: 202,
         costWidthCm: 198,
         blindPrice: BLIND,
         addSFold: false,
@@ -698,13 +713,13 @@ describe("costWidthCm", () => {
       BOOK,
       ASSUMPTIONS,
     );
-    expect(made.costRmbCents).toBe(7920); // 1.98m × ¥40
-    expect(made.saleSgdCents).toBe(14000); // still 2.00m × S$70
+    expect(made.costRmbCents).toBe(8000); // 1.98m → 2.00m × ¥40
+    expect(made.saleSgdCents).toBe(14140); // still the measured 2.02m × S$70
   });
 
   it("costs per-metre add-ons on the manufacturing width, sells them on the measured one", () => {
     const win = {
-      widthCm: 280,
+      widthCm: 282,
       dayPrice: SIGNATURE,
       addSFold: true,
       addSlimTracks: true,
@@ -716,14 +731,16 @@ describe("costWidthCm", () => {
     );
     const measured = windowQuote(win, BOOK, ASSUMPTIONS);
 
-    // fabric 2.78×2×5100=28356, s-fold 2.78×1100=3058,
-    // slim tracks 2.78×3500=9730. The rail bills on the MEASURED 2.80m either
-    // way — it is cut to the opening, not to the panel — so it is 7000 in both.
-    expect(made.costRmbCents).toBe(28356 + 3058 + 9730 + 7000);
-    expect(measured.costRmbCents).toBe(28560 + 3080 + 9800 + 7000);
-    // Sale: fabric 25200 + s-fold 22400 + slim tracks 14000, both times.
-    expect(made.saleSgdCents).toBe(61600);
-    expect(measured.saleSgdCents).toBe(61600);
+    // Cut at 2.78m → costed at 2.80: fabric 2.80×2×5100=28560,
+    // s-fold 2.80×1100=3080, slim tracks 2.80×3500=9800. Measured 2.82m →
+    // costed at 2.90 throughout. The rail bills on the exact MEASURED 2.82m
+    // either way — it is cut to the opening, not to the panel.
+    expect(made.costRmbCents).toBe(28560 + 3080 + 9800 + 7050);
+    expect(measured.costRmbCents).toBe(29580 + 3190 + 10150 + 7050);
+    // Sale: fabric 25380 + s-fold 22560 + slim tracks 14100, both times, all
+    // on the exact 2.82m.
+    expect(made.saleSgdCents).toBe(62040);
+    expect(measured.saleSgdCents).toBe(62040);
   });
 
   it("leaves a per-unit add-on flat whatever either width says", () => {
@@ -740,9 +757,9 @@ describe("costWidthCm", () => {
     );
     expect(on.costRmbCents - off.costRmbCents).toBe(1100);
     expect(on.saleSgdCents - off.saleSgdCents).toBe(8000);
-    // The rail bills on the measured 3.00m, so the absurd manufacturing width
-    // does not move it: 3.0 × ¥25.
-    expect(on.trackRmbCents).toBe(7500);
+    // The rail bills on the EXACT measured 3.02m — neither the absurd
+    // manufacturing width nor the cost side's round-up moves it: 3.02 × ¥25.
+    expect(on.trackRmbCents).toBe(7550);
   });
 
   it("still lets a combo fix the sale while cost follows the manufacturing width", () => {
@@ -750,18 +767,18 @@ describe("costWidthCm", () => {
       {
         ...base,
         nightPrice: SIGNATURE,
-        costWidthCm: 298,
+        costWidthCm: 300,
         comboPriceSgdCents: 45000,
       },
       BOOK,
       ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(45000);
-    expect(q.curtainCostRmbCents).toBe(2 * 30396);
+    expect(q.curtainCostRmbCents).toBe(2 * 30600);
   });
 
   it("still applies the style multiplier to cost only", () => {
-    const win = { ...base, costWidthCm: 298 };
+    const win = { ...base, costWidthCm: 300 };
     const double = windowQuote(win, BOOK, {
       ...ASSUMPTIONS,
       styleMultiplier: 20000,
@@ -770,8 +787,8 @@ describe("costWidthCm", () => {
       ...ASSUMPTIONS,
       styleMultiplier: 30000,
     });
-    expect(double.curtainCostRmbCents).toBe(30396); // 2.98 × 2.0 × 5100
-    expect(triple.curtainCostRmbCents).toBe(45594); // 2.98 × 3.0 × 5100
+    expect(double.curtainCostRmbCents).toBe(30600); // 3.00 × 2.0 × 5100
+    expect(triple.curtainCostRmbCents).toBe(45900); // 3.00 × 3.0 × 5100
     expect(triple.saleSgdCents).toBe(double.saleSgdCents);
   });
 
@@ -1080,5 +1097,75 @@ describe("finaliseQuote — what other cost and GST are charged on", () => {
     expect(sea.freightMode).toBe("sea");
     expect(air.otherCostBps).toBe(ASSUMPTIONS.otherCostBps);
     expect(air.gstBps).toBe(ASSUMPTIONS.gstBps);
+  });
+});
+
+// ── Costing rounds the width up ───────────────────────────────────────────
+//
+// We are billed in tenths of a metre, so 2.67 m of fabric is bought as 2.70.
+// COST ONLY: the customer is charged on the exact measured width.
+
+describe("ceilToTenCm", () => {
+  it("rounds up to the next tenth of a metre", () => {
+    expect(ceilToTenCm(267)).toBe(270);
+    expect(ceilToTenCm(261)).toBe(270);
+  });
+
+  it("leaves a width already on a tenth alone", () => {
+    expect(ceilToTenCm(260)).toBe(260);
+    expect(ceilToTenCm(0)).toBe(0);
+  });
+});
+
+describe("costing width", () => {
+  const win = (over = {}) => ({
+    widthCm: 267,
+    dayPrice: SIGNATURE,
+    addSFold: true,
+    addSlimTracks: false,
+    ...over,
+  });
+
+  it("costs the fabric at the next tenth up", () => {
+    // 2.70m × 2.0 × ¥51, not 2.67.
+    expect(windowQuote(win(), BOOK, ASSUMPTIONS).curtainCostRmbCents).toBe(
+      27540,
+    );
+  });
+
+  it("costs per-metre add-ons at the next tenth up too", () => {
+    const q = windowQuote(win(), BOOK, ASSUMPTIONS);
+    // s-fold 2.70 × ¥11 = ¥29.70, on top of the fabric.
+    expect(q.costRmbCents - q.curtainCostRmbCents - q.trackRmbCents).toBe(2970);
+  });
+
+  it("sells at the exact measured width — this is a cost rule only", () => {
+    // 2.67m × S$90 fabric + 2.67m × S$80 s-fold. Not a cent of rounding.
+    expect(windowQuote(win(), BOOK, ASSUMPTIONS).saleSgdCents).toBe(
+      24030 + 21360,
+    );
+  });
+
+  it("leaves the rail on the exact width — a rail is cut, not bought by the tenth", () => {
+    expect(windowQuote(win(), BOOK, ASSUMPTIONS).trackRmbCents).toBe(6675);
+  });
+
+  it("rounds a blind's cost the same way", () => {
+    const q = windowQuote(
+      { widthCm: 267, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.costRmbCents).toBe(10800); // 2.70m × ¥40
+    expect(q.saleSgdCents).toBe(18690); // 2.67m × S$70
+  });
+
+  it("keeps an unmeasured window free rather than rounding it up to nothing", () => {
+    const q = windowQuote(
+      { widthCm: null, dayPrice: SIGNATURE, addSFold: true, addSlimTracks: true },
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.costRmbCents).toBe(0);
   });
 });

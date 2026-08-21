@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   containsChinese,
+  deliveryVendorSchema,
   poOpeningLabelSchema,
   poTypeLabelSchema,
   procurementSettingsSchema,
@@ -20,10 +21,7 @@ const SETTINGS = {
   phone: "+65 8513 3236",
   wechat: "130 6177 3305",
   website: "http://www.drapeworks.sg",
-  airShippingMark: "BCH-SG-AD76-空 (写在包装）",
-  warehouseAddressCn: "广东省深圳市宝安区福洲大道同富路科聚通工业园D栋1楼102",
-  recipientCn: "八戒-4207",
-  deliveryPhone: "13750954207",
+  trackNoteCn: "多陪连接器和滑轨\n加固包装",
   curtainStyleCn: "韩式",
   heatSettingCn: "高温定型",
   floorClearanceCm: "",
@@ -33,7 +31,7 @@ describe("procurementSettingsSchema", () => {
   it("accepts the seeded row unchanged", () => {
     const out = procurementSettingsSchema.parse(SETTINGS);
     expect(out.companyName).toBe("Drapeworks SG");
-    expect(out.airShippingMark).toBe("BCH-SG-AD76-空 (写在包装）");
+    expect(out.trackNoteCn).toBe("多陪连接器和滑轨\n加固包装");
     expect(out.curtainStyleCn).toBe("韩式");
   });
 
@@ -42,25 +40,21 @@ describe("procurementSettingsSchema", () => {
   it("turns a blank optional field into null, never an empty string", () => {
     const out = procurementSettingsSchema.parse({
       ...SETTINGS,
-      airShippingMark: "",
-      warehouseAddressCn: "   ",
-      recipientCn: undefined,
-      deliveryPhone: null,
+      trackNoteCn: "",
+      heatSettingCn: "   ",
       curtainStyleCn: "\t\n",
     });
-    expect(out.airShippingMark).toBeNull();
-    expect(out.warehouseAddressCn).toBeNull();
-    expect(out.recipientCn).toBeNull();
-    expect(out.deliveryPhone).toBeNull();
+    expect(out.trackNoteCn).toBeNull();
+    expect(out.heatSettingCn).toBeNull();
     expect(out.curtainStyleCn).toBeNull();
   });
 
   it("trims the padding a paste leaves behind", () => {
     const out = procurementSettingsSchema.parse({
       ...SETTINGS,
-      recipientCn: "  八戒-4207  ",
+      curtainStyleCn: "  韩式  ",
     });
-    expect(out.recipientCn).toBe("八戒-4207");
+    expect(out.curtainStyleCn).toBe("韩式");
   });
 
   it("requires the company block, which prints on every document", () => {
@@ -271,5 +265,53 @@ describe("containsChinese", () => {
   it("is false for nothing at all", () => {
     expect(containsChinese(null)).toBe(false);
     expect(containsChinese("")).toBe(false);
+  });
+});
+
+describe("deliveryVendorSchema", () => {
+  const ADDRESS = {
+    label: "Shenzhen consolidator",
+    shippingMarkCn: "BCH-SG-AD76-空 (写在包装）",
+    addressCn: "广东省深圳市宝安区福洲大道同富路科聚通工业园D栋1楼102",
+    recipientCn: "八戒-4207",
+    phone: "13750954207",
+  };
+
+  it("accepts the address the business ships to today", () => {
+    const out = deliveryVendorSchema.parse(ADDRESS);
+    expect(out.label).toBe("Shenzhen consolidator");
+    expect(out.shippingMarkCn).toBe("BCH-SG-AD76-空 (写在包装）");
+  });
+
+  it("needs a name — it is how two of them are told apart", () => {
+    expect(() =>
+      deliveryVendorSchema.parse({ ...ADDRESS, label: "   " }),
+    ).toThrow(/Name is required/);
+  });
+
+  it("lets every Chinese line be unknown: the block prints what it has", () => {
+    const out = deliveryVendorSchema.parse({
+      label: "Not set up yet",
+      shippingMarkCn: "",
+      addressCn: "   ",
+      recipientCn: undefined,
+      phone: null,
+    });
+    expect(out.shippingMarkCn).toBeNull();
+    expect(out.addressCn).toBeNull();
+    expect(out.recipientCn).toBeNull();
+    expect(out.phone).toBeNull();
+  });
+
+  it("takes an id when editing and none when creating", () => {
+    expect(deliveryVendorSchema.parse(ADDRESS).id).toBeUndefined();
+    const id = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+    expect(deliveryVendorSchema.parse({ ...ADDRESS, id }).id).toBe(id);
+  });
+
+  it("rejects an id that is not one", () => {
+    expect(() =>
+      deliveryVendorSchema.parse({ ...ADDRESS, id: "the-first-one" }),
+    ).toThrow();
   });
 });

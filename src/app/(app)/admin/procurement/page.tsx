@@ -1,8 +1,10 @@
+import { DeliveryVendorsPanel } from "@/components/procurement/delivery-vendors-panel";
 import { PoLabelsPanel } from "@/components/procurement/po-labels-panel";
 import { ProcurementSettingsForm } from "@/components/procurement/procurement-settings-form";
 import { requireRole } from "@/lib/auth/require-role";
 import {
   loadBlindSeriesNames,
+  loadDeliveryVendors,
   loadPoOpeningLabels,
   loadPoTypeLabels,
   loadProcurementSettings,
@@ -20,14 +22,21 @@ export const metadata = { title: "Procurement — Drapeworks CRM" };
 export default async function ProcurementPage() {
   await requireRole(["admin"]);
 
-  const [settings, roomLabels, typeLabels, openingLabels, blindSeries] =
-    await Promise.all([
-      loadProcurementSettings(),
-      loadRoomTypeLabels(),
-      loadPoTypeLabels(),
-      loadPoOpeningLabels(),
-      loadBlindSeriesNames(),
-    ]);
+  const [
+    settings,
+    roomLabels,
+    typeLabels,
+    openingLabels,
+    blindSeries,
+    deliveryAddresses,
+  ] = await Promise.all([
+    loadProcurementSettings(),
+    loadRoomTypeLabels(),
+    loadPoTypeLabels(),
+    loadPoOpeningLabels(),
+    loadBlindSeriesNames(),
+    loadDeliveryVendors(),
+  ]);
 
   return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -50,6 +59,8 @@ export default async function ProcurementPage() {
           openingLabels={openingLabels}
           blindSeries={blindSeries}
         />
+
+        <DeliveryVendorsPanel addresses={deliveryAddresses} />
 
         {settings ? (
           <ProcurementSettingsForm settings={settings} />

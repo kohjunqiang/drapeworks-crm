@@ -24,10 +24,6 @@ export type PoSettings = {
   phone: string;
   wechat: string;
   website: string;
-  airShippingMark: string | null;
-  warehouseAddressCn: string | null;
-  recipientCn: string | null;
-  deliveryPhone: string | null;
   curtainStyleCn: string | null;
   heatSettingCn: string | null;
   floorClearanceCm: number | null;
@@ -105,6 +101,11 @@ export type PoInput = {
   /** Passed in rather than read, so the same input always builds the same PO. */
   generatedAt: Date;
   freightMode: FreightMode;
+  /**
+   * The default delivery_vendors row, or null when there is none. Resolved by
+   * the caller: buildPos decides what to PRINT, never which address is current.
+   */
+  delivery: PoDelivery | null;
   /** pricing_assumptions.style_multiplier — 20000 bps is 2.0. */
   fullnessBps: number;
   vendors: readonly PoVendor[];
@@ -150,7 +151,17 @@ export type PoOrderDetails = {
   floorClearanceCm: number | null;
 };
 
-/** 收货地址 — air freight only. */
+/**
+ * 收货地址 — where the goods go, air freight only.
+ *
+ * A record of its own (delivery_vendors), not four fields on the company
+ * settings: the business consolidates through a forwarder, and a forwarder is
+ * something you can have more than one of and change.
+ *
+ * Its `label` is not here. That is what WE call the address, for the admin
+ * screen; the samples print these four lines and nothing else, and a company
+ * name on a Chinese delivery block would be content we invented.
+ */
 export type PoDelivery = {
   airShippingMark: string | null;
   warehouseAddressCn: string | null;
@@ -346,16 +357,12 @@ function deliveryOf(input: PoInput): PoDelivery | null {
   // What a sea shipment prints instead is an open question (spec §8.3), and a
   // wrong shipping mark on a crate is worse than no block at all.
   if (input.freightMode !== "air") return null;
+  if (!input.delivery) return null;
 
-  const { settings } = input;
-  const delivery: PoDelivery = {
-    airShippingMark: settings.airShippingMark,
-    warehouseAddressCn: settings.warehouseAddressCn,
-    recipientCn: settings.recipientCn,
-    phone: settings.deliveryPhone,
-  };
-  const empty = Object.values(delivery).every((v) => v == null);
-  return empty ? null : delivery;
+  // A record whose every line is blank is the same as no record: the block
+  // would print its 收货地址 bar over nothing.
+  const empty = Object.values(input.delivery).every((v) => v == null);
+  return empty ? null : input.delivery;
 }
 
 export function buildPos(input: PoInput): {

@@ -9,8 +9,10 @@ import { saveProcurementSettings } from "@/lib/actions/procurement";
 import type { ProcurementSettingsRow } from "@/lib/db/procurement";
 
 // The company facts a 采购订单 prints, grouped the way they appear on the page
-// so somebody holding a printed PO can follow along from top to bottom:
-// letterhead, then 收货地址, then 订单资料.
+// so somebody holding a printed PO can follow along from top to bottom.
+//
+// 收货地址 is NOT here any more: the delivery address became a record you can
+// have more than one of, and it has its own panel. See DeliveryVendorsPanel.
 
 const INPUT =
   "w-full px-3 py-2 border border-slate-200 rounded text-sm bg-white " +
@@ -24,10 +26,6 @@ type Values = {
   phone: string;
   wechat: string;
   website: string;
-  airShippingMark: string;
-  warehouseAddressCn: string;
-  recipientCn: string;
-  deliveryPhone: string;
   trackNoteCn: string;
   curtainStyleCn: string;
   heatSettingCn: string;
@@ -47,10 +45,6 @@ function toValues(row: ProcurementSettingsRow): Values {
     website: row.website,
     // Null renders as an empty box and an empty box saves back as null — the
     // round trip has to preserve "not known", never turn it into "".
-    airShippingMark: row.air_shipping_mark ?? "",
-    warehouseAddressCn: row.warehouse_address_cn ?? "",
-    recipientCn: row.recipient_cn ?? "",
-    deliveryPhone: row.delivery_phone ?? "",
     trackNoteCn: row.track_note_cn ?? "",
     curtainStyleCn: row.curtain_style_cn ?? "",
     heatSettingCn: row.heat_setting_cn ?? "",
@@ -198,54 +192,6 @@ export function ProcurementSettingsForm({
             label="Website — 网站"
             name="website"
             value={draft.website}
-            onChange={onChange}
-          />
-        </div>
-      </div>
-
-      <div className="px-4 py-4 space-y-4 border-t border-slate-200">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">
-            Delivery address — 收货地址
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            <strong>Air freight only.</strong> 空运唛头 is an <em>air</em>{" "}
-            shipping mark and the mark itself ends in 空, so this block is
-            printed only when the order ships by air. What a sea shipment should
-            print instead is still an open question, and a wrong shipping mark
-            on a crate is worse than no block at all — so a sea order omits it
-            entirely. Blank fields are dropped from the block.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field
-            label="Air shipping mark — 空运唛头"
-            hint="Written on the packaging."
-            name="airShippingMark"
-            value={draft.airShippingMark}
-            onChange={onChange}
-            placeholder="中文"
-          />
-          <Field
-            label="Warehouse address — 仓库地址"
-            name="warehouseAddressCn"
-            value={draft.warehouseAddressCn}
-            onChange={onChange}
-            placeholder="中文"
-            multiline
-          />
-          <Field
-            label="Recipient — 收件人"
-            name="recipientCn"
-            value={draft.recipientCn}
-            onChange={onChange}
-            placeholder="中文"
-          />
-          <Field
-            label="Delivery phone — 电话"
-            hint="The warehouse's number, not ours."
-            name="deliveryPhone"
-            value={draft.deliveryPhone}
             onChange={onChange}
           />
         </div>

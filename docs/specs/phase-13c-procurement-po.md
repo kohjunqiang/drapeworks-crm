@@ -71,6 +71,12 @@ mark", and the mark itself ends in 空 (air). `orders.freight_mode` is already
 `air | sea`, so this block is conditional on it. The sea equivalent is not in
 the samples and is an open item (§8).
 
+Since 2026-08-21 it is read from **`delivery_vendors`** — one row per address,
+one of them the default, which is the one every PO prints. The row's `label` is
+for the admin screen and is NOT printed: the samples carry the mark, the
+address, the recipient and the phone, and nothing else. Choosing a different
+address **per order** is not built; it needs a rule for how an order picks.
+
 ### 2.4 Order details — curtains only
 
 ```
@@ -185,10 +191,17 @@ create table public.procurement_settings (
   website text not null,
   -- Delivery block. Air only: 空运唛头 is an AIR shipping mark and the mark
   -- itself ends in 空. Sea is an open item.
+  --
+  -- SUPERSEDED 2026-08-21 by the delivery_vendors table: the business
+  -- consolidates through a forwarder, and a forwarder is something you can
+  -- change or have two of. These four columns still exist and are read by
+  -- nothing; the seeded delivery_vendors row carries their values.
   air_shipping_mark text,        -- BCH-SG-AD76- 空 ( 写在包装）
   warehouse_address_cn text,     -- 广东省深圳市宝安区…
   recipient_cn text,             -- 收件人：八戒 -4207
   delivery_phone text,           -- 13750954207
+  -- The standing lines at the foot of a rail order (added 2026-08-21).
+  track_note_cn text,            -- 多陪连接器和滑轨 / 加固包装
   -- Curtain-only order details (§2.4)
   curtain_style_cn text,         -- 韩式
   heat_setting_cn text,          -- 高温定型

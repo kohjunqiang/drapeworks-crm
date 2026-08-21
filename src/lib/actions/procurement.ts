@@ -16,6 +16,7 @@ import { loadPoInput } from "@/lib/po/load";
 import { renderPo } from "@/lib/po/render";
 import { adminClient } from "@/lib/supabase/admin";
 import {
+  deliveryVendorSchema,
   poOpeningLabelSchema,
   poTypeLabelSchema,
   procurementSettingsSchema,
@@ -67,10 +68,6 @@ export async function saveProcurementSettings(input: unknown): Promise<void> {
         phone: parsed.phone,
         wechat: parsed.wechat,
         website: parsed.website,
-        air_shipping_mark: parsed.airShippingMark,
-        warehouse_address_cn: parsed.warehouseAddressCn,
-        recipient_cn: parsed.recipientCn,
-        delivery_phone: parsed.deliveryPhone,
         track_note_cn: parsed.trackNoteCn,
         curtain_style_cn: parsed.curtainStyleCn,
         heat_setting_cn: parsed.heatSettingCn,
@@ -230,6 +227,115 @@ export async function saveSeriesNameCn(input: unknown): Promise<void> {
   // name here must not disagree after a save.
   revalidatePath(PROCUREMENT_PATH);
   revalidatePath("/admin/product/blinds");
+}
+
+// ── 收货地址 ───────────────────────────────────────────────────────────────
+
+/**
+ * Create or update one delivery address.
+ *
+ * Making a row the default UNSETS the previous one in the same transaction. A
+ * unique partial index refuses two defaults outright, so doing it in two
+ * statements outside a transaction would fail against the database rather than
+ * quietly leave the wrong one in force — but a failed save that had already
+ * cleared the old default would leave the business with NO delivery address,
+ * and every PO after it printing no block. Hence one transaction.
+ */
+export async function saveDeliveryVendor(input: unknown): Promise<void> {
+  await requireRole(["admin"]);
+  const parsed = parseOrThrow(
+    deliveryVendorSchema,
+    input,
+    "That delivery address is not valid.",
+  );
+
+  const values = {
+    label: parsed.label,
+    shipping_mark_cn: parsed.shippingMarkCn,
+    address_cn: parsed.addressCn,
+    recipient_cn: parsed.recipientCn,
+    phone: parsed.phone,
+  };
+
+  try {
+    await db.transaction().execute(async (trx) => {
+      if (parsed.isDefault) {
+        await trx
+          .updateTable("delivery_vendors")
+          .set({ is_default: false })
+          .where("is_default", "=", true)
+          .execute();
+      }
+
+      if (parsed.id) {
+        const result = await trx
+          .updateTable("delivery_vendors")
+          .set({ ...values, ...(parsed.isDefault ? { is_default: true } : {}) })
+          .where("id", "=", parsed.id)
+          .execute();
+        if (Number(result[0]?.numUpdatedRows ?? 0) === 0) {
+          throw new AuthoredError(
+            "That delivery address no longer exists. Reload and try again.",
+          );
+        }
+        return;
+      }
+
+      await trx
+        .insertInto("delivery_vendors")
+        // The first address anybody adds is the default, whether or not they
+        // ticked the box: an address nothing uses is not an answer to "where
+        // does this ship to".
+        .values({ ...values, is_default: parsed.isDefault ?? false })
+        .execute();
+    });
+  } catch (e) {
+    if (e instanceof AuthoredError) throw new Error(e.message);
+    throw new Error(userMessage(e, "Could not save the delivery address."));
+  }
+
+  revalidatePath(PROCUREMENT_PATH);
+}
+
+/**
+ * Archive or restore one.
+ *
+ * The default cannot be archived. Archiving it would leave the documents with
+ * no delivery block and nothing on this screen saying why — so the refusal
+ * names the fix instead: make another one the default first.
+ */
+export async function toggleDeliveryVendorActive(id: unknown): Promise<void> {
+  await requireRole(["admin"]);
+  const parsedId = parseOrThrow(
+    z.string().uuid(),
+    id,
+    "That is not a valid delivery address.",
+  );
+
+  const current = await db
+    .selectFrom("delivery_vendors")
+    .select(["is_active", "is_default"])
+    .where("id", "=", parsedId)
+    .executeTakeFirst();
+  if (!current) throw new Error("That delivery address no longer exists.");
+
+  if (current.is_active && current.is_default) {
+    throw new Error(
+      "That is the address every purchase order ships to. Make another one the default before archiving it.",
+    );
+  }
+
+  try {
+    await db
+      .updateTable("delivery_vendors")
+      .set({ is_active: !current.is_active })
+      .where("id", "=", parsedId)
+      .execute();
+  } catch (e) {
+    throw new Error(userMessage(e, "Could not update the delivery address."));
+  }
+
+  revalidatePath(PROCUREMENT_PATH);
 }
 
 // ── Generating the documents ───────────────────────────────────────────────

@@ -83,15 +83,16 @@ export const procurementSettingsSchema = z.object({
   phone: requiredText(60, "Phone"),
   wechat: requiredText(60, "WeChat"),
   website: requiredText(200, "Website"),
-  // 收货地址 — air freight only. Null on all four and the block is omitted.
-  airShippingMark: optionalText(200, "Air shipping mark"),
-  warehouseAddressCn: optionalText(400, "Warehouse address"),
-  recipientCn: optionalText(120, "Recipient"),
-  deliveryPhone: optionalText(60, "Delivery phone"),
-  // 订单资料 — curtain POs only; blank on the Blinds sample by design.
+
+  // NOTE: the 收货地址 fields are NOT here. They moved to delivery_vendors —
+  // the business consolidates through a forwarder, and a forwarder is something
+  // you can have more than one of, and change. See deliveryVendorSchema.
+
   // The standing lines at the foot of a rail order. Multi-line and roomy: it
   // is a sentence or two of instruction, not a label.
   trackNoteCn: optionalText(500, "Track order note"),
+
+  // 订单资料 — curtain POs only; blank on the Blinds sample by design.
   curtainStyleCn: optionalText(60, "Curtain style"),
   heatSettingCn: optionalText(60, "Heat setting"),
   floorClearanceCm,
@@ -179,6 +180,32 @@ export const vendorProcurementFieldsSchema = z.object({
 export type VendorProcurementFields = z.infer<
   typeof vendorProcurementFieldsSchema
 >;
+
+/**
+ * One 收货地址 — the forwarder's warehouse a vendor delivers to.
+ *
+ * Every Chinese field is optional, matching what the document does with them:
+ * the delivery block prints the lines it has and omits the ones it does not,
+ * and a record with nothing in it prints no block at all. That is unlike the
+ * 房间/型号/开法 labels, which the generator REFUSES over — those are cutting
+ * instructions and this is an address.
+ *
+ * `label` is required because it is how a human tells two of these apart on
+ * the admin screen. It is never printed on a document.
+ */
+export const deliveryVendorSchema = z.object({
+  // Absent when creating, present when editing. Not a discriminated union:
+  // the fields are identical either way and the action upserts on it.
+  id: z.string().uuid().optional(),
+  label: requiredText(80, "Name"),
+  shippingMarkCn: optionalText(200, "Air shipping mark"),
+  addressCn: optionalText(400, "Warehouse address"),
+  recipientCn: optionalText(120, "Recipient"),
+  phone: optionalText(60, "Phone"),
+  isDefault: z.boolean().optional(),
+});
+
+export type DeliveryVendorInput = z.infer<typeof deliveryVendorSchema>;
 
 // Han characters, the script every one of these fields is meant to be in.
 const HAN = /\p{Script=Han}/u;

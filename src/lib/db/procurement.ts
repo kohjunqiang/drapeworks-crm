@@ -64,6 +64,44 @@ export type ProcurementSettingsRow = {
   track_note_cn: string | null;
 };
 
+/** One 收货地址. `label` is ours, for this screen — it is never printed. */
+export type DeliveryVendorRow = {
+  id: string;
+  label: string;
+  shipping_mark_cn: string | null;
+  address_cn: string | null;
+  recipient_cn: string | null;
+  phone: string | null;
+  is_default: boolean;
+  is_active: boolean;
+};
+
+/**
+ * Every delivery address, the default first.
+ *
+ * Archived rows are included and shown greyed: this screen is where you undo
+ * an archive, and a row that vanished when you archived it would be a row you
+ * could not get back.
+ */
+export async function loadDeliveryVendors(): Promise<DeliveryVendorRow[]> {
+  return db
+    .selectFrom("delivery_vendors")
+    .select([
+      "id",
+      "label",
+      "shipping_mark_cn",
+      "address_cn",
+      "recipient_cn",
+      "phone",
+      "is_default",
+      "is_active",
+    ])
+    .orderBy("is_default", "desc")
+    .orderBy("is_active", "desc")
+    .orderBy("label", "asc")
+    .execute();
+}
+
 export async function loadProcurementSettings(): Promise<ProcurementSettingsRow | null> {
   const row = await db
     .selectFrom("procurement_settings")

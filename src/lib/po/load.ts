@@ -101,8 +101,15 @@ export async function loadPoInput(
     return { input: null, problems };
   }
 
-  const [settings, assumptions, roomLabelRows, typeLabelRows, openingRows, vendorRows] =
-    await Promise.all([
+  const [
+    settings,
+    assumptions,
+    roomLabelRows,
+    typeLabelRows,
+    openingRows,
+    vendorRows,
+    delivery,
+  ] = await Promise.all([
       db
         .selectFrom("procurement_settings")
         .selectAll()
@@ -121,6 +128,14 @@ export async function loadPoInput(
         .selectFrom("vendors")
         .select(["id", "name", "name_cn", "address_cn", "phone", "internal_ref"])
         .execute(),
+      // The one marked default. A unique partial index guarantees there is at
+      // most one, so this cannot silently pick between two.
+      db
+        .selectFrom("delivery_vendors")
+        .select(["shipping_mark_cn", "address_cn", "recipient_cn", "phone"])
+        .where("is_default", "=", true)
+        .where("is_active", "=", true)
+        .executeTakeFirst(),
     ]);
 
   if (!settings) {
@@ -198,10 +213,6 @@ export async function loadPoInput(
         phone: settings.phone,
         wechat: settings.wechat,
         website: settings.website,
-        airShippingMark: settings.air_shipping_mark,
-        warehouseAddressCn: settings.warehouse_address_cn,
-        recipientCn: settings.recipient_cn,
-        deliveryPhone: settings.delivery_phone,
         curtainStyleCn: settings.curtain_style_cn,
         heatSettingCn: settings.heat_setting_cn,
         floorClearanceCm: settings.floor_clearance_cm,
@@ -210,6 +221,17 @@ export async function loadPoInput(
       custRef: custRefOf(order),
       generatedAt,
       freightMode: order.freight_mode,
+      // The current 收货地址. Null is not a refusal: the block is air-only and
+      // every line in it is optional on the samples, so a document without one
+      // is a document with no delivery block — not a wrong one.
+      delivery: delivery
+        ? {
+            airShippingMark: delivery.shipping_mark_cn,
+            warehouseAddressCn: delivery.address_cn,
+            recipientCn: delivery.recipient_cn,
+            phone: delivery.phone,
+          }
+        : null,
       fullnessBps: assumptions.style_multiplier,
       vendors,
       roomLabels,

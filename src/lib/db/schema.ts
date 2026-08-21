@@ -445,6 +445,19 @@ export interface Customers {
   updated_at: Generated<Timestamp>;
 }
 
+export interface DeliveryVendors {
+  address_cn: string | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  is_default: Generated<boolean>;
+  label: string;
+  phone: string | null;
+  recipient_cn: string | null;
+  shipping_mark_cn: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface ExtensionsPgStatStatements {
   calls: Int8 | null;
   dbid: number | null;
@@ -1001,6 +1014,7 @@ export interface DB {
   curtain_series: CurtainSeries;
   curtain_types: CurtainTypes;
   customers: Customers;
+  delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
   manufacture_allowances: ManufactureAllowances;

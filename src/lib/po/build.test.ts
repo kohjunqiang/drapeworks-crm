@@ -8,6 +8,7 @@ import {
   fullnessLabel,
   roomLabel,
   sqmM,
+  type PoDelivery,
   type PoInput,
   type PoLine,
   type PoRoomLabel,
@@ -28,13 +29,17 @@ const SETTINGS: PoSettings = {
   phone: "+65 8513 3236",
   wechat: "130 6177 3305",
   website: "http://www.drapeworks.sg",
-  airShippingMark: "BCH-SG-AD76-空 (写在包装）",
-  warehouseAddressCn: "广东省深圳市宝安区福洲大道同富路科聚通工业园D栋1楼102",
-  recipientCn: "八戒-4207",
-  deliveryPhone: "13750954207",
   curtainStyleCn: "韩式",
   heatSettingCn: "高温定型",
   floorClearanceCm: null,
+};
+
+// The 收货地址 — a record of its own now, not four fields on the letterhead.
+const DELIVERY: PoDelivery = {
+  airShippingMark: "BCH-SG-AD76-空 (写在包装）",
+  warehouseAddressCn: "广东省深圳市宝安区福洲大道同富路科聚通工业园D栋1楼102",
+  recipientCn: "八戒-4207",
+  phone: "13750954207",
 };
 
 const RISING: PoVendor = {
@@ -104,6 +109,7 @@ function input(over: Partial<PoInput> = {}): PoInput {
     custRef: "Omar Tampines 957B 08-146",
     generatedAt: new Date("2026-08-08T02:00:00Z"),
     freightMode: "air",
+    delivery: DELIVERY,
     fullnessBps: 20000,
     vendors: [RISING, ZHUYINGTAI, SHUNJIN],
     roomLabels: LABELS,
@@ -627,6 +633,17 @@ describe("buildPos — freight and missing vendor details", () => {
       recipientCn: "八戒-4207",
       phone: "13750954207",
     });
+  });
+
+  it("omits the delivery block when no address is set", () => {
+    // Not a refusal: every line of the block is optional on the samples, so a
+    // document without one is a document with no delivery block, not a wrong
+    // one. The cells that ARE cutting instructions are elsewhere.
+    const { pos } = buildPos(
+      input({ lines: [line({ lineId: "a" })], delivery: null }),
+    );
+
+    expect(pos[0].delivery).toBeNull();
   });
 
   it("omits the delivery block on a sea order", () => {

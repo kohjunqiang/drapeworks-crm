@@ -59,8 +59,8 @@ export function TrackOrderCard({
           <p className="text-sm text-amber-900">
             ⚠{" "}
             {unmeasured.length === 1
-              ? "This window needs a rail but has no width recorded, so it is not on the list:"
-              : "These windows need rails but have no width recorded, so they are not on the list:"}
+              ? "This window needs a rail but has no confirmed manufacturing width, so it is not on the list:"
+              : "These windows need rails but have no confirmed manufacturing width, so they are not on the list:"}
           </p>
           <ul className="mt-1 space-y-0.5 text-sm text-amber-900/90">
             {unmeasured.map((label) => (
@@ -72,11 +72,12 @@ export function TrackOrderCard({
 
       <div className="border-t border-slate-100 px-4 py-3">
         <p className="text-xs text-slate-500 mb-2">
-          Widths are the openings as measured — a rail is cut to the wall, not
-          to the panel, so the manufacturing allowance does not apply.{" "}
+          Widths are the manufacturing widths, allowance already taken off — the
+          same figures in the table below.{" "}
           <span className="text-slate-400">
             双轨 is a window carrying both a day and a night curtain; 单轨 is one
-            curtain. Each rail is cut in half to ship, so a 双轨 is 4 根.
+            curtain. No piece may exceed 1.60 m, so each rail is cut into as few
+            equal sections as that allows — and a 双轨 needs twice as many.
           </span>
         </p>
         {/* Selectable, wrapping, in a font where 1.33 and 1.38 look different. */}

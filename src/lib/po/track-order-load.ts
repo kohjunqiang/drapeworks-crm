@@ -3,10 +3,12 @@ import "server-only";
 // What goes on this order's rail order, read once.
 //
 // Same split as po/load.ts: this module is the world, track-order.ts is the
-// arithmetic. It reads MEASURED widths, deliberately — a rail is cut to the
-// opening it is screwed above, not to the panel a vendor cuts, so the
-// manufacturing allowance has nothing to say here. That is the same rule the
-// calculator prices the rail on.
+// arithmetic. It reads CONFIRMED MANUFACTURING widths, because that is where
+// the rail's own allowance already lives: curtain is seeded at −2 cm and the
+// reconciliation screen lets a human change it per window, which is the only
+// place a bay window or a wall-to-wall run gets to say it needs something other
+// than 2 cm. Taking windows.width_cm and deducting again here would apply the
+// allowance twice, and every rail in the order would arrive short.
 
 import { db } from "@/lib/db/kysely";
 
@@ -17,11 +19,13 @@ export type TrackOrderLoad = {
   /** procurement_settings.track_note_cn — the standing instructions. */
   noteCn: string | null;
   /**
-   * Windows that need a rail but have no width recorded, named.
+   * Windows that need a rail but have no confirmed manufacturing width, named.
    *
    * Left OUT of the lines and said out loud instead. A rail order is a cutting
    * instruction: a window quietly missing from it comes back as a site visit
-   * with one curtain and nowhere to hang it.
+   * with one curtain and nowhere to hang it. Guessing the width from the site
+   * measurement would be worse — it would put a plausible number in a cutting
+   * list that nobody has checked.
    */
   unmeasured: string[];
 };
@@ -31,9 +35,17 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     db
       .selectFrom("windows")
       .innerJoin("rooms", "rooms.id", "windows.room_id")
+      // Left, not inner: a window with no confirmed measurement still has to
+      // reach the loop, so it can be named in `unmeasured` rather than vanish.
+      // At most one row per window (mm_window_key), so this fans out nothing.
+      .leftJoin(
+        "manufacture_measurements",
+        "manufacture_measurements.window_id",
+        "windows.id",
+      )
       .select([
         "windows.position as position",
-        "windows.width_cm as width_cm",
+        "manufacture_measurements.mfg_width_cm as mfg_width_cm",
         "windows.day_curtain_type_id as day_curtain_type_id",
         "windows.night_curtain_type_id as night_curtain_type_id",
         "windows.curtain_type_id as curtain_type_id",
@@ -68,14 +80,14 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     // Positions are 0-based in the database and 1-based on every screen.
     const label = `${w.room_label} — Window ${w.position + 1}`;
 
-    if (w.width_cm == null || w.width_cm <= 0) {
+    if (w.mfg_width_cm == null || w.mfg_width_cm <= 0) {
       unmeasured.push(label);
       continue;
     }
 
     lines.push({
       label,
-      widthCm: w.width_cm,
+      widthCm: w.mfg_width_cm,
       // Day + night is two runs of rail over one opening; a single curtain —
       // day only, night only, or the one on a toilet window — is one.
       kind: curtains >= 2 ? "double" : "single",

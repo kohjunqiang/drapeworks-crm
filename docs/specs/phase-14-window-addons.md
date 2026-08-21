@@ -318,10 +318,25 @@ export type ResolvedAddon = AddonRule & {
 export function resolveWindowAddons(
   covering: "curtain" | "blind",
   widthCm: number | null,
+  /** What is ticked right now — the submitted set. Answers rule 5. */
   selectedIds: readonly string[],
+  /** What `window_addons` already holds for this window. Grants rule 2's exception. */
+  persistedIds: readonly string[],
   catalogue: readonly AddonRule[],
 ): ResolvedAddon[];
 ```
+
+**The two id lists are separate on purpose.** On the client they start equal — both are
+the hydrated defaults — and then diverge as the consultant ticks and clears, `selectedIds`
+following the live form state while `persistedIds` stays fixed for the life of the edit
+(§6.5). On the server they must not be conflated at all. `persistedIds` is read from
+the join table: empty on `createOrder` and `createOrderDraft`, loaded per window on
+`updateOrder`. If rule 2's exception keyed on the submitted set instead, a hand-crafted
+POST could attach an archived add-on, or `blinds_surcharge` at 0/0, to a brand-new window
+— the payload would be asserting "this was already here", and on a create there is no
+persisted state to contradict it. §6.3's whole contract is that the actions trust the
+database over the payload; one shared parameter would have quietly exempted rule 2 from
+it.
 
 **The catalogue is every `pricing_addons` row — unfiltered.** It is loaded once per order
 (§6.7), so it cannot be composed per window; the filtering is the resolver's job, which
@@ -331,18 +346,22 @@ filtering the resolver can no longer undo.
 Rules, in order:
 
 1. **Scope.** Drop any add-on whose `appliesTo` is neither `covering` nor `'both'`. This runs **first**, so a curtain add-on left on a window switched to blind is dropped before any later rule can preserve it.
-2. **Nothing to offer.** Drop any add-on that is **not already selected** on this window and is either `!isActive` or charges nothing (cost and sale both null-or-zero). This is the project's "don't offer what can't be quoted" rule — the same one that hides unpriced blinds and unpriced mesh — applied to add-ons. It is what keeps the retired `single_track` / `double_track` rows out of the form (`RETIRED_KEYS` does not reach here), and what keeps `blinds_surcharge` and an unpriced `extra_shipping` from rendering as checkboxes that charge nothing (§2, §7).
+2. **Nothing to offer.** Drop any add-on that is **not in `persistedIds`** and is either `!isActive` or charges nothing (cost and sale both null-or-zero). This is the project's "don't offer what can't be quoted" rule — the same one that hides unpriced blinds and unpriced mesh — applied to add-ons. It is what keeps the retired `single_track` / `double_track` rows out of the form (`RETIRED_KEYS` does not reach here), and what keeps `blinds_surcharge` and an unpriced `extra_shipping` from rendering as checkboxes that charge nothing (§2, §7).
 3. **`always`** → `selected: true, locked: true`.
 4. **`width_over`** → when `widthCm != null && widthCm > autoWidthOverCm`, `selected: true, locked: true`. Otherwise it falls through to (5) and behaves as an ordinary checkbox, so a consultant can still tick it deliberately on a narrower but awkward item.
 5. **`manual`**, and any `width_over` that did not trigger → `selected: selectedIds.includes(id), locked: false`.
 
-**An already-selected add-on survives rule 2 and stays un-tickable, not locked.** Archiving
-an add-on — or zeroing its price — must not silently drop the charge from windows already
+**A persisted add-on survives rule 2 and stays un-tickable, not locked.** Archiving an
+add-on — or zeroing its price — must not silently drop the charge from windows already
 carrying it, because the next edit's delete-then-insert (§6.3) would make that loss
-permanent. So it renders as an ordinary checkbox the consultant *can* clear. Once cleared
-it is no longer selected, rule 2 drops it, and it cannot come back. Locking it in both
-directions would mean an add-on the business has retired can never be taken off a window,
-which is the opposite of the intent.
+permanent. So it renders as an ordinary checkbox the consultant *can* clear. Locking it in
+both directions would mean an add-on the business has retired could never be taken off a
+window, which is the opposite of the intent.
+
+Clearing it does not make it vanish mid-edit: it stays in `persistedIds` until the form is
+saved, so it remains listed and unticked and can be restored by mistake-correction before
+submitting. On save it is no longer in the resolved set, the delete-then-insert removes
+the join row, and the next load drops it for good.
 
 An unmeasured window (`widthCm == null`) never triggers `width_over` — there is nothing
 to compare. It becomes locked the moment a width over 200 is typed.
@@ -368,6 +387,14 @@ for. It is not corrected by re-ticking a checkbox on a locked order.
 
 `CalcAddonBook` — the `{ sFold, slimTracks }` struct — is deleted. `CalcWindow` instead
 carries the already-resolved list:
+
+**This changes two function signatures, and `book` is the second positional parameter of
+both.** `windowQuote(win, book, a)` (`:383`) and `computeQuote(windows, book, a, freightMode,
+extraInstallSgdCents, discountBps)` (`:684`) both lose it. The second is the phase's
+largest mechanical edit: callers are `live-quote.tsx:111`, `order-quote.ts:579`,
+`stale-flags.ts:60`, `quote-staleness.test.ts:117`, and ~25 sites in `calculator.test.ts`
+via a shared `BOOK` constant (73 references). The build catches every one — this is noted
+so it isn't a surprise partway through, not because it's risky.
 
 ```ts
 export type CalcWindow = BreakdownIdentity & {
@@ -468,15 +495,17 @@ The browser lock is UX. **All three window-insert paths** re-run `resolveWindowA
 server-side against the freshly-read catalogue and persist **the resolved set**, not the
 submitted set:
 
-| Path | Location | Note |
-|---|---|---|
-| `createOrder` | guard `orders.ts:102`, insert `:111` | |
-| `updateOrder` | guard `orders.ts:236` | delete-then-insert, scoped to the windows being written, inside the existing transaction |
-| `createOrderDraft` | shaping `orders.ts:483`, insert `:492` | easy to miss — it has its own window insert and its own variant shaping |
+| Path | Location | `persistedIds` | Note |
+|---|---|---|---|
+| `createOrder` | guard `orders.ts:102`, insert `:111` | `[]` | |
+| `updateOrder` | guard `orders.ts:236` | loaded per window from `window_addons` | delete-then-insert, scoped to the windows being written, inside the existing transaction |
+| `createOrderDraft` | shaping `orders.ts:483`, insert `:492` | `[]` | easy to miss — it has its own window insert and its own variant shaping |
 
 A hand-crafted POST that omits `extra_shipping` on a 230 cm blind gets it charged anyway;
-one that adds a curtain-scoped add-on to a blind has it dropped. Drafts resolve too:
-they are relaxed about *completeness*, never about *correctness of charge*.
+one that adds a curtain-scoped add-on to a blind has it dropped; and one that attaches an
+archived or zero-priced add-on to a new window has it dropped too, because `persistedIds`
+is empty there and only the database can grant rule 2's exception. Drafts resolve the same
+way: they are relaxed about *completeness*, never about *correctness of charge*.
 
 The room/variant agreement checks (`orders.ts:102`, `:236`) become:
 
@@ -526,6 +555,11 @@ at `:352–353`; it must instead load each window's selected `addon_ids` from
 `window_addons` into `defaultValues`. Without this every edit submits `addon_ids: []` and
 wipes the window's add-ons — silently, and permanently.
 
+Those same hydrated ids are the form's `persistedIds` (§4). They are the client's copy of
+what the join table holds, and they must stay fixed for the life of the edit rather than
+tracking the live form state — that is what lets a cleared archived add-on remain visible
+and re-tickable until the form is submitted.
+
 ### 6.6 Procurement, manufacture, display
 
 - `lib/po/load.ts`: remove the `toilet_ct` / `toilet_cs` joins and the `w.toilet_label` line branch (`:376–382`). `PO_TYPE_KEYS` in `validation/procurement.ts` drops `"toilet"`.
@@ -544,6 +578,12 @@ wipes the window's add-ons — silently, and permanently.
 particular**: without it the resolver cannot apply §4 rule 2, and the retired track rows
 come back as curtain checkboxes — restoring the double-charge that `202608201000`
 removed.
+
+It must also gain **`.orderBy("is_active", "desc").orderBy("label", "asc")`**. The select
+has none today, so Postgres returns those rows in whatever order suits it and that order
+is not stable across an admin edit that rewrites a row. §4's promise that the checkboxes
+don't reshuffle as a window is edited rests entirely on this clause; nothing else in the
+phase produces an order.
 
 Both form entry points already call `loadCalcConfig` — `orders/new/page.tsx:94` and
 `orders/[orderId]/edit/page.tsx:279` — so putting the catalogue there means both get it
@@ -593,10 +633,11 @@ Unit — `resolveWindowAddons`:
 - `width_over`: **199 unlocked, 200 unlocked, 201 locked** — the boundary is the point
 - below-threshold `width_over` is still tickable by hand
 - unmeasured window never auto-locks
-- an archived add-on already selected on the window survives, and is **un-tickable** — clearing it drops it, and it does not come back
-- an archived add-on **not** selected never appears
-- an active add-on charging 0/0 never appears; the same add-on, already selected, survives
+- an archived add-on in `persistedIds` survives, and is **un-tickable** — clearing it leaves it listed and unticked for the rest of the edit, and it is gone on the next load
+- an archived add-on absent from `persistedIds` never appears
+- an active add-on charging 0/0 never appears; the same add-on in `persistedIds` survives
 - an unpriced (null/null) `width_over` add-on never appears, however wide the window
+- **`selectedIds` alone does not grant survival:** an archived add-on passed in `selectedIds` with an empty `persistedIds` is dropped — the create-path forgery in §6.3
 - retired `single_track` / `double_track` (inactive, unselected) never appear even though the catalogue is unfiltered
 - **scope beats survival:** a curtain add-on that is selected on a window switched to blind is dropped by rule 1, not preserved by the already-selected exception
 - output order is stable
@@ -615,6 +656,7 @@ Integration:
 
 - `createOrder` forces `extra_shipping` onto a 230 cm blind whose payload omitted it
 - `createOrder` strips a curtain-scoped add-on submitted against a blind
+- `createOrder` strips an archived add-on submitted against a new window — the payload cannot claim it was already there
 - `createOrderDraft` writes add-ons and shapes a toilet room's window as `blind`
 - **edit round-trip: create with add-ons → load the edit page → submit unchanged → add-ons survive** (the §6.5 regression)
 - `updateOrder` round-trips add-on changes; a locked order still refuses the edit

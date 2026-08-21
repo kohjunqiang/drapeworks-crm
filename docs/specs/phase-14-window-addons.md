@@ -1,7 +1,7 @@
 # Phase 14 — Window add-ons & blinds-only toilets
 
 **Status:** specified 2026-08-21 — not yet implemented
-**Date:** 2026-08-21
+**Date:** 2026-08-21 (revised same day after review)
 **Depends on:** Phase 9 (pricing foundation), Phase 10 (combos), Phase 12 (blinds), Phase 13B/13C (manufacture, procurement)
 
 ---
@@ -15,10 +15,16 @@ clean.
 `windows.add_slim_tracks` are boolean columns threaded by name through twelve files —
 schema, Zod, form, live quote, order quote, COGS legs, summary cards. Meanwhile
 `pricing_addons` — the table the admin **Pricing settings → Add-ons** screen edits —
-was seeded in Phase 9 with a `blackout` row (¥27/m, S$50/m) and a `blinds_surcharge`
-row (S$130/unit) that **nothing has ever read**. An admin can open that screen today,
-carefully price blackout, save it, and change nothing whatsoever. The list of things we
-charge for is business configuration; it is currently a schema migration.
+was seeded in Phase 9 with a `blackout` row and a `blinds_surcharge` row that **nothing
+has ever read**. An admin can open that screen today, carefully price blackout, save it,
+and change nothing whatsoever.
+
+That is not hypothetical. The live table shows two rows whose `basis` has been flipped
+since seeding (`blinds_surcharge` seeded `per_unit`, now `per_metre` at ¥0/S$0;
+`single_track` seeded `per_unit`, now `per_metre`). The screen has been used to edit
+rows nothing consumes. The list of things we charge for is business configuration; it is
+currently a schema migration, and the gap between the two has been quietly filling with
+edits that do nothing.
 
 Blinds have it worse: `windowQuote` returns from its blind branch *before any add-on is
 applied* (`calculator.ts:418`), deliberately, so a stale curtain flag can't charge a
@@ -68,7 +74,7 @@ The list this phase ships with:
 | S-Fold | curtain | per metre | by hand |
 | Slim tracks | curtain | per metre | by hand |
 | Blackout | **both** | per metre | by hand |
-| Blinds surcharge | blind | per unit | **always** |
+| Blinds surcharge | blind | per metre | by hand — see below |
 | Extra shipping *(new)* | blind | per unit | **automatically when width > 200 cm** |
 
 Adding a sixth — motorisation, a valance, whatever comes next — is a row on the admin
@@ -79,6 +85,20 @@ non-standard carton and we pay for it. Above 200 cm the checkbox is ticked and l
 the consultant cannot quote that blind without the cost. At or below 200 cm it is an
 ordinary optional checkbox — 200 exactly is *not* over — because an awkward item may
 still warrant it.
+
+**Blinds surcharge ships inert, on purpose.** Its live values are ¥0 / S$0 / per metre,
+which contradict both the Phase-9 seed (S$130, per unit) and the intent recorded when
+this phase was scoped. Nobody currently knows which is right. Wiring it as an
+always-applied charge in that state would be a landmine: the day an admin types a figure
+into it, every subsequent blind re-prices while already-quoted ones do not, and because
+the quote reads the persisted join rather than the resolver (§6.4) there is no staleness
+signal to catch it. So it ships as an ordinary by-hand checkbox at whatever price it
+currently holds. An admin switches it to **Always** deliberately, once they have decided
+what it is.
+
+Consequence worth stating: **no row ships with `auto_rule = 'always'`.** The value exists
+for that admin switch and is tested (§8), but nothing exercises it in production on day
+one.
 
 **Toilets take blinds.** A toilet room's windows are blind windows. No curtain is
 offered there and the Curtains/Blinds toggle does not appear.
@@ -96,7 +116,7 @@ offered there and the Curtains/Blinds toggle does not appear.
 Two new enums:
 
 ```sql
-create type pricing_addon_scope    as enum ('curtain', 'blind', 'both');
+create type pricing_addon_scope     as enum ('curtain', 'blind', 'both');
 create type pricing_addon_auto_rule as enum ('manual', 'always', 'width_over');
 ```
 
@@ -125,8 +145,10 @@ Seed state, applied in the same migration:
 
 ```sql
 update public.pricing_addons set applies_to = 'both'  where key = 'blackout';
-update public.pricing_addons set applies_to = 'blind', auto_rule = 'always'
-  where key = 'blinds_surcharge';
+update public.pricing_addons set applies_to = 'blind' where key = 'blinds_surcharge';
+-- blinds_surcharge keeps auto_rule = 'manual' (the default) and its current price.
+-- See §2: its live values contradict the Phase-9 seed and nobody has confirmed which
+-- is right, so it is not auto-applied until an admin decides.
 
 insert into public.pricing_addons
   (key, label, cost_rmb_cents, sale_sgd_cents, basis, applies_to, auto_rule, auto_width_over_cm)
@@ -135,11 +157,16 @@ values
 ```
 
 `extra_shipping` ships **unpriced** (both money columns null). It costs nothing until an
-admin prices it, which is the honest default — we are not inventing a figure — and it
-shows up on the settings screen as a blank waiting to be filled.
+admin prices it, which is the honest default — we are not inventing a figure — and §7
+makes the admin screen say so out loud, because an auto-applied add-on worth S$0 is a
+mechanism that looks like it works and doesn't.
 
-`single_track` / `double_track` stay on the existing `RETIRED_KEYS` list in
-`lib/db/pricing-settings.ts` and are untouched.
+`single_track` / `double_track` are `is_active = false` and stay on the existing
+`RETIRED_KEYS` list in `lib/db/pricing-settings.ts`. That list is a *display* filter for
+the admin loader; what keeps them out of the consultation form is `is_active` (§4).
+
+**`down()`** drops the three columns, the check constraint and the two enums, deletes the
+`extra_shipping` row, and reverts the two `applies_to` updates.
 
 ### 3.2 `window_addons` — the join table
 
@@ -154,9 +181,9 @@ create index window_addons_addon_id_idx on public.window_addons (addon_id);
 ```
 
 `on delete cascade` from windows: an add-on selection is part of the window and dies
-with it. `on delete restrict` from addons: an add-on in use cannot be deleted, which is
-consistent with the no-hard-deletes rule (add-ons are archived via `is_active`, never
-removed).
+with it. `on delete restrict` from addons: an add-on in use cannot be hard-deleted —
+though since add-ons are archived rather than deleted, the case that actually matters is
+archival, handled by the resolver in §4.
 
 **Prices are not snapshotted onto the join row.** They are read live at quote time,
 exactly as series prices are, so `quote-staleness.ts` and `stale-flags.ts` keep working
@@ -191,15 +218,9 @@ reverses the backfill before dropping the table.
 
 ### 3.4 Retiring the toilet curtain
 
-```sql
-alter table public.windows drop column curtain_type_id;
-```
-
-0 rows use it. `down()` re-adds it as a nullable FK to `curtain_types`.
-
-The `validate_window_shape()` trigger is rewritten. Note the two behavioural changes:
-`curtain_type_id` no longer exists, and **`draw` is now permitted in a toilet room** —
-it carries a blind's chain/control side, which the old body banned outright.
+The trigger is rewritten **before** the column is dropped — the ordering
+`20260817090000`'s `down()` calls out explicitly, for the same reason: a body that names
+a column that no longer exists is not something to leave lying around mid-migration.
 
 ```sql
 create or replace function public.validate_window_shape() returns trigger
@@ -226,11 +247,30 @@ end
 $$;
 ```
 
+Then:
+
+```sql
+alter table public.windows drop column curtain_type_id;
+```
+
+0 rows use it. `down()` re-adds it as a nullable FK to `curtain_types` and restores the
+previous trigger body.
+
+Two behavioural changes to note. `curtain_type_id` no longer exists, so its guards go.
+And **`draw` is now permitted on a toilet window that has no blind picked yet** — the
+old body banned `draw` in a toilet room for any non-blind window, which was correct when
+a toilet window meant a curtain (a single curtain has no pull direction) and is wrong
+now that it means a half-filled blind. A toilet *blind* with `draw` set was already
+accepted, because the old body returns early on `blind_type_id is not null`
+(`20260817090000_product_line_and_blinds.ts:59–67`); the draft state is the case that
+actually changes, and §8 tests that one.
+
 A window with nothing picked stays valid — drafts depend on it.
 
 `po_type_labels` keeps its `'toilet'` row and its
 `key in ('day','night','toilet','blind','mesh')` check constraint. Nothing writes that
-key after this phase; removing the row would be a hard delete for no benefit.
+key after this phase (`actions/procurement.ts:153` is update-only), so removing the row
+would be a hard delete for no benefit.
 
 ### 3.5 After the migrations
 
@@ -238,8 +278,9 @@ Run `npm run db:codegen` to regenerate `src/lib/db/schema.ts`.
 
 ## 4. The resolution rule
 
-One exported function is the single source of truth, used by the live quote, the server
-quote, the form and the Server Actions. Everything else reads its output.
+One exported function is the single source of truth for **deciding** a window's add-ons.
+It is called by the form and by the Server Actions on every write path. It is **not**
+called by the order quote: once written, the persisted join rows are the truth (§6.4).
 
 ```ts
 // src/lib/orders/window-addons.ts
@@ -253,6 +294,7 @@ export type AddonRule = {
   appliesTo: "curtain" | "blind" | "both";
   autoRule: "manual" | "always" | "width_over";
   autoWidthOverCm: number | null;
+  isActive: boolean;
 };
 
 export type ResolvedAddon = AddonRule & {
@@ -266,9 +308,16 @@ export function resolveWindowAddons(
   covering: "curtain" | "blind",
   widthCm: number | null,
   selectedIds: readonly string[],
-  catalogue: readonly AddonRule[],   // active add-ons only
+  catalogue: readonly AddonRule[],
 ): ResolvedAddon[];
 ```
+
+**The catalogue is every add-on that is `is_active` OR already selected on this window.**
+Active-only would mean archiving an add-on silently drops the charge from every window
+carrying it — and the next edit's delete-then-insert (§6.3) would make that loss
+permanent. An archived-but-selected add-on therefore survives, rendered locked so it
+cannot be re-ticked once removed. `is_active` is also what keeps the retired
+`single_track` / `double_track` rows out of the form; `RETIRED_KEYS` does not reach here.
 
 Rules, in order:
 
@@ -276,12 +325,27 @@ Rules, in order:
 2. **`always`** → `selected: true, locked: true`.
 3. **`width_over`** → when `widthCm != null && widthCm > autoWidthOverCm`, `selected: true, locked: true`. Otherwise it falls through to (4) and behaves as an ordinary checkbox, so a consultant can still tick it deliberately on a narrower but awkward item.
 4. **`manual`**, and any `width_over` that did not trigger → `selected: selectedIds.includes(id), locked: false`.
+5. **Archived** (`!isActive`, present only because it was already selected) → `selected: true, locked: true`, whatever the rule says.
 
 An unmeasured window (`widthCm == null`) never triggers `width_over` — there is nothing
 to compare. It becomes locked the moment a width over 200 is typed.
 
 The output order is the catalogue order (`is_active desc, label asc`), so the checkboxes
 don't reshuffle as a window is edited.
+
+### 4.1 Which width, and why it never changes after the quote
+
+`width_over` reads the **measured** width, not the manufacturing width.
+
+The manufacturing width only exists after Phase-13B reconciliation, which happens once
+the order is locked. Keying an auto-applied charge off it would mean a window measured at
+195 and manufactured at 210 acquires a charge after the customer was quoted. The measured
+width is what the customer was quoted on, and the sale side must not move afterwards.
+
+The accepted consequence: a blind whose *manufacturing* width crosses 200 while its
+measured width did not never picks up extra shipping. That is a cost-side surprise, and
+cost-side surprises at manufacture are exactly what the existing reconciliation step is
+for. It is not corrected by re-ticking a checkbox on a locked order.
 
 ## 5. Calculator
 
@@ -302,6 +366,26 @@ pushing one `CogsLeg` per add-on, replacing the two hand-written blocks at
 `calculator.ts:487–501`. Zero-cost legs are still filtered by `charged()`, so an unpriced
 `extra_shipping` adds no noise to the breakdown.
 
+### 5.1 No covering, no add-on
+
+**A window that resolves to `offering: "none"` takes no add-ons at all.** The loop is
+skipped in both branches.
+
+This is load-bearing, not defensive. `windowQuote` branches on `win.blindPrice`, not on
+the variant, and `blind_type_id` is optional — so a blind window with no type picked yet
+falls through to the *curtain* path, carrying blind-scoped add-ons the resolver has
+already decided on. Without this rule a window with no covering at all charges a per-unit
+surcharge and reports `offering: "none"`. The same latent hole exists on the curtain
+side; it is invisible today only because every add-on in the catalogue is `per_metre`,
+and `addonLeg()` returns zero when width is null. `extra_shipping` is the first
+`per_unit` add-on and would expose it immediately.
+
+Fixing it in the calculator rather than the resolver is deliberate: the resolver answers
+"what may this window carry", the calculator answers "what does this window cost", and
+only the calculator knows whether a covering was actually priced.
+
+### 5.2 Preserved behaviours
+
 The blind branch stops returning early: it resolves its own add-ons the same way. Four
 existing behaviours are preserved **deliberately**, and each needs a test that says so:
 
@@ -315,6 +399,15 @@ while add-on cost still counts.** Tick S-Fold on a combo window and the customer
 bundle price while COGS carries the S-Fold. That is existing behaviour and it stays; the
 margin is meant to be genuine.
 
+### 5.3 A blind can now have more than one leg
+
+`calculator.ts:433` currently reads *"One covering, so the window IS its leg:
+`computeQuote` drops a lone leg rather than printing the same figure twice."* With an
+add-on applied that stops being true, and `computeQuote`'s `legs.length > 1` guard
+(`:709`) starts emitting the `Blind` line alongside the add-on lines. **That is intended**
+— a blind with blackout should show what it's made of — but the comment must be updated
+to say so rather than left asserting the opposite.
+
 ## 6. Application surfaces
 
 ### 6.1 Consultation form
@@ -323,7 +416,7 @@ margin is meant to be genuine.
 remain: blind and regular.
 
 - The **add-ons row** (currently lines 406–424, regular-only) becomes a shared component rendered by both branches, driven by `resolveWindowAddons`. It renders nothing at all when the resolved list is empty, rather than an "Add-ons:" label with no checkboxes.
-- A **locked** checkbox renders ticked, visually disabled and non-interactive, with a hint — `Extra shipping — required over 200 cm`. It must **not** use the `disabled` attribute: React Hook Form drops disabled fields from submitted values, which would silently lose the very charge the lock exists to guarantee. Use `readOnly` plus `pointer-events-none` and `aria-disabled`, keeping the input registered.
+- A **locked** checkbox renders ticked with a hint — `Extra shipping — required over 200 cm`. It must **not** use the `disabled` attribute: React Hook Form drops disabled fields from submitted values, which would lose the very charge the lock exists to guarantee. `readOnly` is inert on a checkbox, so it is not the answer either. Use `pointer-events-none` (mouse), `tabIndex={-1}` (keyboard) and `aria-disabled` (assistive tech) on a normally-registered input. The server re-resolve in §6.3 is the actual guarantee; this is only about not showing the consultant a control that lies.
 - **`CoveringToggle` is hidden in toilet rooms** — there is nothing to toggle to.
 - `setCovering` clears add-ons that no longer apply after a switch, mirroring how day/night selections are already cleared.
 - **Empty state:** a toilet room with no priced blind in the catalogue has nothing to offer, and the hidden toggle means the existing `stranded` message in `CoveringToggle` can no longer surface it. The blind branch shows its own explanatory message in place of an empty picker — the "don't offer what can't be quoted" rule.
@@ -347,11 +440,19 @@ action after the window row.
 
 ### 6.3 Server Actions — where the lock is actually enforced
 
-The browser lock is UX. `createOrder` and `updateOrder` in `lib/actions/orders.ts`
-re-run `resolveWindowAddons` server-side against the freshly-read catalogue and persist
-**the resolved set**, not the submitted set. A hand-crafted POST that omits
-`extra_shipping` on a 230 cm blind gets it charged anyway; one that adds a
-curtain-scoped add-on to a blind has it dropped.
+The browser lock is UX. **All three window-insert paths** re-run `resolveWindowAddons`
+server-side against the freshly-read catalogue and persist **the resolved set**, not the
+submitted set:
+
+| Path | Location | Note |
+|---|---|---|
+| `createOrder` | `actions/orders.ts:~93` | |
+| `updateOrder` | `actions/orders.ts:~203` | delete-then-insert, scoped to the windows being written, inside the existing transaction |
+| `createOrderDraft` | `actions/orders.ts:~471` | easy to miss — it has its own window insert and its own variant shaping |
+
+A hand-crafted POST that omits `extra_shipping` on a 230 cm blind gets it charged anyway;
+one that adds a curtain-scoped add-on to a blind has it dropped. Drafts resolve too:
+they are relaxed about *completeness*, never about *correctness of charge*.
 
 The room/variant agreement checks (`orders.ts:102`, `:236`) become:
 
@@ -360,30 +461,43 @@ const ok = isToilet ? win.variant === "blind"
                     : win.variant === "regular" || win.variant === "blind";
 ```
 
-Blinds remain valid in every room; only curtains are now excluded from toilets. The
-existing locked-order guards are unchanged and already cover the child write.
+and `createOrderDraft`'s shaping at `orders.ts:483` maps a toilet room to `"blind"`, not
+`"toilet"`. Blinds remain valid in every room; only curtains are now excluded from
+toilets. The existing locked-order guards are unchanged and already cover the child
+write.
 
-Writing add-ons on update is delete-then-insert within the existing transaction, scoped
-to the windows being written.
+### 6.4 Quote loading — the persisted set is the truth
 
-### 6.4 Quote loading
+`order-quote.ts` **joins `window_addons → pricing_addons` and uses exactly those rows.**
+It does not re-run the resolver. A quote must reproduce what was agreed, not what the
+current rules would decide; re-resolving at read time would let a threshold edit silently
+re-price a saved order.
 
-`order-quote.ts` drops `toilet_cost` / `toilet_sale` / `toilet_series` and the toilet
-branch at `:393–406` from all three of its selects, drops the `add_s_fold` /
-`add_slim_tracks` columns, and joins `window_addons → pricing_addons` to build each
-window's `addons`. `toAddon("s_fold")` / `toAddon("slim_tracks")` and the `CalcAddonBook`
-construction at `:107` and `:448` are deleted.
+It also drops `toilet_cost` / `toilet_sale` / `toilet_series` and the toilet branch at
+`:393–406` from all three of its selects, drops the `add_s_fold` / `add_slim_tracks`
+columns, and deletes `toAddon("s_fold")` / `toAddon("slim_tracks")` and the
+`CalcAddonBook` construction at `:107` and `:448`.
 
 `live-quote.tsx` drops its `isToilet` mapping (`:92–95`) and resolves add-ons from the
-form's `addon_ids` against the catalogue passed in from the server component.
+form's `addon_ids` against the catalogue passed in from the server component — the form
+is the one place the resolver *does* run on read, because the form is where the decision
+is being made.
 
-### 6.5 Procurement, manufacture, display
+### 6.5 Hydration — the edit path must load what it will overwrite
+
+`updateOrder` delete-then-inserts the resolved set, so **anything the edit form fails to
+load, it deletes.** `orders/[orderId]/edit/page.tsx` currently hydrates the two booleans
+at `:352–353`; it must instead load each window's selected `addon_ids` from
+`window_addons` into `defaultValues`. Without this every edit submits `addon_ids: []` and
+wipes the window's add-ons — silently, and permanently.
+
+### 6.6 Procurement, manufacture, display
 
 - `lib/po/load.ts`: remove the `toilet_ct` / `toilet_cs` joins and the `w.toilet_label` line branch (`:376–382`). `PO_TYPE_KEYS` in `validation/procurement.ts` drops `"toilet"`.
 - `lib/manufacture/load.ts`: remove the `toilet_ct` / `toilet_cs` joins and the `curtain_label` / `curtain_index` / `curtain_page` / `curtain_series` selects.
 - `lib/po/track-order-load.ts`: a toilet window no longer contributes a rail — it's a blind, and blinds carry their own headrail. Update the comment at `:92` and the count.
 - `room-summary-card.tsx`: delete the toilet branch (`:104`, `:115`); list a window's add-ons by label from the join rather than the two hard-coded names.
-- `orders/[orderId]/page.tsx` and `edit/page.tsx`: same substitution; both must pass the add-on catalogue down.
+- `orders/[orderId]/page.tsx`: same substitution; passes the add-on catalogue down.
 
 ## 7. Admin UI
 
@@ -395,6 +509,12 @@ form's `addon_ids` against the catalogue passed in from the server component.
 | **Auto** | select: By hand / Always / Over width |
 | **Over (cm)** | number, rendered **only** when Auto is "Over width"; required then |
 | **+ Add add-on** | appends a blank row |
+
+**Unpriced-but-automatic warning.** A row with `auto_rule <> 'manual'` and both money
+columns null gets an inline warning — *"applied automatically but priced at nothing"*.
+`extra_shipping` ships in exactly this state, and without the warning the lock in §6.1 is
+decorative: the checkbox is forced on, and adds S$0. This is the one thing on the screen
+that says the mechanism isn't finished yet.
 
 A new row's `key` is slugged from its label (`Extra Shipping` → `extra_shipping`);
 uniqueness is enforced by the existing unique index and surfaced as a field error, not a
@@ -412,28 +532,34 @@ and must be absent otherwise.
 Unit — `resolveWindowAddons`:
 
 - scope filtering: a curtain-scoped add-on never appears on a blind, `both` appears on each
-- `always` → selected and locked regardless of width, including unmeasured
+- `always` → selected and locked regardless of width, including unmeasured *(no shipped row uses this — the test is what keeps the admin switch honest)*
 - `width_over`: **199 unlocked, 200 unlocked, 201 locked** — the boundary is the point
 - below-threshold `width_over` is still tickable by hand
 - unmeasured window never auto-locks
+- an archived add-on already selected on the window survives, locked
+- an archived add-on **not** selected never appears
+- retired `single_track` / `double_track` (inactive, unselected) never appear
 - output order is stable
 
 Unit — calculator:
 
+- **`offering: "none"` takes no add-ons** — a blind window with an always-add-on and no type picked costs zero, and the same for a per-unit add-on on an empty curtain window
 - a blind with a per-unit add-on, and with a per-metre add-on
 - add-on cost excluded from `curtainCostRmbCents` for a blind (air-freight base unchanged)
 - blind + combo id → combo ignored, add-ons still applied
 - curtain + combo → sale overridden, add-on cost still in COGS
-- one leg per add-on; zero-cost legs filtered
+- one leg per add-on; zero-cost legs filtered; a blind with an add-on emits both its own leg and the add-on's
 - blinds still take no style multiplier and no track
 
 Integration:
 
 - `createOrder` forces `extra_shipping` onto a 230 cm blind whose payload omitted it
 - `createOrder` strips a curtain-scoped add-on submitted against a blind
+- `createOrderDraft` writes add-ons and shapes a toilet room's window as `blind`
+- **edit round-trip: create with add-ons → load the edit page → submit unchanged → add-ons survive** (the §6.5 regression)
 - `updateOrder` round-trips add-on changes; a locked order still refuses the edit
 - a toilet room rejects a `regular` window; accepts a `blind`
-- the shape trigger accepts a toilet blind **with `draw` set** (the old body banned it)
+- the shape trigger accepts a **toilet window with `draw` set and no blind picked** — the draft state, which the old body rejected
 
 Migration:
 
@@ -450,8 +576,9 @@ updated rather than deleted — each assertion should survive in its new form.
 - **Mesh add-ons.** Mesh has its own per-panel surcharge model (`mesh-calculator.ts`) and is untouched.
 - **Per-order add-ons.** Everything here is per window.
 - **Quantity.** An add-on is on or off, never ×2.
+- **Re-resolving add-ons at reconciliation.** See §4.1 — the measured width decides, permanently.
+- **Deciding what `blinds_surcharge` is.** §2 ships it inert. Whether it is S$130 per unit, ¥0, or redundant against `handyman_blinds_sgd_cents` is a pricing question for an admin, and the phase is designed so that answering it later is a row edit.
 - **Migrating existing toilet-curtain windows.** There are none. If any appear before this ships, re-audit before running the migration.
-- **Retiring `blinds_surcharge` against `handyman_blinds_sgd_cents`.** These were confirmed as separate charges. If they turn out to double-count, that is a pricing correction, not this phase.
 
 ## 10. Rollout
 
@@ -459,7 +586,7 @@ Order of operations:
 
 1. Migration: `pricing_addons` columns + enums + constraint + seed.
 2. Migration: `window_addons` + backfill + drop `add_s_fold` / `add_slim_tracks`.
-3. Migration: drop `windows.curtain_type_id` + rewrite `validate_window_shape()`.
+3. Migration: rewrite `validate_window_shape()`, **then** drop `windows.curtain_type_id`.
 4. `npm run db:codegen`.
 5. Code, following §5–§7.
 6. `npm run test` and `npm run build` (the build type-checks, and dropping three columns from `schema.ts` will surface every remaining reference).
@@ -469,7 +596,8 @@ with orders already in `sent_to_vendor`, verify end-to-end before merging:
 
 - a curtain order quotes identically to before on a window with no add-ons — **no silent re-pricing**
 - a toilet room offers blinds only, and its quote uses the blinds install rate
-- a 230 cm blind cannot be quoted without extra shipping
+- a 230 cm blind shows extra shipping ticked and locked, and **once `extra_shipping` is given a price on the admin screen, that price appears in the quote.** Testing this while the add-on is unpriced passes vacuously — the locked box adds S$0
+- editing a saved order and submitting it unchanged leaves its add-ons intact
 - PO generation still produces correct documents for an existing `sent_to_vendor` order
 - the manufacture reconciliation grid still loads for that same order
 

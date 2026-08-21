@@ -94,6 +94,16 @@ export function AddonsTable({ addons }: { addons: AddonRow[] }) {
 
   return (
     <div>
+      {/* The two money columns are a cost and a price and look identical once
+          they are filled in — the placeholders that said which only show while
+          a box is empty, which is exactly when nobody needs telling. */}
+      <div className="hidden sm:flex items-center gap-2 pb-1 text-[11px] uppercase tracking-wide text-slate-400">
+        <span className="flex-1 min-w-40">Add-on</span>
+        <span className="w-24">¥ cost</span>
+        <span className="w-24">S$ sale</span>
+        <span className="w-32">Charged</span>
+        <span className="w-20" />
+      </div>
       {drafts.map((d, i) => (
         <div
           key={d.id}

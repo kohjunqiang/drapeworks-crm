@@ -23,6 +23,21 @@ export type ShipsToOption = {
   isActive: boolean;
 };
 
+/**
+ * The "no choice made" option, which is what nearly every order uses.
+ *
+ * Names the address it resolves to, so the picker says where the goods are
+ * actually going rather than making the reader open the admin screen to find
+ * out. An address literally called "Default" would read "Default — Default", so
+ * that one degenerate case says it once.
+ */
+function defaultLabel(label: string | undefined): string {
+  if (!label) return "Default — none set up";
+  return label.trim().toLowerCase() === "default"
+    ? "Default address"
+    : `Default — ${label}`;
+}
+
 export function ShipsToSelect({
   orderId,
   addresses,
@@ -94,11 +109,7 @@ export function ShipsToSelect({
           value={value}
           onChange={choose}
           options={options}
-          noneLabel={
-            defaultAddress
-              ? `Default — ${defaultAddress.label}`
-              : "Default — none set up"
-          }
+          noneLabel={defaultLabel(defaultAddress?.label)}
           disabled={pending}
         />
       </div>

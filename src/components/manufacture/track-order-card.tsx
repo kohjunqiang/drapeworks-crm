@@ -73,7 +73,11 @@ export function TrackOrderCard({
       <div className="border-t border-slate-100 px-4 py-3">
         <p className="text-xs text-slate-500 mb-2">
           Widths are the openings as measured — a rail is cut to the wall, not
-          to the panel, so the manufacturing allowance does not apply.
+          to the panel, so the manufacturing allowance does not apply.{" "}
+          <span className="text-slate-400">
+            双轨 is a window carrying both a day and a night curtain; 单轨 is one
+            curtain. Each rail is cut in half to ship, so a 双轨 is 4 根.
+          </span>
         </p>
         {/* Selectable, wrapping, in a font where 1.33 and 1.38 look different. */}
         <pre className="text-sm text-slate-800 font-mono whitespace-pre-wrap break-words select-all">

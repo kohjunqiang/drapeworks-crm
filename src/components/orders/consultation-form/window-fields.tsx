@@ -5,7 +5,10 @@ import { useFormContext, useWatch } from "react-hook-form";
 import { FormSelect } from "@/components/ui/app-select";
 import type { ActiveCombo } from "@/lib/db/combos";
 import { formatSGD } from "@/lib/money";
+import type { AddonRule } from "@/lib/orders/window-addons";
 import type { OrderEditInput } from "@/lib/validation/order";
+
+import { AddonCheckboxes } from "./addon-checkboxes";
 
 export type CurtainTypeOption = {
   id: string;
@@ -27,9 +30,13 @@ const INPUT_CLS =
 type Props = {
   roomIndex: number;
   windowIndex: number;
+  /** Since Phase 14 this means "this window is a blind" — no curtain on offer. */
   isToilet: boolean;
   curtainTypes: CurtainTypeOption[];
   combos: ActiveCombo[];
+  addonCatalogue: AddonRule[];
+  /** What this window's add-ons were on load. Empty for a new window. */
+  persistedAddonIds: string[];
 };
 
 // A native <select> truncates long option labels on narrow screens and can't
@@ -152,6 +159,8 @@ export function WindowFields({
   isToilet,
   curtainTypes,
   combos,
+  addonCatalogue,
+  persistedAddonIds,
 }: Props) {
   const { register, control, setValue, getValues } =
     useFormContext<OrderEditInput>();
@@ -166,6 +175,11 @@ export function WindowFields({
   // direction, on a blind the chain/control side. "Double" has no blind
   // equivalent, so it is cleared rather than silently reinterpreted.
   function setCovering(next: "curtain" | "blind") {
+    // Add-ons that no longer apply are dropped on the switch, mirroring how the
+    // day/night selections already are. The resolver would hide them by scope
+    // anyway, but leaving them in form state means resubmitting them on every
+    // save for the server to discard.
+    setValue(`${base}.addon_ids`, [], { shouldDirty: true });
     if (next === "blind") {
       if (getValues(`${base}.draw`) === "Double") {
         setValue(`${base}.draw`, undefined, { shouldDirty: true });
@@ -173,14 +187,12 @@ export function WindowFields({
       setValue(`${base}.variant`, "blind", { shouldDirty: true });
       return;
     }
-    setValue(`${base}.variant`, isToilet ? "toilet" : "regular", {
-      shouldDirty: true,
-    });
+    setValue(`${base}.variant`, "regular", { shouldDirty: true });
   }
 
   // Every curtain picker takes curtain-line options only. The day/night
-  // filters would exclude a blind anyway (its category is null), but the
-  // toilet picker below has no category filter to hide behind.
+  // filters would exclude a blind anyway (its category is null); this keeps
+  // the intent explicit rather than relying on that.
   const curtainOptions = curtainTypes.filter(
     (c) => c.productLine === "curtain",
   );
@@ -197,7 +209,6 @@ export function WindowFields({
 
   const dayId = useWatch({ control, name: `${base}.day_curtain_type_id` });
   const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
-  const toiletId = useWatch({ control, name: `${base}.curtain_type_id` });
   const blindId = useWatch({ control, name: `${base}.blind_type_id` });
   const comboId = useWatch({ control, name: `${base}.combo_id` });
   const activeCombo = comboId
@@ -207,11 +218,22 @@ export function WindowFields({
   if (isBlind) {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
-        <CoveringToggle
-          isBlind
-          onChange={setCovering}
-          blindsAvailable={blindOptions.length > 0}
-        />
+        {/* A toilet window is a blind — there is nothing to toggle to. */}
+        {!isToilet && (
+          <CoveringToggle
+            isBlind
+            onChange={setCovering}
+            blindsAvailable={blindOptions.length > 0}
+          />
+        )}
+        {isToilet && blindOptions.length === 0 && (
+          // The toggle normally carries this warning, and it is hidden here, so
+          // the branch has to say it itself: don't offer what can't be quoted.
+          <p className="col-span-2 sm:col-span-6 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            ⚠ No blind has a sale price, so this window can&rsquo;t be quoted.
+            Price a blind series under Product → Blinds.
+          </p>
+        )}
         <div className="col-span-2 sm:col-span-4">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Blind
@@ -263,6 +285,13 @@ export function WindowFields({
             {...register(`${base}.height_cm`)}
           />
         </div>
+        <AddonCheckboxes
+          roomIndex={roomIndex}
+          windowIndex={windowIndex}
+          covering="blind"
+          catalogue={addonCatalogue}
+          persistedIds={persistedAddonIds}
+        />
         <div className="col-span-2 sm:col-span-6">
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Special Notes
@@ -270,66 +299,6 @@ export function WindowFields({
           <input
             type="text"
             placeholder="e.g. inside mount, bracket clearance…"
-            className={INPUT_CLS}
-            {...register(`${base}.notes`)}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (isToilet) {
-    return (
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="col-span-2 sm:col-span-4">
-          <CoveringToggle
-            isBlind={false}
-            onChange={setCovering}
-            blindsAvailable={blindOptions.length > 0}
-          />
-        </div>
-        <div className="col-span-2">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Curtain Type
-          </label>
-          <FormSelect
-            control={control}
-            name={`${base}.curtain_type_id`}
-            noneLabel="— Select —"
-            options={curtainOptions.map((c) => ({
-              value: c.id,
-              label: c.category ? `${c.label} (${c.category})` : c.label,
-            }))}
-          />
-          <Preview options={curtainOptions} selectedId={toiletId} />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Width (cm)
-          </label>
-          <input
-            type="number"
-            className={INPUT_CLS}
-            {...register(`${base}.width_cm`)}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Height (cm)
-          </label>
-          <input
-            type="number"
-            className={INPUT_CLS}
-            {...register(`${base}.height_cm`)}
-          />
-        </div>
-        <div className="col-span-2 sm:col-span-4">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Special Notes
-          </label>
-          <input
-            type="text"
-            placeholder="e.g. corner window, no rod possible…"
             className={INPUT_CLS}
             {...register(`${base}.notes`)}
           />
@@ -403,25 +372,13 @@ export function WindowFields({
           ]}
         />
       </div>
-      <div className="col-span-2 sm:col-span-6 flex items-center gap-6 pt-0.5">
-        <span className="text-xs font-medium text-slate-600">Add-ons:</span>
-        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-          <input
-            type="checkbox"
-            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-            {...register(`${base}.add_s_fold`)}
-          />
-          S-Fold
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-slate-700">
-          <input
-            type="checkbox"
-            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-            {...register(`${base}.add_slim_tracks`)}
-          />
-          Slim tracks
-        </label>
-      </div>
+      <AddonCheckboxes
+        roomIndex={roomIndex}
+        windowIndex={windowIndex}
+        covering="curtain"
+        catalogue={addonCatalogue}
+        persistedIds={persistedAddonIds}
+      />
       {combos.length > 0 && (
         <div className="col-span-2 sm:col-span-3">
           <label className="block text-xs font-medium text-slate-600 mb-1">

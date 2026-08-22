@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
+import type { AddonRule } from "@/lib/orders/window-addons";
 import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
 
 import type { ActiveCombo } from "@/lib/db/combos";
@@ -11,7 +12,7 @@ import type { ActiveCombo } from "@/lib/db/combos";
 import { LineItemRow, RoomShell } from "./room-shell";
 import { WindowFields, type CurtainTypeOption } from "./window-fields";
 
-// The CURTAIN room card. Owns the windows field array and the toilet-variant
+// The CURTAIN room card. Owns the windows field array and the blind-variant
 // sync effect — both curtain-specific — while RoomShell holds the room type,
 // label, photos and remove button that every product line shares.
 //
@@ -24,6 +25,9 @@ type Props = {
   onRemove: () => void;
   curtainTypes: CurtainTypeOption[];
   combos: ActiveCombo[];
+  addonCatalogue: AddonRule[];
+  /** windowId → the add-on ids that window had on load. */
+  persistedAddonIdsByWindow: Record<string, string[]>;
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
@@ -34,6 +38,8 @@ export function RoomCard({
   onRemove,
   curtainTypes,
   combos,
+  addonCatalogue,
+  persistedAddonIdsByWindow,
   mode,
   roomId,
   photos,
@@ -57,7 +63,8 @@ export function RoomCard({
   // the same carve-out in saveDraft on the server.
   useEffect(() => {
     if (!roomType) return;
-    const targetVariant = isToilet ? "toilet" : "regular";
+    // A toilet room's windows are blinds (Phase 14).
+    const targetVariant = isToilet ? "blind" : "regular";
     fields.forEach((_, i) => {
       const current = getValues(`rooms.${roomIndex}.windows.${i}.variant`);
       if (current === "blind") return;
@@ -65,18 +72,24 @@ export function RoomCard({
         shouldValidate: false,
         shouldDirty: false,
       });
-      if (targetVariant === "toilet") {
+      if (targetVariant === "blind") {
         setValue(`rooms.${roomIndex}.windows.${i}.day_curtain_type_id`, "", {
           shouldDirty: false,
         });
         setValue(`rooms.${roomIndex}.windows.${i}.night_curtain_type_id`, "", {
           shouldDirty: false,
         });
-        setValue(`rooms.${roomIndex}.windows.${i}.draw`, undefined, {
+        setValue(`rooms.${roomIndex}.windows.${i}.combo_id`, "", {
           shouldDirty: false,
         });
-      } else {
-        setValue(`rooms.${roomIndex}.windows.${i}.curtain_type_id`, "", {
+        // "Double" is a curtain pull direction with no blind equivalent.
+        if (getValues(`rooms.${roomIndex}.windows.${i}.draw`) === "Double") {
+          setValue(`rooms.${roomIndex}.windows.${i}.draw`, undefined, {
+            shouldDirty: false,
+          });
+        }
+        // Curtain add-ons don't survive the change of covering.
+        setValue(`rooms.${roomIndex}.windows.${i}.addon_ids`, [], {
           shouldDirty: false,
         });
       }
@@ -87,12 +100,13 @@ export function RoomCard({
     append(
       isToilet
         ? {
-            variant: "toilet",
+            variant: "blind",
             position: fields.length,
-            curtain_type_id: "",
+            blind_type_id: "",
             width_cm: null,
             height_cm: null,
             notes: "",
+            addon_ids: [],
           }
         : {
             variant: "regular",
@@ -103,9 +117,8 @@ export function RoomCard({
             width_cm: null,
             height_cm: null,
             notes: "",
-            add_s_fold: false,
-            add_slim_tracks: false,
             combo_id: "",
+            addon_ids: [],
           },
     );
   }
@@ -132,6 +145,12 @@ export function RoomCard({
             isToilet={isToilet}
             curtainTypes={curtainTypes}
             combos={combos}
+            addonCatalogue={addonCatalogue}
+            persistedAddonIds={
+              persistedAddonIdsByWindow[
+                getValues(`rooms.${roomIndex}.windows.${wIdx}.id`) ?? ""
+              ] ?? []
+            }
           />
         </LineItemRow>
       ))}

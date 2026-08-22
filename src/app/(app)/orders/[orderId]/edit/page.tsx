@@ -15,6 +15,7 @@ import {
   loadActiveMeshSystemSpecs,
 } from "@/lib/db/mesh-catalogue";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
+import { loadWindowAddonIds } from "@/lib/db/window-addons";
 import { isLocked } from "@/lib/status-flow";
 import {
   isToiletRoom,
@@ -107,13 +108,10 @@ export default async function EditOrderPage({
             "width_cm",
             "height_cm",
             "notes",
-            "curtain_type_id",
             "day_curtain_type_id",
             "night_curtain_type_id",
             "blind_type_id",
             "draw",
-            "add_s_fold",
-            "add_slim_tracks",
             "combo_id",
           ])
           .where("room_id", "in", roomIds)
@@ -126,6 +124,12 @@ export default async function EditOrderPage({
     list.push(w);
     windowsByRoom.set(w.room_id, list);
   }
+
+  // updateOrder delete-then-inserts the RESOLVED add-on set, so anything this
+  // page fails to load, the next save deletes. Loading it is not optional.
+  const persistedAddonIdsByWindow = Object.fromEntries(
+    await loadWindowAddonIds(windows.map((w) => w.id)),
+  );
 
   const photos =
     roomIds.length === 0
@@ -314,29 +318,23 @@ export default async function EditOrderPage({
           // A blind is checked FIRST and never derived from the room type: it
           // is valid in every room, and deriving would drop the saved blind on
           // load and re-save the window as an empty curtain.
-          if (w.blind_type_id) {
+          //
+          // A toilet room's window is a blind whether or not one has been
+          // picked yet. Hydrating an empty one as `regular` would be rejected
+          // by updateOrder's shape guard the moment the form was saved.
+          if (w.blind_type_id || isToilet) {
             return {
               id: w.id,
               variant: "blind" as const,
               position: wIdx,
-              blind_type_id: w.blind_type_id,
+              blind_type_id: w.blind_type_id ?? "",
               // Control side. "Double" can't occur on a blind (the schema and
               // the trigger both reject it), so no coercion is needed.
               draw: w.draw === "Double" ? undefined : (w.draw ?? undefined),
               width_cm: w.width_cm ?? null,
               height_cm: w.height_cm ?? null,
               notes: w.notes ?? "",
-            };
-          }
-          if (isToilet) {
-            return {
-              id: w.id,
-              variant: "toilet" as const,
-              position: wIdx,
-              curtain_type_id: w.curtain_type_id ?? "",
-              width_cm: w.width_cm ?? null,
-              height_cm: w.height_cm ?? null,
-              notes: w.notes ?? "",
+              addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
             };
           }
           return {
@@ -349,9 +347,8 @@ export default async function EditOrderPage({
             width_cm: w.width_cm ?? null,
             height_cm: w.height_cm ?? null,
             notes: w.notes ?? "",
-            add_s_fold: w.add_s_fold ?? false,
-            add_slim_tracks: w.add_slim_tracks ?? false,
             combo_id: w.combo_id ?? "",
+            addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
           };
         }),
       };
@@ -369,6 +366,7 @@ export default async function EditOrderPage({
         combos={combos}
         defaultValues={defaultValues}
         roomPhotos={roomPhotos}
+        persistedAddonIdsByWindow={persistedAddonIdsByWindow}
       />
     </EditShell>
   );

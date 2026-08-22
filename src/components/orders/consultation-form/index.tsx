@@ -43,17 +43,25 @@ type Props = {
   orderId?: string;
   defaultValues?: OrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
+  /**
+   * windowId → the add-on ids that window had on load. Fixed for the life of
+   * the edit: it is what lets a since-archived add-on stay listed (and
+   * clearable) rather than vanishing. Empty on a new consultation.
+   */
+  persistedAddonIdsByWindow?: Record<string, string[]>;
 };
 
 function makeWindow(roomType: RoomType, position: number) {
+  // A toilet takes a blind and nothing else (Phase 14).
   if (isToiletRoom(roomType)) {
     return {
-      variant: "toilet" as const,
+      variant: "blind" as const,
       position,
-      curtain_type_id: "",
+      blind_type_id: "",
       width_cm: null,
       height_cm: null,
       notes: "",
+      addon_ids: [] as string[],
     };
   }
   return {
@@ -65,9 +73,8 @@ function makeWindow(roomType: RoomType, position: number) {
     width_cm: null,
     height_cm: null,
     notes: "",
-    add_s_fold: false,
-    add_slim_tracks: false,
     combo_id: "",
+    addon_ids: [] as string[],
   };
 }
 
@@ -107,6 +114,7 @@ export function ConsultationForm({
   orderId,
   defaultValues,
   roomPhotos,
+  persistedAddonIdsByWindow = {},
 }: Props) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -239,6 +247,7 @@ export function ConsultationForm({
             curtainTypes={curtainTypes}
             config={calcConfig}
             combos={combos}
+            persistedAddonIdsByWindow={persistedAddonIdsByWindow}
           />
         )}
 
@@ -273,6 +282,8 @@ export function ConsultationForm({
                   onRemove={() => removeRoom(rIdx)}
                   curtainTypes={curtainTypes}
                   combos={combos}
+                  addonCatalogue={calcConfig?.addonCatalogue ?? []}
+                  persistedAddonIdsByWindow={persistedAddonIdsByWindow}
                   mode={mode}
                   roomId={persistedRoomId}
                   photos={

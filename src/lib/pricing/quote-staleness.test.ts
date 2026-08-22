@@ -98,8 +98,18 @@ describe("a confirmed manufacturing set does not raise the stale banner", () => 
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
         addons: [
-          { label: "S-Fold", costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
-          { label: "Slim tracks", costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
+          {
+            label: "S-Fold",
+            costRmbCents: 1100,
+            saleSgdCents: 8000,
+            basis: "per_metre" as const,
+          },
+          {
+            label: "Slim tracks",
+            costRmbCents: 3500,
+            saleSgdCents: 5000,
+            basis: "per_metre" as const,
+          },
         ],
       },
       {

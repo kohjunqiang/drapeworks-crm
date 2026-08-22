@@ -12,6 +12,10 @@ import {
   type CalcWindow,
   type SeriesPrice,
 } from "@/lib/pricing/calculator";
+import {
+  resolveWindowAddons,
+  toCalcAddons,
+} from "@/lib/orders/window-addons";
 import type { CalcConfig } from "@/lib/pricing/order-quote";
 import type { OrderEditInput } from "@/lib/validation/order";
 
@@ -31,10 +35,12 @@ export function LiveQuote({
   curtainTypes,
   config,
   combos,
+  persistedAddonIdsByWindow = {},
 }: {
   curtainTypes: CurtainTypeOption[];
   config: CalcConfig;
   combos: ActiveCombo[];
+  persistedAddonIdsByWindow?: Record<string, string[]>;
 }) {
   const { control } = useFormContext<OrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
@@ -78,30 +84,39 @@ export function LiveQuote({
         // A blind carries no curtain, no add-ons and no combo — mirroring
         // windowValues on the server so the live figure and the saved quote
         // agree on what a blind window costs.
+        const widthCm = toWidthCm(w.width_cm);
+        // Resolved exactly as the server will resolve it on save, so the figure
+        // on screen and the figure that gets stored cannot disagree.
+        const addonsFor = (covering: "curtain" | "blind") =>
+          toCalcAddons(
+            resolveWindowAddons(
+              covering,
+              widthCm,
+              w.addon_ids ?? [],
+              persistedAddonIdsByWindow[
+                (w as { id?: string }).id ?? ""
+              ] ?? [],
+              config.addonCatalogue,
+            ),
+          );
+
         if (w.variant === "blind") {
           return {
             ...where,
-            widthCm: toWidthCm(w.width_cm),
+            widthCm,
             blindPrice: priceOf(w.blind_type_id || undefined),
-            addSFold: false,
-            addSlimTracks: false,
+            addons: addonsFor("blind"),
             comboPriceSgdCents: null,
           };
         }
 
-        const isToilet = w.variant === "toilet";
-        const dayId = isToilet ? w.curtain_type_id : w.day_curtain_type_id;
-        const nightId = isToilet ? undefined : w.night_curtain_type_id;
-        const comboId = isToilet
-          ? undefined
-          : (w as { combo_id?: string }).combo_id;
+        const comboId = (w as { combo_id?: string }).combo_id;
         return {
           ...where,
-          widthCm: toWidthCm(w.width_cm),
-          dayPrice: priceOf(dayId || undefined),
-          nightPrice: priceOf(nightId || undefined),
-          addSFold: !!(w as { add_s_fold?: boolean }).add_s_fold,
-          addSlimTracks: !!(w as { add_slim_tracks?: boolean }).add_slim_tracks,
+          widthCm,
+          dayPrice: priceOf(w.day_curtain_type_id || undefined),
+          nightPrice: priceOf(w.night_curtain_type_id || undefined),
+          addons: addonsFor("curtain"),
           comboPriceSgdCents: comboId
             ? (comboPriceById.get(comboId) ?? null)
             : null,
@@ -110,7 +125,6 @@ export function LiveQuote({
     );
     return computeQuote(
       windows,
-      config.book,
       config.assumptions,
       freightMode,
       extraInstallCents,
@@ -121,6 +135,7 @@ export function LiveQuote({
     priceById,
     comboPriceById,
     config,
+    persistedAddonIdsByWindow,
     freightMode,
     extraInstallCents,
     discountBps,

@@ -45,3 +45,8 @@ yarn-error.log*
 next-env.d.ts
 
 resource/*
+
+# Customer data exports. The leads spreadsheet holds real names and mobile
+# numbers; it is read by scripts/import-leads.ts from the working tree and
+# must never enter git history.
+*.xlsx

@@ -8,15 +8,13 @@ type WindowSummary = {
   height_cm: number | null;
   notes: string | null;
   draw: string | null;
-  add_s_fold?: boolean;
-  add_slim_tracks?: boolean;
+  /** The add-ons this window carries, by name, in catalogue order. */
+  addon_labels?: string[];
   combo_label?: string | null;
   day_curtain_label?: string | null;
   day_curtain_photo_url?: string | null;
   night_curtain_label?: string | null;
   night_curtain_photo_url?: string | null;
-  curtain_label?: string | null;
-  curtain_photo_url?: string | null;
   // A blind occupies the window instead of curtains. Flagged explicitly rather
   // than inferred from blind_label, so an unselected blind still renders as a
   // blind row instead of silently reappearing as an empty curtain.
@@ -31,10 +29,6 @@ type Props = {
   windows: WindowSummary[];
   photos: PhotoTile[];
 };
-
-function isToilet(type: RoomType): boolean {
-  return type === "Master Toilet" || type === "Common Toilet";
-}
 
 function dim(a: number | null, b: number | null): string {
   if (a == null && b == null) return "—";
@@ -100,8 +94,7 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
   );
 }
 
-export function RoomSummaryCard({ label, type, windows, photos }: Props) {
-  const toilet = isToilet(type);
+export function RoomSummaryCard({ label, windows, photos }: Props) {
   // A room can mix the two — curtains on one window, a blind on the next — so
   // the split is per window, not per room.
   const blindWindows = windows.filter((w) => w.is_blind);
@@ -112,31 +105,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
         {label}
       </div>
       <div className="overflow-x-auto">
-        {curtainWindows.length > 0 && (toilet ? (
-          <table className="w-full text-xs min-w-[640px]">
-            <thead className="text-slate-500">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Curtain</th>
-                <th className="text-left px-4 py-2 font-medium">W × H</th>
-                <th className="text-left px-4 py-2 font-medium">Notes</th>
-              </tr>
-            </thead>
-            <tbody className="text-slate-700">
-              {curtainWindows.map((w) => (
-                <tr key={w.position} className="border-t border-slate-100">
-                  <td className="px-4 py-2">
-                    <CurtainCell
-                      label={w.curtain_label}
-                      photoUrl={w.curtain_photo_url}
-                    />
-                  </td>
-                  <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
-                  <td className="px-4 py-2 text-slate-500">{w.notes || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
+        {curtainWindows.length > 0 && (
           <table className="w-full text-xs min-w-[640px]">
             <thead className="text-slate-500">
               <tr>
@@ -169,14 +138,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
                   <td className="px-4 py-2">{w.draw ?? "—"}</td>
                   <td className="px-4 py-2 text-slate-600">
                     <div className="flex flex-col gap-1">
-                      <span>
-                        {[
-                          w.add_s_fold && "S-Fold",
-                          w.add_slim_tracks && "Slim tracks",
-                        ]
-                          .filter(Boolean)
-                          .join(", ") || "—"}
-                      </span>
+                      <span>{w.addon_labels?.join(", ") || "—"}</span>
                       {w.combo_label && (
                         <span className="inline-flex w-fit items-center gap-1 rounded bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[11px] text-amber-800">
                           🏷 {w.combo_label}
@@ -189,7 +151,7 @@ export function RoomSummaryCard({ label, type, windows, photos }: Props) {
               ))}
             </tbody>
           </table>
-        ))}
+        )}
         {blindWindows.length > 0 && <BlindTable windows={blindWindows} />}
       </div>
       <PhotoStrip photos={photos} />

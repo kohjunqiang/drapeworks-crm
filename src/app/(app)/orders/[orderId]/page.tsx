@@ -126,21 +126,11 @@ export default async function OrderDetailPage({
             "night_ct.id",
             "windows.night_curtain_type_id",
           )
-          .leftJoin(
-            "curtain_types as toilet_ct",
-            "toilet_ct.id",
-            "windows.curtain_type_id",
-          )
           .leftJoin("curtain_series as day_cs", "day_cs.id", "day_ct.series_id")
           .leftJoin(
             "curtain_series as night_cs",
             "night_cs.id",
             "night_ct.series_id",
-          )
-          .leftJoin(
-            "curtain_series as toilet_cs",
-            "toilet_cs.id",
-            "toilet_ct.series_id",
           )
           .leftJoin(
             "curtain_types as blind_ct",
@@ -161,8 +151,6 @@ export default async function OrderDetailPage({
             "windows.height_cm as height_cm",
             "windows.notes as notes",
             "windows.draw as draw",
-            "windows.add_s_fold as add_s_fold",
-            "windows.add_slim_tracks as add_slim_tracks",
             "combo.name as combo_label",
             "day_ct.label as day_curtain_label",
             "day_ct.photo_path as day_curtain_photo_path",
@@ -174,11 +162,6 @@ export default async function OrderDetailPage({
             "night_ct.series_index as night_curtain_index",
             "night_ct.page as night_curtain_page",
             "night_cs.name as night_curtain_series",
-            "toilet_ct.label as curtain_label",
-            "toilet_ct.photo_path as curtain_photo_path",
-            "toilet_ct.series_index as curtain_index",
-            "toilet_ct.page as curtain_page",
-            "toilet_cs.name as curtain_series",
             "windows.blind_type_id as blind_type_id",
             "blind_ct.label as blind_label",
             "blind_ct.photo_path as blind_photo_path",
@@ -281,12 +264,37 @@ export default async function OrderDetailPage({
     .flatMap((w) => [
       w.day_curtain_photo_path,
       w.night_curtain_photo_path,
-      w.curtain_photo_path,
     ])
     .filter((p): p is string => !!p);
   const curtainPhotoUrls = await signCurtainTypePhotoUrls(curtainPhotoPaths);
   const urlFor = (path: string | null) =>
     path ? (curtainPhotoUrls.get(path) ?? null) : null;
+
+  // A window's add-ons, by name, for the summary card. Read from the join as
+  // written — the same rows the quote priced.
+  const addonLabelsByWindow = new Map<string, string[]>();
+  for (const r of roomIds.length === 0 || isMesh
+    ? []
+    : await db
+        .selectFrom("window_addons")
+        .innerJoin("windows", "windows.id", "window_addons.window_id")
+        .innerJoin(
+          "pricing_addons",
+          "pricing_addons.id",
+          "window_addons.addon_id",
+        )
+        .select([
+          "window_addons.window_id as window_id",
+          "pricing_addons.label as label",
+        ])
+        .where("windows.room_id", "in", roomIds)
+        .orderBy("pricing_addons.label", "asc")
+        .execute()) {
+    addonLabelsByWindow.set(r.window_id, [
+      ...(addonLabelsByWindow.get(r.window_id) ?? []),
+      r.label,
+    ]);
+  }
 
   // Build the "Series #index · Page — Label" display string per curtain, or
   // null when the window has no curtain type selected.
@@ -306,8 +314,7 @@ export default async function OrderDetailPage({
     height_cm: w.height_cm,
     notes: w.notes,
     draw: w.draw,
-    add_s_fold: w.add_s_fold,
-    add_slim_tracks: w.add_slim_tracks,
+    addon_labels: addonLabelsByWindow.get(w.id) ?? [],
     combo_label: w.combo_label,
     room_id: w.room_id,
     day_curtain_label: labelOf(
@@ -324,13 +331,6 @@ export default async function OrderDetailPage({
       w.night_curtain_label,
     ),
     night_curtain_photo_url: urlFor(w.night_curtain_photo_path),
-    curtain_label: labelOf(
-      w.curtain_series,
-      w.curtain_index,
-      w.curtain_page,
-      w.curtain_label,
-    ),
-    curtain_photo_url: urlFor(w.curtain_photo_path),
     is_blind: w.blind_type_id != null,
     blind_label: labelOf(
       w.blind_series,

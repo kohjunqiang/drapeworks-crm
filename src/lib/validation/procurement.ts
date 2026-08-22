@@ -122,7 +122,10 @@ export type RoomTypeLabelInput = z.infer<typeof roomTypeLabelSchema>;
  * The five coverings the CRM can record, which is the complete set of questions
  * the 窗帘款式 column asks. Matches the po_type_labels CHECK constraint.
  */
-export const PO_TYPE_KEYS = ["day", "night", "toilet", "blind", "mesh"] as const;
+// The po_type_labels row for 'toilet' is left in place (nothing writes it, and
+// deleting it would be a hard delete for no benefit) — it is simply no longer a
+// covering the CRM can record.
+export const PO_TYPE_KEYS = ["day", "night", "blind", "mesh"] as const;
 export type PoTypeKey = (typeof PO_TYPE_KEYS)[number];
 
 export const poTypeLabelSchema = z.object({

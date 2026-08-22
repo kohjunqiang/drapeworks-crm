@@ -48,7 +48,6 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
         "manufacture_measurements.mfg_width_cm as mfg_width_cm",
         "windows.day_curtain_type_id as day_curtain_type_id",
         "windows.night_curtain_type_id as night_curtain_type_id",
-        "windows.curtain_type_id as curtain_type_id",
         "windows.blind_type_id as blind_type_id",
         "rooms.label as room_label",
       ])
@@ -73,7 +72,6 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     const curtains = [
       w.day_curtain_type_id,
       w.night_curtain_type_id,
-      w.curtain_type_id,
     ].filter(Boolean).length;
     if (curtains === 0) continue;
 
@@ -89,7 +87,8 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       label,
       widthCm: w.mfg_width_cm,
       // Day + night is two runs of rail over one opening; a single curtain —
-      // day only, night only, or the one on a toilet window — is one.
+      // day only or night only — is one. A toilet window is a blind since
+      // Phase 14, so it carries its own headrail and never reaches here.
       kind: curtains >= 2 ? "double" : "single",
     });
   }

@@ -42,7 +42,6 @@ const INPUT =
 const TYPE_KEY_LABELS: Record<PoTypeKey, string> = {
   day: "Day curtain",
   night: "Night curtain",
-  toilet: "Toilet curtain",
   blind: "Blind (fallback)",
   mesh: "Mesh panel",
 };
@@ -50,7 +49,6 @@ const TYPE_KEY_LABELS: Record<PoTypeKey, string> = {
 const TYPE_KEY_HINTS: Record<PoTypeKey, string> = {
   day: "Every row of the Day sample PO.",
   night: "Every row of the Night sample PO.",
-  toilet: "A single toilet curtain. Not on any sample.",
   blind: "Used only when a blind's series has no Chinese name of its own.",
   mesh: "Mesh panels are not on any sample PO yet.",
 };

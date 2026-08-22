@@ -38,19 +38,33 @@ function Card({
   );
 }
 
-export function ProductLineChooser({ meshEnabled }: { meshEnabled: boolean }) {
+export function ProductLineChooser({
+  meshEnabled,
+  appointmentId,
+}: {
+  meshEnabled: boolean;
+  appointmentId?: string;
+}) {
+  // Choosing a product line is a step on the way to the form, not a new start:
+  // an appointment-sourced consultation keeps its booking across the click so
+  // the customer is still prefilled on the other side. (Only the curtain form
+  // consumes it today; the mesh line still creates its own customer row.)
+  const from = appointmentId
+    ? `&appointmentId=${encodeURIComponent(appointmentId)}`
+    : "";
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row gap-3">
         <Card
-          href="/orders/new?product=curtain"
+          href={`/orders/new?product=curtain${from}`}
           title="Curtains & Blinds"
           blurb="Day and night curtains, tracks and add-ons, or blinds — priced per metre of width."
           icon="🪟"
         />
         {meshEnabled && (
           <Card
-            href="/orders/new?product=mesh"
+            href={`/orders/new?product=mesh${from}`}
             title="Mesh"
             blurb="Window insect and safety mesh, priced flat per panel by size band."
             icon="🛡️"

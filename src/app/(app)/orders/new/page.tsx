@@ -1,4 +1,7 @@
-import { ConsultationForm } from "@/components/orders/consultation-form";
+import {
+  ConsultationForm,
+  type AppointmentPrefill,
+} from "@/components/orders/consultation-form";
 import { MeshConsultationForm } from "@/components/orders/mesh-form";
 import { ProductLineChooser } from "@/components/orders/product-line-chooser";
 import { requireRole } from "@/lib/auth/require-role";
@@ -10,13 +13,59 @@ import {
   meshIsSellable,
 } from "@/lib/db/mesh-catalogue";
 import { loadActivePromotions } from "@/lib/db/promotions";
+import { db } from "@/lib/db/kysely";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "New Consultation — Drapeworks CRM" };
 
-type SearchParams = { product?: string };
+type SearchParams = { product?: string; appointmentId?: string };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The customer booked for this appointment, if the link carried one.
+ *
+ * This is the seam the whole phase exists to close: the customer was captured
+ * once when the appointment was booked, and retyping it here is what produced
+ * the duplicate rows in `customers`.
+ *
+ * A hand-typed, non-uuid id is treated as no appointment rather than passed to
+ * Postgres, where it would be a 22P02 error — i.e. a 500 on a page that should
+ * simply fall back to a blank consultation.
+ */
+async function loadAppointmentPrefill(
+  appointmentId: string | undefined,
+): Promise<AppointmentPrefill | undefined> {
+  if (!appointmentId || !UUID_RE.test(appointmentId)) return undefined;
+
+  const booked = await db
+    .selectFrom("appointments")
+    .innerJoin("customers", "customers.id", "appointments.customer_id")
+    .select([
+      "appointments.id as appointment_id",
+      "appointments.development as development",
+      "customers.name as customer_name",
+      "customers.mobile as customer_mobile",
+      "customers.email as customer_email",
+    ])
+    .where("appointments.id", "=", appointmentId)
+    .executeTakeFirst();
+
+  if (!booked) return undefined;
+
+  return {
+    id: booked.appointment_id,
+    customer: {
+      name: booked.customer_name,
+      mobile: booked.customer_mobile,
+      email: booked.customer_email ?? undefined,
+    },
+    development: booked.development,
+  };
+}
 
 export default async function NewConsultationPage({
   searchParams,
@@ -24,7 +73,8 @@ export default async function NewConsultationPage({
   searchParams: Promise<SearchParams>;
 }) {
   const session = await requireRole(["consultant", "admin"]);
-  const { product } = await searchParams;
+  const { product, appointmentId } = await searchParams;
+  const appointment = await loadAppointmentPrefill(appointmentId);
 
   const today = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -81,14 +131,26 @@ export default async function NewConsultationPage({
         </div>
       </div>
 
-      {chosen === null && <ProductLineChooser meshEnabled={meshEnabled} />}
-      {chosen === "curtain" && <CurtainConsultation />}
+      {/* The appointment link lands here with no ?product, so the chooser has
+          to carry the booking through the choice — dropping it would lose the
+          prefill at the very click that leads to the form. */}
+      {chosen === null && (
+        <ProductLineChooser
+          meshEnabled={meshEnabled}
+          appointmentId={appointment?.id}
+        />
+      )}
+      {chosen === "curtain" && <CurtainConsultation appointment={appointment} />}
       {chosen === "mesh" && <MeshConsultation />}
     </main>
   );
 }
 
-async function CurtainConsultation() {
+async function CurtainConsultation({
+  appointment,
+}: {
+  appointment?: AppointmentPrefill;
+}) {
   const [curtainTypes, calcConfig, promotions, combos] = await Promise.all([
     loadActiveCurtainTypeOptions(),
     loadCalcConfig(),
@@ -103,6 +165,7 @@ async function CurtainConsultation() {
       calcConfig={calcConfig}
       promotions={promotions}
       combos={combos}
+      appointment={appointment}
     />
   );
 }

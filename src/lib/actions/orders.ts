@@ -88,6 +88,72 @@ async function writeWindowAddons(
   }
 }
 
+/** The customer an order belongs to, and the appointment it came from. */
+type OrderCustomer = { customerId: string; appointmentId: string | null };
+
+/**
+ * Reuse the booked customer, or create one.
+ *
+ * An order started from an appointment belongs to that appointment's customer
+ * rather than to a second row for the same person — booking and then retyping
+ * the name and mobile at /orders/new is exactly what produced the duplicate
+ * rows already sitting in `customers`.
+ *
+ * Reusing the row must NOT mean ignoring the form. The consultant is standing
+ * in the customer's home and may well have just corrected a mobile number or
+ * added the email that was missing at booking, so the submitted values are
+ * written back over the booked ones. (`updated_at` is bumped by a trigger.)
+ *
+ * An appointment_id that no longer resolves — a stale link, a deleted booking —
+ * falls back to a plain insert and links nothing, so a vanished appointment
+ * costs the prefill rather than the whole save via a foreign-key error.
+ */
+async function resolveOrderCustomer(
+  trx: Transaction<DB>,
+  appointmentId: string | undefined,
+  customer: { name: string; mobile: string; email?: string },
+  userId: string,
+): Promise<OrderCustomer> {
+  const booked = appointmentId
+    ? await trx
+        .selectFrom("appointments")
+        .select("customer_id")
+        .where("id", "=", appointmentId)
+        .executeTakeFirst()
+    : undefined;
+
+  if (!booked) {
+    const inserted = await trx
+      .insertInto("customers")
+      .values({
+        name: customer.name,
+        mobile: customer.mobile,
+        email: customer.email ?? null,
+        created_by: userId,
+      })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    return { customerId: inserted.id, appointmentId: null };
+  }
+
+  await trx
+    .updateTable("customers")
+    .set({
+      name: customer.name,
+      // A draft may be saved with the mobile left blank; that must not wipe
+      // the number the appointment was booked on.
+      ...(customer.mobile.trim().length > 0 ? { mobile: customer.mobile } : {}),
+      email: customer.email ?? null,
+    })
+    .where("id", "=", booked.customer_id)
+    .execute();
+
+  return {
+    customerId: booked.customer_id,
+    appointmentId: appointmentId ?? null,
+  };
+}
+
 export async function createOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderCreateInput = orderCreateSchema.parse(input);
@@ -96,22 +162,19 @@ export async function createOrder(input: unknown): Promise<never> {
   const addonCatalogue = await loadAddonCatalogue();
 
   const orderId = await db.transaction().execute(async (trx) => {
-    const customer = await trx
-      .insertInto("customers")
-      .values({
-        name: parsed.customer.name,
-        mobile: parsed.customer.mobile,
-        email: parsed.customer.email ?? null,
-        created_by: session.user.id,
-      })
-      .returning("id")
-      .executeTakeFirstOrThrow();
+    const customer = await resolveOrderCustomer(
+      trx,
+      parsed.appointment_id,
+      parsed.customer,
+      session.user.id,
+    );
 
     const order = await trx
       .insertInto("orders")
       .values({
-        customer_id: customer.id,
+        customer_id: customer.customerId,
         consultant_id: session.user.id,
+        appointment_id: customer.appointmentId,
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
         unit_type: parsed.order.unit_type ?? null,
@@ -498,22 +561,19 @@ export async function createOrderDraft(input: unknown): Promise<never> {
   const addonCatalogue = await loadAddonCatalogue();
 
   const orderId = await db.transaction().execute(async (trx) => {
-    const customer = await trx
-      .insertInto("customers")
-      .values({
-        name: parsed.customer.name,
-        mobile: parsed.customer.mobile,
-        email: parsed.customer.email ?? null,
-        created_by: session.user.id,
-      })
-      .returning("id")
-      .executeTakeFirstOrThrow();
+    const customer = await resolveOrderCustomer(
+      trx,
+      parsed.appointment_id,
+      parsed.customer,
+      session.user.id,
+    );
 
     const order = await trx
       .insertInto("orders")
       .values({
-        customer_id: customer.id,
+        customer_id: customer.customerId,
         consultant_id: session.user.id,
+        appointment_id: customer.appointmentId,
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
         unit_type: parsed.order.unit_type ?? null,

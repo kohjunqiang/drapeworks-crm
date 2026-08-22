@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { windowSchema } from "./order";
+import { orderCreateSchema, orderDraftSchema, windowSchema } from "./order";
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -147,5 +147,56 @@ describe("windowSchema — blind windows", () => {
         blind_type_id: "not-a-uuid",
       }),
     ).toThrow();
+  });
+});
+
+const APPOINTMENT = "550e8400-e29b-41d4-a716-446655440009";
+
+const MINIMAL_ORDER = {
+  customer: { name: "Tan Wei Ming", mobile: "9123 4567" },
+  order: {},
+  rooms: [
+    {
+      type: "Living Room",
+      label: "Living Room",
+      position: 0,
+      windows: [{ variant: "regular", position: 0 }],
+    },
+  ],
+};
+
+// Phase 15 — a consultation started from a booked appointment carries that
+// appointment's id so the write path can reuse its customer instead of
+// inserting a second row for the same person.
+describe("orderCreateSchema / orderDraftSchema — appointment_id", () => {
+  it("carries an appointment id through a create", () => {
+    const parsed = orderCreateSchema.parse({
+      ...MINIMAL_ORDER,
+      appointment_id: APPOINTMENT,
+    });
+    expect(parsed.appointment_id).toBe(APPOINTMENT);
+  });
+
+  it("is optional — a walk-in consultation has no appointment", () => {
+    const parsed = orderCreateSchema.parse(MINIMAL_ORDER);
+    expect(parsed.appointment_id).toBeUndefined();
+  });
+
+  it("rejects a malformed appointment id", () => {
+    const r = orderCreateSchema.safeParse({
+      ...MINIMAL_ORDER,
+      appointment_id: "not-a-uuid",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("carries it through a draft save too", () => {
+    const parsed = orderDraftSchema.parse({
+      customer: { name: "Tan Wei Ming" },
+      order: {},
+      rooms: [],
+      appointment_id: APPOINTMENT,
+    });
+    expect(parsed.appointment_id).toBe(APPOINTMENT);
   });
 });

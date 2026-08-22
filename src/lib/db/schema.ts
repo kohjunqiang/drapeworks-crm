@@ -57,7 +57,11 @@ export type MeshDrawDirection = "Double" | "Single Bottom" | "Single Left" | "Si
 
 export type Numeric = ColumnType<string, number | string, number | string>;
 
+export type PricingAddonAutoRule = "always" | "manual" | "width_over";
+
 export type PricingAddonBasis = "per_metre" | "per_unit";
+
+export type PricingAddonScope = "blind" | "both" | "curtain";
 
 export type PricingCalcMethod = "by_sqm" | "by_width";
 
@@ -693,6 +697,9 @@ export interface PoTypeLabels {
 }
 
 export interface PricingAddons {
+  applies_to: Generated<PricingAddonScope>;
+  auto_rule: Generated<PricingAddonAutoRule>;
+  auto_width_over_cm: number | null;
   basis: Generated<PricingAddonBasis>;
   cost_rmb_cents: number | null;
   created_at: Generated<Timestamp>;
@@ -970,13 +977,16 @@ export interface Vendors {
   updated_at: Generated<Timestamp>;
 }
 
+export interface WindowAddons {
+  addon_id: string;
+  created_at: Generated<Timestamp>;
+  window_id: string;
+}
+
 export interface Windows {
-  add_s_fold: Generated<boolean>;
-  add_slim_tracks: Generated<boolean>;
   blind_type_id: string | null;
   combo_id: string | null;
   created_at: Generated<Timestamp>;
-  curtain_type_id: string | null;
   day_curtain_type_id: string | null;
   draw: DrawDirection | null;
   height_cm: number | null;
@@ -1055,5 +1065,6 @@ export interface DB {
   "vault.decrypted_secrets": VaultDecryptedSecrets;
   "vault.secrets": VaultSecrets;
   vendors: Vendors;
+  window_addons: WindowAddons;
   windows: Windows;
 }

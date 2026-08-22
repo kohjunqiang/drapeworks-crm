@@ -337,17 +337,21 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("status", sql`appointment_status`, (c) =>
       c.notNull().defaultTo("scheduled"),
     )
-    // Booking overwrites both leads.funnel_stage and leads.last_outcome.
-    // Without the previous values recorded here, cancelling can only guess
-    // where to put the lead back — and a lead booked from Nurture or Quote
-    // Sent would be rolled *forward* into a stage it was never in.
+    // Booking overwrites three lead fields — funnel_stage, last_outcome and
+    // action_date. All three are recorded so cancelling can restore rather
+    // than guess; a lead booked from Nurture or Quote Sent would otherwise be
+    // rolled *forward* into a stage it was never in.
     //
-    // BOTH columns, not just the stage. The cascade runs outcome branches
-    // above stage branches, so restoring the stage while setting a fresh
-    // outcome leaves the stage inert: the outcome decides and the restored
-    // stage never gets read. See setAppointmentStatus.
+    // ALL THREE, not just the stage. Each one reaches the engine:
+    //   - the cascade runs outcome branches above stage branches, so a fresh
+    //     outcome makes a restored stage unreachable;
+    //   - action_date feeds deriveEffectiveActionDate, which feeds both due
+    //     status and contact priority, so clearing it moves the row's band.
+    // 53 leads carry an action_date today, 11 of them Nurture and all 11
+    // queue-visible. See setAppointmentStatus.
     .addColumn("lead_stage_before", sql`lead_funnel_stage`)
     .addColumn("lead_outcome_before", sql`lead_outcome`)
+    .addColumn("lead_action_date_before", "date")
     .addColumn("google_event_id", "text")
     .addColumn("google_sync_state", sql`google_sync_state`, (c) =>
       c.notNull().defaultTo("pending"),
@@ -3048,7 +3052,7 @@ export async function bookAppointment(input: unknown): Promise<void> {
     // guess a stage it may never have occupied.
     const before = await trx
       .selectFrom("leads")
-      .select(["funnel_stage", "last_outcome"])
+      .select(["funnel_stage", "last_outcome", "action_date"])
       .where("id", "=", parsed.lead_id)
       .executeTakeFirstOrThrow();
 
@@ -3081,6 +3085,7 @@ export async function bookAppointment(input: unknown): Promise<void> {
         status: "scheduled",
         lead_stage_before: before.funnel_stage,
         lead_outcome_before: before.last_outcome,
+        lead_action_date_before: before.action_date,
         google_sync_state: "pending",
         created_by: session.user.id,
       })
@@ -3151,7 +3156,12 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
     .updateTable("appointments")
     .set({ status: parsed.status, updated_at: new Date() })
     .where("id", "=", parsed.id)
-    .returning(["lead_id", "lead_stage_before", "lead_outcome_before"])
+    .returning([
+      "lead_id",
+      "lead_stage_before",
+      "lead_outcome_before",
+      "lead_action_date_before",
+    ])
     .executeTakeFirstOrThrow();
 
   if (parsed.status === "cancelled" || parsed.status === "no_show") {
@@ -3172,16 +3182,22 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
     // because 'Appointment Completed' matches no outcome branch and falls
     // through to the stage.
     //
-    // Both columns are nullable, and lead_outcome_before legitimately is null
-    // for a lead that had no recorded outcome before booking. The stage
-    // fallback is belt-and-braces only: the column ships in the same migration
-    // as the table, so no appointment can exist without it.
+    // action_date is restored too, not cleared. Booking overwrote it with the
+    // appointment date; clearing it on cancel would drop a Nurture lead's
+    // future follow-up date, taking its due status from Upcoming to Schedule
+    // Date and — where the band is date-derived rather than action-derived —
+    // moving its priority as well. 53 leads carry one today.
+    //
+    // All three columns are nullable, and outcome/date are legitimately null
+    // for a lead that had neither before booking. The stage fallback is
+    // belt-and-braces only: the column ships in the same migration as the
+    // table, so no appointment can exist without it.
     await db
       .updateTable("leads")
       .set({
         funnel_stage: updated.lead_stage_before ?? "Qualified / Pre-Appointment",
         last_outcome: updated.lead_outcome_before,
-        action_date: null,
+        action_date: updated.lead_action_date_before,
         updated_at: new Date(),
       })
       .where("id", "=", updated.lead_id)
@@ -3724,8 +3740,12 @@ export function LeadFieldsForm({ lead }: { lead: LeadFormValues }) {
               and their amount was deliberately left NULL rather than guessed.
               Without this the only way to find them after Task 26 deletes the
               import log is a SQL query — the decision would have no path to
-              resolution. Shown until someone types the real figure. */}
-          {lead.latest_quote_note ? (
+              resolution.
+              Gated on the amount being absent, not on the note existing: the
+              note is never cleared, so it survives as the record of what the
+              sheet actually said. Clearing it on save would also work and
+              would destroy the only copy of row 237's wording. */}
+          {!lead.latest_quote_cents && lead.latest_quote_note ? (
             <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
               Needs a figure — sheet recorded: “{lead.latest_quote_note}”
             </p>
@@ -4569,14 +4589,20 @@ With `npm run dev` running, confirm each of these by hand:
    mobile on the form before saving: the order's `appointment_id` is set, `customer_id`
    matches the appointment's, no new customer row appears, **and the edited mobile is
    persisted** rather than silently discarded.
-8. **Book from a `Nurture` lead, then cancel.** The lead must come back as *Nurture*
-   **and derive *Nurture / Re-engage*, Future / Nurture** — not *Book Appointment,
-   Contact in 2–3 Days*. If it derives Book Appointment, the outcome is being overwritten
-   instead of restored and `lead_stage_before` is decorative: outcome branches sit above
-   stage branches, so a fresh outcome makes the restored stage unreachable.
+8. **Book from a `Nurture` lead that already has a future `action_date`, then cancel.**
+   All three must come back: stage *Nurture*, the original outcome, and the original
+   date. It must derive *Nurture / Re-engage, Future / Nurture* with its due date intact
+   — not *Book Appointment, Contact in 2–3 Days*, and not *Schedule Date*.
+
+   Each wrong result names its own bug: deriving *Book Appointment* means the outcome
+   was overwritten rather than restored, which makes the stage unreachable. Showing
+   *Schedule Date* means `action_date` was cleared rather than restored. 11 queue-visible
+   Nurture leads carry a date today, so this is live data, not a hypothetical.
 9. Find a lead whose `latest_quote_note` is set (two exist after import) → lead detail
-   shows the sheet's text beside an empty quote field. Type the real figure; the prompt
-   disappears.
+   shows the sheet's text beside an empty quote field. Type the real figure and save:
+   the prompt disappears because it is gated on the *amount* being absent. Re-check the
+   row in the database — `latest_quote_note` must still be there, since it is the only
+   surviving record of what the sheet said once the import script is deleted.
 10. **Press Retry on that cancelled appointment** → the event is **not** recreated. This
    is the pair of bugs from the review: `unsync` marking itself `pending` plus `sync`
    having no status guard would otherwise resurrect a deleted event.

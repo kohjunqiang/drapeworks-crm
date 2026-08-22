@@ -138,7 +138,9 @@ development        text
 address            text
 notes              text
 status             appointment_status    -- scheduled | completed | cancelled | no_show
-lead_stage_before  lead_funnel_stage     -- where the lead was, so cancel can undo
+lead_stage_before        lead_funnel_stage  -- the three lead fields booking
+lead_outcome_before      lead_outcome       -- overwrites, recorded so that
+lead_action_date_before  date               -- cancel can undo rather than guess
 google_event_id    text
 google_sync_state  google_sync_state     -- pending | synced | failed
 google_sync_error  text
@@ -158,14 +160,40 @@ created_by / created_at / updated_at
 
 ### Appointment lifecycle
 
-Booking overwrites `leads.funnel_stage` with `Appointment Booked`, so the previous value
-is recorded on the appointment first. Cancelling or marking a no-show restores it.
-Without that, a lead booked from `Nurture` or `Quote Sent` would be rolled *forward*
-into a stage it was never in, and its funnel history would be quietly falsified.
+Booking overwrites three lead fields — `funnel_stage`, `last_outcome` and `action_date`.
+All three are recorded on the appointment first, and cancelling or marking a no-show
+restores all three. Without that a lead booked from `Nurture` or `Quote Sent` would be
+rolled *forward* into a stage it was never in.
 
-Cancelling also clears `action_date`, deletes the calendar event, and marks the sync
-`synced` — the desired end state has been reached, so a later sync must not treat it as
-outstanding work and recreate the event.
+**Restoring fewer than three is the same as restoring none**, because each reaches the
+engine and the ones above it dominate:
+
+- The cascade runs outcome branches above every stage branch, so writing a fresh
+  outcome makes a restored stage unreachable — the lead's action, priority and queue
+  position would all come from the outcome and the stage would move only the chip on
+  screen.
+- `action_date` feeds the effective-date rule, which feeds both due status and contact
+  priority. Clearing it drops a `Nurture` lead's future follow-up date from *Upcoming*
+  to *Schedule Date*, and moves its band wherever that band is date-derived. 53 leads
+  carry an `action_date` today; 11 are `Nurture` and all 11 are queue-visible.
+
+Cancelling also deletes the calendar event and marks the sync `synced` — the desired end
+state has been reached, so a later sync must not treat it as outstanding work and
+recreate the event.
+
+`completed` is different and correct as-is: it sets `Post-Appointment / Quote Pending`
+with outcome `Appointment Completed`, which matches no outcome branch and so falls
+through to the stage, and it clears `action_date` because `Send Quote` defaults its own
+effective date to today.
+
+**A no-show is indistinguishable from a lead that never booked.** Cancel and no-show
+take the same restore path, so a no-show lead reverts to its pre-booking outcome —
+usually `Ready to Book Appointment` — and derives *Book Appointment, offer 2
+consultation slots*. The fact that someone stood Alan up survives only as
+`appointments.status = 'no_show'`. This is deliberate: the alternative, forcing an
+outcome of `No Response`, clobbers real state to encode a fact the appointment row
+already holds. If no-shows should surface differently in the queue, that is a follow-up
+phase and not a change to the restore.
 
 ### Why leads and customers stay separate
 

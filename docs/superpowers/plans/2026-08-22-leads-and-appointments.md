@@ -4769,6 +4769,21 @@ Move it somewhere durable and off this machine — a Drive folder, not the repo.
 `.gitignore` rule from Task 1 stays in place regardless: it costs nothing and it stops
 the next export from being committed by accident.
 
+**Then shred every other copy.** Task 12 left `/tmp/leads-baseline.xlsx`, byte-identical
+to the original and outside the repo, so nothing ignores it. Once the durable backup
+exists, remove both `/tmp` copies — leaving 244 names and 98 mobiles in a world-readable
+temp directory is the same exposure the `.gitignore` rule exists to prevent.
+
+```bash
+rm -f /tmp/leads-baseline.xlsx /tmp/leads-backup.xlsx
+```
+
+**One-way note:** the fixture cannot be regenerated after this point, because
+regenerating it needs the xlsx. From here the fixture is the artifact and
+`verify-lead-engine.ts` is documentation. The `excelOverride` on case 210 in particular
+can only ever be read, never re-derived — which is why it carries its own explanatory
+note inside the JSON.
+
 - [ ] **Step 4: Remove the one-off scripts**
 
 They read a file that no longer exists, so leaving them in place is a broken command

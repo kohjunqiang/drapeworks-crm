@@ -86,6 +86,7 @@ last_customer_response_at   timestamptz      -- col T; drives the 90-day stale r
 interaction_summary         text
 historical_summary          text
 latest_quote_cents          integer          -- col P, integer cents
+latest_quote_note           text             -- col P when it holds text, not a number
 buying_readiness            text             -- free text: 'Mid-Sep', 'Early Jan 2027', 'ASAP'
 keys_status                 text
 expected_key_date           text             -- free text, not a real date in the sheet
@@ -137,6 +138,7 @@ development        text
 address            text
 notes              text
 status             appointment_status    -- scheduled | completed | cancelled | no_show
+lead_stage_before  lead_funnel_stage     -- where the lead was, so cancel can undo
 google_event_id    text
 google_sync_state  google_sync_state     -- pending | synced | failed
 google_sync_error  text
@@ -147,8 +149,23 @@ created_by / created_at / updated_at
 
 - `orders.appointment_id` — nullable FK. The Won→order seam. The lead is reachable
   through it, so no separate `lead_id` on orders.
-- Index on `customers.mobile` — **non-unique**. Per-order customer creation has already
-  produced duplicate mobiles; a unique constraint would fail on contact.
+- Index on `customers.mobile` — **non-unique**, and on the *normalised* form
+  (`right(regexp_replace(mobile,'\D','','g'), 8)`). Per-order customer creation has
+  already produced duplicate mobiles, so a unique constraint would fail on contact. The
+  expression matters: stored formats are mixed — 40 leads carry `98439326`, 58 carry
+  `+6581817358` — so the picker compares the last 8 digits on both sides, and an index
+  on the raw column could never serve that predicate.
+
+### Appointment lifecycle
+
+Booking overwrites `leads.funnel_stage` with `Appointment Booked`, so the previous value
+is recorded on the appointment first. Cancelling or marking a no-show restores it.
+Without that, a lead booked from `Nurture` or `Quote Sent` would be rolled *forward*
+into a stage it was never in, and its funnel history would be quietly falsified.
+
+Cancelling also clears `action_date`, deletes the calendar event, and marks the sync
+`synced` — the desired end state has been reached, so a later sync must not treat it as
+outstanding work and recreate the event.
 
 ### Why leads and customers stay separate
 
@@ -188,7 +205,7 @@ Branches 3–8 sit **above** the stage branches. That ordering is the rule the s
 documents as *"customer response overrides stage because the ball is with Drapeworks"*.
 Preserve it exactly.
 
-### `deriveNextAction(lead, action)` — col K
+### `deriveNextAction(action, override)` — col K
 
 `action_detail_override` wins if set. Otherwise a fixed phrase per action:
 
@@ -204,7 +221,7 @@ Preserve it exactly.
 | Nurture / Re-engage | Re-engage at the appropriate key / renovation timing |
 | Follow Up – No Response | Send a value-adding follow-up / reactivation |
 
-### `deriveEffectiveActionDate(lead, action)` — col M
+### `deriveEffectiveActionDate(action, actionDate, today)` — col M
 
 `Closed` → none · `action_date` if set · `Reply Required`/`Send Quote` → today · else none.
 
@@ -263,6 +280,31 @@ correction destroys the ability to diff the CRM against the sheet.
 
 The engine's test suite asserts all three behaviours. A test that asserts the *correct*
 behaviour instead would fail the import diff.
+
+### A fourth bug, fixed rather than carried
+
+The `Daily Queue` sheet's pipeline total is `=SUM(K8:K39)` — a hardcoded 32-row range
+over a 40-row queue, sized when the queue was shorter and never grown. It reads
+**16,476** where the true total of queue-visible quotes is **20,106**, a 3,630
+undercount.
+
+This one is fixed, because unlike the other three nothing depends on reproducing it: the
+total is not an input to any rule, it is a number on a screen. **The CRM's figure will
+therefore not match what Alan reads each morning, by design.** Recorded here so that
+difference reads as a decision rather than a defect.
+
+### Ordering within a priority band
+
+The sheet's `Daily Queue` numbers its actions — `07 - Attend / Confirm Appointment` down
+to `01 - Follow Up – No Response` — and is sorted Z→A, so the highest number is worked
+first. The CRM keeps that ordering as the tiebreaker inside a priority band, then falls
+back to effective date and name.
+
+Only 6 of the ranks appear in the data, `05` is unobserved, and the sheet never numbered
+the actions that no queue-visible lead is in. The ranks for `Reply Required` and
+`Send Quote` are this port's inference, placed above the rest on the same principle the
+priority rule already encodes: the customer waiting on us outranks everything. The
+unnumbered `Ignore Lead` row sinks to the bottom, which is where it sits in the sheet.
 
 ## Screens
 
@@ -350,8 +392,13 @@ event was never created, both are no-ops that clear cleanly.
 
 ## Import
 
-`npm run leads:import` — a one-off script reading the local xlsx, idempotent on
-`lead_ref` so it can be re-run.
+`npm run leads:import` — a one-off script reading the local xlsx.
+
+**Not idempotent, and not worth making so.** Twelve rows get a synthetic
+`lead_ref` derived from their row number, and row 251 of the sheet literally
+instructs the operator to insert new rows above it — so a re-run after any
+insertion duplicates those twelve. The file is imported once and deleted in the
+same phase, which makes engineering around this pure cost.
 
 **Not a seed migration.** `202608181700_seed_procurement.ts` sets the precedent for
 seeding via migration, but migrations are committed. This payload is 244 real customer
@@ -365,7 +412,7 @@ Mapping notes:
 
 ### Data hazards in the source
 
-The sheet is a working document, not an export. Five shapes in it break a naive import,
+The sheet is a working document, not an export. Six shapes in it break a naive import,
 each verified against the file:
 
 1. **`Lead ID` is not unique.** Ten rows carry a bare `TG` (×8), `WA` (×2) or `WA-SEM`
@@ -381,11 +428,17 @@ each verified against the file:
    silently disable the 90-day stale rule for those leads. The import branches on
    numeric input: `Date.UTC(1899, 11, 30) + serial × 86_400_000`.
 
-3. **`Latest Quote` holds free text on two rows** — `'688 Essential Night --> top $135
-   for Signature Night'` and `'780 --> 660 after 15%'`. These are negotiation notes, not
-   amounts. A numeric coercion yields `NaN` and the insert throws mid-run. The import
-   extracts a leading number where one exists and preserves the full text in the
-   interaction summary rather than discarding it.
+3. **`Latest Quote` holds free text on two rows** — row 236 `'688 Essential Night -->
+   top $135 for Signature Night'` and row 237 `'780 --> 660 after 15%'`. These are
+   negotiation notes, not amounts, and a numeric coercion yields `NaN` that throws
+   mid-run. The text goes verbatim into `latest_quote_note` and the amount is left
+   `NULL`.
+
+   Not a leading-number heuristic: that reads 780 where the current quote is 660, and
+   688 where it is arguably 823. Both leads are queue-visible, so a wrong figure would
+   feed the pipeline total looking entirely authoritative, and once the script and its
+   console output are deleted nothing would flag it. **Two leads need a human to set
+   their quote after import** — they are the ones whose `latest_quote_note` is set.
 
 4. **Two leads have no name.** Row 118's `Customer` is `'-'` and row 143's is blank.
    Both are ghosted `Not Qualified` leads, and both still carry an interaction summary
@@ -393,7 +446,19 @@ each verified against the file:
    reference rather than dropping the row — inventing a placeholder would be worse, and
    dropping it would put the count at 242 and quietly lose two conversations.
 
-5. **Rows below the data are not data.** Row 251 is an instruction to the operator, row
+5. **Every timestamp is Singapore wall-clock with no timezone.** Excel stores none, and
+   both serial arithmetic and a date-aware parser hand back UTC-based values. 199 of the
+   516 datetimes sit at hour ≥ 16, so read as UTC they land on the *next* Singapore
+   calendar day — 56 rows of `Last Customer Response Date` shifting the 90-day boundary
+   by a day, and 175 rows displaying a last-contact time eight hours early. The import
+   subtracts 8 hours when constructing each instant.
+
+   **The verification gate does not catch this, and passes by luck.** At the frozen date
+   the 90-day boundary is 2026-05-23 and the nearest lead is an hour clear of the flip.
+   As the boundary sweeps forward, each of the 56 begins leaving the queue a day late.
+   It needs its own check — see the plan's Task 11.
+
+6. **Rows below the data are not data.** Row 251 is an instruction to the operator, row
    253 is a helper block (`A=2026-08-10`, `B==TODAY()`, `C=B−A`) and row 254 is a
    counter. Row 253's first two cells are dates, so they survive an emptiness check and
    import as a lead. Both the import and the verification script bound their scan to

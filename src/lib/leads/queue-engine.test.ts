@@ -90,3 +90,46 @@ describe("deriveActionRequired", () => {
     ).toBe("Review Lead");
   });
 });
+
+import { deriveNextAction } from "./queue-engine";
+
+describe("deriveNextAction", () => {
+  it.each([
+    ["Reply Required", "Reply to latest customer message"],
+    ["Qualify Lead", "Establish need, timing and property details"],
+    ["Book Appointment", "Offer 2 consultation slots"],
+    ["Attend / Confirm Appointment", "Confirm / attend consultation"],
+    ["Send Quote", "Prepare and send quotation"],
+    ["Follow Up Quote", "Follow up on quotation and ask for decision"],
+    ["Push for Decision", "Resolve barrier and ask for commitment"],
+    [
+      "Nurture / Re-engage",
+      "Re-engage at the appropriate key / renovation timing",
+    ],
+    [
+      "Follow Up – No Response",
+      "Send a value-adding follow-up / reactivation",
+    ],
+  ] as const)("gives %s the phrase %s", (action, expected) => {
+    expect(deriveNextAction(action, null)).toBe(expected);
+  });
+
+  it("lets a manual override win over the derived phrase", () => {
+    expect(
+      deriveNextAction("Book Appointment", "Call after 7pm, works shifts"),
+    ).toBe("Call after 7pm, works shifts");
+  });
+
+  it("returns an empty instruction for Resolve Barrier — a spreadsheet bug, ported deliberately", () => {
+    // Column I branch 4 emits 'Resolve Barrier' but column K has no case for
+    // it, so Alan sees a blank instruction. Reproduced so the import diff in
+    // scripts/verify-lead-engine.ts can pass. Fixing it is a follow-up phase.
+    expect(deriveNextAction("Resolve Barrier", null)).toBe("");
+  });
+
+  it("returns an empty instruction for Closed, Ignore Lead and Review Lead", () => {
+    expect(deriveNextAction("Closed", null)).toBe("");
+    expect(deriveNextAction("Ignore Lead", null)).toBe("");
+    expect(deriveNextAction("Review Lead", null)).toBe("");
+  });
+});

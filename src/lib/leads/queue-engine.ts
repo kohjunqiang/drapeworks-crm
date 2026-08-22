@@ -34,3 +34,27 @@ export function deriveActionRequired(lead: LeadEngineInput): ActionRequired {
 
   return "Review Lead";
 }
+
+// Column K. Note there is no entry for 'Resolve Barrier': the spreadsheet has
+// none either, so that action yields a blank instruction. Ported deliberately
+// — see queue-engine.test.ts and the "bugs carried knowingly" section of
+// docs/specs/phase-15-leads-and-appointments.md.
+const NEXT_ACTION_PHRASES: Partial<Record<ActionRequired, string>> = {
+  "Reply Required": "Reply to latest customer message",
+  "Qualify Lead": "Establish need, timing and property details",
+  "Book Appointment": "Offer 2 consultation slots",
+  "Attend / Confirm Appointment": "Confirm / attend consultation",
+  "Send Quote": "Prepare and send quotation",
+  "Follow Up Quote": "Follow up on quotation and ask for decision",
+  "Push for Decision": "Resolve barrier and ask for commitment",
+  "Nurture / Re-engage": "Re-engage at the appropriate key / renovation timing",
+  "Follow Up – No Response": "Send a value-adding follow-up / reactivation",
+};
+
+export function deriveNextAction(
+  action: ActionRequired,
+  override: string | null,
+): string {
+  if (override && override.trim() !== "") return override;
+  return NEXT_ACTION_PHRASES[action] ?? "";
+}

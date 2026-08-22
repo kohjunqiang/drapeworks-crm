@@ -31,6 +31,24 @@ function client(): { jwt: JWT; calendarId: string } {
   };
 }
 
+/**
+ * A non-2xx response from the Calendar API, carrying the status as a number.
+ *
+ * The status is a field rather than something to read back out of the message,
+ * because the message embeds the response body — and matching " 404" against a
+ * string containing arbitrary JSON from Google will eventually match the wrong
+ * thing and swallow a real failure as "already deleted".
+ */
+export class CalendarApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, method: string, detail: string) {
+    super(`Google Calendar ${method} ${status}: ${detail}`);
+    this.name = "CalendarApiError";
+    this.status = status;
+  }
+}
+
 async function call(
   method: "POST" | "PATCH" | "DELETE",
   path: string,
@@ -54,7 +72,7 @@ async function call(
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`Google Calendar ${method} ${response.status}: ${detail}`);
+    throw new CalendarApiError(response.status, method, detail);
   }
 
   // DELETE returns 204 with an empty body.
@@ -81,9 +99,14 @@ export async function deleteEvent(eventId: string): Promise<void> {
   try {
     await call("DELETE", `/${encodeURIComponent(eventId)}`);
   } catch (error) {
-    // Already gone is the desired end state, not a failure.
-    if (error instanceof Error && error.message.includes(" 410")) return;
-    if (error instanceof Error && error.message.includes(" 404")) return;
+    // Already gone is the desired end state, not a failure. 404 = no such
+    // event, 410 = deleted already; both mean there is nothing left to remove.
+    if (
+      error instanceof CalendarApiError &&
+      (error.status === 404 || error.status === 410)
+    ) {
+      return;
+    }
     throw error;
   }
 }

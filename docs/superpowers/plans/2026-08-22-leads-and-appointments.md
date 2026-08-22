@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace `02 Leads Management & Appt.xlsx` with a Leads module in the CRM that reproduces its funnel engine exactly, adds the appointment record the spreadsheet never had, syncs each appointment to a shared Google Calendar, and hands the customer to `/orders/new`.
+**Goal:** Replace `02 Leads Management & Appt.xlsx` with a Leads module in the CRM that reproduces its funnel engine exactly, adds the appointment record the spreadsheet never had, syncs each appointment to a shared Google Calendar, and hands the customer to `/orders/new`. The spreadsheet is deleted at the end (Task 26).
 
 **Architecture:** Two Kysely migrations add `leads` and `appointments` plus `orders.appointment_id`. The spreadsheet's eight formula columns are **not stored** — they are recomputed per request by a pure, heavily-tested module (`src/lib/leads/queue-engine.ts`), because every rule depends on the current date. Dates are handled as `YYYY-MM-DD` strings in `Asia/Singapore` so that ISO string comparison *is* date comparison and no UTC boundary bug is possible. Google Calendar sync is a post-commit side effect behind a `google_sync_state` column — a Google outage can never lose a booking.
 
@@ -41,8 +41,12 @@
 | `src/components/leads/book-appointment-dialog.tsx` | Booking dialog + customer picker |
 | `src/components/leads/customer-picker.tsx` | Mobile/name search over `customers` |
 | `src/components/leads/appointment-card.tsx` | Appointment display + sync state + retry |
-| `scripts/import-leads.ts` | One-off xlsx → `leads` import, idempotent on `lead_ref` |
-| `scripts/verify-lead-engine.ts` | Diffs engine output against the xlsx's cached formula values |
+| `src/lib/leads/__fixtures__/spreadsheet-parity.json` | 244 input/expectation pairs from the sheet. No PII. Outlives the xlsx. |
+| `src/lib/leads/spreadsheet-parity.test.ts` | The permanent acceptance test for the port |
+| `scripts/import-leads.ts` | One-off xlsx → `leads` import, idempotent on `lead_ref`. **Deleted in Task 26.** |
+| `scripts/verify-lead-engine.ts` | Diffs engine output against the xlsx and emits the fixture. **Deleted in Task 26.** |
+
+**Deleted (Task 26):** `02 Leads Management & Appt.xlsx`, both scripts, the `xlsx` dependency.
 
 **Modified:**
 
@@ -1748,11 +1752,143 @@ Expected: `✅ engine output matches the spreadsheet exactly`
 1. `Contact Priority` differing on rows whose `Effective Action Date` sits exactly on a band boundary, when the sheet was last recalculated on a different day from `today`. Re-run with the sheet's recalculation date as the second argument.
 2. `Next Action` on `Resolve Barrier` rows — both sides should be `∅`. If the engine emits a phrase there, Task 7 was implemented "correctly" instead of faithfully.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Freeze the parity check into a committed fixture**
+
+The spreadsheet is deleted in Task 26. A check that only runs while the file exists
+stops being a regression test the moment it is gone — so capture it now.
+
+The engine reads six fields, and none of them is personal: stage, status, outcome, the
+override note (9 rows of generic sales notes, verified), and two dates. A fixture of
+inputs plus Excel's own expected outputs carries no names, mobiles, developments or
+summaries.
+
+Add to `scripts/verify-lead-engine.ts`, just before the final exit, and gate it on a
+`--emit-fixture` argument:
+
+```ts
+if (process.argv.includes("--emit-fixture")) {
+  const fixture = {
+    // Excel's TODAY() was frozen at the moment the sheet last recalculated.
+    // Recording it is what makes this fixture deterministic forever — without
+    // it the expectations rot the day after they are generated.
+    recalculatedOn: today,
+    note:
+      "Generated from '02 Leads Management & Appt.xlsx' before it was retired. " +
+      "Inputs and expectations only — no names, mobiles, developments or summaries.",
+    cases: rows
+      .filter((row) => clean(row["Lead ID"]))
+      .map((row, index) => ({
+        // Deliberately not lead_ref: a WhatsApp ref is a phone number.
+        index,
+        input: {
+          funnel_stage: clean(row["Funnel Stage"]),
+          lead_status: clean(row["Lead Status"]),
+          last_outcome: clean(row["Last Contact Outcome"]),
+          action_detail_override: clean(row["Action Detail / Override"]),
+          action_date: asSgDate(row["Action Date"]),
+          last_customer_response_at: asSgDate(row["Last Customer Response Date"]),
+        },
+        expected: {
+          actionRequired: clean(row["Action Required"]),
+          nextAction: clean(row["Next Action"]),
+          effectiveActionDate: asSgDate(row["Effective Action Date"]),
+          dueStatus: clean(row["Due Status"]),
+          contactPriority: clean(row["Contact Priority"]),
+          queueVisibility: clean(row["Queue Visibility"]),
+        },
+      })),
+  };
+
+  writeFileSync(
+    "src/lib/leads/__fixtures__/spreadsheet-parity.json",
+    `${JSON.stringify(fixture, null, 2)}\n`,
+  );
+  console.log(`wrote ${fixture.cases.length} parity cases`);
+}
+```
+
+Add `writeFileSync` to the `node:fs` import at the top of the file.
+
+- [ ] **Step 4: Generate the fixture**
 
 ```bash
-git add scripts/verify-lead-engine.ts
-git commit -m "test(leads): verify engine output against the spreadsheet"
+mkdir -p src/lib/leads/__fixtures__
+npm run leads:verify -- "02 Leads Management & Appt.xlsx" --emit-fixture
+```
+
+Expected: `wrote 244 parity cases`
+
+- [ ] **Step 5: Confirm the fixture carries no personal data**
+
+```bash
+grep -ciE "mobile|\+65|[0-9]{8}" src/lib/leads/__fixtures__/spreadsheet-parity.json
+```
+
+Expected: `0`. If it is not zero, a PII field leaked into the fixture — find it and
+remove it before committing, because this file is committed and the xlsx is not.
+
+- [ ] **Step 6: Write the permanent parity test**
+
+```ts
+// src/lib/leads/spreadsheet-parity.test.ts
+import { describe, expect, it } from "vitest";
+
+import fixture from "./__fixtures__/spreadsheet-parity.json";
+import { deriveLead } from "./queue-engine";
+import type { LeadEngineInput } from "./types";
+
+/**
+ * The acceptance test for the spreadsheet port, frozen so it outlives the
+ * spreadsheet itself (retired in Task 26).
+ *
+ * Every case is one real row's inputs paired with the value Excel's own
+ * formulas produced for it. `recalculatedOn` pins the engine's TODAY() to the
+ * moment the sheet last recalculated — without it these expectations would rot
+ * overnight.
+ *
+ * A failure here means the engine has drifted from the system it replaced.
+ * Three of these expectations encode known spreadsheet bugs; see the spec's
+ * "bugs carried knowingly" section before changing anything.
+ */
+describe("spreadsheet parity", () => {
+  it("covers every lead that was in the spreadsheet", () => {
+    expect(fixture.cases).toHaveLength(244);
+  });
+
+  it.each(fixture.cases.map((c) => [c.index, c] as const))(
+    "row %i matches the spreadsheet",
+    (_index, testCase) => {
+      const derived = deriveLead(
+        testCase.input as LeadEngineInput,
+        fixture.recalculatedOn,
+      );
+
+      expect({
+        actionRequired: derived.actionRequired,
+        nextAction: derived.nextAction || null,
+        effectiveActionDate: derived.effectiveActionDate,
+        dueStatus: derived.dueStatus,
+        contactPriority: derived.contactPriority,
+        queueVisibility: derived.queueVisibility,
+      }).toEqual(testCase.expected);
+    },
+  );
+});
+```
+
+- [ ] **Step 7: Run it**
+
+Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
+Expected: PASS, 245 tests (244 rows + the count assertion).
+
+If `resolveJsonModule` is not already enabled, add `"resolveJsonModule": true` to
+`compilerOptions` in `tsconfig.json`.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add scripts/verify-lead-engine.ts src/lib/leads/__fixtures__/spreadsheet-parity.json src/lib/leads/spreadsheet-parity.test.ts
+git commit -m "test(leads): freeze spreadsheet parity into a committed fixture"
 ```
 
 ---
@@ -3862,14 +3998,20 @@ npm run lint
 npm run build
 ```
 
-Expected: all tests pass (the pre-phase baseline of 489 plus 68 new ones — 62 engine/date, 6 calendar), no lint errors, build succeeds.
+Expected: all tests pass (the pre-phase baseline of 489 plus 313 new ones — 62 engine/date, 245 spreadsheet parity, 6 calendar), no lint errors, build succeeds.
 
-- [ ] **Step 2: Re-run the engine verification**
+- [ ] **Step 2: Re-run the parity gate**
 
-Run: `npm run leads:verify`
-Expected: `✅ engine output matches the spreadsheet exactly`
+Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
+Expected: PASS, 245 tests.
 
-**This is the acceptance test for the port.** If it fails now but passed at Task 12, something in a later task changed the engine's behaviour.
+**This is the acceptance test for the port.** If it fails now but passed at Task 12,
+something in a later task changed the engine's behaviour.
+
+It runs from the committed fixture, not the spreadsheet, so it keeps working after
+Task 26 deletes the file. If the xlsx is still present, `npm run leads:verify` should
+also still pass — a disagreement between the two means the fixture was generated from
+a different revision of the sheet than the one on disk.
 
 - [ ] **Step 3: E2E walkthrough**
 
@@ -3901,6 +4043,101 @@ Update the status line at the top of `docs/specs/phase-15-leads-and-appointments
 ```bash
 git add docs/specs/phase-15-leads-and-appointments.md docs/specs/README.md
 git commit -m "docs(specs): mark phase 15 implemented"
+```
+
+---
+
+## Task 26: Retire the spreadsheet
+
+**Files:**
+- Delete: `02 Leads Management & Appt.xlsx`
+- Delete: `scripts/import-leads.ts`, `scripts/verify-lead-engine.ts`
+- Modify: `package.json`, `docs/specs/phase-15-leads-and-appointments.md`
+
+**Do not start this task until Task 25 passed in full.** It is one-way: once the file is
+gone, nothing can be re-imported and nothing can be re-diffed.
+
+- [ ] **Step 1: Confirm the CRM holds everything the spreadsheet did**
+
+```bash
+npx tsx -e "import {db} from './src/lib/db'; \
+  const r = await db.selectFrom('leads').select(db.fn.countAll().as('n')).executeTakeFirst(); \
+  console.log('leads in CRM:', r); await db.destroy();"
+```
+
+Expected: `244`. If it is lower, rows failed to import — stop and fix the import before
+deleting the only copy of them.
+
+- [ ] **Step 2: Confirm the parity gate no longer needs the file**
+
+```bash
+mv "02 Leads Management & Appt.xlsx" /tmp/leads-backup.xlsx
+npx vitest run src/lib/leads/spreadsheet-parity.test.ts
+```
+
+Expected: PASS, 245 tests, with the spreadsheet absent. This proves the fixture stands
+on its own.
+
+- [ ] **Step 3: Take a backup that lives outside the repo**
+
+```bash
+ls -la /tmp/leads-backup.xlsx
+```
+
+Move it somewhere durable and off this machine — a Drive folder, not the repo. The
+`.gitignore` rule from Task 1 stays in place regardless: it costs nothing and it stops
+the next export from being committed by accident.
+
+- [ ] **Step 4: Remove the one-off scripts**
+
+They read a file that no longer exists, so leaving them in place is a broken command
+someone runs in six months and mistrusts the codebase over.
+
+```bash
+rm scripts/import-leads.ts scripts/verify-lead-engine.ts
+```
+
+Remove the `leads:import` and `leads:verify` entries from `package.json` scripts, and
+drop the `xlsx` dev dependency:
+
+```bash
+npm uninstall xlsx
+```
+
+The fixture and `spreadsheet-parity.test.ts` stay — they are the surviving record of
+what the spreadsheet did, and they need neither the file nor the parser.
+
+- [ ] **Step 5: Record the retirement in the spec**
+
+Add to `docs/specs/phase-15-leads-and-appointments.md`, under the status line:
+
+```markdown
+**Spreadsheet retired:** `02 Leads Management & Appt.xlsx` was imported (244 leads) and
+deleted. Its behaviour survives as `src/lib/leads/__fixtures__/spreadsheet-parity.json`
+— 244 input/expectation pairs pinned to the sheet's final recalculation date. That
+fixture is the only remaining proof that the engine matches the system it replaced;
+changing an expectation in it is changing history, not fixing a test.
+```
+
+- [ ] **Step 6: Full suite one more time**
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+Expected: all pass with the spreadsheet, both scripts and the `xlsx` dependency gone.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add -A
+git commit -m "chore(leads): retire the leads spreadsheet
+
+Imported 244 leads and deleted the source file. Parity with its formula
+engine survives as a committed fixture of inputs and expectations, pinned
+to the sheet's final recalculation date."
 ```
 
 ---

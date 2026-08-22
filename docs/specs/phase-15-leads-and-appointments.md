@@ -355,6 +355,23 @@ all 244 leads and diffs against the values cached in the xlsx. The port is corre
 the diff is empty. This is the whole reason for porting the enums verbatim, and it is
 the acceptance test for the engine.
 
+### Retiring the spreadsheet
+
+The xlsx is deleted once the import and the gate have both passed. That would normally
+destroy the only evidence the engine is faithful, so the gate is frozen first into
+`src/lib/leads/__fixtures__/spreadsheet-parity.json`: 244 input/expectation pairs
+pinned to the sheet's final recalculation date, which the test suite replays forever.
+
+The fixture is committed; the spreadsheet never is. That is safe because the engine
+reads only six fields — stage, status, outcome, the override note, and two dates — and
+none of them carries personal data. The override column was checked: 9 non-empty rows,
+all generic sales notes. Names, mobiles, developments and summaries are all outside
+what the engine sees, so none of them reach the fixture.
+
+Deleting the spreadsheet is one-way. Confirm 244 rows are in the database, and keep a
+backup outside the repository, before removing it. The `*.xlsx` ignore rule stays in
+place afterwards — the next export should not be committable either.
+
 ## Access control
 
 Server Actions are the access-control surface (`rules/data/rls.md`) — every action opens

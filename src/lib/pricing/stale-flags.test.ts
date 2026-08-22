@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { CalcAddonBook, CalcWindow } from "./calculator";
+import type { CalcWindow } from "./calculator";
 import {
   type MeshCalcAssumptions,
   type MeshPanel,
@@ -23,11 +23,6 @@ const ASSUMPTIONS: MeshCalcAssumptions = {
   airFreightFloorRmbCents: 50000,
   airFreightCapRmbCents: 140000,
   trackCostRmbCentsPerM: 2500,
-};
-
-const BOOK: CalcAddonBook = {
-  sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
-  slimTracks: { costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
 };
 
 const CAT = "cat-airguard";
@@ -56,8 +51,7 @@ const CURTAIN_WINDOW: CalcWindow = {
   widthCm: 280,
   dayPrice: { costRmbCents: 5100, saleSgdCents: 9000 },
   nightPrice: null,
-  addSFold: false,
-  addSlimTracks: false,
+  addons: [],
 };
 
 const order = (over: Partial<StaleOrderRow> = {}): StaleOrderRow => ({
@@ -79,7 +73,6 @@ const run = (
     orders,
     windowsByOrder,
     panelsByOrder,
-    book: BOOK,
     meshBook: MESH_BOOK,
     assumptions: ASSUMPTIONS,
   });

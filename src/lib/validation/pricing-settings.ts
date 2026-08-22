@@ -104,13 +104,37 @@ const priceField = z
   ])
   .optional();
 
-export const pricingAddonSchema = z.object({
-  id: z.string().uuid(),
-  label: z.string().trim().min(1, "Required").max(120),
-  cost_rmb: priceField,
-  sale_sgd: priceField,
-  basis: z.enum(["per_metre", "per_unit"]),
-  is_active: z.boolean().optional(),
-});
+export const pricingAddonSchema = z
+  .object({
+    // Absent on a row being created — the action generates the key and the id.
+    id: z.string().uuid().optional(),
+    label: z.string().trim().min(1, "Required").max(120),
+    cost_rmb: priceField,
+    sale_sgd: priceField,
+    basis: z.enum(["per_metre", "per_unit"]),
+    // Which covering offers this add-on, and how it gets ticked. 'curtain' /
+    // 'manual' match the column defaults: a row added by hand fails safe —
+    // visible on curtains, never silently auto-charged.
+    applies_to: z.enum(["curtain", "blind", "both"]).default("curtain"),
+    auto_rule: z.enum(["manual", "always", "width_over"]).default("manual"),
+    auto_width_over_cm: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(1000)
+      .nullable()
+      .optional(),
+    is_active: z.boolean().optional(),
+  })
+  // Mirrors the pricing_addons_auto_width_agrees check constraint, so a bad
+  // combination is a field error rather than a 500 out of Postgres.
+  .refine((v) => v.auto_rule !== "width_over" || v.auto_width_over_cm != null, {
+    message: "Enter the width it applies over",
+    path: ["auto_width_over_cm"],
+  })
+  .refine((v) => v.auto_rule === "width_over" || v.auto_width_over_cm == null, {
+    message: "Only 'over width' uses a threshold",
+    path: ["auto_width_over_cm"],
+  });
 
 export type PricingAddonInput = z.infer<typeof pricingAddonSchema>;

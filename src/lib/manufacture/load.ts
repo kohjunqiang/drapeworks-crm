@@ -110,10 +110,8 @@ export async function loadManufactureLines(
       "night_ct.id",
       "windows.night_curtain_type_id",
     )
-    .leftJoin("curtain_types as toilet_ct", "toilet_ct.id", "windows.curtain_type_id")
     .leftJoin("curtain_series as day_cs", "day_cs.id", "day_ct.series_id")
     .leftJoin("curtain_series as night_cs", "night_cs.id", "night_ct.series_id")
-    .leftJoin("curtain_series as toilet_cs", "toilet_cs.id", "toilet_ct.series_id")
     .leftJoin("curtain_types as blind_ct", "blind_ct.id", "windows.blind_type_id")
     .leftJoin("curtain_series as blind_cs", "blind_cs.id", "blind_ct.series_id")
     .select([
@@ -131,10 +129,6 @@ export async function loadManufactureLines(
       "night_ct.series_index as night_curtain_index",
       "night_ct.page as night_curtain_page",
       "night_cs.name as night_curtain_series",
-      "toilet_ct.label as curtain_label",
-      "toilet_ct.series_index as curtain_index",
-      "toilet_ct.page as curtain_page",
-      "toilet_cs.name as curtain_series",
       "windows.blind_type_id as blind_type_id",
       "blind_ct.label as blind_label",
       "blind_ct.series_index as blind_index",
@@ -147,8 +141,8 @@ export async function loadManufactureLines(
     .execute();
 
   return windows.map((w) => {
-    // A window is ONE covering — day/night curtains, a single toilet curtain,
-    // or a blind, never a mix — so this is an either/or, not a priority list.
+    // A window is ONE covering — day/night curtains or a blind, never a mix —
+    // so this is an either/or, not a priority list.
     const isBlind = w.blind_type_id != null;
     const description = isBlind
       ? labelOf(w.blind_series, w.blind_index, w.blind_page, w.blind_label)
@@ -171,7 +165,6 @@ export async function loadManufactureLines(
               w.night_curtain_label,
             ),
           ),
-          labelOf(w.curtain_series, w.curtain_index, w.curtain_page, w.curtain_label),
         ]);
 
     return {

@@ -19,13 +19,25 @@ describe("windowSchema — curtain type ids (option A)", () => {
     });
   });
 
-  it("accepts a toilet window with a single curtain type id", () => {
-    const parsed = windowSchema.parse({
+  it("rejects the retired toilet variant — a toilet window is a blind", () => {
+    const r = windowSchema.safeParse({
       variant: "toilet",
       position: 0,
       curtain_type_id: UUID,
     });
-    expect(parsed).toMatchObject({ variant: "toilet", curtain_type_id: UUID });
+    expect(r.success).toBe(false);
+  });
+
+  it("carries addon_ids on either variant, defaulting to none", () => {
+    expect(
+      windowSchema.parse({ variant: "regular", position: 0, addon_ids: [UUID] }),
+    ).toMatchObject({ addon_ids: [UUID] });
+    expect(
+      windowSchema.parse({ variant: "blind", position: 0, addon_ids: [UUID] }),
+    ).toMatchObject({ addon_ids: [UUID] });
+    expect(
+      windowSchema.parse({ variant: "blind", position: 0 }).addon_ids,
+    ).toEqual([]);
   });
 
   it("treats an empty-string select value as no selection", () => {
@@ -50,9 +62,19 @@ describe("windowSchema — curtain type ids (option A)", () => {
   it("rejects a malformed curtain type id", () => {
     expect(() =>
       windowSchema.parse({
-        variant: "toilet",
+        variant: "regular",
         position: 0,
-        curtain_type_id: "not-a-uuid",
+        day_curtain_type_id: "not-a-uuid",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a malformed add-on id", () => {
+    expect(() =>
+      windowSchema.parse({
+        variant: "blind",
+        position: 0,
+        addon_ids: ["not-a-uuid"],
       }),
     ).toThrow();
   });
@@ -84,15 +106,14 @@ describe("windowSchema — blind windows", () => {
       blind_type_id: BLIND,
       day_curtain_type_id: UUID,
       night_curtain_type_id: UUID,
-      curtain_type_id: UUID,
-      add_s_fold: true,
       combo_id: UUID,
     });
     expect(parsed).not.toHaveProperty("day_curtain_type_id");
     expect(parsed).not.toHaveProperty("night_curtain_type_id");
-    expect(parsed).not.toHaveProperty("curtain_type_id");
-    expect(parsed).not.toHaveProperty("add_s_fold");
     expect(parsed).not.toHaveProperty("combo_id");
+    // addon_ids IS carried on a blind — Phase 14 gave blinds add-ons. Scope is
+    // what keeps a curtain add-on off one, and that lives in the resolver.
+    expect(parsed).toHaveProperty("addon_ids");
   });
 
   it("rejects Double as a control side — a blind has no two leaves", () => {

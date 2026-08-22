@@ -40,6 +40,9 @@ export type AddonRow = {
   cost_rmb: string | null; // decimal strings for the edit form
   sale_sgd: string | null;
   basis: "per_metre" | "per_unit";
+  applies_to: "curtain" | "blind" | "both";
+  auto_rule: "manual" | "always" | "width_over";
+  auto_width_over_cm: number | null;
   is_active: boolean;
 };
 
@@ -64,6 +67,9 @@ export async function loadAddons(): Promise<AddonRow[]> {
       "cost_rmb_cents",
       "sale_sgd_cents",
       "basis",
+      "applies_to",
+      "auto_rule",
+      "auto_width_over_cm",
       "is_active",
     ])
     .where("key", "not in", RETIRED_KEYS)
@@ -77,6 +83,9 @@ export async function loadAddons(): Promise<AddonRow[]> {
     cost_rmb: r.cost_rmb_cents != null ? centsToDisplay(r.cost_rmb_cents) : null,
     sale_sgd: r.sale_sgd_cents != null ? centsToDisplay(r.sale_sgd_cents) : null,
     basis: r.basis,
+    applies_to: r.applies_to,
+    auto_rule: r.auto_rule,
+    auto_width_over_cm: r.auto_width_over_cm,
     is_active: r.is_active,
   }));
 }

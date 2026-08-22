@@ -1,7 +1,7 @@
 # Phase 14 — Window add-ons & blinds-only toilets
 
-**Status:** specified 2026-08-21 — not yet implemented
-**Date:** 2026-08-21 (revised same day after review)
+**Status:** implemented 2026-08-22
+**Date:** 2026-08-21 (revised same day after review); implemented 2026-08-22
 **Depends on:** Phase 9 (pricing foundation), Phase 10 (combos), Phase 12 (blinds), Phase 13B/13C (manufacture, procurement)
 
 ---

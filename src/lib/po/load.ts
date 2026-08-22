@@ -284,8 +284,6 @@ async function loadLines(
     .leftJoin("curtain_series as day_cs", "day_cs.id", "day_ct.series_id")
     .leftJoin("curtain_types as night_ct", "night_ct.id", "windows.night_curtain_type_id")
     .leftJoin("curtain_series as night_cs", "night_cs.id", "night_ct.series_id")
-    .leftJoin("curtain_types as toilet_ct", "toilet_ct.id", "windows.curtain_type_id")
-    .leftJoin("curtain_series as toilet_cs", "toilet_cs.id", "toilet_ct.series_id")
     .leftJoin("curtain_types as blind_ct", "blind_ct.id", "windows.blind_type_id")
     .leftJoin("curtain_series as blind_cs", "blind_cs.id", "blind_ct.series_id")
     .select([
@@ -303,8 +301,6 @@ async function loadLines(
       "day_cs.vendor_id as day_vendor_id",
       "night_ct.label as night_label",
       "night_cs.vendor_id as night_vendor_id",
-      "toilet_ct.label as toilet_label",
-      "toilet_cs.vendor_id as toilet_vendor_id",
       "blind_ct.label as blind_label",
       "blind_cs.vendor_id as blind_vendor_id",
       "blind_cs.name_cn as blind_name_cn",
@@ -339,8 +335,8 @@ async function loadLines(
       openingLabel: opening,
     };
 
-    // A window is ONE covering — day/night curtains, a single toilet curtain, or
-    // a blind, never a mix — so this is an either/or, not a priority list.
+    // A window is ONE covering — day/night curtains or a blind, never a mix —
+    // so this is an either/or, not a priority list.
     const coverings: Covering[] = [];
 
     if (w.blind_type_id) {
@@ -371,15 +367,6 @@ async function loadLines(
           kind: "curtain",
           typeLabel: typeLabels.get("night") ?? null,
           fabricLabel: w.night_label,
-        });
-      }
-      if (w.toilet_label) {
-        coverings.push({
-          lineId: `${w.id}:toilet`,
-          vendorId: w.toilet_vendor_id,
-          kind: "curtain",
-          typeLabel: typeLabels.get("toilet") ?? null,
-          fabricLabel: w.toilet_label,
         });
       }
     }

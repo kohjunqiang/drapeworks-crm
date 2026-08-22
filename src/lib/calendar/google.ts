@@ -1,5 +1,11 @@
 import "server-only";
 
+// Pinned to the v10 line on purpose. v11 declares `engines: node >= 22` (a
+// Node 20 EOL policy bump, not an API change), and this app's Dockerfile runs
+// node:20-alpine — so v11 installs with an unsatisfied engine constraint in
+// production. v10 declares node >= 18 and exposes the identical JWT surface
+// used below. Moving the whole app to Node 22 is the right long-term fix, but
+// it deserves its own change; don't bump this package to get there.
 import { JWT } from "google-auth-library";
 
 import type { CalendarEvent } from "./event";

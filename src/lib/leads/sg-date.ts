@@ -8,17 +8,25 @@
  */
 export type SgDate = string;
 
-const SG_FORMATTER = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Singapore",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+/**
+ * Singapore has been a fixed +08:00 with no DST since 1982, so one constant is
+ * exact rather than an approximation. The same constant appears in the import
+ * scripts, which read wall-clock times out of the spreadsheet.
+ */
+const SG_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /** The Singapore calendar date on which `instant` falls. */
 export function toSgDate(instant: Date): SgDate {
-  // en-CA formats as YYYY-MM-DD, which is exactly the shape we want.
-  return SG_FORMATTER.format(instant);
+  // Deliberately arithmetic rather than Intl.DateTimeFormat with a timeZone.
+  // That would need full ICU tz data at runtime; a small-ICU build silently
+  // falls back to UTC and reintroduces exactly the eight-hour error this whole
+  // module exists to prevent — wrong, and wrong without failing.
+  //
+  // Shifting the instant by the offset and then reading UTC fields IS the
+  // Singapore calendar date. This is not the naive
+  // `instant.toISOString().slice(0, 10)`, which reads a wall-clock instant in
+  // the wrong zone; the shift is what makes it correct.
+  return new Date(instant.getTime() + SG_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 /** Today's date in Singapore. The engine's `TODAY()`. */

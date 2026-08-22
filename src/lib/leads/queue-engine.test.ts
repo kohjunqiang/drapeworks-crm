@@ -182,3 +182,46 @@ describe("deriveDueStatus", () => {
     expect(deriveDueStatus("Qualify Lead", "2026-08-23", TODAY)).toBe("Upcoming");
   });
 });
+
+import { deriveContactPriority } from "./queue-engine";
+
+describe("deriveContactPriority", () => {
+  it("closes Won, Lost and Closed", () => {
+    expect(deriveContactPriority(lead({ funnel_stage: "Won" }), "Closed", null, TODAY)).toBe("Closed");
+    expect(deriveContactPriority(lead({ funnel_stage: "Lost" }), "Closed", null, TODAY)).toBe("Closed");
+  });
+
+  it("puts Reply Required and Send Quote at the top regardless of date", () => {
+    // Even a date three weeks out cannot push these down: the customer is waiting.
+    expect(
+      deriveContactPriority(lead(), "Reply Required", "2026-09-30", TODAY),
+    ).toBe("Contact Today");
+    expect(
+      deriveContactPriority(lead(), "Send Quote", "2026-09-30", TODAY),
+    ).toBe("Contact Today");
+  });
+
+  it("bands by the effective date when one exists", () => {
+    expect(deriveContactPriority(lead(), "Qualify Lead", "2026-08-20", TODAY)).toBe("Contact Today");
+    expect(deriveContactPriority(lead(), "Qualify Lead", "2026-08-22", TODAY)).toBe("Contact Today");
+    expect(deriveContactPriority(lead(), "Qualify Lead", "2026-08-25", TODAY)).toBe("Contact in 2–3 Days");
+    expect(deriveContactPriority(lead(), "Qualify Lead", "2026-08-29", TODAY)).toBe("Contact Within 7 Days");
+    expect(deriveContactPriority(lead(), "Qualify Lead", "2026-08-30", TODAY)).toBe("Future / Nurture");
+  });
+
+  it("bands by action when there is no date", () => {
+    expect(deriveContactPriority(lead(), "Nurture / Re-engage", null, TODAY)).toBe("Future / Nurture");
+    expect(deriveContactPriority(lead(), "Attend / Confirm Appointment", null, TODAY)).toBe("Contact Today");
+    expect(deriveContactPriority(lead(), "Book Appointment", null, TODAY)).toBe("Contact in 2–3 Days");
+    expect(deriveContactPriority(lead(), "Push for Decision", null, TODAY)).toBe("Contact in 2–3 Days");
+  });
+
+  it("falls Ignore Lead through to Contact Within 7 Days — a spreadsheet bug, ported deliberately", () => {
+    // This is half of known bug #1: an Ignore Lead that is still Active gets a
+    // live priority here, and the visibility rule only excludes Unresponsive.
+    // One such lead sits in the real queue today.
+    expect(deriveContactPriority(lead(), "Ignore Lead", null, TODAY)).toBe(
+      "Contact Within 7 Days",
+    );
+  });
+});

@@ -89,3 +89,53 @@ export function deriveDueStatus(
   if (effectiveDate === today) return "Due Today";
   return "Upcoming";
 }
+
+import { addDays } from "./sg-date";
+import type { ContactPriority } from "./types";
+
+const DATELESS_URGENT: ActionRequired[] = [
+  "Qualify Lead",
+  "Book Appointment",
+  "Follow Up Quote",
+  "Push for Decision",
+  "Follow Up – No Response",
+];
+
+/**
+ * Column X.
+ *
+ * The final `else` catches 'Ignore Lead', 'Resolve Barrier' and 'Review Lead'
+ * and gives them a live priority. For Ignore Lead that is a spreadsheet bug —
+ * ported deliberately; see the spec's "bugs carried knowingly" section.
+ */
+export function deriveContactPriority(
+  lead: LeadEngineInput,
+  action: ActionRequired,
+  effectiveDate: SgDate | null,
+  today: SgDate,
+): ContactPriority {
+  if (
+    lead.funnel_stage === "Won" ||
+    lead.funnel_stage === "Lost" ||
+    action === "Closed"
+  ) {
+    return "Closed";
+  }
+
+  // The customer is waiting on us. Nothing outranks that.
+  if (action === "Reply Required" || action === "Send Quote") {
+    return "Contact Today";
+  }
+
+  if (effectiveDate) {
+    if (effectiveDate <= today) return "Contact Today";
+    if (effectiveDate <= addDays(today, 3)) return "Contact in 2–3 Days";
+    if (effectiveDate <= addDays(today, 7)) return "Contact Within 7 Days";
+    return "Future / Nurture";
+  }
+
+  if (action === "Nurture / Re-engage") return "Future / Nurture";
+  if (action === "Attend / Confirm Appointment") return "Contact Today";
+  if (DATELESS_URGENT.includes(action)) return "Contact in 2–3 Days";
+  return "Contact Within 7 Days";
+}

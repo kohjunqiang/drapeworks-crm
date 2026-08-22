@@ -22,6 +22,7 @@ export type AppointmentSummary = {
   address: string | null;
   notes: string | null;
   status: AppointmentStatus;
+  google_event_id: string | null;
   google_sync_state: GoogleSyncState;
   google_sync_error: string | null;
 };
@@ -138,7 +139,16 @@ export function AppointmentCard({
           </p>
         ) : null}
 
-        {appointment.google_sync_state === "synced" ? (
+        {/* 'synced' means "the calendar matches what we want", which is also
+            true when what we want is NO event: unsyncAppointment deliberately
+            lands on 'synced' with a null event id after cancelling or marking
+            a no-show, so the stale "sync failed — Retry" alarm clears. A
+            no-show keeps its card on screen, so gating only on the state would
+            tell the consultant the appointment is "on the shared calendar"
+            when the event has just been deleted — or, on an environment with
+            no Google credentials, when it was never created at all. */}
+        {appointment.google_sync_state === "synced" &&
+        appointment.google_event_id ? (
           <p className="text-xs text-slate-500">On the shared calendar.</p>
         ) : null}
 

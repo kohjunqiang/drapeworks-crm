@@ -5,7 +5,6 @@ import {
   computeQuote,
   marginBps,
   windowQuote,
-  type CalcAddonBook,
   type CalcAssumptions,
 } from "./calculator";
 
@@ -25,9 +24,20 @@ const ASSUMPTIONS: CalcAssumptions = {
   trackCostRmbCentsPerM: 2500, // ¥25 per metre of MEASURED width
 };
 
-const BOOK: CalcAddonBook = {
-  sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
-  slimTracks: { costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
+// The two curtain add-ons, as the resolver would hand them over. Labels match
+// the ones the old hard-coded legs used, so the leg assertions below still
+// describe what a consultant sees.
+const S_FOLD = {
+  label: "S-Fold",
+  costRmbCents: 1100,
+  saleSgdCents: 8000,
+  basis: "per_metre" as const,
+};
+const SLIM = {
+  label: "Slim tracks",
+  costRmbCents: 3500,
+  saleSgdCents: 5000,
+  basis: "per_metre" as const,
 };
 
 const SIGNATURE = { costRmbCents: 5100, saleSgdCents: 9000 }; // ¥51 / S$90 per m
@@ -39,10 +49,8 @@ describe("windowQuote", () => {
         widthCm: 280,
         dayPrice: SIGNATURE,
         nightPrice: null,
-        addSFold: true,
-        addSlimTracks: false,
+        addons: [S_FOLD],
       },
-      BOOK,
       ASSUMPTIONS,
     );
     // day cost 2.8×2×5100=28560, sale 2.8×9000=25200
@@ -72,10 +80,8 @@ describe("windowQuote", () => {
         widthCm: 300,
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       },
-      BOOK,
       ASSUMPTIONS,
     );
     // day+night cost 2×(3×2×5100)=61200, sale 2×(3×9000)=54000
@@ -102,10 +108,8 @@ describe("windowQuote", () => {
         widthCm: 300,
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       },
-      BOOK,
       ASSUMPTIONS,
     );
     // Sale is fabric only: 2×(3×9000)=54000 — no rail reaches the customer.
@@ -119,13 +123,11 @@ describe("windowQuote", () => {
       widthCm: 300,
       dayPrice: SIGNATURE,
       nightPrice: SIGNATURE,
-      addSFold: false,
-      addSlimTracks: false,
+      addons: [],
     };
-    const plain = windowQuote(base, BOOK, ASSUMPTIONS);
+    const plain = windowQuote(base, ASSUMPTIONS);
     const combo = windowQuote(
       { ...base, comboPriceSgdCents: 45000 }, // S$450 bundle
-      BOOK,
       ASSUMPTIONS,
     );
     // Sale is fixed to the bundle price; every cost figure is identical.
@@ -138,8 +140,7 @@ describe("windowQuote", () => {
   it("is zero for an unmeasured / unpriced window", () => {
     expect(
       windowQuote(
-        { widthCm: null, addSFold: true, addSlimTracks: true },
-        BOOK,
+        { widthCm: null, addons: [S_FOLD, SLIM] },
         ASSUMPTIONS,
       ),
     ).toEqual({
@@ -171,8 +172,7 @@ describe("computeQuote — cost breakdown by room", () => {
           widthCm: 280,
           dayPrice: ESSENTIAL,
           nightPrice: NIGHT,
-          addSFold: true,
-          addSlimTracks: false,
+          addons: [S_FOLD],
         },
         {
           roomIndex: 0,
@@ -180,19 +180,16 @@ describe("computeQuote — cost breakdown by room", () => {
           widthCm: 150,
           dayPrice: ESSENTIAL,
           nightPrice: null,
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
         {
           roomIndex: 1,
           roomLabel: "Bedroom",
           widthCm: 150,
           blindPrice: { ...SIGNATURE, label: "Korean Combi" },
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
 
@@ -223,11 +220,9 @@ describe("computeQuote — cost breakdown by room", () => {
           widthCm: 200,
           dayPrice: ESSENTIAL,
           nightPrice: { ...ESSENTIAL },
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.cogsRooms[0].items[0].detail).toBe("Essential");
@@ -239,11 +234,9 @@ describe("computeQuote — cost breakdown by room", () => {
         {
           widthCm: 200,
           dayPrice: SIGNATURE, // no label
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.cogsRooms[0].items[0].detail).toBeNull();
@@ -268,11 +261,9 @@ describe("computeQuote — cost breakdown by room", () => {
           widthCm: 280,
           dayPrice: ESSENTIAL,
           nightPrice: null,
-          addSFold: true,
-          addSlimTracks: false,
+          addons: [S_FOLD],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     // fabric 28560 + s-fold 3080. The 7000 rail is counted separately.
@@ -289,12 +280,10 @@ describe("computeQuote — cost breakdown by room", () => {
       widthCm: 200,
       dayPrice: ESSENTIAL,
       nightPrice: null,
-      addSFold: false,
-      addSlimTracks: false,
+      addons: [],
     });
     const q = computeQuote(
       [win(0), win(1), win(2), win(3)],
-      BOOK,
       ASSUMPTIONS,
     );
     // Four windows, one rail each: ONE line of four, not four lines.
@@ -311,11 +300,10 @@ describe("computeQuote — cost breakdown by room", () => {
       widthCm: 200,
       dayPrice: ESSENTIAL,
       nightPrice: null,
-      addSFold: false,
-      addSlimTracks: false,
+      addons: [],
     };
     const double = { ...single, nightPrice: NIGHT };
-    const q = computeQuote([single, double, double], BOOK, ASSUMPTIONS);
+    const q = computeQuote([single, double, double], ASSUMPTIONS);
     // Single: 2.0m × ¥25 = 5000. Double: two runs, 2 × 2.0m × ¥25 = 10000 each.
     expect(q.cogsExtras).toEqual([
       { label: "Track (single)", count: 1, rmbCents: 5000 },
@@ -331,11 +319,9 @@ describe("computeQuote — cost breakdown by room", () => {
           roomLabel: "Bedroom",
           widthCm: 150,
           blindPrice: { ...SIGNATURE, label: "Korean Combi" },
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.cogsExtras).toEqual([]);
@@ -347,10 +333,9 @@ describe("computeQuote — cost breakdown by room", () => {
       roomLabel: "Bedroom",
       widthCm: 200,
       dayPrice: ESSENTIAL,
-      addSFold: false,
-      addSlimTracks: false,
+      addons: [],
     });
-    const q = computeQuote([win(0), win(1)], BOOK, ASSUMPTIONS);
+    const q = computeQuote([win(0), win(1)], ASSUMPTIONS);
     expect(q.cogsRooms).toHaveLength(2);
     expect(q.cogsRooms.every((r) => r.items.length === 1)).toBe(true);
   });
@@ -363,11 +348,9 @@ describe("computeQuote — cost breakdown by room", () => {
           roomLabel: null,
           widthCm: 200,
           dayPrice: ESSENTIAL,
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.cogsRooms[0].label).toBe("Room 3");
@@ -391,11 +374,9 @@ describe("computeQuote", () => {
           widthCm: 280,
           dayPrice: SIGNATURE,
           nightPrice: null,
-          addSFold: true,
-          addSlimTracks: false,
+          addons: [S_FOLD],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.cogsRmbCents).toBe(38640); // fabric 28560 + s-fold 3080 + rail 7000
@@ -418,11 +399,10 @@ describe("computeQuote", () => {
       widthCm: 280,
       dayPrice: SIGNATURE,
       nightPrice: null,
-      addSFold: true,
-      addSlimTracks: false,
+      addons: [S_FOLD],
     };
-    const base = computeQuote([win], BOOK, ASSUMPTIONS, "air");
-    const withExtra = computeQuote([win], BOOK, ASSUMPTIONS, "air", 5000);
+    const base = computeQuote([win], ASSUMPTIONS, "air");
+    const withExtra = computeQuote([win], ASSUMPTIONS, "air", 5000);
     expect(withExtra.installationSgdCents).toBe(base.installationSgdCents + 5000);
     expect(withExtra.netCostSgdCents).toBe(base.netCostSgdCents + 5000);
   });
@@ -432,11 +412,10 @@ describe("computeQuote", () => {
       widthCm: 280,
       dayPrice: SIGNATURE,
       nightPrice: null,
-      addSFold: true,
-      addSlimTracks: false,
+      addons: [S_FOLD],
     };
-    const base = computeQuote([win], BOOK, ASSUMPTIONS, "air");
-    const disc = computeQuote([win], BOOK, ASSUMPTIONS, "air", 0, 1500); // −15%
+    const base = computeQuote([win], ASSUMPTIONS, "air");
+    const disc = computeQuote([win], ASSUMPTIONS, "air", 0, 1500); // −15%
     // Pre-discount sale is preserved; the discounted sale is 85% of it.
     expect(disc.saleSgdCents).toBe(base.saleSgdCents);
     expect(disc.discountedSaleSgdCents).toBe(
@@ -463,11 +442,10 @@ describe("computeQuote", () => {
       widthCm: 300,
       dayPrice: SIGNATURE,
       nightPrice: SIGNATURE,
-      addSFold: false,
-      addSlimTracks: false,
+      addons: [],
       comboPriceSgdCents: 45000,
     };
-    const q = computeQuote([win], BOOK, ASSUMPTIONS, "air", 0, 1000); // −10%
+    const q = computeQuote([win], ASSUMPTIONS, "air", 0, 1000); // −10%
     // Combo fixes the per-window sale; the promo then discounts the order total.
     expect(q.saleSgdCents).toBe(45000);
     expect(q.discountedSaleSgdCents).toBe(Math.round((45000 * 9000) / 10000));
@@ -481,16 +459,15 @@ describe("computeQuote", () => {
       widthCm: 280,
       dayPrice: SIGNATURE,
       nightPrice: null,
-      addSFold: true,
-      addSlimTracks: false,
+      addons: [S_FOLD],
     };
-    const q = computeQuote([win], BOOK, ASSUMPTIONS);
+    const q = computeQuote([win], ASSUMPTIONS);
     expect(q.discountedSaleSgdCents).toBe(q.saleSgdCents);
     expect(q.marginBps).toBe(marginBps(q.netCostSgdCents, q.saleSgdCents));
   });
 
   it("returns zeros for an empty order", () => {
-    const q = computeQuote([], BOOK, ASSUMPTIONS);
+    const q = computeQuote([], ASSUMPTIONS);
     expect(q.cogsRmbCents).toBe(0);
     expect(q.saleSgdCents).toBe(0);
     expect(q.marginBps).toBe(0);
@@ -501,11 +478,10 @@ describe("computeQuote", () => {
       widthCm: 280,
       dayPrice: SIGNATURE,
       nightPrice: null,
-      addSFold: true,
-      addSlimTracks: false,
+      addons: [S_FOLD],
     };
-    const air = computeQuote([win], BOOK, ASSUMPTIONS, "air");
-    const sea = computeQuote([win], BOOK, ASSUMPTIONS, "sea");
+    const air = computeQuote([win], ASSUMPTIONS, "air");
+    const sea = computeQuote([win], ASSUMPTIONS, "sea");
     expect(air.freightRmbCents).toBe(50000); // air clamps to the ¥500 floor
     expect(sea.freightRmbCents).toBe(40000); // sea is a flat ¥400
     // Sea is cheaper here → lower net cost → better margin.
@@ -529,11 +505,47 @@ describe("marginBps", () => {
 
 const BLIND = { costRmbCents: 4000, saleSgdCents: 7000 }; // ¥40 / S$70 per m
 
+// Blind-scoped add-ons, as the resolver hands them over.
+const BLACKOUT = {
+  label: "Blackout",
+  costRmbCents: 2700,
+  saleSgdCents: 5000,
+  basis: "per_metre" as const,
+};
+const SHIPPING = {
+  label: "Extra shipping",
+  costRmbCents: null,
+  saleSgdCents: 13000,
+  basis: "per_unit" as const,
+};
+
+describe("windowQuote — no covering, no add-on", () => {
+  // A blind window with no type picked yet falls through to the CURTAIN path
+  // (windowQuote branches on blindPrice, not on the variant), carrying whatever
+  // the resolver decided. Without this rule it charges a per-unit add-on while
+  // reporting offering: "none". Per-metre add-ons hide it — addonLeg returns
+  // zero without a width — so extra_shipping is the first one that would bite.
+  it("charges nothing on a window with nothing in it", () => {
+    const q = windowQuote({ widthCm: 230, addons: [SHIPPING] }, ASSUMPTIONS);
+    expect(q.offering).toBe("none");
+    expect(q.costRmbCents).toBe(0);
+    expect(q.saleSgdCents).toBe(0);
+    expect(q.legs).toEqual([]);
+  });
+
+  it("charges nothing on a measured but unpriced curtain window", () => {
+    const q = windowQuote(
+      { widthCm: 230, dayPrice: null, nightPrice: null, addons: [SHIPPING] },
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(0);
+  });
+});
+
 describe("windowQuote — blinds", () => {
   it("prices by width with NO style multiplier on cost", () => {
     const q = windowQuote(
-      { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
-      BOOK,
+      { widthCm: 200, blindPrice: BLIND, addons: [] },
       ASSUMPTIONS,
     );
 
@@ -543,18 +555,17 @@ describe("windowQuote — blinds", () => {
     expect(q.offering).toBe("blind");
   });
 
-  it("adds no track and no add-ons even when the toggles are set", () => {
-    const withToggles = windowQuote(
-      { widthCm: 200, blindPrice: BLIND, addSFold: true, addSlimTracks: true },
-      BOOK,
+  it("adds no track, whatever else it carries", () => {
+    // A blind carries its own headrail. This was previously bundled with "and
+    // no add-ons either" — that half moved to the resolver in Phase 14, which
+    // keeps a curtain-scoped add-on off a blind by SCOPE. The calculator now
+    // trusts what it is handed, so the two facts are tested apart.
+    const q = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addons: [BLACKOUT] },
       ASSUMPTIONS,
     );
-    const without = windowQuote(
-      { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
-      BOOK,
-      ASSUMPTIONS,
-    );
-    expect(withToggles).toEqual(without);
+    expect(q.trackRmbCents).toBe(0);
+    expect(q.trackKind).toBeNull();
   });
 
   it("ignores a combo price — combos are a curtain bundle", () => {
@@ -562,11 +573,9 @@ describe("windowQuote — blinds", () => {
       {
         widthCm: 200,
         blindPrice: BLIND,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
         comboPriceSgdCents: 999_00,
       },
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(14000);
@@ -574,8 +583,7 @@ describe("windowQuote — blinds", () => {
 
   it("counts blind cost toward the air-freight base", () => {
     const q = windowQuote(
-      { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
-      BOOK,
+      { widthCm: 200, blindPrice: BLIND, addons: [] },
       ASSUMPTIONS,
     );
     expect(q.curtainCostRmbCents).toBe(8000);
@@ -583,13 +591,69 @@ describe("windowQuote — blinds", () => {
 
   it("is 'none' — and free — when unmeasured", () => {
     const q = windowQuote(
-      { widthCm: null, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
-      BOOK,
+      { widthCm: null, blindPrice: BLIND, addons: [] },
       ASSUMPTIONS,
     );
     expect(q.offering).toBe("none");
     expect(q.costRmbCents).toBe(0);
     expect(q.saleSgdCents).toBe(0);
+  });
+
+  it("charges a per-metre add-on", () => {
+    const q = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addons: [BLACKOUT] },
+      ASSUMPTIONS,
+    );
+    // blind 2m × ¥40 = ¥80, blackout 2m × ¥27 = ¥54
+    expect(q.costRmbCents).toBe(8000 + 5400);
+    expect(q.saleSgdCents).toBe(14000 + 10000);
+  });
+
+  it("charges a per-unit add-on flat", () => {
+    const q = windowQuote(
+      { widthCm: 230, blindPrice: BLIND, addons: [SHIPPING] },
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(Math.round(2.3 * 7000) + 13000);
+  });
+
+  it("keeps add-on cost out of the air-freight base", () => {
+    const q = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addons: [BLACKOUT] },
+      ASSUMPTIONS,
+    );
+    // curtainCostRmbCents is the freight base: the covering alone.
+    expect(q.curtainCostRmbCents).toBe(8000);
+  });
+
+  it("emits a leg per add-on, alongside its own", () => {
+    const q = windowQuote(
+      { widthCm: 200, blindPrice: BLIND, addons: [BLACKOUT] },
+      ASSUMPTIONS,
+    );
+    expect(q.legs.map((l) => l.label)).toEqual(["Blind", "Blackout"]);
+  });
+
+  it("charges no add-on when unmeasured, per-unit included", () => {
+    const q = windowQuote(
+      { widthCm: null, blindPrice: BLIND, addons: [SHIPPING] },
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(0);
+    expect(q.costRmbCents).toBe(0);
+  });
+
+  it("keeps its add-ons while still ignoring a combo", () => {
+    const q = windowQuote(
+      {
+        widthCm: 200,
+        blindPrice: BLIND,
+        addons: [BLACKOUT],
+        comboPriceSgdCents: 999_00,
+      },
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(14000 + 10000);
   });
 
   it("never prices a curtain leg on a blind window", () => {
@@ -600,10 +664,8 @@ describe("windowQuote — blinds", () => {
         blindPrice: BLIND,
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       },
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(14000);
@@ -625,15 +687,13 @@ describe("costWidthCm", () => {
   const base = {
     widthCm: 302,
     dayPrice: SIGNATURE,
-    addSFold: false,
-    addSlimTracks: false,
+    addons: [],
   };
 
   it("lowers the cost and leaves the sale exactly where it was", () => {
-    const measured = windowQuote(base, BOOK, ASSUMPTIONS);
+    const measured = windowQuote(base, ASSUMPTIONS);
     const made = windowQuote(
       { ...base, costWidthCm: 300 },
-      BOOK,
       ASSUMPTIONS,
     );
 
@@ -652,8 +712,8 @@ describe("costWidthCm", () => {
     // 3.00m, so a confirmed set leaves COGS exactly where it was. The allowance
     // still governs what is CUT; it is only invisible to the money.
     const win = { ...base, widthCm: 300 };
-    expect(windowQuote({ ...win, costWidthCm: 298 }, BOOK, ASSUMPTIONS)).toEqual(
-      windowQuote(win, BOOK, ASSUMPTIONS),
+    expect(windowQuote({ ...win, costWidthCm: 298 }, ASSUMPTIONS)).toEqual(
+      windowQuote(win, ASSUMPTIONS),
     );
   });
 
@@ -675,16 +735,14 @@ describe("costWidthCm", () => {
       widthCm: 280,
       dayPrice: SIGNATURE,
       nightPrice: null,
-      addSFold: true,
-      addSlimTracks: false,
+      addons: [S_FOLD],
     };
     // Omitted (no confirmed set) and explicitly null (a row that never arrived)
     // must both behave as they did before the field existed.
-    expect(windowQuote(win, BOOK, ASSUMPTIONS)).toEqual(today);
+    expect(windowQuote(win, ASSUMPTIONS)).toEqual(today);
     expect(
       windowQuote(
         { ...win, costWidthCm: null },
-        BOOK,
         ASSUMPTIONS,
       ),
     ).toEqual(today);
@@ -693,7 +751,6 @@ describe("costWidthCm", () => {
   it("applies to the night leg as well as the day leg", () => {
     const q = windowQuote(
       { ...base, nightPrice: SIGNATURE, costWidthCm: 300 },
-      BOOK,
       ASSUMPTIONS,
     );
     // Both legs cut at 3.00m: 2 × ¥306.00.
@@ -707,10 +764,8 @@ describe("costWidthCm", () => {
         widthCm: 202,
         costWidthCm: 198,
         blindPrice: BLIND,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       },
-      BOOK,
       ASSUMPTIONS,
     );
     expect(made.costRmbCents).toBe(8000); // 1.98m → 2.00m × ¥40
@@ -721,15 +776,13 @@ describe("costWidthCm", () => {
     const win = {
       widthCm: 282,
       dayPrice: SIGNATURE,
-      addSFold: true,
-      addSlimTracks: true,
+      addons: [S_FOLD, SLIM],
     };
     const made = windowQuote(
       { ...win, costWidthCm: 278 },
-      BOOK,
       ASSUMPTIONS,
     );
-    const measured = windowQuote(win, BOOK, ASSUMPTIONS);
+    const measured = windowQuote(win, ASSUMPTIONS);
 
     // Cut at 2.78m → costed at 2.80: fabric 2.80×2×5100=28560,
     // s-fold 2.80×1100=3080, slim tracks 2.80×3500=9800. Measured 2.82m →
@@ -744,17 +797,15 @@ describe("costWidthCm", () => {
   });
 
   it("leaves a per-unit add-on flat whatever either width says", () => {
-    const perUnit: CalcAddonBook = {
-      ...BOOK,
-      sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_unit" },
+    const perUnit = {
+      label: "S-Fold",
+      costRmbCents: 1100,
+      saleSgdCents: 8000,
+      basis: "per_unit" as const,
     };
     const win = { ...base, costWidthCm: 150 }; // an absurd gap, to make a scaling bug loud
-    const off = windowQuote(win, perUnit, ASSUMPTIONS);
-    const on = windowQuote(
-      { ...win, addSFold: true },
-      perUnit,
-      ASSUMPTIONS,
-    );
+    const off = windowQuote(win, ASSUMPTIONS);
+    const on = windowQuote({ ...win, addons: [perUnit] }, ASSUMPTIONS);
     expect(on.costRmbCents - off.costRmbCents).toBe(1100);
     expect(on.saleSgdCents - off.saleSgdCents).toBe(8000);
     // The rail bills on the EXACT measured 3.02m — neither the absurd
@@ -770,7 +821,6 @@ describe("costWidthCm", () => {
         costWidthCm: 300,
         comboPriceSgdCents: 45000,
       },
-      BOOK,
       ASSUMPTIONS,
     );
     expect(q.saleSgdCents).toBe(45000);
@@ -779,11 +829,11 @@ describe("costWidthCm", () => {
 
   it("still applies the style multiplier to cost only", () => {
     const win = { ...base, costWidthCm: 300 };
-    const double = windowQuote(win, BOOK, {
+    const double = windowQuote(win, {
       ...ASSUMPTIONS,
       styleMultiplier: 20000,
     });
-    const triple = windowQuote(win, BOOK, {
+    const triple = windowQuote(win, {
       ...ASSUMPTIONS,
       styleMultiplier: 30000,
     });
@@ -799,8 +849,7 @@ describe("costWidthCm", () => {
   it("stays free on an unmeasured window even with a manufacturing width", () => {
     expect(
       windowQuote(
-        { widthCm: null, costWidthCm: 298, dayPrice: SIGNATURE, addSFold: true, addSlimTracks: true },
-        BOOK,
+        { widthCm: null, costWidthCm: 298, dayPrice: SIGNATURE, addons: [S_FOLD, SLIM] },
         ASSUMPTIONS,
       ),
     ).toEqual({
@@ -815,10 +864,10 @@ describe("costWidthCm", () => {
   });
 
   it("falls back to the measured width when the manufacturing one is nonsense", () => {
-    const measured = windowQuote(base, BOOK, ASSUMPTIONS);
+    const measured = windowQuote(base, ASSUMPTIONS);
     for (const costWidthCm of [0, -5]) {
       expect(
-        windowQuote({ ...base, costWidthCm }, BOOK, ASSUMPTIONS),
+        windowQuote({ ...base, costWidthCm }, ASSUMPTIONS),
       ).toEqual(measured);
     }
   });
@@ -826,15 +875,14 @@ describe("costWidthCm", () => {
 
 describe("installation cost by offering", () => {
   const measure = (win: Parameters<typeof computeQuote>[0][number]) =>
-    computeQuote([win], BOOK, ASSUMPTIONS, "sea", 0, 0).installationSgdCents;
+    computeQuote([win], ASSUMPTIONS, "sea", 0, 0).installationSgdCents;
 
   it("charges the blinds rate for a blind window", () => {
     expect(
       measure({
         widthCm: 200,
         blindPrice: BLIND,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toBe(ASSUMPTIONS.handymanBlindsSgdCents);
   });
@@ -844,8 +892,7 @@ describe("installation cost by offering", () => {
       measure({
         widthCm: 200,
         dayPrice: SIGNATURE,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toBe(ASSUMPTIONS.handymanSingleSgdCents);
     expect(
@@ -853,8 +900,7 @@ describe("installation cost by offering", () => {
         widthCm: 200,
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toBe(ASSUMPTIONS.handymanDoubleSgdCents);
   });
@@ -864,8 +910,7 @@ describe("installation cost by offering", () => {
       measure({
         widthCm: null,
         blindPrice: BLIND,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toBe(0);
   });
@@ -873,10 +918,9 @@ describe("installation cost by offering", () => {
   it("charges both rates on a mixed curtain + blind order", () => {
     const total = computeQuote(
       [
-        { widthCm: 200, dayPrice: SIGNATURE, nightPrice: SIGNATURE, addSFold: false, addSlimTracks: false },
-        { widthCm: 200, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
+        { widthCm: 200, dayPrice: SIGNATURE, nightPrice: SIGNATURE, addons: [] },
+        { widthCm: 200, blindPrice: BLIND, addons: [] },
       ],
-      BOOK,
       ASSUMPTIONS,
       "sea",
       0,
@@ -899,21 +943,19 @@ describe("track", () => {
   const win = (over: Partial<Parameters<typeof windowQuote>[0]> = {}) => ({
     widthCm: 240,
     dayPrice: SIGNATURE,
-    addSFold: false,
-    addSlimTracks: false,
+    addons: [],
     ...over,
   });
 
   it("bills a single rail at width × rate", () => {
     // 2.40m × ¥25.
-    expect(windowQuote(win(), BOOK, ASSUMPTIONS).trackRmbCents).toBe(6000);
+    expect(windowQuote(win(), ASSUMPTIONS).trackRmbCents).toBe(6000);
   });
 
   it("bills a double rail at twice the width, at the SAME rate", () => {
-    const single = windowQuote(win(), BOOK, ASSUMPTIONS);
+    const single = windowQuote(win(), ASSUMPTIONS);
     const double = windowQuote(
       win({ nightPrice: SIGNATURE }),
-      BOOK,
       ASSUMPTIONS,
     );
     expect(double.trackKind).toBe("double");
@@ -921,8 +963,8 @@ describe("track", () => {
   });
 
   it("follows the width, where the old flat charge did not", () => {
-    const narrow = windowQuote(win({ widthCm: 100 }), BOOK, ASSUMPTIONS);
-    const wide = windowQuote(win({ widthCm: 300 }), BOOK, ASSUMPTIONS);
+    const narrow = windowQuote(win({ widthCm: 100 }), ASSUMPTIONS);
+    const wide = windowQuote(win({ widthCm: 300 }), ASSUMPTIONS);
     expect(narrow.trackRmbCents).toBe(2500);
     expect(wide.trackRmbCents).toBe(7500);
   });
@@ -930,21 +972,19 @@ describe("track", () => {
   it("bills on the measured width, never the manufacturing one", () => {
     const made = windowQuote(
       win({ costWidthCm: 100 }), // an absurd gap, to make a mix-up loud
-      BOOK,
       ASSUMPTIONS,
     );
     expect(made.trackRmbCents).toBe(6000); // still 2.40m
   });
 
   it("is free when the rate is zero, and charges nothing on a blind", () => {
-    const free = windowQuote(win(), BOOK, {
+    const free = windowQuote(win(), {
       ...ASSUMPTIONS,
       trackCostRmbCentsPerM: 0,
     });
     expect(free.trackRmbCents).toBe(0);
     const blind = windowQuote(
-      { widthCm: 240, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
-      BOOK,
+      { widthCm: 240, blindPrice: BLIND, addons: [] },
       ASSUMPTIONS,
     );
     // A blind carries its own headrail.
@@ -952,8 +992,8 @@ describe("track", () => {
   });
 
   it("stays out of the customer's price whatever the width", () => {
-    const narrow = windowQuote(win({ widthCm: 100 }), BOOK, ASSUMPTIONS);
-    const wide = windowQuote(win({ widthCm: 100 }), BOOK, {
+    const narrow = windowQuote(win({ widthCm: 100 }), ASSUMPTIONS);
+    const wide = windowQuote(win({ widthCm: 100 }), {
       ...ASSUMPTIONS,
       trackCostRmbCentsPerM: 100_000,
     });
@@ -972,7 +1012,7 @@ describe("cost breakdown — legs", () => {
   const SIGNATURE_L = { ...SIGNATURE, label: "Signature" };
 
   const legsOf = (win: Parameters<typeof computeQuote>[0][number]) =>
-    computeQuote([win], BOOK, ASSUMPTIONS).cogsRooms[0].items[0].legs;
+    computeQuote([win], ASSUMPTIONS).cogsRooms[0].items[0].legs;
 
   it("splits a day + night window into its two curtains", () => {
     expect(
@@ -980,8 +1020,7 @@ describe("cost breakdown — legs", () => {
         widthCm: 300,
         dayPrice: ESSENTIAL_L,
         nightPrice: ESSENTIAL_L,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toEqual([
       // One series across both, so the window's own row already names it.
@@ -996,8 +1035,7 @@ describe("cost breakdown — legs", () => {
         widthCm: 300,
         dayPrice: ESSENTIAL_L,
         nightPrice: SIGNATURE_L,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       })?.map((l) => l.detail),
     ).toEqual(["Essential", "Signature"]);
   });
@@ -1007,8 +1045,7 @@ describe("cost breakdown — legs", () => {
       legsOf({
         widthCm: 280,
         dayPrice: ESSENTIAL_L,
-        addSFold: true,
-        addSlimTracks: true,
+        addons: [S_FOLD, SLIM],
       })?.map((l) => l.label),
     ).toEqual(["Day curtain", "S-Fold", "Slim tracks"]);
   });
@@ -1018,16 +1055,14 @@ describe("cost breakdown — legs", () => {
       legsOf({
         widthCm: 280,
         dayPrice: ESSENTIAL_L,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toBeUndefined();
     expect(
       legsOf({
         widthCm: 150,
         blindPrice: { ...SIGNATURE, label: "Korean Combi" },
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       }),
     ).toBeUndefined();
   });
@@ -1039,11 +1074,9 @@ describe("cost breakdown — legs", () => {
           widthCm: 280,
           dayPrice: ESSENTIAL_L,
           nightPrice: SIGNATURE_L,
-          addSFold: true,
-          addSlimTracks: true,
+          addons: [S_FOLD, SLIM],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
     );
     const item = q.cogsRooms[0].items[0];
@@ -1066,11 +1099,9 @@ describe("finaliseQuote — what other cost and GST are charged on", () => {
         {
           widthCm: 280,
           dayPrice: SIGNATURE,
-          addSFold: false,
-          addSlimTracks: false,
+          addons: [],
         },
       ],
-      BOOK,
       ASSUMPTIONS,
       "sea", // a flat ¥400, so the base is obvious either way
     );
@@ -1088,11 +1119,10 @@ describe("finaliseQuote — what other cost and GST are charged on", () => {
     const win = {
       widthCm: 280,
       dayPrice: SIGNATURE,
-      addSFold: false,
-      addSlimTracks: false,
+      addons: [],
     };
-    const air = computeQuote([win], BOOK, ASSUMPTIONS, "air");
-    const sea = computeQuote([win], BOOK, ASSUMPTIONS, "sea");
+    const air = computeQuote([win], ASSUMPTIONS, "air");
+    const sea = computeQuote([win], ASSUMPTIONS, "sea");
     expect(air.freightMode).toBe("air");
     expect(sea.freightMode).toBe("sea");
     expect(air.otherCostBps).toBe(ASSUMPTIONS.otherCostBps);
@@ -1121,39 +1151,37 @@ describe("costing width", () => {
   const win = (over = {}) => ({
     widthCm: 267,
     dayPrice: SIGNATURE,
-    addSFold: true,
-    addSlimTracks: false,
+    addons: [S_FOLD],
     ...over,
   });
 
   it("costs the fabric at the next tenth up", () => {
     // 2.70m × 2.0 × ¥51, not 2.67.
-    expect(windowQuote(win(), BOOK, ASSUMPTIONS).curtainCostRmbCents).toBe(
+    expect(windowQuote(win(), ASSUMPTIONS).curtainCostRmbCents).toBe(
       27540,
     );
   });
 
   it("costs per-metre add-ons at the next tenth up too", () => {
-    const q = windowQuote(win(), BOOK, ASSUMPTIONS);
+    const q = windowQuote(win(), ASSUMPTIONS);
     // s-fold 2.70 × ¥11 = ¥29.70, on top of the fabric.
     expect(q.costRmbCents - q.curtainCostRmbCents - q.trackRmbCents).toBe(2970);
   });
 
   it("sells at the exact measured width — this is a cost rule only", () => {
     // 2.67m × S$90 fabric + 2.67m × S$80 s-fold. Not a cent of rounding.
-    expect(windowQuote(win(), BOOK, ASSUMPTIONS).saleSgdCents).toBe(
+    expect(windowQuote(win(), ASSUMPTIONS).saleSgdCents).toBe(
       24030 + 21360,
     );
   });
 
   it("leaves the rail on the exact width — a rail is cut, not bought by the tenth", () => {
-    expect(windowQuote(win(), BOOK, ASSUMPTIONS).trackRmbCents).toBe(6675);
+    expect(windowQuote(win(), ASSUMPTIONS).trackRmbCents).toBe(6675);
   });
 
   it("rounds a blind's cost the same way", () => {
     const q = windowQuote(
-      { widthCm: 267, blindPrice: BLIND, addSFold: false, addSlimTracks: false },
-      BOOK,
+      { widthCm: 267, blindPrice: BLIND, addons: [] },
       ASSUMPTIONS,
     );
     expect(q.costRmbCents).toBe(10800); // 2.70m × ¥40
@@ -1162,8 +1190,7 @@ describe("costing width", () => {
 
   it("keeps an unmeasured window free rather than rounding it up to nothing", () => {
     const q = windowQuote(
-      { widthCm: null, dayPrice: SIGNATURE, addSFold: true, addSlimTracks: true },
-      BOOK,
+      { widthCm: null, dayPrice: SIGNATURE, addons: [S_FOLD, SLIM] },
       ASSUMPTIONS,
     );
     expect(q.costRmbCents).toBe(0);

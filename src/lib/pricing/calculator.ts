@@ -1,6 +1,6 @@
 // Pricing calculator — pure, deterministic port of the Excel "Pricing Output"
 // engine. Turns a set of measured windows (with their resolved series prices +
-// per-window add-on toggles) into a COGS, a customer sale price, and a margin.
+// resolved add-ons) into a COGS, a customer sale price, and a margin.
 //
 // Money is integer cents throughout (RMB cost cents, SGD sale cents). Rates &
 // multipliers are integers scaled ×10000 (so ratio 1.0 = 10000), matching the
@@ -20,6 +20,11 @@
 //  - Local freight and the exact installation/handyman floor logic from the
 //    sheet are simplified to a flat handyman charge.
 //  - Blinds (by SQM) are deferred.
+
+// The one type this module takes from outside. Deciding WHICH add-ons a window
+// carries is window-addons.ts's job; pricing them is this module's. Both are
+// pure, and the dependency only runs one way.
+import type { CalcAddon } from "@/lib/orders/window-addons";
 
 export type FreightMode = "air" | "sea";
 
@@ -147,11 +152,6 @@ export type AddonPrice = {
   basis: "per_metre" | "per_unit";
 };
 
-export type CalcAddonBook = {
-  sFold?: AddonPrice | null;
-  slimTracks?: AddonPrice | null;
-};
-
 export type CalcWindow = BreakdownIdentity & {
   widthCm: number | null;
   /**
@@ -163,10 +163,16 @@ export type CalcWindow = BreakdownIdentity & {
   nightPrice?: SeriesPrice | null;
   // Phase 12 — a blind occupies the window INSTEAD of curtains, so this is
   // mutually exclusive with day/night. Priced per metre of width like a
-  // curtain, but with no style multiplier, no add-ons and no track.
+  // curtain, but with no style multiplier and no track. Phase 14 gave it
+  // add-ons, which it had never had.
   blindPrice?: SeriesPrice | null;
-  addSFold: boolean;
-  addSlimTracks: boolean;
+  /**
+   * The add-ons this window carries, already resolved. The calculator prices
+   * them; it does not decide them — see lib/orders/window-addons.ts. Scope
+   * (a curtain add-on cannot reach a blind) is enforced there, so what arrives
+   * here is trusted.
+   */
+  addons?: CalcAddon[];
   // Phase 10 — a picked combo fixes this window's sale to a bundle price,
   // overriding the per-metre day/night sale. Cost is left untouched.
   comboPriceSgdCents?: number | null;
@@ -379,9 +385,30 @@ export type Offering = "none" | "single" | "double" | "blind";
 /** Which rail a window carries, if any — one line per kind in the breakdown. */
 export type TrackKind = "single" | "double";
 
+// Every add-on this window carries, as one Money and one leg apiece.
+//
+// Callers must skip this when the window has no covering: an add-on is a charge
+// ON something, and a per-unit add-on would otherwise bill a window that
+// reports offering: "none". Per-metre add-ons hide that (addonLeg returns zero
+// without a width); per-unit ones do not, and extra_shipping is the first of
+// those.
+function addonLegs(
+  addons: CalcAddon[] | undefined,
+  widthCm: number | null,
+  costWidthCm: number | null | undefined,
+): { total: Money; legs: CogsLeg[] } {
+  let total: Money = ZERO;
+  const legs: CogsLeg[] = [];
+  for (const addon of addons ?? []) {
+    const leg = addonLeg(addon, widthCm, costWidthCm);
+    total = add(total, leg);
+    legs.push({ label: addon.label, detail: null, rmbCents: leg.costRmbCents });
+  }
+  return { total, legs };
+}
+
 export function windowQuote(
   win: CalcWindow,
-  book: CalcAddonBook,
   a: WindowAssumptions,
 ): Money & {
   curtainCostRmbCents: number;
@@ -409,35 +436,41 @@ export function windowQuote(
     legs.filter((leg) => leg.rmbCents !== 0);
   // A blind window is priced and installed on its own terms: per metre of
   // width, with NO style multiplier (that models gathered fabric fullness, and
-  // a blind doesn't gather), no S-Fold/Slim-Tracks (curtain hardware) and no
-  // track (a blind carries its own headrail). Its cost still joins the
-  // air-freight base, which is why it is returned as curtainCostRmbCents.
-  //
-  // Returned before the curtain path so a stale add-on flag left on the form
-  // mid-switch can't add a charge to a blind.
+  // a blind doesn't gather) and no track (a blind carries its own headrail).
+  // Its covering cost still joins the air-freight base, which is why it is
+  // returned as curtainCostRmbCents.
   if (win.blindPrice) {
     const leg = blindLeg(win.blindPrice, win.widthCm, win.costWidthCm);
     const measured = win.widthCm != null && win.widthCm > 0;
+    // No covering, no add-on. An unmeasured blind is free on both sides, and a
+    // flat per-unit add-on must not be the exception that slips through.
+    const extra = measured
+      ? addonLegs(win.addons, win.widthCm, win.costWidthCm)
+      : { total: ZERO, legs: [] as CogsLeg[] };
     // A combo is a curtain bundle (day + night + track at a fixed price) and is
     // deliberately NOT honoured here — comboPriceSgdCents is ignored rather
     // than applied, so a combo left over from a switched-back window can't
     // override a blind's price.
     return {
-      costRmbCents: leg.costRmbCents,
-      saleSgdCents: leg.saleSgdCents,
+      costRmbCents: leg.costRmbCents + extra.total.costRmbCents,
+      saleSgdCents: leg.saleSgdCents + extra.total.saleSgdCents,
+      // The air-freight base is the COVERING alone: add-ons are excluded here
+      // exactly as they are on the curtain side below.
       curtainCostRmbCents: leg.costRmbCents,
       offering: measured ? "blind" : "none",
       // A blind carries its own headrail — there is no separate track to buy.
       trackRmbCents: 0,
       trackKind: null,
-      // One covering, so the window IS its leg: `computeQuote` drops a lone leg
-      // rather than printing the same figure twice.
+      // With an add-on a blind has MORE than one leg, so computeQuote's
+      // `legs.length > 1` guard starts printing the Blind line beside them.
+      // Intended: a blind with blackout should show what it is made of.
       legs: charged([
         {
           label: "Blind",
           detail: win.blindPrice.label ?? null,
           rmbCents: leg.costRmbCents,
         },
+        ...extra.legs,
       ]),
     };
   }
@@ -484,19 +517,13 @@ export function windowQuote(
     });
   }
 
-  if (win.addSFold) {
-    const sFold = addonLeg(book.sFold, win.widthCm, win.costWidthCm);
-    total = add(total, sFold);
-    legs.push({ label: "S-Fold", detail: null, rmbCents: sFold.costRmbCents });
-  }
-  if (win.addSlimTracks) {
-    const slim = addonLeg(book.slimTracks, win.widthCm, win.costWidthCm);
-    total = add(total, slim);
-    legs.push({
-      label: "Slim tracks",
-      detail: null,
-      rmbCents: slim.costRmbCents,
-    });
+  // No covering, no add-on: hasDay/hasNight are false unless a series is priced
+  // AND the window is measured, which is exactly the condition that makes an
+  // add-on a charge on something.
+  if (hasDay || hasNight) {
+    const extra = addonLegs(win.addons, win.widthCm, win.costWidthCm);
+    total = add(total, extra.total);
+    legs.push(...extra.legs);
   }
 
   // Track: double if both day + night, single if just one. The rail is a cost
@@ -681,7 +708,6 @@ export function finaliseQuote(
 
 export function computeQuote(
   windows: CalcWindow[],
-  book: CalcAddonBook,
   a: CalcAssumptions,
   freightMode: FreightMode = "air",
   extraInstallSgdCents = 0,
@@ -689,7 +715,7 @@ export function computeQuote(
 ): QuoteResult {
   const totals = windows.reduce(
     (acc, w) => {
-      const q = windowQuote(w, book, a);
+      const q = windowQuote(w, a);
       return {
         costRmbCents: acc.costRmbCents + q.costRmbCents,
         saleSgdCents: acc.saleSgdCents + q.saleSgdCents,

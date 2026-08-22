@@ -133,3 +133,52 @@ describe("deriveNextAction", () => {
     expect(deriveNextAction("Review Lead", null)).toBe("");
   });
 });
+
+import { deriveDueStatus, deriveEffectiveActionDate } from "./queue-engine";
+
+const TODAY = "2026-08-22";
+
+describe("deriveEffectiveActionDate", () => {
+  it("has no date when the action is Closed", () => {
+    expect(deriveEffectiveActionDate("Closed", "2026-08-30", TODAY)).toBeNull();
+  });
+
+  it("uses the manual action date when one is set", () => {
+    expect(
+      deriveEffectiveActionDate("Book Appointment", "2026-08-30", TODAY),
+    ).toBe("2026-08-30");
+  });
+
+  it("defaults Reply Required and Send Quote to today", () => {
+    expect(deriveEffectiveActionDate("Reply Required", null, TODAY)).toBe(TODAY);
+    expect(deriveEffectiveActionDate("Send Quote", null, TODAY)).toBe(TODAY);
+  });
+
+  it("has no date for any other action without a manual date", () => {
+    expect(deriveEffectiveActionDate("Qualify Lead", null, TODAY)).toBeNull();
+  });
+
+  it("still resolves a date for Ignore Lead — only Closed is excluded here", () => {
+    // Column M's guard is narrower than column N's. Ported as-is.
+    expect(deriveEffectiveActionDate("Ignore Lead", "2026-08-30", TODAY)).toBe(
+      "2026-08-30",
+    );
+  });
+});
+
+describe("deriveDueStatus", () => {
+  it("reports Closed for both Closed and Ignore Lead", () => {
+    expect(deriveDueStatus("Closed", "2026-08-30", TODAY)).toBe("Closed");
+    expect(deriveDueStatus("Ignore Lead", "2026-08-30", TODAY)).toBe("Closed");
+  });
+
+  it("asks for a date when there is none", () => {
+    expect(deriveDueStatus("Qualify Lead", null, TODAY)).toBe("Schedule Date");
+  });
+
+  it("classifies past, present and future", () => {
+    expect(deriveDueStatus("Qualify Lead", "2026-08-21", TODAY)).toBe("Overdue");
+    expect(deriveDueStatus("Qualify Lead", "2026-08-22", TODAY)).toBe("Due Today");
+    expect(deriveDueStatus("Qualify Lead", "2026-08-23", TODAY)).toBe("Upcoming");
+  });
+});

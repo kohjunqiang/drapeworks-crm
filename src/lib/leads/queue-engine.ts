@@ -58,3 +58,34 @@ export function deriveNextAction(
   if (override && override.trim() !== "") return override;
   return NEXT_ACTION_PHRASES[action] ?? "";
 }
+
+import type { DueStatus } from "./types";
+import type { SgDate } from "./sg-date";
+
+/**
+ * Column M. The guard here is narrower than column N's — it excludes only
+ * 'Closed', not 'Ignore Lead'. That asymmetry is in the spreadsheet.
+ */
+export function deriveEffectiveActionDate(
+  action: ActionRequired,
+  actionDate: SgDate | null,
+  today: SgDate,
+): SgDate | null {
+  if (action === "Closed") return null;
+  if (actionDate) return actionDate;
+  if (action === "Reply Required" || action === "Send Quote") return today;
+  return null;
+}
+
+/** Column N. */
+export function deriveDueStatus(
+  action: ActionRequired,
+  effectiveDate: SgDate | null,
+  today: SgDate,
+): DueStatus {
+  if (action === "Closed" || action === "Ignore Lead") return "Closed";
+  if (!effectiveDate) return "Schedule Date";
+  if (effectiveDate < today) return "Overdue";
+  if (effectiveDate === today) return "Due Today";
+  return "Upcoming";
+}

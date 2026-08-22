@@ -27,7 +27,7 @@ Six sheets; two hold data.
 
 | Sheet | Role |
 |---|---|
-| `Leads` | 29 cols × 244 rows. A–H, J, L, O–V and AA–AC hand-typed. **I, K, M, N, W, X, Y, Z are formulas.** |
+| `Leads` | 29 cols × 244 rows. A–H, J, L, O–V and AA–AC hand-typed. **I, K, M, N, W, X, Y, Z are formulas — 1,463 of the 1,464 computed cells. The exception is `I215`, typed over by hand;** see "A fifth anomaly" below. |
 | `Daily Queue` | Flattened, priority-sorted worklist |
 | `Dashboard` | `COUNTIF` tallies by funnel stage and by action |
 | `Lists` | Enum definitions (3 enums + priority ranking) |
@@ -321,6 +321,41 @@ total is not an input to any rule, it is a number on a screen. **The CRM's figur
 therefore not match what Alan reads each morning, by design.** Recorded here so that
 difference reads as a decision rather than a defect.
 
+### A fifth anomaly — not a bug at all, but a hand edit
+
+Found by the Task 12 parity gate, and different in kind from the four above: those are
+formulas that behave badly, this is a cell with no formula in it.
+
+`I215` — lead `TG-876998359`, `funnel_stage` *Decision Pending*, `last_outcome`
+*Quote Sent* — holds the literal string `Nurture / Re-engage`, typed straight over the
+Action Required formula. The raw XML shows `<c r="I215" s="6" t="s"><v>33</v></c>` with
+no `<f>` element, and the shared-formula run splits around it (`I5:I214`, then
+`I216:I247`). That split *is* the fingerprint of the edit. It is the only non-formula
+cell in the whole computed block. Column `K215` is still a formula, but it reads `I215`,
+so its instruction diverges too.
+
+No ported rule can reproduce a hand-typed literal, and the engine is not wrong here:
+sheet rows 168 and 186 carry identical inputs and yield *Push for Decision* from the live
+formula. So the CRM will show this lead as **Push for Decision**, not Nurture.
+
+- **The engine was not changed.** Bending the cascade to match one typed cell would break
+  the two rows that agree with it.
+- **The lead's data was not changed.** If Alan meant that lead to be nurture, its funnel
+  stage is his to set in the CRM after launch. Editing Postgres to make a test go green
+  is the tail wagging the dog.
+- **The parity fixture records both values.** `expected` carries the engine's output for
+  those two fields and `excelOverride` preserves what was typed. That one case is
+  self-referential, so `spreadsheet-parity.test.ts` asserts it is the *only* one and that
+  it covers exactly those two fields — if a real formula divergence ever appeared it
+  could not hide inside the exception. The row's other four columns are live formulas and
+  are compared normally, so no coverage is lost.
+
+`scripts/verify-lead-engine.ts` detects this structurally rather than by row number: a
+computed cell holding a value but no formula marks the row hand-edited, and mismatches on
+such a row are reported under a `⚠` heading instead of failing the gate. A blank
+non-formula cell does not qualify, or an engine that invented a value where Excel has
+none would be excused as an override.
+
 ### Ordering within a priority band
 
 The sheet's `Daily Queue` numbers its actions — `07 - Attend / Confirm Appointment` down
@@ -514,7 +549,17 @@ each verified against the file:
 
 **Verification gate:** after import, a script recomputes the six derived values for all
 244 leads and diffs against the values cached in the xlsx. The port is correct when the
-diff is empty. This is the whole reason for porting the enums verbatim.
+diff is empty. This is the whole reason for porting the enums verbatim. The gate ran
+clean on 1,462 of the 1,464 comparisons; the remaining two are the hand-typed `I215` and
+the cell downstream of it, reported separately under a `⚠` heading — see "A fifth
+anomaly" above.
+
+Two traps for anyone regenerating this. **A formula whose cached result is the empty
+string has no `result` key at all** — Excel writes `<v></v>` and ExcelJS drops the
+property — so an unwary `"result" in value` check hands back the formula object and
+stringifies it to `[object Object]`, producing 203 phantom mismatches across the blank
+cells of columns K and M. And the script cannot use top-level `await`: there is no
+`"type": "module"`, so tsx compiles it as CJS and esbuild rejects it outright.
 
 **Run it against `2026-08-21`, and work from a copy.** The sheet's `TODAY()` is frozen
 at its last recalculation — 2026-08-21, confirmed three ways: every `Due Today` row has

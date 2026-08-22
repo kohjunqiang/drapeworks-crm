@@ -1,0 +1,4647 @@
+{
+  "recalculatedOn": "2026-08-21",
+  "note": "Generated from '02 Leads Management & Appt.xlsx' before it was retired. Inputs and expectations only — no names, phone numbers, developments or summaries.",
+  "manualOverrideNote": "Every `expected` value is what the sheet's own formulas cached — with one exception, marked by `excelOverride`. Sheet row 215 (funnel_stage 'Decision Pending', last_outcome 'Quote Sent') had its Action Required formula typed over by hand with 'Nurture / Re-engage'; the shared-formula run splits around it (I5:I214 and I216:I247) which is the fingerprint of the edit. Its Next Action cell is still a formula but reads the typed value, so it diverges too. No ported rule can reproduce a hand-typed literal — two other rows with identical inputs (sheet rows 168 and 186) produce 'Push for Decision' from the live formula — so for those two fields `expected` carries the engine's value and `excelOverride` preserves what was typed. That one case is therefore self-referential by design, not by accident; spreadsheet-parity.test.ts asserts it is the ONLY one. The row's other four columns are live formulas and are compared normally.",
+  "cases": [
+    {
+      "index": 0,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-04"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 1,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-02"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 2,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Nurture",
+        "last_outcome": "Customer Replied",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 3,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Appointment Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-22"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 4,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-23"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 5,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-12"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Stale 90d+"
+      }
+    },
+    {
+      "index": 6,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-08"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 7,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-17"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 8,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-10"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 9,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 10,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 11,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-14"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 12,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-05"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 13,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 14,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-16"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 15,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-30"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 16,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 17,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-14"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 18,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-23"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 19,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-21"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 20,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-14"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 21,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-15"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 22,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-12"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 23,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 24,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 25,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 26,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-07"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 27,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 28,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 29,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 30,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 31,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Appointment Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 32,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 33,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-19"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Stale 90d+"
+      }
+    },
+    {
+      "index": 34,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-14"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 35,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-16"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 36,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-26"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Stale 90d+"
+      }
+    },
+    {
+      "index": 37,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 38,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-17"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 39,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 40,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 41,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 42,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 43,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-26"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 44,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 45,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-24"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 46,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Customer Replied",
+        "action_detail_override": null,
+        "action_date": "2026-08-14",
+        "last_customer_response_at": "2026-05-05"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 47,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 48,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-24"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 49,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-24"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 50,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-06"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 51,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-25"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 52,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 53,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-07"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 54,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Stale 90d+"
+      }
+    },
+    {
+      "index": 55,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-26"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 56,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-14",
+        "last_customer_response_at": "2026-03-26"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 57,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-27"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 58,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-01"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 59,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-03-30"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 60,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-16"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 61,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-15",
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 62,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Appointment Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 63,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-08"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 64,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 65,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-09"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 66,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-09"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 67,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 68,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-28"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 69,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-09"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 70,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 71,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-26"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 72,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-25"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 73,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-02"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 74,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Nurture",
+        "last_outcome": "Renovation Delayed",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-04-24"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 75,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 76,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-25"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 77,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-22"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 78,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-15",
+        "last_customer_response_at": "2026-04-25"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 79,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-03"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 80,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-24"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 81,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-15",
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 82,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-04-29"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 83,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 84,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-14",
+        "last_customer_response_at": "2026-04-29"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 85,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-11"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 86,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-05"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 87,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 88,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-02"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 89,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-03"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 90,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-14",
+        "last_customer_response_at": "2026-05-02"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 91,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-02"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 92,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-03"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 93,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-11"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 94,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 95,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-08"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 96,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Appointment Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-15"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 97,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-25"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 98,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-10"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 99,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-05"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 100,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 101,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-08"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 102,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-07"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 103,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-11"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 104,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-10"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 105,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Appointment Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 106,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 107,
+      "input": {
+        "funnel_stage": "Quote Sent",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-05-12"
+      },
+      "expected": {
+        "actionRequired": "Follow Up Quote",
+        "nextAction": "Follow up on quotation and ask for decision",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 108,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-12"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 109,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-12"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 110,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 111,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 112,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 113,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 114,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Nurture",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-30",
+        "last_customer_response_at": "2026-08-01"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 115,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-14"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 116,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 117,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-26"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 118,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-18"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 119,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-18"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 120,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-24"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 121,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-05"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 122,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Nurture",
+        "last_outcome": "Renovation Delayed",
+        "action_detail_override": null,
+        "action_date": "2026-08-30",
+        "last_customer_response_at": "2026-05-21"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 123,
+      "input": {
+        "funnel_stage": "Quote Sent",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-05-22"
+      },
+      "expected": {
+        "actionRequired": "Follow Up Quote",
+        "nextAction": "Follow up on quotation and ask for decision",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 124,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-20"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 125,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-10"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 126,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-16"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 127,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-27"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 128,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-27"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 129,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-11"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 130,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-06-07"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 131,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-28"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 132,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-14",
+        "last_customer_response_at": "2026-06-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 133,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-05-29"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 134,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 135,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-01"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 136,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-15",
+        "last_customer_response_at": "2026-05-31"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 137,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 138,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-03"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 139,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 140,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-07"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 141,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-30"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 142,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 143,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Nurture",
+        "last_outcome": "No Response",
+        "action_detail_override": "Pending response & key collection // send something interesting",
+        "action_date": "2026-08-25",
+        "last_customer_response_at": "2026-06-09"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Pending response & key collection // send something interesting",
+        "effectiveActionDate": "2026-08-25",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 144,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-26"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 145,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-25"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 146,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-16"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 147,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-16"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 148,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Completed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-17"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 149,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-26"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 150,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-17"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 151,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 152,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-17"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 153,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-18"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 154,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-21"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 155,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-08-14"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 156,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-24"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 157,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 158,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-24"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 159,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Nurture",
+        "last_outcome": "No Response",
+        "action_detail_override": "Close lead if no response",
+        "action_date": "2026-08-25",
+        "last_customer_response_at": "2026-07-13"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Close lead if no response",
+        "effectiveActionDate": "2026-08-25",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 160,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-18"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 161,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-06-29"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 162,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-07"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 163,
+      "input": {
+        "funnel_stage": "Decision Pending",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-18",
+        "last_customer_response_at": "2026-08-03"
+      },
+      "expected": {
+        "actionRequired": "Push for Decision",
+        "nextAction": "Resolve barrier and ask for commitment",
+        "effectiveActionDate": "2026-08-18",
+        "dueStatus": "Overdue",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 164,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-01"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 165,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": "Send something interesting",
+        "action_date": "2026-09-30",
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Send something interesting",
+        "effectiveActionDate": "2026-09-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 166,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 167,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 168,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 169,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 170,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 171,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 172,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 173,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 174,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 175,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": "Pending response & key collection // send something interesting",
+        "action_date": "2026-09-15",
+        "last_customer_response_at": "2026-07-09"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Pending response & key collection // send something interesting",
+        "effectiveActionDate": "2026-09-15",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 176,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Nurture",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-31"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 177,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-09"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 178,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-09"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 179,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 180,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-12"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 181,
+      "input": {
+        "funnel_stage": "Decision Pending",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-18",
+        "last_customer_response_at": "2026-08-12"
+      },
+      "expected": {
+        "actionRequired": "Push for Decision",
+        "nextAction": "Resolve barrier and ask for commitment",
+        "effectiveActionDate": "2026-08-18",
+        "dueStatus": "Overdue",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 182,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-15"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 183,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 184,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-17"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 185,
+      "input": {
+        "funnel_stage": "Quote Sent",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-07-17"
+      },
+      "expected": {
+        "actionRequired": "Follow Up Quote",
+        "nextAction": "Follow up on quotation and ask for decision",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 186,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 187,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 188,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 189,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 190,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 191,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 192,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 193,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 194,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 195,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 196,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 197,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 198,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 199,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-18"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 200,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-26"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 201,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-04"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 202,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Nurture",
+        "last_outcome": "No Response",
+        "action_detail_override": "Pending response & key collection // send something interesting",
+        "action_date": "2026-08-25",
+        "last_customer_response_at": "2026-07-23"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Pending response & key collection // send something interesting",
+        "effectiveActionDate": "2026-08-25",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 203,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-04"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 204,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Nurture",
+        "last_outcome": "Renovation Delayed",
+        "action_detail_override": null,
+        "action_date": "2026-08-30",
+        "last_customer_response_at": "2026-08-04"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 205,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Unresponsive",
+        "last_outcome": "No Response",
+        "action_detail_override": "Pending response & key collection // send something interesting",
+        "action_date": "2026-08-25",
+        "last_customer_response_at": "2026-07-23"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Pending response & key collection // send something interesting",
+        "effectiveActionDate": "2026-08-25",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 206,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-07-27"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Exclude – Ghosted"
+      }
+    },
+    {
+      "index": 207,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-12"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 208,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Unresponsive",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-06"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 209,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "Customer Declined",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-03"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 210,
+      "input": {
+        "funnel_stage": "Decision Pending",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-18",
+        "last_customer_response_at": "2026-08-04"
+      },
+      "expected": {
+        "actionRequired": "Push for Decision",
+        "nextAction": "Resolve barrier and ask for commitment",
+        "effectiveActionDate": "2026-08-18",
+        "dueStatus": "Overdue",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      },
+      "excelOverride": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing"
+      }
+    },
+    {
+      "index": 211,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-08-06"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 212,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Active",
+        "last_outcome": "Follow-Up Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-30",
+        "last_customer_response_at": "2026-08-05"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 213,
+      "input": {
+        "funnel_stage": "Appointment Booked",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Booked",
+        "action_detail_override": null,
+        "action_date": "2026-09-02",
+        "last_customer_response_at": "2026-08-14"
+      },
+      "expected": {
+        "actionRequired": "Attend / Confirm Appointment",
+        "nextAction": "Confirm / attend consultation",
+        "effectiveActionDate": "2026-09-02",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 214,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-09"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 215,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-08"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 216,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Active",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-08-10"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 217,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Active",
+        "last_outcome": "Customer Needs Time",
+        "action_detail_override": null,
+        "action_date": "2026-08-30",
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 218,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Nurture",
+        "last_outcome": "Quote Sent",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-08-07"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 219,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 220,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Won",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-09"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 221,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 222,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 223,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-08"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 224,
+      "input": {
+        "funnel_stage": "Lost",
+        "lead_status": "Lost",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-08"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 225,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": "Moving in soon, try to lock in",
+        "action_date": "2026-08-25",
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Moving in soon, try to lock in",
+        "effectiveActionDate": "2026-08-25",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact Within 7 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 226,
+      "input": {
+        "funnel_stage": "Won",
+        "lead_status": "Active",
+        "last_outcome": "Order Confirmed",
+        "action_detail_override": null,
+        "action_date": null,
+        "last_customer_response_at": "2026-08-14"
+      },
+      "expected": {
+        "actionRequired": "Closed",
+        "nextAction": null,
+        "effectiveActionDate": null,
+        "dueStatus": "Closed",
+        "contactPriority": "Closed",
+        "queueVisibility": "Exclude – Closed"
+      }
+    },
+    {
+      "index": 227,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": "Wait for his reponse",
+        "action_date": "2026-08-20",
+        "last_customer_response_at": "2026-08-13"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Wait for his reponse",
+        "effectiveActionDate": "2026-08-20",
+        "dueStatus": "Overdue",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 228,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-08-15"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 229,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-08-15"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 230,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-08-17"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 231,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-08-18"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 232,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-08-18"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 233,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "Customer Needs Time",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": "2026-08-19"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 234,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-21",
+        "last_customer_response_at": "2026-08-20"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-21",
+        "dueStatus": "Due Today",
+        "contactPriority": "Contact Today",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 235,
+      "input": {
+        "funnel_stage": "Nurture",
+        "lead_status": "Active",
+        "last_outcome": "Customer Needs Time",
+        "action_detail_override": "Engage along the way",
+        "action_date": "2026-09-30",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Engage along the way",
+        "effectiveActionDate": "2026-09-30",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Future / Nurture",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 236,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "Ready to Book Appointment",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Book Appointment",
+        "nextAction": "Offer 2 consultation slots",
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 237,
+      "input": {
+        "funnel_stage": "Not Qualified",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Ignore Lead",
+        "nextAction": null,
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Closed",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 238,
+      "input": {
+        "funnel_stage": "Appointment Booked",
+        "lead_status": "Active",
+        "last_outcome": "Ready to Book Appointment",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Book Appointment",
+        "nextAction": "Offer 2 consultation slots",
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 239,
+      "input": {
+        "funnel_stage": "Qualified / Pre-Appointment",
+        "lead_status": "Active",
+        "last_outcome": "Customer Needs Time",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Nurture / Re-engage",
+        "nextAction": "Re-engage at the appropriate key / renovation timing",
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 240,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 241,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "Ready to Book Appointment",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Book Appointment",
+        "nextAction": "Offer 2 consultation slots",
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 242,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "Appointment Booked",
+        "action_detail_override": null,
+        "action_date": "2026-08-22",
+        "last_customer_response_at": "2026-08-21"
+      },
+      "expected": {
+        "actionRequired": "Qualify Lead",
+        "nextAction": "Establish need, timing and property details",
+        "effectiveActionDate": "2026-08-22",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    },
+    {
+      "index": 243,
+      "input": {
+        "funnel_stage": "New Lead",
+        "lead_status": "Active",
+        "last_outcome": "No Response",
+        "action_detail_override": null,
+        "action_date": "2026-08-24",
+        "last_customer_response_at": null
+      },
+      "expected": {
+        "actionRequired": "Follow Up – No Response",
+        "nextAction": "Send a value-adding follow-up / reactivation",
+        "effectiveActionDate": "2026-08-24",
+        "dueStatus": "Upcoming",
+        "contactPriority": "Contact in 2–3 Days",
+        "queueVisibility": "Include"
+      }
+    }
+  ]
+}

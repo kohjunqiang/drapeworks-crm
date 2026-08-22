@@ -366,6 +366,23 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     )
     .execute();
 
+  // House convention: public.set_updated_at() already exists and every table
+  // that carries updated_at is bumped by a trigger, not by hand. See
+  // 202608211000_delivery_vendors.ts. Relying on the Server Actions to remember
+  // would leave calendar-sync writes stale, since those update the row without
+  // going through an action that sets it.
+  await sql`
+    create trigger appointments_set_updated_at
+      before update on public.appointments
+      for each row execute function public.set_updated_at()
+  `.execute(db);
+
+  await sql`
+    create trigger leads_set_updated_at
+      before update on public.leads
+      for each row execute function public.set_updated_at()
+  `.execute(db);
+
   await sql`create index appointments_lead_id_idx on public.appointments (lead_id)`.execute(db);
   await sql`create index appointments_scheduled_at_idx on public.appointments (scheduled_at)`.execute(db);
 
@@ -403,6 +420,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+  await sql`drop trigger if exists leads_set_updated_at on public.leads`.execute(db);
   await sql`drop index if exists customers_mobile_last8_idx`.execute(db);
   await db.schema.alterTable("orders").dropColumn("appointment_id").execute();
   await db.schema.dropTable("appointments").execute();

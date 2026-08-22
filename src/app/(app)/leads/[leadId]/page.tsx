@@ -136,7 +136,22 @@ export default async function LeadDetailPage({
       ) : null}
 
       <section className="mt-6 bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
+        {/* Remount the form whenever the row changes underneath it.
+            LeadFieldsForm holds the three selects in useState and the rest in
+            uncontrolled defaultValue, both of which are read once on mount.
+            The appointment buttons above it mutate the SAME lead — booking
+            writes 'Appointment Booked' to stage, outcome and action_date;
+            cancelling restores them — and then call router.refresh(). That
+            refreshes the server component, so the derived panel updates, but
+            React keeps the client form instance and its now-stale initial
+            state. The form would sit there showing the pre-booking values, and
+            the next "Save lead" — for an unrelated edit — would write them back
+            over the booking, silently undoing it while the appointment row
+            still says 'scheduled'.
+            Keying on updated_at (bumped by every write path) forces a fresh
+            mount with the current values. */}
         <LeadFieldsForm
+          key={String(lead.updated_at)}
           lead={{
             id: lead.id,
             name: lead.name,

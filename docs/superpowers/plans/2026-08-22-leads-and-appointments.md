@@ -1579,6 +1579,51 @@ npm install --save-dev exceljs
 CVE-2024-22363 with fixes only on SheetJS's own CDN, and `exceljs` exposes row numbers,
 which the synthetic `lead_ref` needs.
 
+Also create `scripts/db-query.ts`. Every verification step below runs one query against
+the database, and there is no `psql` on this machine. `npx tsx -e` cannot do it either:
+the module the app uses (`src/lib/db/kysely.ts`) opens with `import "server-only"`,
+which throws outside a React Server Component, and `-e` compiles to CJS where top-level
+`await` is a syntax error. One small script solves all of it, and Task 26 deletes it
+alongside the others.
+
+```ts
+// scripts/db-query.ts
+//
+// Throwaway query runner for the phase-15 import checks. Builds its own Kysely
+// instance for the same reason data/migrate.ts does: @/lib/db/kysely is
+// server-only and cannot be imported from a plain Node script.
+//
+// Usage: npx tsx scripts/db-query.ts "select count(*) from public.leads"
+
+import "dotenv/config";
+import { Kysely, PostgresDialect, sql } from "kysely";
+import { Pool } from "pg";
+
+async function main() {
+  const statement = process.argv[2];
+  if (!statement) throw new Error("Pass a SQL statement as the first argument");
+
+  const db = new Kysely<Record<string, never>>({
+    dialect: new PostgresDialect({
+      pool: new Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 1,
+        ssl: { rejectUnauthorized: false },
+      }),
+    }),
+  });
+
+  const result = await sql.raw(statement).execute(db);
+  console.table(result.rows);
+  await db.destroy();
+}
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exit(1);
+});
+```
+
 Add to `package.json` scripts:
 
 ```json
@@ -1599,10 +1644,27 @@ Add to `package.json` scripts:
 //
 // Usage: npm run leads:import -- "02 Leads Management & Appt.xlsx"
 
+import "dotenv/config";
 import ExcelJS from "exceljs";
+import { Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
 
-import { db } from "../src/lib/db";
+import type { DB } from "../src/lib/db/schema";
 import { toSgDate } from "../src/lib/leads/sg-date";
+
+// NOT `import { db } from "@/lib/db/kysely"`. That module starts with
+// `import "server-only"`, which throws outside a React Server Component — this
+// is a plain Node script. data/migrate.ts builds its own instance for the same
+// reason; follow that pattern.
+const db = new Kysely<DB>({
+  dialect: new PostgresDialect({
+    pool: new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+      ssl: { rejectUnauthorized: false },
+    }),
+  }),
+});
 
 const HEADER_ROW = 4; // rows 1–3 are the title, a note and usage instructions
 const FIRST_DATA_ROW = 5;
@@ -1834,7 +1896,11 @@ main().catch((error) => {
 
 Run: `rg -n "export interface Profiles" -A 12 src/lib/db/schema.ts`
 
-If the display column is not `full_name`, fix the owner lookup in the script.
+Confirmed already: the table is `profiles`, the display column is `full_name`, and the
+Alan row is `full_name = 'alan.wtl91'` / `alan.wtl91@gmail.com` / role `admin`. The
+`ilike '%Alan%'` lookup matches it case-insensitively and matches nothing else — the
+other two profiles are `Jason` and `jaytanjiabao`. No change needed; verify rather than
+assume, because the script throws by design if the match fails.
 
 - [ ] **Step 4: Run the import**
 
@@ -1861,12 +1927,10 @@ migration rather than editing the applied one.
 - [ ] **Step 5: Verify the row count and spot-check**
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(db.fn.countAll().as('n')).executeTakeFirst(); \
-  console.log(r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(*) as n from public.leads"
 ```
 
-Expected: `{ n: '244' }`
+Expected: `n: 244`
 
 - [ ] **Step 6: Prove the date serials survived**
 
@@ -1874,13 +1938,11 @@ The single most damaging silent failure would be 168 dates landing as `NULL`, be
 50 of them drive the 90-day stale rule and nothing would visibly break.
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(({fn}) => [ \
-    fn.countAll().as('total'), \
-    fn.count('first_initiated_at').as('first_initiated'), \
-    fn.count('last_contact_at').as('last_contact'), \
-    fn.count('last_customer_response_at').as('last_response')]).executeTakeFirst(); \
-  console.log(r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(*) as total,
+  count(first_initiated_at) as first_initiated,
+  count(last_contact_at) as last_contact,
+  count(last_customer_response_at) as last_response
+  from public.leads"
 ```
 
 Expected: `total: 244, first_initiated: 244, last_contact: 244, last_response: 196`.
@@ -1899,15 +1961,13 @@ drifts silently as the boundary sweeps across all 56 affected rows.
 Row 125's `Last Customer Response Date` is `2026-05-24 16:01:21` in the sheet:
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  import {toSgDate} from './src/lib/leads/sg-date'; \
-  const r = await db.selectFrom('leads').select(['lead_ref','last_customer_response_at']) \
-    .where('source_ref','=','TG-5149888764').executeTakeFirst(); \
-  console.log(r?.lead_ref, toSgDate(new Date(r!.last_customer_response_at as Date))); \
-  await db.destroy();"
+npx tsx scripts/db-query.ts "select lead_ref,
+  last_customer_response_at,
+  (last_customer_response_at at time zone 'Asia/Singapore')::date as sg_date
+  from public.leads where source_ref = 'TG-5149888764'"
 ```
 
-Expected the Singapore date to read **2026-05-24**. If it reads `2026-05-25`, the
+Expected `sg_date` to read **2026-05-24**. If it reads `2026-05-25`, the
 `SG_OFFSET_MS` subtraction is missing and 56 leads will leave the queue a day late.
 
 Substitute the `source_ref` of whichever row you can identify at hour ≥ 16 — the point
@@ -2702,7 +2762,7 @@ The rule this file exists to enforce: **a Google outage costs a calendar entry, 
 // src/lib/calendar/sync.ts
 import "server-only";
 
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 
 import { buildConsultationEvent } from "./event";
 import { createEvent, deleteEvent, isCalendarConfigured, patchEvent } from "./google";
@@ -2872,7 +2932,7 @@ import { redirect } from "next/navigation";
 import { sql } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import { leadCreateSchema, leadUpdateSchema } from "@/lib/validation/lead";
 
 function nextLeadRef(): string {
@@ -3030,7 +3090,7 @@ import { revalidatePath } from "next/cache";
 
 import { syncAppointment, unsyncAppointment } from "@/lib/calendar/sync";
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import {
   appointmentCreateSchema,
   appointmentRescheduleSchema,
@@ -3412,7 +3472,7 @@ import Link from "next/link";
 
 import { LeadTable, type LeadRow } from "@/components/leads/lead-table";
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import { compareQueueRows, deriveLead } from "@/lib/leads/queue-engine";
 import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
 import { formatSgd } from "@/lib/money";
@@ -3777,7 +3837,7 @@ import { AppointmentCard } from "@/components/leads/appointment-card";
 import { BookAppointmentDialog } from "@/components/leads/book-appointment-dialog";
 import { LeadFieldsForm } from "@/components/leads/lead-fields-form";
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import { deriveLead } from "@/lib/leads/queue-engine";
 import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
 
@@ -4646,9 +4706,7 @@ gone, nothing can be re-imported and nothing can be re-diffed.
 - [ ] **Step 1: Confirm the CRM holds everything the spreadsheet did**
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(db.fn.countAll().as('n')).executeTakeFirst(); \
-  console.log('leads in CRM:', r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(*) as n from public.leads"
 ```
 
 Expected: `244`. If it is **242**, the two nameless leads (rows 118 and 143) were
@@ -4658,11 +4716,8 @@ Check the dates survived too — 168 of them arrive as raw Excel serials, and a 
 `NULL` here disables the 90-day stale rule with nothing visibly broken:
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(({fn}) => [ \
-    fn.count('last_customer_response_at').as('with_response'), \
-    fn.countAll().as('total')]).executeTakeFirst(); \
-  console.log(r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(last_customer_response_at) as with_response,
+  count(*) as total from public.leads"
 ```
 
 Expected: `with_response: 196, total: 244`. 196 because 48 leads have genuinely never
@@ -4694,7 +4749,7 @@ They read a file that no longer exists, so leaving them in place is a broken com
 someone runs in six months and mistrusts the codebase over.
 
 ```bash
-rm scripts/import-leads.ts scripts/verify-lead-engine.ts
+rm scripts/import-leads.ts scripts/verify-lead-engine.ts scripts/db-query.ts
 ```
 
 Remove the `leads:import` and `leads:verify` entries from `package.json` scripts, and

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveActionRequired } from "./queue-engine";
+import {
+  compareQueueRows,
+  deriveActionRequired,
+  deriveContactPriority,
+  deriveDueStatus,
+  deriveEffectiveActionDate,
+  deriveLead,
+  deriveNextAction,
+  deriveQueueVisibility,
+} from "./queue-engine";
 import type { LeadEngineInput } from "./types";
 
 function lead(over: Partial<LeadEngineInput> = {}): LeadEngineInput {
@@ -91,8 +100,6 @@ describe("deriveActionRequired", () => {
   });
 });
 
-import { deriveNextAction } from "./queue-engine";
-
 describe("deriveNextAction", () => {
   it.each([
     ["Reply Required", "Reply to latest customer message"],
@@ -133,8 +140,6 @@ describe("deriveNextAction", () => {
     expect(deriveNextAction("Review Lead", null)).toBe("");
   });
 });
-
-import { deriveDueStatus, deriveEffectiveActionDate } from "./queue-engine";
 
 const TODAY = "2026-08-22";
 
@@ -183,8 +188,6 @@ describe("deriveDueStatus", () => {
   });
 });
 
-import { deriveContactPriority } from "./queue-engine";
-
 describe("deriveContactPriority", () => {
   it("closes Won, Lost and Closed", () => {
     expect(deriveContactPriority(lead({ funnel_stage: "Won" }), "Closed", null, TODAY)).toBe("Closed");
@@ -223,5 +226,127 @@ describe("deriveContactPriority", () => {
     expect(deriveContactPriority(lead(), "Ignore Lead", null, TODAY)).toBe(
       "Contact Within 7 Days",
     );
+  });
+});
+
+describe("deriveQueueVisibility", () => {
+  it("excludes Won, Lost and Closed as Closed", () => {
+    expect(deriveQueueVisibility(lead({ funnel_stage: "Won" }), "Closed", TODAY)).toBe("Exclude – Closed");
+  });
+
+  it("excludes Unresponsive leads as Ghosted", () => {
+    expect(
+      deriveQueueVisibility(lead({ lead_status: "Unresponsive" }), "Qualify Lead", TODAY),
+    ).toBe("Exclude – Ghosted");
+  });
+
+  it("excludes non-Nurture leads whose last customer response is over 90 days old", () => {
+    expect(
+      deriveQueueVisibility(
+        lead({ last_customer_response_at: "2026-05-01" }),
+        "Qualify Lead",
+        TODAY,
+      ),
+    ).toBe("Exclude – Stale 90d+");
+  });
+
+  it("keeps a Nurture lead however stale it is", () => {
+    // Waiting on keys or renovation is not ghosting.
+    expect(
+      deriveQueueVisibility(
+        lead({ funnel_stage: "Nurture", last_customer_response_at: "2024-01-01" }),
+        "Nurture / Re-engage",
+        TODAY,
+      ),
+    ).toBe("Include");
+  });
+
+  it("keeps a lead that has never responded — the stale rule needs a date to bite", () => {
+    expect(
+      deriveQueueVisibility(lead({ last_customer_response_at: null }), "Qualify Lead", TODAY),
+    ).toBe("Include");
+  });
+
+  it("keeps an active Not Qualified lead — a spreadsheet bug, ported deliberately", () => {
+    // Known bug #1 in full: Ignore Lead gets a live priority (Task 9) and the
+    // visibility rule only excludes Unresponsive, so this lead reaches the
+    // queue. Exactly one row in the real data does this.
+    expect(
+      deriveQueueVisibility(
+        lead({ funnel_stage: "Not Qualified", lead_status: "Active" }),
+        "Ignore Lead",
+        TODAY,
+      ),
+    ).toBe("Include");
+  });
+});
+
+describe("deriveLead", () => {
+  it("derives every field for a lead waiting on a reply", () => {
+    expect(
+      deriveLead(
+        lead({ funnel_stage: "Quote Sent", last_outcome: "Customer Replied" }),
+        TODAY,
+      ),
+    ).toEqual({
+      actionRequired: "Reply Required",
+      nextAction: "Reply to latest customer message",
+      effectiveActionDate: TODAY,
+      dueStatus: "Due Today",
+      contactPriority: "Contact Today",
+      queueVisibility: "Include",
+      priorityRank: 1,
+    });
+  });
+
+  it("ranks the four live bands and leaves Closed unranked", () => {
+    expect(deriveLead(lead({ funnel_stage: "Won" }), TODAY).priorityRank).toBeNull();
+    expect(
+      deriveLead(lead({ funnel_stage: "Nurture" }), TODAY).priorityRank,
+    ).toBe(4);
+  });
+});
+
+describe("compareQueueRows", () => {
+  it("ranks by action within a band, matching the sheet's Z→A sort", () => {
+    // Same band, same date — the sheet works 07 before 01.
+    const rows = [
+      { name: "Low", derived: { priorityRank: 2, actionRequired: "Follow Up – No Response", effectiveActionDate: "2026-08-24" } },
+      { name: "High", derived: { priorityRank: 2, actionRequired: "Attend / Confirm Appointment", effectiveActionDate: "2026-08-24" } },
+      { name: "Leaked", derived: { priorityRank: 2, actionRequired: "Ignore Lead", effectiveActionDate: "2026-08-24" } },
+    ] as never[];
+    expect([...rows].sort(compareQueueRows).map((r) => (r as { name: string }).name)).toEqual([
+      "High",
+      "Low",
+      "Leaked", // unranked, so it sinks — where the sheet's unnumbered row sits
+    ]);
+  });
+
+  it("sorts by priority band, then date, then name", () => {
+    const act = "Qualify Lead";
+    const rows = [
+      { name: "Zoe", derived: { priorityRank: 2, actionRequired: act, effectiveActionDate: "2026-08-25" } },
+      { name: "Amy", derived: { priorityRank: 1, actionRequired: act, effectiveActionDate: "2026-08-22" } },
+      { name: "Bob", derived: { priorityRank: 2, actionRequired: act, effectiveActionDate: "2026-08-24" } },
+      { name: "Ann", derived: { priorityRank: 2, actionRequired: act, effectiveActionDate: "2026-08-24" } },
+    ] as never[];
+    expect([...rows].sort(compareQueueRows).map((r) => (r as { name: string }).name)).toEqual([
+      "Amy",
+      "Ann",
+      "Bob",
+      "Zoe",
+    ]);
+  });
+
+  it("puts rows with no date after rows that have one, within the same band", () => {
+    const act = "Qualify Lead";
+    const rows = [
+      { name: "NoDate", derived: { priorityRank: 2, actionRequired: act, effectiveActionDate: null } },
+      { name: "Dated", derived: { priorityRank: 2, actionRequired: act, effectiveActionDate: "2026-09-30" } },
+    ] as never[];
+    expect([...rows].sort(compareQueueRows).map((r) => (r as { name: string }).name)).toEqual([
+      "Dated",
+      "NoDate",
+    ]);
   });
 });

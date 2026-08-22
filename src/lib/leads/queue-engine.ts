@@ -1,4 +1,13 @@
-import type { ActionRequired, LeadEngineInput } from "./types";
+import { addDays } from "./sg-date";
+import type { SgDate } from "./sg-date";
+import type {
+  ActionRequired,
+  ContactPriority,
+  DueStatus,
+  LeadDerived,
+  LeadEngineInput,
+  QueueVisibility,
+} from "./types";
 
 /**
  * Column I of the Leads sheet, branch for branch.
@@ -59,9 +68,6 @@ export function deriveNextAction(
   return NEXT_ACTION_PHRASES[action] ?? "";
 }
 
-import type { DueStatus } from "./types";
-import type { SgDate } from "./sg-date";
-
 /**
  * Column M. The guard here is narrower than column N's — it excludes only
  * 'Closed', not 'Ignore Lead'. That asymmetry is in the spreadsheet.
@@ -89,9 +95,6 @@ export function deriveDueStatus(
   if (effectiveDate === today) return "Due Today";
   return "Upcoming";
 }
-
-import { addDays } from "./sg-date";
-import type { ContactPriority } from "./types";
 
 const DATELESS_URGENT: ActionRequired[] = [
   "Qualify Lead",
@@ -138,4 +141,131 @@ export function deriveContactPriority(
   if (action === "Attend / Confirm Appointment") return "Contact Today";
   if (DATELESS_URGENT.includes(action)) return "Contact in 2–3 Days";
   return "Contact Within 7 Days";
+}
+
+/** Column Z. */
+export function deriveQueueVisibility(
+  lead: LeadEngineInput,
+  action: ActionRequired,
+  today: SgDate,
+): QueueVisibility {
+  if (
+    lead.funnel_stage === "Won" ||
+    lead.funnel_stage === "Lost" ||
+    action === "Closed"
+  ) {
+    return "Exclude – Closed";
+  }
+  if (lead.lead_status === "Unresponsive") return "Exclude – Ghosted";
+  // A Nurture lead is waiting on keys or renovation, not ghosting us.
+  if (
+    lead.funnel_stage !== "Nurture" &&
+    lead.last_customer_response_at &&
+    lead.last_customer_response_at < addDays(today, -90)
+  ) {
+    return "Exclude – Stale 90d+";
+  }
+  return "Include";
+}
+
+const PRIORITY_RANK: Record<ContactPriority, 1 | 2 | 3 | 4 | null> = {
+  "Contact Today": 1,
+  "Contact in 2–3 Days": 2,
+  "Contact Within 7 Days": 3,
+  "Future / Nurture": 4,
+  Closed: null,
+};
+
+/** Everything the eight formula columns produced, for one lead. */
+export function deriveLead(lead: LeadEngineInput, today: SgDate): LeadDerived {
+  const actionRequired = deriveActionRequired(lead);
+  const effectiveActionDate = deriveEffectiveActionDate(
+    actionRequired,
+    lead.action_date,
+    today,
+  );
+  const contactPriority = deriveContactPriority(
+    lead,
+    actionRequired,
+    effectiveActionDate,
+    today,
+  );
+
+  return {
+    actionRequired,
+    nextAction: deriveNextAction(actionRequired, lead.action_detail_override),
+    effectiveActionDate,
+    dueStatus: deriveDueStatus(actionRequired, effectiveActionDate, today),
+    contactPriority,
+    queueVisibility: deriveQueueVisibility(lead, actionRequired, today),
+    priorityRank: PRIORITY_RANK[contactPriority],
+  };
+}
+
+/**
+ * Within a priority band, order by action. The Daily Queue sheet numbers its
+ * action cells and cell A2 instructs "Use Z→A sort", so the highest number is
+ * worked first.
+ *
+ * OBSERVED — these six numbers are printed in the sheet's own cells:
+ *   07 Attend / Confirm Appointment
+ *   06 Book Appointment
+ *   04 Push for Decision
+ *   03 Qualify Lead
+ *   02 Nurture / Re-engage
+ *   01 Follow Up – No Response
+ *
+ * INFERRED — four ranks this port chose, because no queue-visible lead is in
+ * those states and the sheet therefore never numbered them. Each is marked
+ * below. They follow the principle the priority rule already encodes: the
+ * customer waiting on us outranks everything.
+ *
+ * Anything absent falls to 0 via `?? 0` and sinks. That is right for
+ * 'Ignore Lead' (it matches the unnumbered row in the sheet) and moot for
+ * 'Review Lead' (unreachable — every funnel_stage has a branch and the column
+ * is a NOT NULL enum), but it would be WRONG for 'Resolve Barrier', which
+ * means a customer raised an objection. It is ranked explicitly rather than
+ * left to sink below a no-response follow-up.
+ */
+const ACTION_RANK: Partial<Record<ActionRequired, number>> = {
+  "Reply Required": 9,               // INFERRED — ball is with us
+  "Send Quote": 8,                   // INFERRED — ball is with us
+  "Attend / Confirm Appointment": 7, // observed
+  "Book Appointment": 6,             // observed
+  "Follow Up Quote": 5,              // INFERRED — 05 is the gap in the numbering
+  "Resolve Barrier": 4,              // INFERRED — peer of Push for Decision,
+                                     // which shares its next-action phrase
+  "Push for Decision": 4,            // observed
+  "Qualify Lead": 3,                 // observed
+  "Nurture / Re-engage": 2,          // observed
+  "Follow Up – No Response": 1,      // observed
+  // 'Ignore Lead' and 'Review Lead' deliberately absent — see above.
+};
+
+/**
+ * Replaces the sheet's Queue Seq columns (W and Y). Those are running COUNTIFS
+ * that exist only because a spreadsheet needs a sortable number in a cell; a
+ * database just sorts.
+ */
+export function compareQueueRows(
+  a: { name: string; derived: LeadDerived },
+  b: { name: string; derived: LeadDerived },
+): number {
+  const rankA = a.derived.priorityRank ?? 99;
+  const rankB = b.derived.priorityRank ?? 99;
+  if (rankA !== rankB) return rankA - rankB;
+
+  // Higher action rank first, matching the sheet's Z→A sort. Unranked actions
+  // ('Ignore Lead' — the one that leaks into the queue) sink to the bottom,
+  // which is exactly where the sheet's unnumbered row sits today.
+  const actionA = ACTION_RANK[a.derived.actionRequired] ?? 0;
+  const actionB = ACTION_RANK[b.derived.actionRequired] ?? 0;
+  if (actionA !== actionB) return actionB - actionA;
+
+  // Then the soonest date; undated rows sink within their group.
+  const dateA = a.derived.effectiveActionDate ?? "9999-12-31";
+  const dateB = b.derived.effectiveActionDate ?? "9999-12-31";
+  if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+
+  return a.name.localeCompare(b.name);
 }

@@ -27,7 +27,7 @@ Six sheets; two hold data.
 
 | Sheet | Role |
 |---|---|
-| `Leads` | 29 cols × 244 rows. A–H, J, L, O–V hand-typed. **I, K, M, N, W, X, Y, Z are formulas.** |
+| `Leads` | 29 cols × 244 rows. A–H, J, L, O–V and AA–AC hand-typed. **I, K, M, N, W, X, Y, Z are formulas.** |
 | `Daily Queue` | Flattened, priority-sorted worklist |
 | `Dashboard` | `COUNTIF` tallies by funnel stage and by action |
 | `Lists` | Enum definitions (3 enums + priority ranking) |
@@ -68,7 +68,8 @@ depend on `TODAY()` and are derived at read time.
 
 ```
 id                          uuid pk
-lead_ref                    text unique      -- 'TG-28786858' / 'WA-6581817358', verbatim
+lead_ref                    text unique      -- 'TG-28786858' / 'WA-6581817358'; see import hazards
+source_ref                  text             -- the sheet's Lead ID verbatim, NOT unique
 source                      lead_source      -- telegram | whatsapp | manual
 name                        text not null    -- Excel 'Customer'
 mobile                      text             -- 98 of 244
@@ -96,11 +97,16 @@ created_at / updated_at
 ```
 
 Only **three** Postgres enums, because `Lists` defines only three. `buying_readiness`
-and `expected_key_date` stay `text` — the sheet holds `'Mid-Sep'` and `'Early Jan 2027'`
-in them, and coercing those to dates would invent data. `keys_status` stays `text` for
-the same reason: it is not in `Lists`, so it is not a closed set.
+stays `text` because the sheet holds `'Mid-Sep'`, `'Early Jan 2027'`, `'Early Oct'` and
+`'ASAP'` in it. `expected_key_date` stays `text` because its two non-empty values are
+one real date and the phrase `'Not collected yet'`. Coercing either column to a date
+would invent data. `keys_status` stays `text` for the same reason as the others: it is
+not in `Lists`, so it is not a closed set.
 
-Excel's `'-'` placeholder imports as `NULL`.
+`'-'` occurs exactly once in the entire sheet — in the `Customer` column of row 118,
+which is the one `NOT NULL` column it can break. Blank cells elsewhere are genuinely
+empty rather than dashed. Both are imported as `NULL`; see the import section for how
+the two nameless leads are handled.
 
 **Enum values, verbatim:**
 
@@ -222,8 +228,13 @@ past → **Overdue** · today → **Due Today** · else **Upcoming**.
 
 1. `funnel_stage ∈ {Won, Lost}` OR action `Closed` → **Exclude – Closed**
 2. `lead_status = Unresponsive` → **Exclude – Ghosted**
-3. `funnel_stage ≠ Nurture` AND `last_customer_response_at < today − 90d` → **Exclude – Stale 90d+**
+3. `funnel_stage ≠ Nurture` AND `last_customer_response_at` **is set** AND
+   `last_customer_response_at < today − 90d` → **Exclude – Stale 90d+**
 4. else → **Include**
+
+The "is set" clause is not decoration. 48 leads have never responded and so have no
+date; without the guard a null would compare as stale and silently drop them, 4 of
+which are in today's queue.
 
 ### Queue ordering
 
@@ -311,7 +322,11 @@ the Calendar API, create a service account, and share the target calendar with t
 service account's email at "Make changes to events".
 
 Env: `GOOGLE_CALENDAR_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_KEY`.
-Added to the Dockerfile build args and Railway config.
+
+**Railway service variables only — not Dockerfile build args.** These are read at
+runtime on the server, and a private key passed as a build arg is baked into an image
+layer that anyone who can pull the image can read. The existing `ARG` lines are all
+`NEXT_PUBLIC_*`, which are public by definition; these are not.
 
 **Event shape** — internal, no attendees:
 
@@ -344,16 +359,64 @@ names and 98 mobile numbers. The script keeps the PII out of git history; the
 `.gitignore` entry for `*.xlsx` lands in the same commit.
 
 Mapping notes:
-- `Lead ID` prefix → `source`; the full ID is kept verbatim in `lead_ref`
-- `'-'` → `NULL` throughout
-- `Latest Quote` → `latest_quote_cents` (× 100)
-- `Lead Owner` "Alan" → resolved to a `users` row; the script fails loudly if absent
+- `Lead ID` prefix → `source`; the ID is kept verbatim in `source_ref`
+- `Lead Owner` "Alan" → resolved to a profile row; the script fails loudly if absent
 - Formula columns are ignored on import — they are re-derived
 
-**Verification gate:** after import, a script recomputes all eight derived values for
-all 244 leads and diffs against the values cached in the xlsx. The port is correct when
-the diff is empty. This is the whole reason for porting the enums verbatim, and it is
-the acceptance test for the engine.
+### Data hazards in the source
+
+The sheet is a working document, not an export. Five shapes in it break a naive import,
+each verified against the file:
+
+1. **`Lead ID` is not unique.** Ten rows carry a bare `TG` (×8), `WA` (×2) or `WA-SEM`
+   (×3) with no identifier attached. A unique index on the raw value fails outright,
+   and an idempotent upsert keyed on it silently overwrites the wrong lead. The import
+   therefore writes a synthetic `lead_ref` (`TG-row233`) and keeps the raw value in
+   `source_ref`, which is not unique.
+
+2. **168 date cells are raw Excel serials.** 59 `First Initiated Date`, 59 `Last Contact
+   Date` and 50 `Last Customer Response Date` cells carry `number_format: General`, so
+   a date-aware parser hands back the number `46087` rather than a date. Parsed
+   naively they become `NULL` — and 50 missing `last_customer_response_at` values
+   silently disable the 90-day stale rule for those leads. The import branches on
+   numeric input: `Date.UTC(1899, 11, 30) + serial × 86_400_000`.
+
+3. **`Latest Quote` holds free text on two rows** — `'688 Essential Night --> top $135
+   for Signature Night'` and `'780 --> 660 after 15%'`. These are negotiation notes, not
+   amounts. A numeric coercion yields `NaN` and the insert throws mid-run. The import
+   extracts a leading number where one exists and preserves the full text in the
+   interaction summary rather than discarding it.
+
+4. **Two leads have no name.** Row 118's `Customer` is `'-'` and row 143's is blank.
+   Both are ghosted `Not Qualified` leads, and both still carry an interaction summary
+   worth keeping. `name` is `NOT NULL`, so the import falls back to the lead's own
+   reference rather than dropping the row — inventing a placeholder would be worse, and
+   dropping it would put the count at 242 and quietly lose two conversations.
+
+5. **Rows below the data are not data.** Row 251 is an instruction to the operator, row
+   253 is a helper block (`A=2026-08-10`, `B==TODAY()`, `C=B−A`) and row 254 is a
+   counter. Row 253's first two cells are dates, so they survive an emptiness check and
+   import as a lead. Both the import and the verification script bound their scan to
+   rows whose `Lead ID` starts `TG` or `WA` — without that the fixture holds 246 cases
+   instead of 244.
+
+**Verification gate:** after import, a script recomputes the six derived values for all
+244 leads and diffs against the values cached in the xlsx. The port is correct when the
+diff is empty. This is the whole reason for porting the enums verbatim.
+
+**Run it against `2026-08-21`, and work from a copy.** The sheet's `TODAY()` is frozen
+at its last recalculation — 2026-08-21, confirmed three ways: every `Due Today` row has
+an effective date of 2026-08-21, the earliest `Upcoming` is 2026-08-22, and the helper
+cell `B253` holds `=TODAY()` cached at 2026-08-21. Opening the file in Excel
+recalculates it and destroys that baseline permanently.
+
+**What the gate does and does not prove.** The data exercises 9 of the cascade's 16
+branches. `Barrier / Objection Raised`, `Send Quote` and outcome-driven `Reply Required`
+have zero rows, so the gate never reaches the `TODAY()` branch of the effective-date
+rule or the second branch of contact priority. In particular it **cannot** prove the
+`Resolve Barrier` blank-instruction bug, because no lead is in that state. Of the three
+known bugs the gate proves one — the `Ignore Lead` queue leak. The other two are
+covered by unit tests only, which is why those tests are not optional.
 
 ### Retiring the spreadsheet
 

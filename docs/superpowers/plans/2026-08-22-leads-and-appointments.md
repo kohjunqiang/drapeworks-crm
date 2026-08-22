@@ -46,7 +46,7 @@
 | `scripts/import-leads.ts` | One-off xlsx → `leads` import, idempotent on `lead_ref`. **Deleted in Task 26.** |
 | `scripts/verify-lead-engine.ts` | Diffs engine output against the xlsx and emits the fixture. **Deleted in Task 26.** |
 
-**Deleted (Task 26):** `02 Leads Management & Appt.xlsx`, both scripts, the `xlsx` dependency.
+**Deleted (Task 26):** `02 Leads Management & Appt.xlsx`, both scripts, the `exceljs` dependency.
 
 **Modified:**
 
@@ -182,9 +182,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("id", "uuid", (c) =>
       c.primaryKey().defaultTo(sql`gen_random_uuid()`),
     )
-    // 'TG-28786858' / 'WA-6581817358'. Stored exactly as the sheet has it —
-    // this is the join key back to the source of truth during the port.
+    // Unique, but NOT the sheet's Lead ID: ten rows there carry a bare 'TG',
+    // 'WA' or 'WA-SEM' with no identifier, so the raw value collides. The
+    // import synthesises 'TG-row233' for those and keeps the original below.
     .addColumn("lead_ref", "text", (c) => c.notNull().unique())
+    // The sheet's Lead ID verbatim. Deliberately not unique — it is the join
+    // key back to the spreadsheet during the port, not an identity.
+    .addColumn("source_ref", "text")
     .addColumn("source", sql`lead_source`, (c) => c.notNull())
     .addColumn("name", "text", (c) => c.notNull())
     .addColumn("mobile", "text")
@@ -228,6 +232,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     )
     .execute();
 
+  await sql`create index leads_source_ref_idx on public.leads (source_ref)`.execute(db);
   await sql`create index leads_funnel_stage_idx on public.leads (funnel_stage)`.execute(db);
   await sql`create index leads_lead_status_idx on public.leads (lead_status)`.execute(db);
   await sql`create index leads_owner_id_idx on public.leads (owner_id)`.execute(db);
@@ -639,7 +644,10 @@ export type LeadDerived = {
   priorityRank: 1 | 2 | 3 | 4 | null;
 };
 
-export const FUNNEL_STAGES: FunnelStage[] = [
+// `as const` tuples, not arrays. z.enum() needs a non-empty readonly tuple to
+// infer the literal union; a plain FunnelStage[] widens to string, which is
+// what forces `as never` casts through every server action downstream.
+export const FUNNEL_STAGES = [
   "New Lead",
   "Not Qualified",
   "Qualified / Pre-Appointment",
@@ -650,18 +658,18 @@ export const FUNNEL_STAGES: FunnelStage[] = [
   "Nurture",
   "Won",
   "Lost",
-];
+] as const satisfies readonly FunnelStage[];
 
-export const LEAD_STATUSES: LeadStatusValue[] = [
+export const LEAD_STATUSES = [
   "Active",
   "Nurture",
   "Ignore",
   "Unresponsive",
   "Won",
   "Lost",
-];
+] as const satisfies readonly LeadStatusValue[];
 
-export const LEAD_OUTCOMES: LeadOutcome[] = [
+export const LEAD_OUTCOMES = [
   "Customer Replied",
   "No Response",
   "Ready to Book Appointment",
@@ -676,8 +684,13 @@ export const LEAD_OUTCOMES: LeadOutcome[] = [
   "Appointment Confirmed",
   "Follow-Up Sent",
   "Renovation Delayed",
-];
+] as const satisfies readonly LeadOutcome[];
 ```
+
+With these as tuples, `src/lib/validation/lead.ts` becomes `z.enum(FUNNEL_STAGES)` with
+no cast, and the `as never` casts disappear from `src/lib/actions/leads.ts` and
+`src/lib/actions/appointments.ts`. Drop them as you write each file — if TypeScript
+still demands one, the tuple is wrong rather than the cast being necessary.
 
 - [ ] **Step 2: Typecheck**
 
@@ -1454,11 +1467,19 @@ git commit -m "feat(leads): derive queue visibility and compose the engine"
 
 Not a seed migration. `data/migrations/202608181700_seed_procurement.ts` sets the precedent for seeding via migration, but migrations get committed — and this payload is 244 real names and 98 mobile numbers.
 
+**The source is a working document, not an export.** Five verified hazards in it break a
+naive import — read the spec's "Data hazards in the source" before writing this. All
+five are handled below; none of them is hypothetical.
+
 - [ ] **Step 1: Add the dependency and script**
 
 ```bash
-npm install --save-dev xlsx
+npm install --save-dev exceljs
 ```
+
+`exceljs`, not `xlsx`: the newest `xlsx` on npm (0.18.5) carries CVE-2023-30533 and
+CVE-2024-22363 with fixes only on SheetJS's own CDN, and `exceljs` exposes row numbers,
+which the synthetic `lead_ref` needs.
 
 Add to `package.json` scripts:
 
@@ -1480,24 +1501,57 @@ Add to `package.json` scripts:
 //
 // Usage: npm run leads:import -- "02 Leads Management & Appt.xlsx"
 
-import { readFileSync } from "node:fs";
-
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 import { db } from "../src/lib/db";
 import { toSgDate } from "../src/lib/leads/sg-date";
 
 const HEADER_ROW = 4; // rows 1–3 are the title, a note and usage instructions
+const FIRST_DATA_ROW = 5;
+const LAST_DATA_ROW = 250;
 
-/** The sheet writes '-' where it means empty. */
+// 1-indexed column positions, from the header row.
+const COL = {
+  leadId: 1, customer: 2, initiator: 3, firstInitiated: 4, lastContact: 5,
+  funnelStage: 6, leadStatus: 7, lastOutcome: 8, overrideDetail: 10,
+  actionDate: 12, interactionSummary: 15, latestQuote: 16, buyingReadiness: 17,
+  keysStatus: 18, expectedKeyDate: 19, lastCustomerResponse: 20,
+  telegramChatId: 21, historicalSummary: 22, development: 27, mobile: 28,
+} as const;
+
+/** exceljs wraps formula cells as { formula, result }. Unwrap to the value. */
+function cellValue(row: ExcelJS.Row, col: number): unknown {
+  const value = row.getCell(col).value;
+  if (value && typeof value === "object" && "result" in value) {
+    return (value as { result: unknown }).result;
+  }
+  if (value && typeof value === "object" && "richText" in value) {
+    return (value as ExcelJS.CellRichTextValue).richText.map((t) => t.text).join("");
+  }
+  return value;
+}
+
 function clean(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const text = String(value).trim();
+  // '-' occurs exactly once in the sheet, in the Customer column of row 118.
   return text === "" || text === "-" ? null : text;
 }
 
+/**
+ * 168 date cells in this sheet carry number_format 'General', so they arrive as
+ * raw Excel serials (46087) rather than dates. Parsed as text they become
+ * Invalid Date -> null, which silently disables the 90-day stale rule for the
+ * 50 leads whose Last Customer Response Date is stored that way.
+ *
+ * The epoch is 1899-12-30, not 1900-01-01: Excel deliberately reproduces a
+ * Lotus 1-2-3 bug that treats 1900 as a leap year.
+ */
 function asTimestamp(value: unknown): Date | null {
   if (value instanceof Date) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(Date.UTC(1899, 11, 30) + value * 86_400_000);
+  }
   const text = clean(value);
   if (!text) return null;
   const parsed = new Date(text);
@@ -1509,23 +1563,41 @@ function asSgDate(value: unknown): string | null {
   return ts ? toSgDate(ts) : null;
 }
 
-/** 'TG-28786858' -> telegram. The full ref is kept verbatim. */
+/**
+ * 'Latest Quote' is numeric on 52 rows and free text on two:
+ *   '688 Essential Night --> top $135 for Signature Night'
+ *   '780 --> 660 after 15%'
+ * Number() on those yields NaN and the integer insert throws mid-run. Take the
+ * leading number and hand the raw text back so the caller can preserve it —
+ * these are negotiation notes and discarding them loses real context.
+ */
+function parseQuote(value: unknown): { cents: number | null; note: string | null } {
+  const text = clean(value);
+  if (!text) return { cents: null, note: null };
+  if (typeof value === "number") return { cents: Math.round(value * 100), note: null };
+
+  const leading = /^\s*([\d,]+(?:\.\d+)?)/.exec(text);
+  const cents = leading
+    ? Math.round(Number(leading[1].replace(/,/g, "")) * 100)
+    : null;
+  return { cents, note: text };
+}
+
 function sourceFromRef(ref: string): "telegram" | "whatsapp" | "manual" {
-  if (ref.startsWith("TG-")) return "telegram";
-  if (ref.startsWith("WA-")) return "whatsapp";
+  if (ref.startsWith("TG")) return "telegram";
+  if (ref.startsWith("WA")) return "whatsapp";
   return "manual";
 }
 
 async function main() {
   const path = process.argv[2] ?? "02 Leads Management & Appt.xlsx";
-  const wb = XLSX.read(readFileSync(path), { cellDates: true });
-  const sheet = wb.Sheets["Leads"];
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(path);
+  const sheet = wb.getWorksheet("Leads");
   if (!sheet) throw new Error(`No 'Leads' sheet in ${path}`);
-
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-    range: HEADER_ROW - 1,
-    defval: null,
-  });
+  if (clean(cellValue(sheet.getRow(HEADER_ROW), COL.leadId)) !== "Lead ID") {
+    throw new Error(`Row ${HEADER_ROW} is not the header row — the sheet has shifted`);
+  }
 
   // Every lead in the sheet is Alan's. Fail loudly rather than importing 244
   // ownerless rows that then need a manual repair pass.
@@ -1540,42 +1612,75 @@ async function main() {
     );
   }
 
+  const seenRefs = new Set<string>();
+  const notes: string[] = [];
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
 
-  for (const row of rows) {
-    const leadRef = clean(row["Lead ID"]);
-    const name = clean(row["Customer"]);
-    if (!leadRef || !name) {
+  for (let rowNumber = FIRST_DATA_ROW; rowNumber <= LAST_DATA_ROW; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber);
+    const sourceRef = clean(cellValue(row, COL.leadId));
+
+    // Rows 251/253/254 are an operator instruction, a TODAY() helper block and
+    // a counter. Row 253's first two cells are dates, so an emptiness check
+    // lets it through and it imports as a lead. Anchor on the ID prefix.
+    if (!sourceRef || !/^(TG|WA)/.test(sourceRef)) {
       skipped += 1;
       continue;
     }
 
-    const quote = clean(row["Latest Quote"]);
+    // Ten rows carry a bare 'TG', 'WA' or 'WA-SEM'. Keyed on the raw value the
+    // unique index fails and the upsert overwrites the wrong lead.
+    let leadRef = sourceRef;
+    if (seenRefs.has(leadRef) || !/^(TG|WA)-.+/.test(sourceRef)) {
+      leadRef = `${sourceRef}-row${rowNumber}`;
+      notes.push(`row ${rowNumber}: ref '${sourceRef}' -> '${leadRef}'`);
+    }
+    seenRefs.add(leadRef);
+
+    // Rows 118 and 143 have no name; both are ghosted Not Qualified leads that
+    // still carry an interaction summary. name is NOT NULL, so fall back to the
+    // reference — dropping them would lose two real conversations and put the
+    // final count at 242.
+    let name = clean(cellValue(row, COL.customer));
+    if (!name) {
+      name = leadRef;
+      notes.push(`row ${rowNumber}: no customer name, using '${leadRef}'`);
+    }
+
+    const quote = parseQuote(cellValue(row, COL.latestQuote));
+    if (quote.note) notes.push(`row ${rowNumber}: quote text '${quote.note}'`);
+
+    const summary = clean(cellValue(row, COL.interactionSummary));
     const values = {
       lead_ref: leadRef,
-      source: sourceFromRef(leadRef),
+      source_ref: sourceRef,
+      source: sourceFromRef(sourceRef),
       name,
-      mobile: clean(row["Mobile"]),
-      development: clean(row["Development"]),
-      initiator: clean(row["Conversation Initiator"]) as "Customer" | "Us" | null,
-      funnel_stage: clean(row["Funnel Stage"]) ?? "New Lead",
-      lead_status: clean(row["Lead Status"]) ?? "Active",
-      last_outcome: clean(row["Last Contact Outcome"]),
-      action_detail_override: clean(row["Action Detail / Override"]),
-      action_date: asSgDate(row["Action Date"]),
-      first_initiated_at: asTimestamp(row["First Initiated Date"]),
-      last_contact_at: asTimestamp(row["Last Contact Date"]),
-      last_customer_response_at: asTimestamp(row["Last Customer Response Date"]),
-      interaction_summary: clean(row["Interaction Summary"]),
-      historical_summary: clean(row["Historical Summary"]),
+      mobile: clean(cellValue(row, COL.mobile)),
+      development: clean(cellValue(row, COL.development)),
+      initiator: clean(cellValue(row, COL.initiator)) as "Customer" | "Us" | null,
+      funnel_stage: clean(cellValue(row, COL.funnelStage)) ?? "New Lead",
+      lead_status: clean(cellValue(row, COL.leadStatus)) ?? "Active",
+      last_outcome: clean(cellValue(row, COL.lastOutcome)),
+      action_detail_override: clean(cellValue(row, COL.overrideDetail)),
+      action_date: asSgDate(cellValue(row, COL.actionDate)),
+      first_initiated_at: asTimestamp(cellValue(row, COL.firstInitiated)),
+      last_contact_at: asTimestamp(cellValue(row, COL.lastContact)),
+      last_customer_response_at: asTimestamp(cellValue(row, COL.lastCustomerResponse)),
+      // The negotiation note rides along with the summary rather than being
+      // dropped on the floor; Alan can correct the number afterwards.
+      interaction_summary: quote.note
+        ? [summary, `[quote note: ${quote.note}]`].filter(Boolean).join(" ")
+        : summary,
+      historical_summary: clean(cellValue(row, COL.historicalSummary)),
       // Integer cents, per rules/code/typescript.md.
-      latest_quote_cents: quote ? Math.round(Number(quote) * 100) : null,
-      buying_readiness: clean(row["Buying Readiness"]),
-      keys_status: clean(row["Keys Status"]),
-      expected_key_date: clean(row["Expected Key Date"]),
-      telegram_chat_id: clean(row["Telegram Chat ID"]),
+      latest_quote_cents: quote.cents,
+      buying_readiness: clean(cellValue(row, COL.buyingReadiness)),
+      keys_status: clean(cellValue(row, COL.keysStatus)),
+      expected_key_date: clean(cellValue(row, COL.expectedKeyDate)),
+      telegram_chat_id: clean(cellValue(row, COL.telegramChatId)),
       owner_id: owner.id,
       updated_at: new Date(),
     } as never;
@@ -1596,8 +1701,13 @@ async function main() {
   }
 
   console.log(
-    `leads import: ${inserted} inserted, ${updated} updated, ${skipped} skipped (no ref or name)`,
+    `leads import: ${inserted} inserted, ${updated} updated, ${skipped} non-lead rows ignored`,
   );
+  // Printed, not buried: every one of these is a row a human should eyeball.
+  if (notes.length > 0) {
+    console.log(`\n${notes.length} rows needed handling:`);
+    for (const note of notes) console.log(`  ${note}`);
+  }
   await db.destroy();
 }
 
@@ -1616,9 +1726,24 @@ If the display column is not `full_name`, fix the owner lookup in the script.
 - [ ] **Step 4: Run the import**
 
 Run: `npm run leads:import`
-Expected: `leads import: 244 inserted, 0 updated, 0 skipped (no ref or name)`
 
-If it fails on an enum value, the value is missing from Task 2's enum — add it via a new migration rather than editing the applied one.
+Expected — these numbers were simulated against the real file, so treat any deviation
+as a bug rather than as noise:
+
+```
+leads import: 244 inserted, 0 updated, 2 non-lead rows ignored
+
+16 rows needed handling:
+  … 12 ref rewrites  (bare 'TG' ×8, 'WA' ×2, duplicate 'WA-SEM' ×2)
+  … 2 nameless rows  (rows 118 and 143)
+  … 2 quote notes    (rows 236 and 237)
+```
+
+**244 inserted and 244 unique `lead_ref` values.** If it is 242, the nameless-row
+fallback is missing. If the unique index throws, the synthetic-ref branch is wrong.
+
+If it fails on an enum value, the value is missing from Task 2's enum — add it via a new
+migration rather than editing the applied one.
 
 - [ ] **Step 5: Verify the row count and spot-check**
 
@@ -1630,7 +1755,27 @@ npx tsx -e "import {db} from './src/lib/db'; \
 
 Expected: `{ n: '244' }`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Prove the date serials survived**
+
+The single most damaging silent failure would be 168 dates landing as `NULL`, because
+50 of them drive the 90-day stale rule and nothing would visibly break.
+
+```bash
+npx tsx -e "import {db} from './src/lib/db'; \
+  const r = await db.selectFrom('leads').select(({fn}) => [ \
+    fn.countAll().as('total'), \
+    fn.count('first_initiated_at').as('first_initiated'), \
+    fn.count('last_contact_at').as('last_contact'), \
+    fn.count('last_customer_response_at').as('last_response')]).executeTakeFirst(); \
+  console.log(r); await db.destroy();"
+```
+
+Expected: `total: 244, first_initiated: 244, last_contact: 244, last_response: 196`.
+
+196 is right — 48 leads have genuinely never responded. If any figure comes back near
+185, 185 and 146, the Excel-serial branch in `asTimestamp` is not firing.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add scripts/import-leads.ts package.json package-lock.json
@@ -1652,21 +1797,50 @@ This is the acceptance test for the entire port, and the reason the enums were k
 // scripts/verify-lead-engine.ts
 //
 // Diffs the queue engine against the spreadsheet's own cached formula values.
-// An empty diff is the acceptance test for the port. Run it on the same day
-// the sheet was last opened and recalculated — the spreadsheet's TODAY() was
-// frozen at that moment, and so must ours be.
+// An empty diff is the acceptance test for the port.
 //
-// Usage: npm run leads:verify -- "02 Leads Management & Appt.xlsx" [YYYY-MM-DD]
+// Usage:
+//   npm run leads:verify -- [path] [YYYY-MM-DD] [--emit-fixture]
+//
+// The sheet's TODAY() is frozen at its last recalculation, so the comparison
+// date must be that day and not the day you happen to run this. It defaults to
+// 2026-08-21, confirmed three ways: every 'Due Today' row has an effective date
+// of 2026-08-21, the earliest 'Upcoming' is 2026-08-22, and helper cell B253
+// holds =TODAY() cached at 2026-08-21.
+//
+// WORK FROM A COPY. Opening the xlsx in Excel recalculates it and destroys
+// that baseline permanently.
 
-import { readFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 import { deriveLead } from "../src/lib/leads/queue-engine";
-import { todayInSingapore, toSgDate, type SgDate } from "../src/lib/leads/sg-date";
+import { toSgDate, type SgDate } from "../src/lib/leads/sg-date";
 import type { LeadEngineInput } from "../src/lib/leads/types";
 
 const HEADER_ROW = 4;
+const FIRST_DATA_ROW = 5;
+const LAST_DATA_ROW = 250;
+const SHEET_RECALCULATED_ON = "2026-08-21";
+
+const COL = {
+  leadId: 1, funnelStage: 6, leadStatus: 7, lastOutcome: 8, actionRequired: 9,
+  overrideDetail: 10, nextAction: 11, actionDate: 12, effectiveActionDate: 13,
+  dueStatus: 14, lastCustomerResponse: 20, contactPriority: 24, queueVisibility: 26,
+} as const;
+
+/** exceljs wraps formula cells as { formula, result } — and I/K/M/N/X/Z all are. */
+function cellValue(row: ExcelJS.Row, col: number): unknown {
+  const value = row.getCell(col).value;
+  if (value && typeof value === "object" && "result" in value) {
+    return (value as { result: unknown }).result;
+  }
+  if (value && typeof value === "object" && "richText" in value) {
+    return (value as ExcelJS.CellRichTextValue).richText.map((t) => t.text).join("");
+  }
+  return value;
+}
 
 function clean(v: unknown): string | null {
   if (v === null || v === undefined) return null;
@@ -1674,151 +1848,185 @@ function clean(v: unknown): string | null {
   return t === "" || t === "-" ? null : t;
 }
 
+/** 168 cells in this sheet are raw Excel serials. See scripts/import-leads.ts. */
 function asSgDate(v: unknown): SgDate | null {
   if (v instanceof Date) return toSgDate(v);
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return toSgDate(new Date(Date.UTC(1899, 11, 30) + v * 86_400_000));
+  }
   const t = clean(v);
   if (!t) return null;
   const d = new Date(t);
   return Number.isNaN(d.getTime()) ? null : toSgDate(d);
 }
 
-const path = process.argv[2] ?? "02 Leads Management & Appt.xlsx";
-const today = process.argv[3] ?? todayInSingapore();
+// Flags are filtered out before positional args are read. Reading argv[3]
+// directly would set `today` to '--emit-fixture' and rot every comparison.
+const argv = process.argv.slice(2);
+const emitFixture = argv.includes("--emit-fixture");
+const positional = argv.filter((a) => !a.startsWith("--"));
+const path = positional[0] ?? "02 Leads Management & Appt.xlsx";
+const today = positional[1] ?? SHEET_RECALCULATED_ON;
 
-const wb = XLSX.read(readFileSync(path), { cellDates: true });
-const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["Leads"], {
-  range: HEADER_ROW - 1,
-  defval: null,
-});
+if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) {
+  throw new Error(`Comparison date must be YYYY-MM-DD, got '${today}'`);
+}
 
-type Mismatch = { ref: string; field: string; excel: string; engine: string };
-const mismatches: Mismatch[] = [];
-let checked = 0;
+const wb = new ExcelJS.Workbook();
+await wb.xlsx.readFile(path);
+const sheet = wb.getWorksheet("Leads");
+if (!sheet) throw new Error(`No 'Leads' sheet in ${path}`);
+if (clean(cellValue(sheet.getRow(HEADER_ROW), COL.leadId)) !== "Lead ID") {
+  throw new Error(`Row ${HEADER_ROW} is not the header row — the sheet has shifted`);
+}
 
-for (const row of rows) {
-  const ref = clean(row["Lead ID"]);
-  if (!ref) continue;
-  checked += 1;
+type Case = {
+  index: number;
+  input: LeadEngineInput;
+  expected: Record<string, string | null>;
+};
+
+const cases: Case[] = [];
+const mismatches: { ref: string; field: string; excel: string; engine: string }[] = [];
+
+for (let rowNumber = FIRST_DATA_ROW; rowNumber <= LAST_DATA_ROW; rowNumber += 1) {
+  const row = sheet.getRow(rowNumber);
+  const ref = clean(cellValue(row, COL.leadId));
+  // Rows 251/253/254 are an instruction, a TODAY() helper and a counter. Row
+  // 253's first two cells are dates and would otherwise pass an emptiness
+  // check, putting 246 cases in the fixture instead of 244.
+  if (!ref || !/^(TG|WA)/.test(ref)) continue;
 
   const input: LeadEngineInput = {
-    funnel_stage: clean(row["Funnel Stage"]) as never,
-    lead_status: clean(row["Lead Status"]) as never,
-    last_outcome: clean(row["Last Contact Outcome"]) as never,
-    action_detail_override: clean(row["Action Detail / Override"]),
-    action_date: asSgDate(row["Action Date"]),
-    last_customer_response_at: asSgDate(row["Last Customer Response Date"]),
+    funnel_stage: clean(cellValue(row, COL.funnelStage)) as never,
+    lead_status: clean(cellValue(row, COL.leadStatus)) as never,
+    last_outcome: clean(cellValue(row, COL.lastOutcome)) as never,
+    action_detail_override: clean(cellValue(row, COL.overrideDetail)),
+    action_date: asSgDate(cellValue(row, COL.actionDate)),
+    last_customer_response_at: asSgDate(cellValue(row, COL.lastCustomerResponse)),
+  };
+
+  const expected = {
+    actionRequired: clean(cellValue(row, COL.actionRequired)),
+    nextAction: clean(cellValue(row, COL.nextAction)),
+    effectiveActionDate: asSgDate(cellValue(row, COL.effectiveActionDate)),
+    dueStatus: clean(cellValue(row, COL.dueStatus)),
+    contactPriority: clean(cellValue(row, COL.contactPriority)),
+    queueVisibility: clean(cellValue(row, COL.queueVisibility)),
   };
 
   const derived = deriveLead(input, today);
+  const actual = {
+    actionRequired: derived.actionRequired,
+    nextAction: derived.nextAction || null,
+    effectiveActionDate: derived.effectiveActionDate,
+    dueStatus: derived.dueStatus,
+    contactPriority: derived.contactPriority,
+    queueVisibility: derived.queueVisibility,
+  };
 
-  const comparisons: [string, string | null, string | null][] = [
-    ["Action Required", clean(row["Action Required"]), derived.actionRequired],
-    ["Next Action", clean(row["Next Action"]), derived.nextAction || null],
-    ["Effective Action Date", asSgDate(row["Effective Action Date"]), derived.effectiveActionDate],
-    ["Due Status", clean(row["Due Status"]), derived.dueStatus],
-    ["Contact Priority", clean(row["Contact Priority"]), derived.contactPriority],
-    ["Queue Visibility", clean(row["Queue Visibility"]), derived.queueVisibility],
-  ];
-
-  for (const [field, excel, engine] of comparisons) {
-    if ((excel ?? "") !== (engine ?? "")) {
-      mismatches.push({ ref, field, excel: excel ?? "∅", engine: engine ?? "∅" });
+  for (const field of Object.keys(expected) as (keyof typeof expected)[]) {
+    if ((expected[field] ?? "") !== (actual[field] ?? "")) {
+      mismatches.push({
+        ref,
+        field,
+        excel: expected[field] ?? "∅",
+        engine: actual[field] ?? "∅",
+      });
     }
   }
+
+  cases.push({ index: cases.length, input, expected });
 }
 
-console.log(`checked ${checked} leads against ${today}`);
+console.log(`checked ${cases.length} leads against ${today}`);
 
-if (mismatches.length === 0) {
-  console.log("✅ engine output matches the spreadsheet exactly");
-  process.exit(0);
+if (mismatches.length > 0) {
+  console.log(`❌ ${mismatches.length} mismatches:\n`);
+  for (const m of mismatches.slice(0, 40)) {
+    console.log(`  ${m.ref.padEnd(18)} ${m.field.padEnd(22)} excel=${m.excel}  engine=${m.engine}`);
+  }
+  if (mismatches.length > 40) console.log(`  … and ${mismatches.length - 40} more`);
+  process.exit(1);
 }
 
-console.log(`❌ ${mismatches.length} mismatches:\n`);
-for (const m of mismatches.slice(0, 40)) {
-  console.log(`  ${m.ref.padEnd(16)} ${m.field.padEnd(24)} excel=${m.excel}  engine=${m.engine}`);
-}
-if (mismatches.length > 40) console.log(`  … and ${mismatches.length - 40} more`);
-process.exit(1);
-```
+console.log("✅ engine output matches the spreadsheet exactly");
 
-- [ ] **Step 2: Run it**
-
-Run: `npm run leads:verify`
-Expected: `✅ engine output matches the spreadsheet exactly`
-
-**If there are mismatches, do not adjust the expected values — fix the engine.** Two exceptions are legitimate and should be reasoned about explicitly rather than assumed:
-
-1. `Contact Priority` differing on rows whose `Effective Action Date` sits exactly on a band boundary, when the sheet was last recalculated on a different day from `today`. Re-run with the sheet's recalculation date as the second argument.
-2. `Next Action` on `Resolve Barrier` rows — both sides should be `∅`. If the engine emits a phrase there, Task 7 was implemented "correctly" instead of faithfully.
-
-- [ ] **Step 3: Freeze the parity check into a committed fixture**
-
-The spreadsheet is deleted in Task 26. A check that only runs while the file exists
-stops being a regression test the moment it is gone — so capture it now.
-
-The engine reads six fields, and none of them is personal: stage, status, outcome, the
-override note (9 rows of generic sales notes, verified), and two dates. A fixture of
-inputs plus Excel's own expected outputs carries no names, mobiles, developments or
-summaries.
-
-Add to `scripts/verify-lead-engine.ts`, just before the final exit, and gate it on a
-`--emit-fixture` argument:
-
-```ts
-if (process.argv.includes("--emit-fixture")) {
+if (emitFixture) {
   const fixture = {
-    // Excel's TODAY() was frozen at the moment the sheet last recalculated.
-    // Recording it is what makes this fixture deterministic forever — without
-    // it the expectations rot the day after they are generated.
+    // Recording the date is what makes the fixture deterministic forever —
+    // without it the expectations rot the day after they are generated.
     recalculatedOn: today,
     note:
       "Generated from '02 Leads Management & Appt.xlsx' before it was retired. " +
       "Inputs and expectations only — no names, mobiles, developments or summaries.",
-    cases: rows
-      .filter((row) => clean(row["Lead ID"]))
-      .map((row, index) => ({
-        // Deliberately not lead_ref: a WhatsApp ref is a phone number.
-        index,
-        input: {
-          funnel_stage: clean(row["Funnel Stage"]),
-          lead_status: clean(row["Lead Status"]),
-          last_outcome: clean(row["Last Contact Outcome"]),
-          action_detail_override: clean(row["Action Detail / Override"]),
-          action_date: asSgDate(row["Action Date"]),
-          last_customer_response_at: asSgDate(row["Last Customer Response Date"]),
-        },
-        expected: {
-          actionRequired: clean(row["Action Required"]),
-          nextAction: clean(row["Next Action"]),
-          effectiveActionDate: asSgDate(row["Effective Action Date"]),
-          dueStatus: clean(row["Due Status"]),
-          contactPriority: clean(row["Contact Priority"]),
-          queueVisibility: clean(row["Queue Visibility"]),
-        },
-      })),
+    // Deliberately no lead_ref: a WA- ref is a phone number.
+    cases,
   };
-
   writeFileSync(
     "src/lib/leads/__fixtures__/spreadsheet-parity.json",
     `${JSON.stringify(fixture, null, 2)}\n`,
   );
-  console.log(`wrote ${fixture.cases.length} parity cases`);
+  console.log(`wrote ${cases.length} parity cases`);
 }
 ```
 
-Add `writeFileSync` to the `node:fs` import at the top of the file.
+- [ ] **Step 2: Work from a copy, then run it**
 
-- [ ] **Step 4: Generate the fixture**
+```bash
+cp "02 Leads Management & Appt.xlsx" /tmp/leads-baseline.xlsx
+npm run leads:verify -- /tmp/leads-baseline.xlsx
+```
+
+Expected:
+
+```
+checked 244 leads against 2026-08-21
+✅ engine output matches the spreadsheet exactly
+```
+
+**Never open the xlsx in Excel between now and Task 26.** Excel recalculates `TODAY()`
+on open, which rewrites every cached `Due Status` and `Contact Priority` in the file and
+destroys the baseline permanently. There is no undo.
+
+`checked 244`, not 246: if you see 246, the `/^(TG|WA)/` row filter is missing and rows
+251 and 253 — an operator instruction and a `TODAY()` helper block — are being treated
+as leads.
+
+**If there are mismatches, do not adjust the expected values — fix the engine.** One
+legitimate exception, which should be reasoned about rather than assumed: `Contact
+Priority` and `Due Status` differing on rows whose effective date sits on a band
+boundary means `today` is wrong. It must be `2026-08-21`, the day the sheet last
+recalculated — not the day you are running this.
+
+- [ ] **Step 3: Generate the fixture**
+
+The spreadsheet is deleted in Task 26. A check that only runs while the file exists
+stops being a regression test the moment it is gone — so capture it now.
+
+The engine reads six fields and none is personal: stage, status, outcome, the override
+note (9 rows, all generic sales notes — verified), and two dates. Inputs plus Excel's
+own expected outputs therefore carry no names, mobiles, developments or summaries. The
+`--emit-fixture` branch is already in the script from Step 1.
 
 ```bash
 mkdir -p src/lib/leads/__fixtures__
-npm run leads:verify -- "02 Leads Management & Appt.xlsx" --emit-fixture
+npm run leads:verify -- /tmp/leads-baseline.xlsx --emit-fixture
 ```
 
-Expected: `wrote 244 parity cases`
+Expected:
 
-- [ ] **Step 5: Confirm the fixture carries no personal data**
+```
+checked 244 leads against 2026-08-21
+✅ engine output matches the spreadsheet exactly
+wrote 244 parity cases
+```
+
+The fixture only writes when the diff is clean — the script exits non-zero on any
+mismatch before reaching it. A fixture generated from a failing run would enshrine the
+engine's bugs as the expectation.
+
+- [ ] **Step 4: Confirm the fixture carries no personal data**
 
 ```bash
 grep -ciE "mobile|\+65|[0-9]{8}" src/lib/leads/__fixtures__/spreadsheet-parity.json
@@ -1827,7 +2035,7 @@ grep -ciE "mobile|\+65|[0-9]{8}" src/lib/leads/__fixtures__/spreadsheet-parity.j
 Expected: `0`. If it is not zero, a PII field leaked into the fixture — find it and
 remove it before committing, because this file is committed and the xlsx is not.
 
-- [ ] **Step 6: Write the permanent parity test**
+- [ ] **Step 5: Write the permanent parity test**
 
 ```ts
 // src/lib/leads/spreadsheet-parity.test.ts
@@ -1847,12 +2055,38 @@ import type { LeadEngineInput } from "./types";
  * overnight.
  *
  * A failure here means the engine has drifted from the system it replaced.
- * Three of these expectations encode known spreadsheet bugs; see the spec's
- * "bugs carried knowingly" section before changing anything.
+ *
+ * COVERAGE CAVEAT. The real data exercises 9 of the cascade's 16 branches.
+ * 'Barrier / Objection Raised', 'Send Quote' and outcome-driven 'Reply
+ * Required' have zero rows, so this suite never reaches the TODAY() branch of
+ * the effective-date rule or the second branch of contact priority. Of the
+ * three known spreadsheet bugs it proves exactly one — the Ignore Lead queue
+ * leak. The Resolve Barrier blank instruction and the Dashboard undercount are
+ * unit-test-only, which is why queue-engine.test.ts is not redundant with this
+ * file. See the spec's "bugs carried knowingly" section before changing
+ * anything here.
  */
 describe("spreadsheet parity", () => {
   it("covers every lead that was in the spreadsheet", () => {
+    // 244, not 246: rows 251 and 253 are an operator instruction and a TODAY()
+    // helper block, and row 253's leading cells are dates that survive a naive
+    // emptiness check.
     expect(fixture.cases).toHaveLength(244);
+  });
+
+  it("is pinned to the date the spreadsheet last recalculated", () => {
+    // Without this the expectations would rot the day after generation.
+    expect(fixture.recalculatedOn).toBe("2026-08-21");
+  });
+
+  it("exercises only the 9 branches the real data reaches", () => {
+    // Locks in the caveat above, so that if someone later hand-edits the
+    // fixture the coverage claim in the spec stops being true loudly.
+    const actions = new Set(fixture.cases.map((c) => c.expected.actionRequired));
+    expect(actions.size).toBe(9);
+    expect(actions.has("Resolve Barrier")).toBe(false);
+    expect(actions.has("Send Quote")).toBe(false);
+    expect(actions.has("Reply Required")).toBe(false);
   });
 
   it.each(fixture.cases.map((c) => [c.index, c] as const))(
@@ -1876,15 +2110,15 @@ describe("spreadsheet parity", () => {
 });
 ```
 
-- [ ] **Step 7: Run it**
+- [ ] **Step 6: Run it**
 
 Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
-Expected: PASS, 245 tests (244 rows + the count assertion).
+Expected: PASS, 247 tests (244 rows + 3 suite-level assertions).
 
 If `resolveJsonModule` is not already enabled, add `"resolveJsonModule": true` to
 `compilerOptions` in `tsconfig.json`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add scripts/verify-lead-engine.ts src/lib/leads/__fixtures__/spreadsheet-parity.json src/lib/leads/spreadsheet-parity.test.ts
@@ -1920,9 +2154,11 @@ export const leadCreateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   mobile: optionalText,
   development: optionalText,
-  funnel_stage: z.enum(FUNNEL_STAGES as [string, ...string[]]),
-  lead_status: z.enum(LEAD_STATUSES as [string, ...string[]]),
-  last_outcome: z.enum(LEAD_OUTCOMES as [string, ...string[]]).optional(),
+  // No cast: the tuples in leads/types.ts are `as const`, so these infer as
+  // literal unions rather than widening to string.
+  funnel_stage: z.enum(FUNNEL_STAGES),
+  lead_status: z.enum(LEAD_STATUSES),
+  last_outcome: z.enum(LEAD_OUTCOMES).optional(),
   action_date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
@@ -2355,6 +2591,7 @@ export async function syncAppointment(appointmentId: string): Promise<void> {
         "appointments.development",
         "appointments.address",
         "appointments.notes",
+        "appointments.status",
         "appointments.google_event_id",
         "leads.id as lead_id",
         "leads.lead_ref",
@@ -2363,6 +2600,11 @@ export async function syncAppointment(appointmentId: string): Promise<void> {
       ])
       .where("appointments.id", "=", appointmentId)
       .executeTakeFirstOrThrow();
+
+    // A cancelled appointment has no business on the calendar. Without this
+    // guard a retry — or any later sync — resurrects the event that cancelling
+    // just deleted.
+    if (row.status === "cancelled" || row.status === "no_show") return;
 
     const event = buildConsultationEvent({
       customerName: row.customer_name,
@@ -2418,7 +2660,15 @@ export async function unsyncAppointment(appointmentId: string): Promise<void> {
     await deleteEvent(row.google_event_id);
     await db
       .updateTable("appointments")
-      .set({ google_event_id: null, google_sync_state: "pending", google_sync_error: null })
+      .set({
+        google_event_id: null,
+        // 'synced', not 'pending'. The desired end state — no event — has been
+        // reached, so this IS in sync. Marking it pending would read as
+        // "waiting to sync" in the UI and let any later syncAppointment
+        // recreate the event that was just deleted.
+        google_sync_state: "synced",
+        google_sync_error: null,
+      })
       .where("id", "=", appointmentId)
       .execute();
   } catch (error) {
@@ -2460,6 +2710,7 @@ Every action opens with `requireRole` and validates with Zod — Server Actions 
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { sql } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db";
@@ -2554,7 +2805,14 @@ export async function searchCustomers(term: string) {
   const trimmed = term.trim();
   if (trimmed.length < 2) return [];
 
+  // Mobile formats are mixed: 40 leads store '98439326', 58 store
+  // '+6581817358'. A literal LIKE on the raw column misses precisely the
+  // duplicate this picker exists to catch, so both sides are reduced to the
+  // last 8 digits — the part that actually identifies a Singapore number.
+  const digits = trimmed.replace(/\D/g, "");
+  const last8 = digits.length >= 8 ? digits.slice(-8) : null;
   const like = `%${trimmed}%`;
+
   return db
     .selectFrom("customers")
     .leftJoin("orders", "orders.customer_id", "customers.id")
@@ -2566,7 +2824,18 @@ export async function searchCustomers(term: string) {
       eb.fn.count("orders.id").as("order_count"),
     ])
     .where((eb) =>
-      eb.or([eb("customers.mobile", "ilike", like), eb("customers.name", "ilike", like)]),
+      eb.or([
+        eb("customers.name", "ilike", like),
+        ...(last8
+          ? [
+              eb(
+                sql<string>`right(regexp_replace(customers.mobile, '\\D', '', 'g'), 8)`,
+                "=",
+                last8,
+              ),
+            ]
+          : [eb("customers.mobile", "ilike", like)]),
+      ]),
     )
     .groupBy(["customers.id", "customers.name", "customers.mobile", "customers.email"])
     .orderBy("customers.name")
@@ -2692,9 +2961,19 @@ export async function rescheduleAppointment(input: unknown): Promise<void> {
     .returning("lead_id")
     .executeTakeFirstOrThrow();
 
+  // Booking wrote action_date; a reschedule that leaves it behind means the
+  // queue keeps showing the old appointment date and the lead lands in the
+  // wrong priority band.
+  await db
+    .updateTable("leads")
+    .set({ action_date: parsed.date, updated_at: new Date() })
+    .where("id", "=", updated.lead_id)
+    .execute();
+
   // Patches the existing event rather than creating a second one.
   await syncAppointment(parsed.id);
 
+  revalidatePath("/leads");
   revalidatePath(`/leads/${updated.lead_id}`);
 }
 
@@ -2711,6 +2990,23 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
 
   if (parsed.status === "cancelled" || parsed.status === "no_show") {
     await unsyncAppointment(parsed.id);
+
+    // Without this the lead stays at 'Appointment Booked', so the engine
+    // derives 'Attend / Confirm Appointment' — Contact Today — forever, for an
+    // appointment that is not happening. Roll it back to the stage it was at
+    // when it was booked, and clear the date the booking wrote.
+    await db
+      .updateTable("leads")
+      .set({
+        funnel_stage: "Qualified / Pre-Appointment" as never,
+        last_outcome: (parsed.status === "no_show"
+          ? "No Response"
+          : "Ready to Book Appointment") as never,
+        action_date: null,
+        updated_at: new Date(),
+      })
+      .where("id", "=", updated.lead_id)
+      .execute();
   }
 
   if (parsed.status === "completed") {
@@ -2719,6 +3015,9 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
       .set({
         funnel_stage: "Post-Appointment / Quote Pending" as never,
         last_outcome: "Appointment Completed" as never,
+        // Send Quote defaults its own effective date to today; a stale
+        // action_date from the booking would override it.
+        action_date: null,
         updated_at: new Date(),
       })
       .where("id", "=", updated.lead_id)
@@ -2760,6 +3059,15 @@ git commit -m "feat(appointments): add booking, reschedule and status actions"
 - Create: `src/components/leads/lead-table.tsx`
 
 An RSC: it loads, derives, sorts and renders with no client state. Read `src/app/(app)/orders/page.tsx` first and mirror its table classes and mobile-card breakpoint — `rules/ui/responsive.md` requires the same patterns, not similar ones.
+
+> **Applies to Tasks 19–23.** The JSX in these tasks is written with raw elements and
+> Tailwind classes so the structure and behaviour are unambiguous. **That is not the
+> house style.** `src/components/ui/` already has `table`, `input`, `label`, `select`,
+> `textarea`, `button`, `badge`, `card`, `dialog` and `empty-state`. Build each of these
+> components out of those primitives — `rules/ui/shadcn.md` requires it, and a
+> hand-rolled `<div>` modal in Task 22 gets none of the focus trapping, escape handling
+> or scroll locking that `dialog.tsx` already provides. Treat the markup below as a
+> specification of what the component does, not as the code to paste.
 
 - [ ] **Step 1: Write the table component**
 
@@ -2912,6 +3220,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db";
 import { compareQueueRows, deriveLead } from "@/lib/leads/queue-engine";
 import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
+import { formatSgd } from "@/lib/money";
 
 export default async function LeadsPage({
   searchParams,
@@ -2978,10 +3287,14 @@ export default async function LeadsPage({
       ? rows.sort(compareQueueRows)
       : rows.filter((r) => r.derived.queueVisibility === "Include").sort(compareQueueRows);
 
-  const queueCount = rows.filter((r) => r.derived.queueVisibility === "Include").length;
-  const todayCount = rows.filter(
-    (r) => r.derived.queueVisibility === "Include" && r.derived.priorityRank === 1,
-  ).length;
+  const inQueue = rows.filter((r) => r.derived.queueVisibility === "Include");
+  const queueCount = inQueue.length;
+  const todayCount = inQueue.filter((r) => r.derived.priorityRank === 1).length;
+
+  // The Daily Queue sheet totals the quotes of every queue-visible lead —
+  // 16,476 on the day of the port. It is the one aggregate Alan reads every
+  // morning, so it comes across with the rest of the sheet.
+  const pipelineCents = inQueue.reduce((sum, r) => sum + (r.latest_quote_cents ?? 0), 0);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
@@ -2989,7 +3302,8 @@ export default async function LeadsPage({
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Leads</h1>
           <p className="text-sm text-slate-500">
-            {queueCount} in the queue · {todayCount} to contact today
+            {queueCount} in the queue · {todayCount} to contact today ·{" "}
+            {formatSgd(pipelineCents)} pipeline
           </p>
         </div>
         <Link
@@ -3043,7 +3357,13 @@ export default async function LeadsPage({
 npm run dev
 ```
 
-Open `http://localhost:3000/leads`. Expected: the Daily Queue tab shows 40 leads, "All Leads" shows 244, and the queue count matches `npm run leads:verify`'s Include count.
+Open `http://localhost:3000/leads`. Expected: the Daily Queue tab shows **40** leads,
+"All Leads" shows **244**, and **12** are Contact Today — the same figures the sheet's
+`Daily Queue` header shows.
+
+Pipeline will not read 16,476 unless the system date is 2026-08-21, since queue
+membership moves with the date. What must match is the *set*: the leads counted are the
+ones the engine marks `Include`.
 
 - [ ] **Step 5: Commit**
 
@@ -3952,18 +4272,35 @@ In `src/lib/actions/orders.ts`, inside `createOrder`'s transaction, replace the 
         )?.customer_id ?? null
       : null;
 
-    const customer = existingCustomerId
-      ? { id: existingCustomerId }
-      : await trx
-          .insertInto("customers")
-          .values({
-            name: parsed.customer.name,
-            mobile: parsed.customer.mobile,
-            email: parsed.customer.email ?? null,
-            created_by: session.user.id,
-          })
-          .returning("id")
-          .executeTakeFirstOrThrow();
+    let customer: { id: string };
+    if (existingCustomerId) {
+      customer = { id: existingCustomerId };
+      // Reusing the row must not mean ignoring the form. The consultant is
+      // standing in the customer's home and may well have just corrected a
+      // mobile number or added the email that was missing at booking — those
+      // edits would otherwise be silently dropped on save.
+      await trx
+        .updateTable("customers")
+        .set({
+          name: parsed.customer.name,
+          mobile: parsed.customer.mobile,
+          email: parsed.customer.email ?? null,
+          updated_at: new Date(),
+        })
+        .where("id", "=", existingCustomerId)
+        .execute();
+    } else {
+      customer = await trx
+        .insertInto("customers")
+        .values({
+          name: parsed.customer.name,
+          mobile: parsed.customer.mobile,
+          email: parsed.customer.email ?? null,
+          created_by: session.user.id,
+        })
+        .returning("id")
+        .executeTakeFirstOrThrow();
+    }
 ```
 
 Then add `appointment_id: parsed.appointment_id ?? null,` to the `orders` insert values.
@@ -3998,12 +4335,12 @@ npm run lint
 npm run build
 ```
 
-Expected: all tests pass (the pre-phase baseline of 489 plus 313 new ones — 62 engine/date, 245 spreadsheet parity, 6 calendar), no lint errors, build succeeds.
+Expected: all tests pass (the pre-phase baseline of 489 plus 315 new ones — 62 engine/date, 247 spreadsheet parity, 6 calendar), no lint errors, build succeeds.
 
 - [ ] **Step 2: Re-run the parity gate**
 
 Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
-Expected: PASS, 245 tests.
+Expected: PASS, 247 tests.
 
 **This is the acceptance test for the port.** If it fails now but passed at Task 12,
 something in a later task changed the engine's behaviour.
@@ -4022,10 +4359,22 @@ With `npm run dev` running, confirm each of these by hand:
 3. Set a lead to `Qualified / Pre-Appointment` → **Book appointment** appears.
 4. Book one → the appointment card shows, the lead advances to *Appointment Booked*, and the event appears on the shared Google Calendar with no guests.
 5. **Unset `GOOGLE_CALENDAR_ID` and book another** → the appointment still saves, the card shows "Calendar sync failed", and **Retry** succeeds once the variable is restored. This is the one that matters most: a Google outage must never lose a booking.
-6. Reschedule → the existing calendar event moves; no duplicate is created.
-7. **Start consultation** → `/orders/new` opens with the customer prefilled; saving produces an order whose `appointment_id` is set and whose `customer_id` matches the appointment's, with no new customer row.
-8. Cancel an appointment → the calendar event disappears.
-9. Log in as `ops` → `Leads` is absent from the nav and `/leads` returns 404.
+6. Reschedule → the existing calendar event moves, no duplicate is created, **and the
+   lead's action date follows it** — the queue must not still show the old date.
+7. **Start consultation** → `/orders/new` opens with the customer prefilled. Change the
+   mobile on the form before saving: the order's `appointment_id` is set, `customer_id`
+   matches the appointment's, no new customer row appears, **and the edited mobile is
+   persisted** rather than silently discarded.
+8. Cancel an appointment → the calendar event disappears, the lead drops back to
+   *Qualified / Pre-Appointment*, and it stops deriving *Attend / Confirm Appointment*.
+9. **Press Retry on that cancelled appointment** → the event is **not** recreated. This
+   is the pair of bugs from the review: `unsync` marking itself `pending` plus `sync`
+   having no status guard would otherwise resurrect a deleted event.
+10. Mark an appointment **no-show** → same rollback as cancel, outcome *No Response*.
+11. Search the booking dialog's customer picker for `81817358` → it matches a customer
+    stored as `+6581817358`. Mixed formats are the norm: 40 leads store bare 8-digit
+    numbers, 58 store `+65`-prefixed ones.
+12. Log in as `ops` → `Leads` is absent from the nav and `/leads` returns 404.
 
 - [ ] **Step 4: Confirm the spreadsheet is still untracked**
 
@@ -4065,8 +4414,22 @@ npx tsx -e "import {db} from './src/lib/db'; \
   console.log('leads in CRM:', r); await db.destroy();"
 ```
 
-Expected: `244`. If it is lower, rows failed to import — stop and fix the import before
-deleting the only copy of them.
+Expected: `244`. If it is **242**, the two nameless leads (rows 118 and 143) were
+skipped and you are about to delete the only copy of them. Stop and fix the import.
+
+Check the dates survived too — 168 of them arrive as raw Excel serials, and a silent
+`NULL` here disables the 90-day stale rule with nothing visibly broken:
+
+```bash
+npx tsx -e "import {db} from './src/lib/db'; \
+  const r = await db.selectFrom('leads').select(({fn}) => [ \
+    fn.count('last_customer_response_at').as('with_response'), \
+    fn.countAll().as('total')]).executeTakeFirst(); \
+  console.log(r); await db.destroy();"
+```
+
+Expected: `with_response: 196, total: 244`. 196 because 48 leads have genuinely never
+responded — not because the parser dropped them.
 
 - [ ] **Step 2: Confirm the parity gate no longer needs the file**
 
@@ -4075,7 +4438,7 @@ mv "02 Leads Management & Appt.xlsx" /tmp/leads-backup.xlsx
 npx vitest run src/lib/leads/spreadsheet-parity.test.ts
 ```
 
-Expected: PASS, 245 tests, with the spreadsheet absent. This proves the fixture stands
+Expected: PASS, 247 tests, with the spreadsheet absent. This proves the fixture stands
 on its own.
 
 - [ ] **Step 3: Take a backup that lives outside the repo**
@@ -4098,10 +4461,10 @@ rm scripts/import-leads.ts scripts/verify-lead-engine.ts
 ```
 
 Remove the `leads:import` and `leads:verify` entries from `package.json` scripts, and
-drop the `xlsx` dev dependency:
+drop the `exceljs` dev dependency:
 
 ```bash
-npm uninstall xlsx
+npm uninstall exceljs
 ```
 
 The fixture and `spreadsheet-parity.test.ts` stay — they are the surviving record of
@@ -4127,7 +4490,7 @@ npm run lint
 npm run build
 ```
 
-Expected: all pass with the spreadsheet, both scripts and the `xlsx` dependency gone.
+Expected: all pass with the spreadsheet, both scripts and the `exceljs` dependency gone.
 
 - [ ] **Step 7: Commit**
 

@@ -5,6 +5,8 @@
 
 import type { ColumnType } from "kysely";
 
+export type AppointmentStatus = "cancelled" | "completed" | "no_show" | "scheduled";
+
 export type AuthAalLevel = "aal1" | "aal2" | "aal3";
 
 export type AuthCodeChallengeMethod = "plain" | "s256";
@@ -39,6 +41,8 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
+export type GoogleSyncState = "failed" | "pending" | "synced";
+
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
 
 export type Json = JsonValue;
@@ -52,6 +56,16 @@ export type JsonObject = {
 export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
+export type LeadFunnelStage = "Appointment Booked" | "Decision Pending" | "Lost" | "New Lead" | "Not Qualified" | "Nurture" | "Post-Appointment / Quote Pending" | "Qualified / Pre-Appointment" | "Quote Sent" | "Won";
+
+export type LeadInitiator = "Customer" | "Us";
+
+export type LeadOutcome = "Appointment Booked" | "Appointment Completed" | "Appointment Confirmed" | "Barrier / Objection Raised" | "Customer Declined" | "Customer Needs Time" | "Customer Replied" | "Follow-Up Sent" | "No Response" | "Order Confirmed" | "Quote Requested" | "Quote Sent" | "Ready to Book Appointment" | "Renovation Delayed";
+
+export type LeadSource = "manual" | "telegram" | "whatsapp";
+
+export type LeadStatus = "Active" | "Ignore" | "Lost" | "Nurture" | "Unresponsive" | "Won";
 
 export type MeshDrawDirection = "Double" | "Single Bottom" | "Single Left" | "Single Right" | "Single Top";
 
@@ -78,6 +92,27 @@ export type StorageBuckettype = "ANALYTICS" | "STANDARD" | "VECTOR";
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export type UserRole = "admin" | "consultant" | "ops";
+
+export interface Appointments {
+  address: string | null;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  customer_id: string;
+  development: string | null;
+  duration_mins: Generated<number>;
+  google_event_id: string | null;
+  google_sync_error: string | null;
+  google_sync_state: Generated<GoogleSyncState>;
+  id: Generated<string>;
+  lead_action_date_before: Timestamp | null;
+  lead_id: string;
+  lead_outcome_before: LeadOutcome | null;
+  lead_stage_before: LeadFunnelStage | null;
+  notes: string | null;
+  scheduled_at: Timestamp;
+  status: Generated<AppointmentStatus>;
+  updated_at: Generated<Timestamp>;
+}
 
 export interface AuthAuditLogEntries {
   created_at: Timestamp | null;
@@ -519,6 +554,38 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface Leads {
+  action_date: Timestamp | null;
+  action_detail_override: string | null;
+  buying_readiness: string | null;
+  created_at: Generated<Timestamp>;
+  customer_id: string | null;
+  development: string | null;
+  expected_key_date: string | null;
+  first_initiated_at: Timestamp | null;
+  funnel_stage: Generated<LeadFunnelStage>;
+  historical_summary: string | null;
+  id: Generated<string>;
+  initiator: LeadInitiator | null;
+  interaction_summary: string | null;
+  is_archived: Generated<boolean>;
+  keys_status: string | null;
+  last_contact_at: Timestamp | null;
+  last_customer_response_at: Timestamp | null;
+  last_outcome: LeadOutcome | null;
+  latest_quote_cents: number | null;
+  latest_quote_note: string | null;
+  lead_ref: string;
+  lead_status: Generated<LeadStatus>;
+  mobile: string | null;
+  name: string;
+  owner_id: string | null;
+  source: LeadSource;
+  source_ref: string | null;
+  telegram_chat_id: string | null;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface ManufactureAllowances {
   height_delta_cm: number | null;
   product_line: string;
@@ -641,6 +708,7 @@ export interface MeshSystems {
 }
 
 export interface Orders {
+  appointment_id: string | null;
   balance_cents: Generated<number | null>;
   channel: Generated<SalesChannel>;
   consultant_id: string | null;
@@ -999,6 +1067,7 @@ export interface Windows {
 }
 
 export interface DB {
+  appointments: Appointments;
   "auth.audit_log_entries": AuthAuditLogEntries;
   "auth.custom_oauth_providers": AuthCustomOauthProviders;
   "auth.flow_state": AuthFlowState;
@@ -1028,6 +1097,7 @@ export interface DB {
   delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  leads: Leads;
   manufacture_allowances: ManufactureAllowances;
   manufacture_measurements: ManufactureMeasurements;
   manufacture_pos: ManufacturePos;

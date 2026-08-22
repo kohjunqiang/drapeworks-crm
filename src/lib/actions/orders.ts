@@ -5,10 +5,21 @@ import "server-only";
 import { redirect } from "next/navigation";
 
 import { revalidatePath } from "next/cache";
+import type { Transaction } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import type { DB } from "@/lib/db/schema";
+import {
+  loadAddonCatalogue,
+  loadWindowAddonIds,
+} from "@/lib/db/window-addons";
 import { userMessage } from "@/lib/errors";
+import {
+  resolveWindowAddons,
+  selectedAddonIds,
+  type AddonRule,
+} from "@/lib/orders/window-addons";
 import { windowValues } from "@/lib/orders/window-values";
 import { computeOrderQuote } from "@/lib/pricing/order-quote";
 import { isLocked } from "@/lib/status-flow";
@@ -33,9 +44,56 @@ import {
 // columns, numbering placeholders) live in order-shared.ts so the curtain and
 // mesh actions can't drift apart on them.
 
+/** The window fields the add-on resolver needs, on any of the three shapes. */
+type AddonWindowLike = {
+  variant: "regular" | "blind";
+  width_cm?: number | null;
+  addon_ids?: string[];
+};
+
+/**
+ * Re-resolve a window's add-ons server-side and write them.
+ *
+ * The browser's locked checkboxes are UX; this is the guarantee. A payload that
+ * omits extra_shipping on a 230cm blind gets it charged anyway, one that
+ * attaches a curtain add-on to a blind has it dropped, and one that attaches an
+ * archived or unpriced add-on to a NEW window has it dropped too — persistedIds
+ * is empty there, and only the database may say an add-on was already present.
+ */
+async function writeWindowAddons(
+  trx: Transaction<DB>,
+  windowId: string,
+  win: AddonWindowLike,
+  catalogue: AddonRule[],
+  persistedIds: readonly string[],
+): Promise<void> {
+  const resolved = resolveWindowAddons(
+    win.variant === "blind" ? "blind" : "curtain",
+    win.width_cm ?? null,
+    win.addon_ids ?? [],
+    persistedIds,
+    catalogue,
+  );
+  const ids = selectedAddonIds(resolved);
+
+  await trx
+    .deleteFrom("window_addons")
+    .where("window_id", "=", windowId)
+    .execute();
+  if (ids.length > 0) {
+    await trx
+      .insertInto("window_addons")
+      .values(ids.map((addon_id) => ({ window_id: windowId, addon_id })))
+      .execute();
+  }
+}
+
 export async function createOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderCreateInput = orderCreateSchema.parse(input);
+  // Read once, outside the transaction: every window resolves against the same
+  // catalogue, so one order cannot be half-quoted under an edit made mid-save.
+  const addonCatalogue = await loadAddonCatalogue();
 
   const orderId = await db.transaction().execute(async (trx) => {
     const customer = await trx
@@ -94,23 +152,24 @@ export async function createOrder(input: unknown): Promise<never> {
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
-        // A blind is one covering and is valid in EVERY room type, so it is
-        // never checked against the room. Curtains still are: a toilet window
-        // takes a single curtain, any other window takes day/night.
-        const matchesShape =
-          win.variant === "blind" ||
-          (isToilet && win.variant === "toilet") ||
-          (!isToilet && win.variant === "regular");
+        // A blind is one covering and is valid in EVERY room type. Only
+        // curtains are constrained: a toilet takes a blind and nothing else.
+        const matchesShape = isToilet
+          ? win.variant === "blind"
+          : win.variant === "regular" || win.variant === "blind";
         if (!matchesShape) {
           throw new Error(
             `Window variant '${win.variant}' does not match room type '${room.type}'`,
           );
         }
 
-        await trx
+        const insertedWin = await trx
           .insertInto("windows")
           .values({ room_id: insertedRoom.id, ...windowValues(win, w) })
-          .execute();
+          .returning("id")
+          .executeTakeFirstOrThrow();
+        // No persisted state on a create — the payload cannot claim any.
+        await writeWindowAddons(trx, insertedWin.id, win, addonCatalogue, []);
       }
     }
 
@@ -142,6 +201,21 @@ export async function updateOrder(
 
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderEditInput = orderEditSchema.parse(input);
+
+  const addonCatalogue = await loadAddonCatalogue();
+  // What the join table holds RIGHT NOW, straight from the database. This — not
+  // the payload — is what lets an archived or since-zeroed add-on stay on a
+  // window it already sits on, so an edit does not silently drop a real charge.
+  const persistedByWindow = await loadWindowAddonIds(
+    (
+      await db
+        .selectFrom("windows")
+        .innerJoin("rooms", "rooms.id", "windows.room_id")
+        .select("windows.id as id")
+        .where("rooms.order_id", "=", orderId)
+        .execute()
+    ).map((r) => r.id),
+  );
 
   const orphanStoragePaths: string[] = [];
 
@@ -228,13 +302,11 @@ export async function updateOrder(
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
-        // A blind is one covering and is valid in EVERY room type, so it is
-        // never checked against the room. Curtains still are: a toilet window
-        // takes a single curtain, any other window takes day/night.
-        const matchesShape =
-          win.variant === "blind" ||
-          (isToilet && win.variant === "toilet") ||
-          (!isToilet && win.variant === "regular");
+        // A blind is one covering and is valid in EVERY room type. Only
+        // curtains are constrained: a toilet takes a blind and nothing else.
+        const matchesShape = isToilet
+          ? win.variant === "blind"
+          : win.variant === "regular" || win.variant === "blind";
         if (!matchesShape) {
           throw new Error(
             `Window variant '${win.variant}' does not match room type '${room.type}'`,
@@ -254,6 +326,13 @@ export async function updateOrder(
             .where("room_id", "=", roomId)
             .execute();
           keepWindowIds.push(win.id);
+          await writeWindowAddons(
+            trx,
+            win.id,
+            win,
+            addonCatalogue,
+            persistedByWindow.get(win.id) ?? [],
+          );
         } else {
           const insertedWin = await trx
             .insertInto("windows")
@@ -261,6 +340,7 @@ export async function updateOrder(
             .returning("id")
             .executeTakeFirstOrThrow();
           keepWindowIds.push(insertedWin.id);
+          await writeWindowAddons(trx, insertedWin.id, win, addonCatalogue, []);
         }
       }
 
@@ -415,6 +495,7 @@ export async function deleteOrder(input: {
 export async function createOrderDraft(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderDraftInput = orderDraftSchema.parse(input);
+  const addonCatalogue = await loadAddonCatalogue();
 
   const orderId = await db.transaction().execute(async (trx) => {
     const customer = await trx
@@ -482,16 +563,18 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         const shaped = {
           ...win,
           variant:
-            win.variant === "blind"
+            win.variant === "blind" || isToilet
               ? ("blind" as const)
-              : isToilet
-                ? ("toilet" as const)
-                : ("regular" as const),
+              : ("regular" as const),
         };
-        await trx
+        const insertedWin = await trx
           .insertInto("windows")
           .values({ room_id: insertedRoom.id, ...windowValues(shaped, w) })
-          .execute();
+          .returning("id")
+          .executeTakeFirstOrThrow();
+        // Drafts are relaxed about COMPLETENESS, never about correctness of
+        // charge — so they resolve like any other write path.
+        await writeWindowAddons(trx, insertedWin.id, shaped, addonCatalogue, []);
       }
     }
 

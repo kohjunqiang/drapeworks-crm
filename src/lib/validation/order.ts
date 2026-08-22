@@ -22,6 +22,11 @@ export const ROOM_TYPE_VALUES = ROOM_TYPES;
 export const PROPERTY_TYPE_VALUES = PROPERTY_TYPES;
 export const DRAW_DIRECTION_VALUES = DRAW_DIRECTIONS;
 
+/**
+ * Since Phase 14 this means "this room's windows are blinds". It no longer
+ * selects a window VARIANT — the single-curtain toilet variant is gone — it
+ * decides which covering is on offer.
+ */
 export function isToiletRoom(type: (typeof ROOM_TYPES)[number]): boolean {
   return type === "Master Toilet" || type === "Common Toilet";
 }
@@ -57,6 +62,10 @@ const baseWindow = z.object({
   width_cm: optionalInt,
   height_cm: optionalInt,
   notes: z.string().max(2000).optional(),
+  // Which add-ons are ticked. The server re-resolves this against the
+  // catalogue before persisting (lib/actions/orders.ts), so a payload cannot
+  // attach an out-of-scope, archived or unpriced add-on by asserting it.
+  addon_ids: z.array(z.string().uuid()).default([]),
 });
 
 const regularWindow = baseWindow.extend({
@@ -65,16 +74,8 @@ const regularWindow = baseWindow.extend({
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
   draw: z.enum(DRAW_DIRECTIONS).optional(),
-  // Per-window pricing toggles (Phase 9). Fullness is fixed at 2×.
-  add_s_fold: z.boolean().optional(),
-  add_slim_tracks: z.boolean().optional(),
   // Explicitly-picked combo (Phase 10) — fixes this window's sale price.
   combo_id: optionalTypeId,
-});
-
-const toiletWindow = baseWindow.extend({
-  variant: z.literal("toilet"),
-  curtain_type_id: optionalTypeId,
 });
 
 // A blind's chain/control side. "Double" is a curtain concept — two leaves
@@ -83,14 +84,14 @@ const toiletWindow = baseWindow.extend({
 export const BLIND_CONTROL_SIDES = ["Single Left", "Single Right"] as const;
 
 // Blinds occupy a window INSTEAD of curtains. There is deliberately no
-// day/night/curtain_type_id field here: "curtains or blinds, never both" is
-// enforced by the shape of the type, not by a runtime guard someone can forget
-// to call. The database's validate_window_shape() trigger enforces the same
-// invariant independently.
+// day/night field here: "curtains or blinds, never both" is enforced by the
+// shape of the type, not by a runtime guard someone can forget to call. The
+// database's validate_window_shape() trigger enforces the same invariant
+// independently.
 //
-// One blind variant serves every room type. The toilet variant exists because a
-// toilet window takes ONE covering instead of a day/night pair; a blind is
-// already one covering, so it needs no toilet-specific counterpart.
+// One blind variant serves every room type — including toilets, which since
+// Phase 14 take a blind and nothing else. The single-curtain `toilet` variant
+// modelled a product the business no longer sells and was retired with it.
 const blindWindow = baseWindow.extend({
   variant: z.literal("blind"),
   blind_type_id: optionalTypeId,
@@ -99,7 +100,6 @@ const blindWindow = baseWindow.extend({
 
 export const windowSchema = z.discriminatedUnion("variant", [
   regularWindow,
-  toiletWindow,
   blindWindow,
 ]);
 
@@ -218,8 +218,7 @@ const customerDraftSchema = z.object({
 // because saveDraft must PRESERVE a blind variant rather than derive it from
 // the room type; deriving would silently discard blind_type_id on every save.
 const draftWindow = baseWindow.extend({
-  variant: z.enum(["regular", "toilet", "blind"]),
-  curtain_type_id: optionalTypeId,
+  variant: z.enum(["regular", "blind"]),
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
   blind_type_id: optionalTypeId,
@@ -251,12 +250,10 @@ export type WindowInput = z.infer<typeof windowSchema>;
 const optionalUuid = z.string().uuid().optional();
 
 const regularWindowEdit = regularWindow.extend({ id: optionalUuid });
-const toiletWindowEdit = toiletWindow.extend({ id: optionalUuid });
 const blindWindowEdit = blindWindow.extend({ id: optionalUuid });
 
 export const windowEditSchema = z.discriminatedUnion("variant", [
   regularWindowEdit,
-  toiletWindowEdit,
   blindWindowEdit,
 ]);
 

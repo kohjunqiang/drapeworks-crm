@@ -337,11 +337,17 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("status", sql`appointment_status`, (c) =>
       c.notNull().defaultTo("scheduled"),
     )
-    // Booking overwrites leads.funnel_stage. Without the previous value
-    // recorded here, cancelling can only guess where to put the lead back —
-    // and a lead booked from Nurture or Quote Sent would be rolled *forward*
-    // into a stage it was never in, quietly falsifying its history.
+    // Booking overwrites both leads.funnel_stage and leads.last_outcome.
+    // Without the previous values recorded here, cancelling can only guess
+    // where to put the lead back — and a lead booked from Nurture or Quote
+    // Sent would be rolled *forward* into a stage it was never in.
+    //
+    // BOTH columns, not just the stage. The cascade runs outcome branches
+    // above stage branches, so restoring the stage while setting a fresh
+    // outcome leaves the stage inert: the outcome decides and the restored
+    // stage never gets read. See setAppointmentStatus.
     .addColumn("lead_stage_before", sql`lead_funnel_stage`)
+    .addColumn("lead_outcome_before", sql`lead_outcome`)
     .addColumn("google_event_id", "text")
     .addColumn("google_sync_state", sql`google_sync_state`, (c) =>
       c.notNull().defaultTo("pending"),
@@ -1459,26 +1465,43 @@ export function deriveLead(lead: LeadEngineInput, today: SgDate): LeadDerived {
 }
 
 /**
- * Within a priority band, the Daily Queue sheet orders by action. Its cells are
- * numbered — '07 - Attend / Confirm Appointment' down to '01 - Follow Up – No
- * Response' — and sorted Z→A, so the highest number is worked first. Dropping
- * this and sorting by date alone would silently reshuffle Alan's morning.
+ * Within a priority band, order by action. The Daily Queue sheet numbers its
+ * action cells and cell A2 instructs "Use Z→A sort", so the highest number is
+ * worked first.
  *
- * Only 6 of the ranks appear in the data; the queue holds no lead in the other
- * states. 05 is unobserved and the sheet never numbered the actions above 07,
- * so the values below 01 and above 07 are this port's choice, placed to match
- * the intent — the customer waiting on us outranks everything.
+ * OBSERVED — these six numbers are printed in the sheet's own cells:
+ *   07 Attend / Confirm Appointment
+ *   06 Book Appointment
+ *   04 Push for Decision
+ *   03 Qualify Lead
+ *   02 Nurture / Re-engage
+ *   01 Follow Up – No Response
+ *
+ * INFERRED — four ranks this port chose, because no queue-visible lead is in
+ * those states and the sheet therefore never numbered them. Each is marked
+ * below. They follow the principle the priority rule already encodes: the
+ * customer waiting on us outranks everything.
+ *
+ * Anything absent falls to 0 via `?? 0` and sinks. That is right for
+ * 'Ignore Lead' (it matches the unnumbered row in the sheet) and moot for
+ * 'Review Lead' (unreachable — every funnel_stage has a branch and the column
+ * is a NOT NULL enum), but it would be WRONG for 'Resolve Barrier', which
+ * means a customer raised an objection. It is ranked explicitly rather than
+ * left to sink below a no-response follow-up.
  */
 const ACTION_RANK: Partial<Record<ActionRequired, number>> = {
-  "Reply Required": 9,       // inferred — no queue row is in this state
-  "Send Quote": 8,           // inferred
-  "Attend / Confirm Appointment": 7,
-  "Book Appointment": 6,
-  "Follow Up Quote": 5,      // inferred; 05 is the gap in the sheet's numbering
-  "Push for Decision": 4,
-  "Qualify Lead": 3,
-  "Nurture / Re-engage": 2,
-  "Follow Up – No Response": 1,
+  "Reply Required": 9,               // INFERRED — ball is with us
+  "Send Quote": 8,                   // INFERRED — ball is with us
+  "Attend / Confirm Appointment": 7, // observed
+  "Book Appointment": 6,             // observed
+  "Follow Up Quote": 5,              // INFERRED — 05 is the gap in the numbering
+  "Resolve Barrier": 4,              // INFERRED — peer of Push for Decision,
+                                     // which shares its next-action phrase
+  "Push for Decision": 4,            // observed
+  "Qualify Lead": 3,                 // observed
+  "Nurture / Re-engage": 2,          // observed
+  "Follow Up – No Response": 1,      // observed
+  // 'Ignore Lead' and 'Review Lead' deliberately absent — see above.
 };
 
 /**
@@ -1626,7 +1649,7 @@ const SG_OFFSET_MS = 8 * 60 * 60 * 1000;
  * these are Alan's local wall-clock times. 199 of the 516 datetimes in the
  * sheet fall at hour >= 16, so read as UTC they land on the NEXT Singapore
  * calendar day. That is 56 rows of Last Customer Response Date shifting the
- * 90-day stale boundary by a day, and 175 rows showing a last-contact time
+ * 90-day stale boundary by a day, and 185 rows showing a last-contact time
  * eight hours early on the lead detail screen.
  */
 function asTimestamp(value: unknown): Date | null {
@@ -3025,7 +3048,7 @@ export async function bookAppointment(input: unknown): Promise<void> {
     // guess a stage it may never have occupied.
     const before = await trx
       .selectFrom("leads")
-      .select("funnel_stage")
+      .select(["funnel_stage", "last_outcome"])
       .where("id", "=", parsed.lead_id)
       .executeTakeFirstOrThrow();
 
@@ -3057,6 +3080,7 @@ export async function bookAppointment(input: unknown): Promise<void> {
         notes: parsed.notes ?? null,
         status: "scheduled",
         lead_stage_before: before.funnel_stage,
+        lead_outcome_before: before.last_outcome,
         google_sync_state: "pending",
         created_by: session.user.id,
       })
@@ -3127,7 +3151,7 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
     .updateTable("appointments")
     .set({ status: parsed.status, updated_at: new Date() })
     .where("id", "=", parsed.id)
-    .returning(["lead_id", "lead_stage_before"])
+    .returning(["lead_id", "lead_stage_before", "lead_outcome_before"])
     .executeTakeFirstOrThrow();
 
   if (parsed.status === "cancelled" || parsed.status === "no_show") {
@@ -3137,16 +3161,26 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
     // derives 'Attend / Confirm Appointment' — Contact Today — forever, for an
     // appointment that is not happening.
     //
-    // Restore the recorded stage rather than assuming 'Qualified /
-    // Pre-Appointment': a lead booked from Nurture, Quote Sent or Decision
-    // Pending belongs back where it was, not somewhere it has never been. The
-    // fallback only applies to appointments booked before that column existed.
+    // Restore BOTH recorded values. Restoring the stage while writing a fresh
+    // outcome would be inert: outcome branches 3-8 sit above every stage
+    // branch, so 'Ready to Book Appointment' would fire branch 7 and every
+    // cancelled lead would derive 'Book Appointment' regardless of where it
+    // came from. The restored stage would move the chip on screen and nothing
+    // else — not the action, not the priority, not queue placement.
+    //
+    // The 'completed' path below gets away with setting an outcome only
+    // because 'Appointment Completed' matches no outcome branch and falls
+    // through to the stage.
+    //
+    // Both columns are nullable, and lead_outcome_before legitimately is null
+    // for a lead that had no recorded outcome before booking. The stage
+    // fallback is belt-and-braces only: the column ships in the same migration
+    // as the table, so no appointment can exist without it.
     await db
       .updateTable("leads")
       .set({
         funnel_stage: updated.lead_stage_before ?? "Qualified / Pre-Appointment",
-        last_outcome:
-          parsed.status === "no_show" ? "No Response" : "Ready to Book Appointment",
+        last_outcome: updated.lead_outcome_before,
         action_date: null,
         updated_at: new Date(),
       })
@@ -3594,6 +3628,7 @@ export type LeadFormValues = {
   action_detail_override: string | null;
   interaction_summary: string | null;
   latest_quote_cents: number | null;
+  latest_quote_note: string | null;
 };
 
 const FIELD = "w-full rounded-md border border-slate-300 px-3 py-2 text-sm";
@@ -3685,6 +3720,16 @@ export function LeadFieldsForm({ lead }: { lead: LeadFormValues }) {
           <input id="latest_quote_sgd" name="latest_quote_sgd" type="number" step="0.01"
             defaultValue={lead.latest_quote_cents ? lead.latest_quote_cents / 100 : ""}
             className={FIELD} />
+          {/* Two imported leads have negotiation text where a number belongs,
+              and their amount was deliberately left NULL rather than guessed.
+              Without this the only way to find them after Task 26 deletes the
+              import log is a SQL query — the decision would have no path to
+              resolution. Shown until someone types the real figure. */}
+          {lead.latest_quote_note ? (
+            <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              Needs a figure — sheet recorded: “{lead.latest_quote_note}”
+            </p>
+          ) : null}
         </div>
         <div className="sm:col-span-2">
           <label className={LABEL} htmlFor="interaction_summary">Interaction summary</label>
@@ -3813,6 +3858,7 @@ export default async function LeadDetailPage({
             action_detail_override: lead.action_detail_override,
             interaction_summary: lead.interaction_summary,
             latest_quote_cents: lead.latest_quote_cents,
+            latest_quote_note: lead.latest_quote_note,
           }}
         />
       </section>
@@ -4523,16 +4569,23 @@ With `npm run dev` running, confirm each of these by hand:
    mobile on the form before saving: the order's `appointment_id` is set, `customer_id`
    matches the appointment's, no new customer row appears, **and the edited mobile is
    persisted** rather than silently discarded.
-8. Cancel an appointment → the calendar event disappears, the lead drops back to
-   *Qualified / Pre-Appointment*, and it stops deriving *Attend / Confirm Appointment*.
-9. **Press Retry on that cancelled appointment** → the event is **not** recreated. This
+8. **Book from a `Nurture` lead, then cancel.** The lead must come back as *Nurture*
+   **and derive *Nurture / Re-engage*, Future / Nurture** — not *Book Appointment,
+   Contact in 2–3 Days*. If it derives Book Appointment, the outcome is being overwritten
+   instead of restored and `lead_stage_before` is decorative: outcome branches sit above
+   stage branches, so a fresh outcome makes the restored stage unreachable.
+9. Find a lead whose `latest_quote_note` is set (two exist after import) → lead detail
+   shows the sheet's text beside an empty quote field. Type the real figure; the prompt
+   disappears.
+10. **Press Retry on that cancelled appointment** → the event is **not** recreated. This
    is the pair of bugs from the review: `unsync` marking itself `pending` plus `sync`
    having no status guard would otherwise resurrect a deleted event.
-10. Mark an appointment **no-show** → same rollback as cancel, outcome *No Response*.
-11. Search the booking dialog's customer picker for `81817358` → it matches a customer
+11. Mark an appointment **no-show** → same rollback as cancel: stage and outcome both
+    return to their pre-booking values.
+12. Search the booking dialog's customer picker for `81817358` → it matches a customer
     stored as `+6581817358`. Mixed formats are the norm: 40 leads store bare 8-digit
     numbers, 58 store `+65`-prefixed ones.
-12. Log in as `ops` → `Leads` is absent from the nav and `/leads` returns 404.
+13. Log in as `ops` → `Leads` is absent from the nav and `/leads` returns 404.
 
 - [ ] **Step 4: Confirm the spreadsheet is still untracked**
 

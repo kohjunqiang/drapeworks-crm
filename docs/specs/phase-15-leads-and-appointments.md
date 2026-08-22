@@ -296,15 +296,34 @@ difference reads as a decision rather than a defect.
 ### Ordering within a priority band
 
 The sheet's `Daily Queue` numbers its actions — `07 - Attend / Confirm Appointment` down
-to `01 - Follow Up – No Response` — and is sorted Z→A, so the highest number is worked
-first. The CRM keeps that ordering as the tiebreaker inside a priority band, then falls
-back to effective date and name.
+to `01 - Follow Up – No Response` — and cell `A2` reads *"Use Z→A sort"*, so the highest
+number is worked first. The CRM keeps that as the tiebreaker inside a priority band,
+then falls back to effective date and name.
 
-Only 6 of the ranks appear in the data, `05` is unobserved, and the sheet never numbered
-the actions that no queue-visible lead is in. The ranks for `Reply Required` and
-`Send Quote` are this port's inference, placed above the rest on the same principle the
-priority rule already encodes: the customer waiting on us outranks everything. The
-unnumbered `Ignore Lead` row sinks to the bottom, which is where it sits in the sheet.
+**Six ranks are observed** in the sheet's cells: 07, 06, 04, 03, 02, 01 as above.
+
+**Four are this port's inference**, because no queue-visible lead is in those states and
+the sheet therefore never numbered them: `Reply Required` (9) and `Send Quote` (8) above
+everything, on the principle the priority rule already encodes — the customer waiting on
+us outranks the rest; `Follow Up Quote` (5), filling the sheet's unobserved `05`; and
+`Resolve Barrier` (4), as a peer of `Push for Decision`, whose next-action phrase is
+literally "Resolve barrier and ask for commitment". Without an explicit rank it would
+sink below a no-response follow-up, which is wrong for a raised objection.
+
+`Ignore Lead` is unranked and sinks — matching the unnumbered row in the sheet.
+`Review Lead` is unranked and unreachable.
+
+**This rests on an assumption, and it is the only part of the port that does.** The
+sheet on disk is not actually sorted — priority runs `03,03,03,04,04,04,03,03,04…` and
+`A2` is an instruction, so whether Alan sorts on priority alone or priority-then-action
+is recorded nowhere.
+
+Deliberately not a blocker. It changes ordering *within* a band and nothing else — not
+which leads appear, not their priority, action or due date — the largest band holds 15
+leads, and it is one comparator function with no migration behind it. Ship it, show
+Alan, change it in five minutes if he sorts differently. The action rank is the
+better-evidenced guess: the sheet numbers its actions, and those numbers would be
+decoration if priority alone were the sort.
 
 ## Screens
 
@@ -450,7 +469,7 @@ each verified against the file:
    both serial arithmetic and a date-aware parser hand back UTC-based values. 199 of the
    516 datetimes sit at hour ≥ 16, so read as UTC they land on the *next* Singapore
    calendar day — 56 rows of `Last Customer Response Date` shifting the 90-day boundary
-   by a day, and 175 rows displaying a last-contact time eight hours early. The import
+   by a day, and 185 rows displaying a last-contact time eight hours early. The import
    subtracts 8 hours when constructing each instant.
 
    **The verification gate does not catch this, and passes by luck.** At the frozen date

@@ -128,17 +128,39 @@ export async function setAppointmentStatus(input: unknown): Promise<void> {
   await requireRole(["consultant", "admin"]);
   const parsed = appointmentStatusSchema.parse(input);
 
+  // Only a scheduled appointment may transition, and the guard lives in the
+  // WHERE clause so the check and the write are one atomic statement — two
+  // concurrent requests cannot both read 'scheduled' and both win.
+  //
+  // The UI already hides the status controls unless status === 'scheduled',
+  // but that only protects a freshly rendered page. The case that gets through
+  // is a stale tab: a consultant cancels on their phone, then clicks "Mark
+  // completed" in a laptop tab opened before the cancel. Without this the
+  // completed branch would fire on top of an already-restored lead and push it
+  // to 'Post-Appointment / Quote Pending' for an appointment that never
+  // happened. The client is not the enforcement surface (rules/data/rls.md).
   const updated = await db
     .updateTable("appointments")
     .set({ status: parsed.status, updated_at: new Date() })
     .where("id", "=", parsed.id)
+    .where("status", "=", "scheduled")
     .returning([
       "lead_id",
       "lead_stage_before",
       "lead_outcome_before",
       "lead_action_date_before",
     ])
-    .executeTakeFirstOrThrow();
+    .executeTakeFirst();
+
+  // Zero rows means the appointment already left 'scheduled' (or does not
+  // exist). Throwing rather than returning quietly keeps the UI from reporting
+  // a change that never happened — the house signal for a refused write
+  // (see requoteOrder's locked-order guard in actions/orders.ts).
+  if (!updated) {
+    throw new Error(
+      "This appointment is no longer scheduled — someone may have already updated it. Reload the page to see its current status.",
+    );
+  }
 
   if (parsed.status === "cancelled" || parsed.status === "no_show") {
     await unsyncAppointment(parsed.id);

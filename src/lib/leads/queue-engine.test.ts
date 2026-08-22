@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { addDays } from "./sg-date";
 import {
   compareQueueRows,
   deriveActionRequired,
@@ -244,6 +245,29 @@ describe("deriveQueueVisibility", () => {
     expect(
       deriveQueueVisibility(
         lead({ last_customer_response_at: "2026-05-01" }),
+        "Qualify Lead",
+        TODAY,
+      ),
+    ).toBe("Exclude – Stale 90d+");
+  });
+
+  it("keeps a lead whose last response is exactly 90 days old", () => {
+    // The rule is a strict `<`, so the 90th day is the last one that counts as
+    // fresh. Pinned because 56 real leads sit near this boundary and a slip to
+    // `<=` would only surface at the Task 12 parity gate.
+    expect(
+      deriveQueueVisibility(
+        lead({ last_customer_response_at: addDays(TODAY, -90) }),
+        "Qualify Lead",
+        TODAY,
+      ),
+    ).toBe("Include");
+  });
+
+  it("excludes a lead whose last response is 91 days old", () => {
+    expect(
+      deriveQueueVisibility(
+        lead({ last_customer_response_at: addDays(TODAY, -91) }),
         "Qualify Lead",
         TODAY,
       ),

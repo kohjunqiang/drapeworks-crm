@@ -64,6 +64,18 @@ export function deriveNextAction(
   action: ActionRequired,
   override: string | null,
 ): string {
+  // THE ONE DELIBERATE DIVERGENCE FROM THE SPREADSHEET.
+  //
+  //   Excel:  =IF(J10<>"", J10, ...)  — a whitespace-only cell is non-empty,
+  //           so Excel returns the whitespace and shows Alan a blank override.
+  //   Here:   whitespace-only is treated as absent, so the derived phrase wins.
+  //
+  // Unreachable from both write paths, which is why the more robust rule was
+  // kept: the import's `clean()` maps a whitespace-only cell to NULL, and the
+  // UI's Zod `optionalText` trims then maps "" to undefined. Neither can store
+  // a whitespace-only override in the first place.
+  //
+  // FIRST SUSPECT if the Task 12 parity gate ever reports a column K mismatch.
   if (override && override.trim() !== "") return override;
   return NEXT_ACTION_PHRASES[action] ?? "";
 }

@@ -118,4 +118,47 @@ describe("pricingAddonSchema", () => {
       }),
     ).toThrow();
   });
+
+  it("defaults a new add-on to curtains, by hand", () => {
+    const parsed = pricingAddonSchema.parse({
+      label: "Motorised",
+      basis: "per_unit",
+    });
+    expect(parsed.applies_to).toBe("curtain");
+    expect(parsed.auto_rule).toBe("manual");
+    expect(parsed.id).toBeUndefined();
+  });
+
+  it("requires a threshold for width_over", () => {
+    const r = pricingAddonSchema.safeParse({
+      label: "Extra shipping",
+      basis: "per_unit",
+      applies_to: "blind",
+      auto_rule: "width_over",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts width_over with a threshold", () => {
+    const r = pricingAddonSchema.safeParse({
+      label: "Extra shipping",
+      basis: "per_unit",
+      applies_to: "blind",
+      auto_rule: "width_over",
+      auto_width_over_cm: 200,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a threshold on a by-hand add-on", () => {
+    // Mirrors the pricing_addons_auto_width_agrees check constraint, so the
+    // combination is a field error rather than a 500 out of Postgres.
+    const r = pricingAddonSchema.safeParse({
+      label: "Blackout",
+      basis: "per_metre",
+      auto_rule: "manual",
+      auto_width_over_cm: 200,
+    });
+    expect(r.success).toBe(false);
+  });
 });

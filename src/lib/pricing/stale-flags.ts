@@ -7,11 +7,7 @@
 // equals a captured baseline, which means a re-quote banner that no action can
 // clear.
 
-import {
-  computeQuote,
-  type CalcAddonBook,
-  type CalcWindow,
-} from "./calculator";
+import { computeQuote, type CalcWindow } from "./calculator";
 import {
   computeMeshQuote,
   type MeshCalcAssumptions,
@@ -31,9 +27,10 @@ export type StaleOrderRow = {
 
 export type StaleFlagsInput = {
   orders: StaleOrderRow[];
+  // Each CalcWindow arrives carrying its own add-ons (Phase 14) — there is no
+  // longer an order-wide add-on book to pass alongside.
   windowsByOrder: Map<string, CalcWindow[]>;
   panelsByOrder: Map<string, MeshPanel[]>;
-  book: CalcAddonBook;
   meshBook: MeshPriceBook;
   assumptions: MeshCalcAssumptions;
 };
@@ -59,7 +56,6 @@ export function computeStaleFlags(
           )
         : computeQuote(
             input.windowsByOrder.get(o.id) ?? [],
-            input.book,
             input.assumptions,
             o.freight_mode,
             o.extra_install_sgd_cents,

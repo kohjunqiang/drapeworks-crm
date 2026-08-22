@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeQuote, type CalcAddonBook } from "./calculator";
+import { computeQuote } from "./calculator";
 import {
   computeMeshQuote,
   minimumKey,
@@ -67,11 +67,6 @@ const ASSUMPTIONS: MeshCalcAssumptions = {
   trackCostRmbCentsPerM: 2500,
 };
 
-const BOOK: CalcAddonBook = {
-  sFold: { costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
-  slimTracks: { costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
-};
-
 const SIGNATURE = { costRmbCents: 5100, saleSgdCents: 9000 };
 const BLIND = { costRmbCents: 4000, saleSgdCents: 7000 };
 
@@ -102,23 +97,23 @@ describe("a confirmed manufacturing set does not raise the stale banner", () => 
         widthCm: 302,
         dayPrice: SIGNATURE,
         nightPrice: SIGNATURE,
-        addSFold: true,
-        addSlimTracks: true,
+        addons: [
+          { label: "S-Fold", costRmbCents: 1100, saleSgdCents: 8000, basis: "per_metre" },
+          { label: "Slim tracks", costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" },
+        ],
       },
       {
         roomIndex: 0,
         widthCm: 242,
         blindPrice: BLIND,
-        addSFold: false,
-        addSlimTracks: false,
+        addons: [],
       },
     ];
     // Quoted (and locked) before the set was confirmed…
-    const quoted = computeQuote(windows, BOOK, ASSUMPTIONS, "air", 0, 1000);
+    const quoted = computeQuote(windows, ASSUMPTIONS, "air", 0, 1000);
     // …then confirmed: curtains cut 2 cm narrower than the opening.
     const confirmed = computeQuote(
       windows.map((w) => ({ ...w, costWidthCm: (w.widthCm as number) - 2 })),
-      BOOK,
       ASSUMPTIONS,
       "air",
       0,

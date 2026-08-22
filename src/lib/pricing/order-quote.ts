@@ -2,8 +2,12 @@ import "server-only";
 
 import { db } from "@/lib/db/kysely";
 import {
+  loadAddonCatalogue,
+  loadWindowCalcAddons,
+} from "@/lib/db/window-addons";
+import type { AddonRule, CalcAddon } from "@/lib/orders/window-addons";
+import {
   computeQuote,
-  type CalcAddonBook,
   type CalcAssumptions,
   type CalcWindow,
   type QuoteResult,
@@ -32,7 +36,12 @@ export type OrderQuote = QuoteResult & {
 
 export type CalcConfig = {
   assumptions: CalcAssumptions;
-  book: CalcAddonBook;
+  /**
+   * Every add-on row, unfiltered. The form's resolver decides what to show —
+   * filtering here would be filtering the resolver cannot undo, and would drop
+   * archived-but-selected add-ons on the next save.
+   */
+  addonCatalogue: AddonRule[];
   minMarginBps: number; // Standard channel floor
   minMarginCarousellBps: number; // Carousell channel floor
 };
@@ -74,39 +83,21 @@ function assumptionsRowToCalc(r: {
 // Assumptions + add-on prices for the consultation form's live quote. Plain
 // serialisable objects so they cross the server→client boundary as props.
 export async function loadCalcConfig(): Promise<CalcConfig | null> {
-  const [assumptionsRow, addonRows] = await Promise.all([
+  const [assumptionsRow, addonCatalogue] = await Promise.all([
     db
       .selectFrom("pricing_assumptions")
       .selectAll()
       .where("singleton", "=", true)
       .executeTakeFirst(),
-    db
-      .selectFrom("pricing_addons")
-      .select(["key", "cost_rmb_cents", "sale_sgd_cents", "basis"])
-      .execute(),
+    loadAddonCatalogue(),
   ]);
   if (!assumptionsRow) return null;
-
-  const byKey = new Map(addonRows.map((r) => [r.key, r]));
-  const toAddon = (key: string) => {
-    const r = byKey.get(key);
-    return r
-      ? {
-          costRmbCents: r.cost_rmb_cents,
-          saleSgdCents: r.sale_sgd_cents,
-          basis: r.basis,
-        }
-      : null;
-  };
 
   return {
     assumptions: assumptionsRowToCalc(assumptionsRow),
     // The rail is not in here: it is one cost-per-metre on the assumptions row,
     // not an add-on with a sale price and a basis. See CalcAssumptions.
-    book: {
-      sFold: toAddon("s_fold"),
-      slimTracks: toAddon("slim_tracks"),
-    },
+    addonCatalogue,
     minMarginBps: assumptionsRow.min_margin_bps,
     minMarginCarousellBps: assumptionsRow.min_margin_carousell_bps,
   };
@@ -334,10 +325,12 @@ const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
   itemDetail: p.category_name,
 });
 
-// The window row shape (window measurement/toggles + its resolved day/night/
-// toilet series prices + combo price) that both the single-order quote and the
+// The window row shape (window measurement + its resolved day/night/blind
+// series prices + combo price) that both the single-order quote and the
 // batched staleness sweep select and map into a `CalcWindow`.
 type WindowPriceRow = {
+  /** Needed to look this window's add-ons up. */
+  id: string;
   // Room identity, for the cost breakdown's room -> window tree. Position (not
   // the label) groups, so two rooms both called "Bedroom" stay two rooms.
   room_label: string | null;
@@ -349,31 +342,40 @@ type WindowPriceRow = {
    * CalcWindow.costWidthCm.
    */
   mfg_width_cm: number | null;
-  add_s_fold: boolean;
-  add_slim_tracks: boolean;
   day_cost: number | null;
   day_sale: number | null;
   day_series: string | null;
   night_cost: number | null;
   night_sale: number | null;
   night_series: string | null;
-  toilet_cost: number | null;
-  toilet_sale: number | null;
-  toilet_series: string | null;
   blind_cost: number | null;
   blind_sale: number | null;
   blind_series: string | null;
   combo_price: number | null;
 };
 
-function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
+/**
+ * A window row → calculator input.
+ *
+ * Takes its add-ons as an ARGUMENT rather than reading them itself: this mapper
+ * feeds both the order quote and the batched staleness sweep, and a call site
+ * that hasn't loaded them should be a type error, not an order silently flagged
+ * stale because its add-ons went missing from one of the two paths.
+ */
+function rowToCalcWindow(
+  w: WindowPriceRow,
+  addonsByWindow: Map<string, CalcAddon[]>,
+): CalcWindow {
   // Presentation only — never priced on. `position` is 0-based, matching the
   // roomIndex the live quote passes, so both surfaces number rooms alike.
-  const where = { roomIndex: w.room_position ?? undefined, roomLabel: w.room_label };
+  const where = {
+    roomIndex: w.room_position ?? undefined,
+    roomLabel: w.room_label,
+  };
+  const addons = addonsByWindow.get(w.id) ?? [];
 
-  // A blind occupies the window instead of curtains, so it short-circuits:
-  // no day/night leg, no add-ons, no combo. windowQuote applies the same rule
-  // itself, but sending clean input keeps the two engines honest.
+  // A blind occupies the window instead of curtains: no day/night leg and no
+  // combo. It DOES carry add-ons — that is new in Phase 14.
   if (w.blind_sale != null || w.blind_cost != null) {
     return {
       ...where,
@@ -384,14 +386,11 @@ function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
         saleSgdCents: w.blind_sale,
         label: w.blind_series,
       },
-      addSFold: false,
-      addSlimTracks: false,
+      addons,
       comboPriceSgdCents: null,
     };
   }
 
-  // Toilet windows carry a single curtain via curtain_type_id — price it as
-  // the day leg.
   const dayPrice =
     w.day_sale != null || w.day_cost != null
       ? {
@@ -399,13 +398,7 @@ function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
           saleSgdCents: w.day_sale,
           label: w.day_series,
         }
-      : w.toilet_sale != null || w.toilet_cost != null
-        ? {
-            costRmbCents: w.toilet_cost,
-            saleSgdCents: w.toilet_sale,
-            label: w.toilet_series,
-          }
-        : null;
+      : null;
   const nightPrice =
     w.night_sale != null || w.night_cost != null
       ? {
@@ -420,33 +413,8 @@ function rowToCalcWindow(w: WindowPriceRow): CalcWindow {
     costWidthCm: w.mfg_width_cm,
     dayPrice,
     nightPrice,
-    addSFold: w.add_s_fold,
-    addSlimTracks: w.add_slim_tracks,
+    addons,
     comboPriceSgdCents: w.combo_price,
-  };
-}
-
-function addonRowsToBook(
-  addonRows: {
-    key: string;
-    cost_rmb_cents: number | null;
-    sale_sgd_cents: number | null;
-    basis: "per_metre" | "per_unit";
-  }[],
-): CalcAddonBook {
-  const byKey = new Map(addonRows.map((r) => [r.key, r]));
-  const toAddon = (key: string): CalcAddonBook[keyof CalcAddonBook] => {
-    const r = byKey.get(key);
-    if (!r) return null;
-    return {
-      costRmbCents: r.cost_rmb_cents,
-      saleSgdCents: r.sale_sgd_cents,
-      basis: r.basis,
-    };
-  };
-  return {
-    sFold: toAddon("s_fold"),
-    slimTracks: toAddon("slim_tracks"),
   };
 }
 
@@ -456,7 +424,7 @@ function addonRowsToBook(
 export async function computeOrderQuote(
   orderId: string,
 ): Promise<OrderQuote | null> {
-  const [order, windows, assumptionsRow, addonRows] = await Promise.all([
+  const [order, windows, assumptionsRow, windowAddons] = await Promise.all([
     db
       .selectFrom("orders")
       .select([
@@ -481,8 +449,6 @@ export async function computeOrderQuote(
         "windows.night_curtain_type_id",
       )
       .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
-      .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
-      .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
       .leftJoin("curtain_types as bct", "bct.id", "windows.blind_type_id")
       .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
       .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
@@ -491,21 +457,17 @@ export async function computeOrderQuote(
       // COGS should still be costed off the measured width.
       .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
       .select([
+        "windows.id as id",
         "rooms.label as room_label",
         "rooms.position as room_position",
         "windows.width_cm as width_cm",
         "mm.mfg_width_cm as mfg_width_cm",
-        "windows.add_s_fold as add_s_fold",
-        "windows.add_slim_tracks as add_slim_tracks",
         "dcs.cost_rmb_cents as day_cost",
         "dcs.sale_sgd_cents as day_sale",
         "dcs.name as day_series",
         "ncs.cost_rmb_cents as night_cost",
         "ncs.sale_sgd_cents as night_sale",
         "ncs.name as night_series",
-        "tcs.cost_rmb_cents as toilet_cost",
-        "tcs.sale_sgd_cents as toilet_sale",
-        "tcs.name as toilet_series",
         "bcs.cost_rmb_cents as blind_cost",
         "bcs.sale_sgd_cents as blind_sale",
         "bcs.name as blind_series",
@@ -521,10 +483,7 @@ export async function computeOrderQuote(
       .selectAll()
       .where("singleton", "=", true)
       .executeTakeFirst(),
-    db
-      .selectFrom("pricing_addons")
-      .select(["key", "cost_rmb_cents", "sale_sgd_cents", "basis"])
-      .execute(),
+    loadWindowCalcAddons([orderId]),
   ]);
 
   if (!assumptionsRow) return null;
@@ -575,8 +534,7 @@ export async function computeOrderQuote(
           order.discount_bps,
         )
       : computeQuote(
-          windows.map(rowToCalcWindow) satisfies CalcWindow[],
-          addonRowsToBook(addonRows),
+          windows.map((w) => rowToCalcWindow(w, windowAddons)) satisfies CalcWindow[],
           a,
           order?.freight_mode ?? "air",
           order?.extra_install_sgd_cents ?? 0,
@@ -616,7 +574,7 @@ export async function orderStaleFlags(
   const flags = new Map<string, boolean>();
   if (orderIds.length === 0) return flags;
 
-  const [orders, windows, meshPanels, meshBook, assumptionsRow, addonRows] =
+  const [orders, windows, meshPanels, meshBook, assumptionsRow, windowAddons] =
     await Promise.all([
       db
         .selectFrom("orders")
@@ -645,8 +603,6 @@ export async function orderStaleFlags(
           "windows.night_curtain_type_id",
         )
         .leftJoin("curtain_series as ncs", "ncs.id", "nct.series_id")
-        .leftJoin("curtain_types as tct", "tct.id", "windows.curtain_type_id")
-        .leftJoin("curtain_series as tcs", "tcs.id", "tct.series_id")
         .leftJoin("curtain_types as bct", "bct.id", "windows.blind_type_id")
         .leftJoin("curtain_series as bcs", "bcs.id", "bct.series_id")
         .leftJoin("pricing_combos as pc", "pc.id", "windows.combo_id")
@@ -657,21 +613,17 @@ export async function orderStaleFlags(
         .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
         .select([
           "rooms.order_id as order_id",
+          "windows.id as id",
           "rooms.label as room_label",
           "rooms.position as room_position",
           "windows.width_cm as width_cm",
           "mm.mfg_width_cm as mfg_width_cm",
-          "windows.add_s_fold as add_s_fold",
-          "windows.add_slim_tracks as add_slim_tracks",
           "dcs.cost_rmb_cents as day_cost",
           "dcs.sale_sgd_cents as day_sale",
         "dcs.name as day_series",
           "ncs.cost_rmb_cents as night_cost",
           "ncs.sale_sgd_cents as night_sale",
         "ncs.name as night_series",
-          "tcs.cost_rmb_cents as toilet_cost",
-          "tcs.sale_sgd_cents as toilet_sale",
-        "tcs.name as toilet_series",
           "bcs.cost_rmb_cents as blind_cost",
           "bcs.sale_sgd_cents as blind_sale",
         "bcs.name as blind_series",
@@ -716,21 +668,17 @@ export async function orderStaleFlags(
         .selectAll()
         .where("singleton", "=", true)
         .executeTakeFirst(),
-      db
-        .selectFrom("pricing_addons")
-        .select(["key", "cost_rmb_cents", "sale_sgd_cents", "basis"])
-        .execute(),
+      loadWindowCalcAddons(orderIds),
     ]);
 
   if (!assumptionsRow) return flags;
 
   const a = assumptionsRowToCalc(assumptionsRow);
-  const book = addonRowsToBook(addonRows);
 
   const windowsByOrder = new Map<string, CalcWindow[]>();
   for (const w of windows) {
     const list = windowsByOrder.get(w.order_id) ?? [];
-    list.push(rowToCalcWindow(w));
+    list.push(rowToCalcWindow(w, windowAddons));
     windowsByOrder.set(w.order_id, list);
   }
 
@@ -747,7 +695,6 @@ export async function orderStaleFlags(
     orders,
     windowsByOrder,
     panelsByOrder,
-    book,
     meshBook,
     assumptions: a,
   });

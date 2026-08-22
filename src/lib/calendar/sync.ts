@@ -3,6 +3,7 @@ import "server-only";
 import { db } from "@/lib/db/kysely";
 
 import { buildConsultationEvent } from "./event";
+import { CALENDAR_NOT_CONFIGURED } from "./messages";
 import {
   createEvent,
   deleteEvent,
@@ -23,8 +24,7 @@ export async function syncAppointment(appointmentId: string): Promise<void> {
       .updateTable("appointments")
       .set({
         google_sync_state: "failed",
-        google_sync_error:
-          "Google Calendar is not configured on this environment",
+        google_sync_error: CALENDAR_NOT_CONFIGURED,
       })
       .where("id", "=", appointmentId)
       .execute();

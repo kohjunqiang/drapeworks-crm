@@ -1566,7 +1566,7 @@ export function compareQueueRows(
 - [ ] **Step 4: Run the whole engine suite**
 
 Run: `npx vitest run src/lib/leads/`
-Expected: PASS, 62 tests across both files (53 engine + 9 date).
+Expected: PASS, 64 tests across both files (55 engine + 9 date).
 
 Note: writing this task-by-task leaves `queue-engine.test.ts` with several
 `import … from "./queue-engine"` statements, and `queue-engine.ts` itself with four
@@ -2343,7 +2343,7 @@ describe("spreadsheet parity", () => {
 - [ ] **Step 6: Run it**
 
 Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
-Expected: PASS, 247 tests (244 rows + 3 suite-level assertions).
+Expected: PASS, 248 tests (244 rows + 4 suite-level assertions).
 
 If `resolveJsonModule` is not already enabled, add `"resolveJsonModule": true` to
 `compilerOptions` in `tsconfig.json`.
@@ -4645,12 +4645,15 @@ npm run lint
 npm run build
 ```
 
-Expected: all tests pass (the pre-phase baseline of 489 plus 315 new ones — 62 engine/date, 247 spreadsheet parity, 6 calendar), no lint errors, build succeeds.
+Expected: 827 tests pass — the pre-phase baseline of 489 plus 338 new ones: 248
+spreadsheet parity, 55 engine, 11 lead validation, 9 date, 6 calendar event,
+5 calendar timeout, and 4 added to `order.test.ts` for the appointment link.
+No lint errors, build succeeds.
 
 - [ ] **Step 2: Re-run the parity gate**
 
 Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
-Expected: PASS, 247 tests.
+Expected: PASS, 248 tests.
 
 **This is the acceptance test for the port.** If it fails now but passed at Task 12,
 something in a later task changed the engine's behaviour.
@@ -4669,6 +4672,14 @@ With `npm run dev` running, confirm each of these by hand:
 3. Set a lead to `Qualified / Pre-Appointment` → **Book appointment** appears.
 4. Book one → the appointment card shows, the lead advances to *Appointment Booked*, and the event appears on the shared Google Calendar with no guests.
 5. **Unset `GOOGLE_CALENDAR_ID` and book another** → the appointment still saves, the card shows "Calendar sync failed", and **Retry** succeeds once the variable is restored. This is the one that matters most: a Google outage must never lose a booking.
+
+   That covers *misconfigured*, which fails instantly via `isCalendarConfigured()`.
+   A real outage is a **hang**, so test that too: point
+   `GOOGLE_SERVICE_ACCOUNT_EMAIL` at a host that blackholes (or block
+   `www.googleapis.com` in `/etc/hosts`) and book. The booking must return
+   within ~10s onto the retry card — not hold the request open until the socket
+   dies. Both halves are bounded by `CALENDAR_TIMEOUT_MS`; the JWT is cached on
+   the credentials, so restoring the env var takes effect without a restart.
 6. Reschedule → the existing calendar event moves, no duplicate is created, **and the
    lead's action date follows it** — the queue must not still show the old date.
 7. **Start consultation** → `/orders/new` opens with the customer prefilled. Change the
@@ -4756,7 +4767,7 @@ mv "02 Leads Management & Appt.xlsx" /tmp/leads-backup.xlsx
 npx vitest run src/lib/leads/spreadsheet-parity.test.ts
 ```
 
-Expected: PASS, 247 tests, with the spreadsheet absent. This proves the fixture stands
+Expected: PASS, 248 tests, with the spreadsheet absent. This proves the fixture stands
 on its own.
 
 - [ ] **Step 3: Take a backup that lives outside the repo**

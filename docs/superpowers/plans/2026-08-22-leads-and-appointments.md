@@ -347,8 +347,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     //     outcome makes a restored stage unreachable;
     //   - action_date feeds deriveEffectiveActionDate, which feeds both due
     //     status and contact priority, so clearing it moves the row's band.
-    // 53 leads carry an action_date today, 11 of them Nurture and all 11
-    // queue-visible. See setAppointmentStatus.
+    // 53 leads carry an action_date today. 11 of them are Nurture, and those
+    // reach a booking only after being moved to a bookable stage — which does
+    // not clear the date. So the stage restored is the one Alan set, and it is
+    // the date that has to survive. See setAppointmentStatus.
     .addColumn("lead_stage_before", sql`lead_funnel_stage`)
     .addColumn("lead_outcome_before", sql`lead_outcome`)
     .addColumn("lead_action_date_before", "date")
@@ -4686,15 +4688,24 @@ With `npm run dev` running, confirm each of these by hand:
    mobile on the form before saving: the order's `appointment_id` is set, `customer_id`
    matches the appointment's, no new customer row appears, **and the edited mobile is
    persisted** rather than silently discarded.
-8. **Book from a `Nurture` lead that already has a future `action_date`, then cancel.**
-   All three must come back: stage *Nurture*, the original outcome, and the original
-   date. It must derive *Nurture / Re-engage, Future / Nurture* with its due date intact
-   — not *Book Appointment, Contact in 2–3 Days*, and not *Schedule Date*.
+8. **Book a lead that already carries a future `action_date`, then cancel.** Set one to
+   `Qualified / Pre-Appointment` + outcome `Ready to Book Appointment`, and give it an
+   `action_date` well in the future (say three weeks). Book it — stage, outcome and date
+   are all overwritten — then cancel.
 
-   Each wrong result names its own bug: deriving *Book Appointment* means the outcome
-   was overwritten rather than restored, which makes the stage unreachable. Showing
-   *Schedule Date* means `action_date` was cleared rather than restored. 11 queue-visible
-   Nurture leads carry a date today, so this is live data, not a hypothetical.
+   All three must come back: the bookable stage, `Ready to Book Appointment`, and **the
+   original future date**, not the appointment's and not null.
+
+   Each wrong result names its own bug: a stage that moves but an action that doesn't
+   means the outcome was overwritten rather than restored, which makes the restored stage
+   unreachable — outcome branches sit above every stage branch. Showing *Schedule Date*
+   means `action_date` was cleared rather than restored.
+
+   Note this is **not** phrased as "book from a `Nurture` lead", because you cannot:
+   **Book appointment** is gated on the engine deriving `Book Appointment`, and `Nurture`
+   derives `Nurture / Re-engage`. The 11 queue-visible Nurture leads that carry a date
+   today reach a booking only after Alan moves them to a bookable stage — which does not
+   clear the date. That is the live data this step stands in for.
 9. Find a lead whose `latest_quote_note` is set (two exist after import) → lead detail
    shows the sheet's text beside an empty quote field. Type the real figure and save:
    the prompt disappears because it is gated on the *amount* being absent. Re-check the
@@ -4705,9 +4716,14 @@ With `npm run dev` running, confirm each of these by hand:
    having no status guard would otherwise resurrect a deleted event.
 11. Mark an appointment **no-show** → same rollback as cancel: stage and outcome both
     return to their pre-booking values.
-12. Search the booking dialog's customer picker for `81817358` → it matches a customer
-    stored as `+6581817358`. Mixed formats are the norm: 40 leads store bare 8-digit
-    numbers, 58 store `+65`-prefixed ones.
+12. Search the booking dialog's customer picker for a known customer's mobile **written in
+    the other format** — take one stored bare and search it as `+65 9123 4567`, spaces and
+    all. It must still match: the lookup reduces both sides to the last 8 digits.
+
+    Pick the number from `customers`, not from `leads`. Mixed formats are the norm on the
+    lead side — 40 bare 8-digit, 58 `+65`-prefixed — but the picker searches customers,
+    and a lead's number that has never been converted to a customer will correctly return
+    "no existing customer matched", which looks like a failure and isn't.
 13. Log in as `ops` → `Leads` is absent from the nav and `/leads` returns 404.
 
 - [ ] **Step 4: Confirm the spreadsheet is still untracked**

@@ -179,9 +179,17 @@ engine and the ones above it dominate:
   position would all come from the outcome and the stage would move only the chip on
   screen.
 - `action_date` feeds the effective-date rule, which feeds both due status and contact
-  priority. Clearing it drops a `Nurture` lead's future follow-up date from *Upcoming*
-  to *Schedule Date*, and moves its band wherever that band is date-derived. 53 leads
+  priority. Clearing it drops a lead's future follow-up date from *Upcoming* to
+  *Schedule Date*, and moves its band wherever that band is date-derived. 53 leads
   carry an `action_date` today; 11 are `Nurture` and all 11 are queue-visible.
+
+  Those 11 reach a booking by way of a stage change, not directly: **Book appointment**
+  is offered only where the engine derives `Book Appointment`, and `Nurture` derives
+  `Nurture / Re-engage`. Alan moves the lead to `Qualified / Pre-Appointment` first —
+  which does not clear the date. So the stage restored on cancel is the bookable one he
+  set, never `Nurture`; it is the *date* that survives the round trip and matters. The
+  speed bump is deliberate: booking straight out of `Nurture` would skip the
+  re-qualification that stage exists to force.
 
 Cancelling also deletes the calendar event and marks the sync `synced` — the desired end
 state has been reached, so a later sync must not treat it as outstanding work and

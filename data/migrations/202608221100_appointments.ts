@@ -47,8 +47,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     //     outcome makes a restored stage unreachable;
     //   - action_date feeds deriveEffectiveActionDate, which feeds both due
     //     status and contact priority, so clearing it moves the row's band.
-    // 53 leads carry an action_date today, 11 of them Nurture and all 11
-    // queue-visible. See setAppointmentStatus.
+    // 53 leads carry an action_date today. 11 of them are Nurture, and those
+    // reach a booking only after being moved to a bookable stage — which does
+    // not clear the date. So the stage restored is the one Alan set, and it is
+    // the date that has to survive. See setAppointmentStatus.
     .addColumn("lead_stage_before", sql`lead_funnel_stage`)
     .addColumn("lead_outcome_before", sql`lead_outcome`)
     .addColumn("lead_action_date_before", "date")

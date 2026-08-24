@@ -2,6 +2,8 @@
 
 import "server-only";
 
+import { randomBytes } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { sql } from "kysely";
@@ -11,9 +13,12 @@ import { db } from "@/lib/db/kysely";
 import { leadCreateSchema, leadUpdateSchema } from "@/lib/validation/lead";
 
 function nextLeadRef(): string {
-  // Manual leads have no Telegram or WhatsApp id to key off. A timestamp-based
-  // ref keeps the column unique without a counter table.
-  return `MN-${Date.now()}`;
+  // Manual leads have no Telegram or WhatsApp id to key off. A timestamp keeps
+  // refs roughly ordered without a counter table; the random suffix is what
+  // keeps them unique. On the timestamp alone, two consultants saving inside
+  // the same millisecond collide on the UNIQUE index and the second one gets
+  // an unhandled error on submit.
+  return `MN-${Date.now()}-${randomBytes(3).toString("hex")}`;
 }
 
 export async function createLead(input: unknown): Promise<never> {

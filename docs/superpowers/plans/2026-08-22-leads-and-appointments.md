@@ -6,7 +6,7 @@
 
 **Architecture:** Two Kysely migrations add `leads` and `appointments` plus `orders.appointment_id`. The spreadsheet's eight formula columns are **not stored** — they are recomputed per request by a pure, heavily-tested module (`src/lib/leads/queue-engine.ts`), because every rule depends on the current date. Dates are handled as `YYYY-MM-DD` strings in `Asia/Singapore` so that ISO string comparison *is* date comparison and no UTC boundary bug is possible. Google Calendar sync is a post-commit side effect behind a `google_sync_state` column — a Google outage can never lose a booking.
 
-**Tech Stack:** Next.js 15 App Router (RSC by default), Kysely migrations + codegen, Zod validation, React Hook Form, shadcn/ui, Vitest, Google Calendar API v3 via service-account JWT.
+**Tech Stack:** Next.js 15 App Router (RSC by default), Kysely migrations + codegen, Zod validation, React Hook Form, shadcn/ui, Vitest, Google Calendar API v3 via an OAuth refresh token.
 
 **Spec:** `docs/specs/phase-15-leads-and-appointments.md`
 
@@ -2643,7 +2643,7 @@ git commit -m "feat(calendar): build consultation event payloads"
 - Create: `src/lib/calendar/google.ts`
 - Modify: `.env.example`, `Dockerfile`
 
-**Manual prerequisite, done once by the user before this ships:** create a Google Cloud project, enable the Calendar API, create a service account, download its JSON key, then share the target calendar with the service account's email at "Make changes to events". Without that last step every call returns 404 — the calendar simply is not visible to the service account.
+**Manual prerequisite, done once by the user before this ships:** create a Google Cloud project, enable the Calendar API, set the OAuth consent screen to **Internal**, create a **Desktop app** OAuth client, then run `npm run calendar:consent` signed in as an account that can edit the target calendar. A service account was the original plan and is unavailable — the Cloud organisation enforces `iam.managed.disableServiceAccountKeyCreation`. Internal is load-bearing: External apps in Testing status issue refresh tokens that expire after seven days.
 
 - [ ] **Step 1: Add the dependency**
 
@@ -2651,7 +2651,7 @@ git commit -m "feat(calendar): build consultation event payloads"
 npm install google-auth-library
 ```
 
-`google-auth-library` alone is enough — it handles the JWT signing, and the three Calendar calls are plain `fetch`. Pulling in all of `googleapis` for three endpoints is ~50 MB of surface for no gain.
+`google-auth-library` alone is enough — it handles the OAuth token refresh, and the three Calendar calls are plain `fetch`. Pulling in all of `googleapis` for three endpoints is ~50 MB of surface for no gain.
 
 - [ ] **Step 2: Write the client**
 
@@ -2659,29 +2659,50 @@ npm install google-auth-library
 // src/lib/calendar/google.ts
 import "server-only";
 
-import { JWT } from "google-auth-library";
+import { OAuth2Client } from "google-auth-library";
 
 import type { CalendarEvent } from "./event";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
+export const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
 
-function client(): { jwt: JWT; calendarId: string } {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+// A stored refresh token, not a service-account key: the Cloud organisation
+// enforces iam.managed.disableServiceAccountKeyCreation, so no key can be
+// issued. The consent screen must be INTERNAL — External apps in Testing hand
+// out refresh tokens that expire after seven days. See the spec.
+type Client = { oauth: OAuth2Client; calendarId: string };
+
+let cached: { credentials: string; client: Client } | null = null;
+
+function client(): Client {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
 
-  if (!email || !key || !calendarId) {
+  if (!clientId || !clientSecret || !refreshToken || !calendarId) {
     throw new Error(
-      "Google Calendar is not configured (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_KEY, GOOGLE_CALENDAR_ID)",
+      "Google Calendar is not configured (GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN, GOOGLE_CALENDAR_ID)",
     );
   }
 
-  return {
-    // Railway env vars cannot hold real newlines, so the private key is stored
-    // with literal \n sequences and unescaped here.
-    jwt: new JWT({ email, key: key.replace(/\\n/g, "\n"), scopes: SCOPES }),
+  // Cache the client: google-auth-library holds the access token on the
+  // instance, so rebuilding it per call means a full token refresh before
+  // every create, patch and delete. Keyed on the credentials so an env change
+  // is picked up without a restart.
+  const credentials = JSON.stringify([
+    clientId,
+    clientSecret,
+    refreshToken,
     calendarId,
-  };
+  ]);
+  if (cached?.credentials === credentials) return cached.client;
+
+  const oauth = new OAuth2Client({ clientId, clientSecret });
+  oauth.setCredentials({ refresh_token: refreshToken });
+
+  const next: Client = { oauth, calendarId };
+  cached = { credentials, client: next };
+  return next;
 }
 
 async function call(
@@ -2689,8 +2710,8 @@ async function call(
   path: string,
   body?: unknown,
 ): Promise<Record<string, unknown>> {
-  const { jwt, calendarId } = client();
-  const { token } = await jwt.getAccessToken();
+  const { oauth, calendarId } = client();
+  const { token } = await oauth.getAccessToken();
 
   const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
     calendarId,
@@ -2743,8 +2764,9 @@ export async function deleteEvent(eventId: string): Promise<void> {
 
 export function isCalendarConfigured(): boolean {
   return Boolean(
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
-      process.env.GOOGLE_SERVICE_ACCOUNT_KEY &&
+    process.env.GOOGLE_OAUTH_CLIENT_ID &&
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+      process.env.GOOGLE_OAUTH_REFRESH_TOKEN &&
       process.env.GOOGLE_CALENDAR_ID,
   );
 }
@@ -2755,12 +2777,13 @@ export function isCalendarConfigured(): boolean {
 Append to `.env.example`:
 
 ```bash
-# Google Calendar — shared company calendar, service-account auth.
-# The calendar must be shared with GOOGLE_SERVICE_ACCOUNT_EMAIL at
+# Google Calendar — shared company calendar, OAuth refresh-token auth.
+# The consenting account must be able to edit the calendar. Consent screen at
 # "Make changes to events", or every API call returns 404.
 GOOGLE_CALENDAR_ID=
-GOOGLE_SERVICE_ACCOUNT_EMAIL=
-GOOGLE_SERVICE_ACCOUNT_KEY=
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+GOOGLE_OAUTH_REFRESH_TOKEN=
 ```
 
 These are runtime-only (server-side), so unlike the `NEXT_PUBLIC_*` vars they need **no** Dockerfile build args — only Railway service variables. Confirm by checking that the Dockerfile's `ARG` lines are all `NEXT_PUBLIC_*`:
@@ -2772,7 +2795,7 @@ Run: `rg -n "^ARG" Dockerfile`
 ```bash
 npx tsc --noEmit
 git add src/lib/calendar/google.ts .env.example package.json package-lock.json
-git commit -m "feat(calendar): add Google Calendar service-account client"
+git commit -m "feat(calendar): add Google Calendar OAuth client"
 ```
 
 ---
@@ -4677,7 +4700,7 @@ With `npm run dev` running, confirm each of these by hand:
 
    That covers *misconfigured*, which fails instantly via `isCalendarConfigured()`.
    A real outage is a **hang**, so test that too: point
-   `GOOGLE_SERVICE_ACCOUNT_EMAIL` at a host that blackholes (or block
+   `GOOGLE_OAUTH_CLIENT_ID` at a host that blackholes (or block
    `www.googleapis.com` in `/etc/hosts`) and book. The booking must return
    within ~10s onto the retry card — not hold the request open until the socket
    dies. Both halves are bounded by `CALENDAR_TIMEOUT_MS`; the JWT is cached on

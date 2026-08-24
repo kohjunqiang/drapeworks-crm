@@ -14,7 +14,8 @@
     "db:migrate:down": "tsx data/migrate.ts down",
     "db:codegen": "kysely-codegen --out-file src/lib/db/schema.ts",
     "leads:import": "tsx scripts/import-leads.ts",
-    "leads:verify": "tsx scripts/verify-lead-engine.ts"
+    "leads:verify": "tsx scripts/verify-lead-engine.ts",
+    "calendar:consent": "tsx scripts/google-oauth-consent.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

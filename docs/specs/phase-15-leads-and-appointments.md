@@ -52,7 +52,7 @@ installation/delivery appointments, merging the customer duplicates that already
 | Decision | Choice | Reason |
 |---|---|---|
 | Booking source | Staff-entered in the CRM | No public surface, no slot logic, no spam handling |
-| Calendar target | One shared company Google Calendar via service account | No per-user OAuth; staff subscribe from their own Google Calendar |
+| Calendar target | One shared company Google Calendar, one stored OAuth token | Not per-user OAuth — one grant for the app, not a login per consultant; staff subscribe from their own Google Calendar |
 | Customer invited to event | No — internal event only | Customer contact stays on WhatsApp; the CRM never emails a customer unprompted |
 | Appointment → order | "Start consultation" prefills `/orders/new` | Nothing is created until the consultant actually works; no junk drafts from no-shows |
 | Customer identity | Match on mobile via a picker | Stops new duplicates without backfilling old ones |
@@ -451,20 +451,36 @@ the funnel. Added to `src/components/nav/links.ts`, which is the single link lis
 
 ## Google Calendar
 
-**Service account, one shared calendar.** No per-user OAuth, no token refresh, no
-`google` npm dependency beyond `googleapis` (or a direct signed-JWT fetch, which avoids
-the dependency entirely — decide at implementation).
+**One shared calendar, OAuth refresh token.** A service account was the original design
+and is not available: the Cloud organisation enforces
+`iam.managed.disableServiceAccountKeyCreation`, so no service-account key can be issued.
+Workload Identity Federation — Google's recommended alternative — needs an OIDC token
+from the runtime, which Railway does not issue, so it would add moving parts without
+removing the stored-secret problem. A refresh token is the remaining option.
 
 **Prerequisite, done by hand before this ships:** create a Google Cloud project, enable
-the Calendar API, create a service account, and share the target calendar with the
-service account's email at "Make changes to events".
+the Calendar API, configure the consent screen as **Internal**, create a **Desktop app**
+OAuth client, then run `npm run calendar:consent` and sign in as an account that can edit
+the target calendar.
 
-Env: `GOOGLE_CALENDAR_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_KEY`.
+Env: `GOOGLE_CALENDAR_ID`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_OAUTH_REFRESH_TOKEN`.
+
+Three things this costs us against the service account we wanted:
+
+- **Events show a human as organiser**, not a neutral company identity. Cosmetic, but
+  visible to anyone looking at the shared calendar.
+- **Consent is revocable.** Someone clearing app permissions on that Google account
+  breaks sync — as `invalid_grant`, which lands on the retry card like any other sync
+  failure. Recovery is re-running the consent script, not a code change.
+- **Internal consent screen is load-bearing.** An External app in Testing status issues
+  refresh tokens that expire after seven days. That failure arrives a week after launch,
+  looking like a working integration that suddenly wasn't.
 
 **Railway service variables only — not Dockerfile build args.** These are read at
-runtime on the server, and a private key passed as a build arg is baked into an image
-layer that anyone who can pull the image can read. The existing `ARG` lines are all
-`NEXT_PUBLIC_*`, which are public by definition; these are not.
+runtime on the server, and a client secret or refresh token passed as a build arg is
+baked into an image layer that anyone who can pull the image can read. The existing `ARG`
+lines are all `NEXT_PUBLIC_*`, which are public by definition; these are not.
 
 **Event shape** — internal, no attendees:
 
@@ -640,7 +656,7 @@ connects as table owner and bypasses them.
 | Risk | Mitigation |
 |---|---|
 | PII (244 names, 98 mobiles) committed to git | `.gitignore` for `*.xlsx` in the first commit; import via script, never a migration |
-| Google service-account setup blocks the build | Sync is decoupled behind `google_sync_state`; everything but sync ships and is testable without credentials |
+| Google auth setup blocks the build | Sync is decoupled behind `google_sync_state`; everything but sync ships and is testable without credentials. This risk paid off — the org policy ruled out service accounts mid-phase and nothing else was held up |
 | Verbatim enums entrench a messy model | Explicitly deferred to a follow-up redesign phase, not resolved during the port |
 | Undeclared outcome values break the import | Enum includes `Appointment Confirmed`, `Follow-Up Sent`, `Renovation Delayed` despite their absence from `Lists` |
 | `Asia/Singapore` vs UTC date boundary | Dedicated timezone tests; a single `todayInSingapore()` helper used everywhere |

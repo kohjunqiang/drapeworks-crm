@@ -68,8 +68,14 @@ depend on `TODAY()` and are derived at read time.
 
 ```
 id                          uuid pk
-lead_ref                    text unique      -- 'TG-28786858' / 'WA-6581817358'; see import hazards
-source_ref                  text             -- the sheet's Lead ID verbatim, NOT unique
+lead_ref                    text unique      -- the app's identity: 'TG-28786858', or 'TG-row233'
+                                             -- where the sheet had none; see import hazards
+source_ref                  text             -- the sheet's Lead ID verbatim, NOT unique.
+                                             -- Provenance only — never displayed, never
+                                             -- searched, deliberately not indexed. 12 rows
+                                             -- hold a bare 'TG'/'WA'/'WA-SEM', so it cannot
+                                             -- serve as an identity. After the spreadsheet is
+                                             -- deleted it is the only record of what it said.
 source                      lead_source      -- telegram | whatsapp | manual
 name                        text not null    -- Excel 'Customer'
 mobile                      text             -- 98 of 244

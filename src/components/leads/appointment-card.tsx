@@ -42,8 +42,11 @@ const STATUS_LABEL: Record<AppointmentStatus, string> = {
 
 export function AppointmentCard({
   appointment,
+  calendarConfigured,
 }: {
   appointment: AppointmentSummary;
+  /** Whether the GOOGLE_* vars are set on the server *right now*. */
+  calendarConfigured: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -66,9 +69,17 @@ export function AppointmentCard({
   // amber banner and a retry. A missing GOOGLE_* env var is a deployment fact,
   // not an incident — it is the permanent state of local dev, so surfacing it
   // as a failure would put an unfixable alarm on every appointment on screen.
+  //
+  // `calendarConfigured` is what the server sees now, not what it saw when the
+  // row was written. Without it the marker is permanent: this phase ships sync
+  // decoupled on purpose, so appointments get booked before the credentials
+  // land — and on the day they land, every one of those rows would still read
+  // "not configured" and still be denied a Retry. Stranded with no way back
+  // short of editing the database.
   const notConfigured =
     appointment.google_sync_state === "failed" &&
-    appointment.google_sync_error === CALENDAR_NOT_CONFIGURED;
+    appointment.google_sync_error === CALENDAR_NOT_CONFIGURED &&
+    !calendarConfigured;
   const syncFailed =
     appointment.google_sync_state === "failed" && !notConfigured;
 

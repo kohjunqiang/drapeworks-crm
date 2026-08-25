@@ -7,6 +7,7 @@ import { BookAppointmentDialog } from "@/components/leads/book-appointment-dialo
 import { LeadFieldsForm } from "@/components/leads/lead-fields-form";
 import { Badge } from "@/components/ui/badge";
 import { requireRole } from "@/lib/auth/require-role";
+import { isCalendarConfigured } from "@/lib/calendar/google";
 import { db } from "@/lib/db/kysely";
 import { deriveLead } from "@/lib/leads/queue-engine";
 import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
@@ -131,7 +132,10 @@ export default async function LeadDetailPage({
 
       {appointment ? (
         <div className="mt-6">
-          <AppointmentCard appointment={appointment} />
+          <AppointmentCard
+            appointment={appointment}
+            calendarConfigured={isCalendarConfigured()}
+          />
         </div>
       ) : null}
 

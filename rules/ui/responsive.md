@@ -122,6 +122,20 @@ When a table has too many columns to ever fit on mobile, wrap in `overflow-x-aut
 
 Use this for spec tables on the order detail page; use the table-vs-cards pattern for list/dashboard tables.
 
+**`overflow-x-auto` only absorbs overflow when the wrapper's width is definite.** `body` is `flex flex-col` and every `<main>` is centred with `mx-auto`. Auto margins on the cross axis suppress `align-items: stretch`, so the item is sized shrink-to-fit — floored at its *min-content* width. A `min-w-[36rem]` table then drags `<main>` out to 700px+ on a phone and the whole document scrolls sideways, while the scroll wrapper never scrolls at all. `globals.css` pins `body > main/nav/header` to `width: 100%` to keep those widths definite. If you add a new direct child of `body`, give it a definite width too. `min-width: 0` does **not** help here — that governs the main axis, which is vertical in a column flex container.
+
+## Anything sticky or absolutely sized on a phone
+
+A quote/summary bar with several figures on one row fits a desk, not a 375px phone — four-figure amounts are the normal case. Stack the label above the figures below `sm:` and let the figures wrap:
+
+```
+flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4
+```
+
+## Dialogs must cap their height in `dvh`
+
+`DialogContent` carries `max-h-[calc(100dvh-2rem)] overflow-y-auto`. Without it a dialog taller than the viewport is clipped at *both* ends with nothing to scroll — and the viewport halves the moment a text field opens the on-screen keyboard, which is exactly when a form dialog is in use. Use `dvh`, never `vh`: `vh` ignores the keyboard.
+
 ## Testing
 
 Test every screen at **iPhone SE width (375px)** before declaring done. No horizontal scroll on the page (table scroll inside a container is fine). Tap targets ≥ 44px tall on touch interfaces.

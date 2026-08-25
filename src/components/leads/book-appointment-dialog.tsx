@@ -90,7 +90,7 @@ export function BookAppointmentDialog({
       <DialogTrigger className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
         Book appointment
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Book consultation</DialogTitle>
           <DialogDescription>{leadName}</DialogDescription>

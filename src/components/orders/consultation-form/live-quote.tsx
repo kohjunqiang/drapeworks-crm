@@ -165,12 +165,17 @@ export function LiveQuote({
 
   return (
     <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">
-      <div className="flex items-center justify-between gap-4">
+      {/* "Live quote" + three figures on one line fits a desk, not a phone. A
+          four-figure quote — the normal case here — pushed the row past the
+          card and scrolled the whole page sideways. On mobile the label takes
+          its own line and the figures spread across the full width; from sm it
+          is the original single row. */}
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Live quote
         </span>
         {hasMeasurements ? (
-          <div className="flex items-center gap-4 sm:gap-6 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm sm:justify-end sm:gap-6">
             <div className="flex items-baseline gap-1.5">
               <span className="text-slate-500 text-xs">Quoted</span>
               <span className="font-semibold text-slate-900">

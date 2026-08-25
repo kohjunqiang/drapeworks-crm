@@ -127,4 +127,28 @@
   html {
     @apply font-sans;
   }
+
+  /* `body` is a column flex container, so every page's <main> and the <nav> are
+     flex items — and every one of them is centred with `mx-auto`. Auto margins
+     on the cross axis SUPPRESS `align-items: stretch`, so the item is sized
+     shrink-to-fit instead of filling the body, and shrink-to-fit is floored at
+     the item's MIN-CONTENT width. One wide descendant (a min-w-[36rem]
+     catalogue table, a min-w-[640px] spec table) therefore drags the whole
+     <main> out to 707px on a 390px phone and the entire document scrolls
+     sideways.
+     That is what defeats the `overflow-x-auto` wrappers those tables already
+     sit in: a scroll container only absorbs overflow when its own width is
+     DEFINITE. Under shrink-to-fit it just propagates its min-content upward
+     and the page grows to fit rather than the wrapper scrolling.
+     Giving the flex items a definite width restores stretch behaviour;
+     `max-w-*` + `mx-auto` still centre and cap them on desktop. `min-width: 0`
+     does NOT fix this — it governs the main axis, which here is vertical.
+     Do NOT reach for `overflow-x: hidden` on body either: it silently clips
+     content and breaks `position: sticky` on the live-quote bar. */
+  body > main,
+  body > nav,
+  body > header {
+    width: 100%;
+    min-width: 0;
+  }
 }

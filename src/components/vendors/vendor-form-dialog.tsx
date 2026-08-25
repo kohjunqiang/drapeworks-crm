@@ -74,7 +74,7 @@ export function VendorFormDialog({ open, onOpenChange, defaultValues }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Eight fields now, so the dialog scrolls rather than running off a
           phone screen. */}
-      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-md max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit vendor" : "Add vendor"}</DialogTitle>
         </DialogHeader>

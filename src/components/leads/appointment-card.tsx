@@ -14,6 +14,8 @@ import {
 import { CALENDAR_NOT_CONFIGURED } from "@/lib/calendar/messages";
 import type { AppointmentStatus, GoogleSyncState } from "@/lib/db/schema";
 
+import { RescheduleDialog } from "./reschedule-dialog";
+
 export type AppointmentSummary = {
   id: string;
   scheduled_at: Date | string;
@@ -168,6 +170,14 @@ export function AppointmentCard({
             just an error message waiting to happen. */}
         {appointment.status === "scheduled" ? (
           <div className="flex flex-wrap gap-2">
+            {/* Same gate as the status buttons: rescheduleAppointment patches
+                the Google event in place, and there is no event to move once
+                the appointment has been completed, cancelled or no-showed. */}
+            <RescheduleDialog
+              appointmentId={appointment.id}
+              scheduledAt={appointment.scheduled_at}
+              durationMins={appointment.duration_mins}
+            />
             <Button
               type="button"
               size="sm"

@@ -9,6 +9,7 @@ import "server-only";
 import { OAuth2Client } from "google-auth-library";
 
 import type { CalendarEvent } from "./event";
+import { CALENDAR_BUDGET_MS, isRetryable, nextDelayMs } from "./retry";
 import { CALENDAR_TIMEOUT_MS, withTimeout } from "./timeout";
 
 export const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
@@ -83,11 +84,13 @@ export class CalendarApiError extends Error {
   }
 }
 
-async function call(
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function attempt(
   method: "POST" | "PATCH" | "DELETE",
   path: string,
-  body?: unknown,
-): Promise<Record<string, unknown>> {
+  body: unknown,
+): Promise<Response> {
   const { oauth, calendarId } = client();
 
   // Both halves are bounded. Sync runs after the appointment is committed, so
@@ -103,7 +106,7 @@ async function call(
     calendarId,
   )}/events${path}`;
 
-  const response = await fetch(url, {
+  return fetch(url, {
     method,
     signal: AbortSignal.timeout(CALENDAR_TIMEOUT_MS),
     headers: {
@@ -112,14 +115,44 @@ async function call(
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+}
 
-  if (!response.ok) {
+async function call(
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<Record<string, unknown>> {
+  // One wall-clock budget for the whole operation, retries and sleeps
+  // included. Per-request timeouts alone do not bound a retry loop.
+  const deadline = Date.now() + CALENDAR_BUDGET_MS;
+
+  for (let i = 0; ; i += 1) {
+    const response = await attempt(method, path, body);
+
+    if (response.ok) {
+      // DELETE returns 204 with an empty body.
+      return response.status === 204 ? {} : await response.json();
+    }
+
     const detail = await response.text();
-    throw new CalendarApiError(response.status, method, detail);
-  }
 
-  // DELETE returns 204 with an empty body.
-  return response.status === 204 ? {} : await response.json();
+    // 403 is overloaded: a rate limit is worth waiting out, insufficient
+    // scopes never will be. isRetryable reads the reason, not just the status.
+    if (!isRetryable(response.status, detail)) {
+      throw new CalendarApiError(response.status, method, detail);
+    }
+
+    const delay = nextDelayMs(
+      i,
+      deadline - Date.now(),
+      response.headers.get("retry-after"),
+    );
+    if (delay === null) {
+      throw new CalendarApiError(response.status, method, detail);
+    }
+
+    await sleep(delay);
+  }
 }
 
 export async function createEvent(event: CalendarEvent): Promise<string> {

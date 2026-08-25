@@ -1,6 +1,8 @@
 # Drapeworks CRM
 
-A Next.js + Supabase CRM for a Singapore curtain company. Three roles use it: **sales consultants** capture measurements on-site, **ops** track shipment/installation, **admins** manage the product catalogue (curtains, blinds, mesh) and the team.
+A Next.js + Supabase CRM for a Singapore curtain company. Three roles use it: **sales consultants** work the lead queue and capture measurements on-site, **ops** track shipment/installation, **admins** manage the product catalogue (curtains, blinds, mesh) and the team.
+
+The app spans the whole funnel: a lead arrives on Telegram or WhatsApp, gets qualified and booked into a consultation (which lands on a shared Google Calendar), and becomes an order that is quoted, manufactured and delivered. Ops work begins at the order — leads are closed to them.
 
 ## Stack at a glance
 
@@ -45,18 +47,28 @@ src/
     vendors/       # vendor CRUD
     pricing/       # pricing settings
     admin/         # admin chrome (product tabs)
+    leads/         # leads feature — table, detail form, booking + reschedule dialogs
   lib/
     supabase/      # server.ts, browser.ts, admin.ts (service-role; isolated) — auth/session only
     auth/          # get-session.ts, require-role.ts
     actions/       # 'use server' modules, one per feature
     validation/    # Zod schemas, shared client+server
     db/            # Kysely instance + generated schema.ts (kysely-codegen output)
+    leads/         # queue-engine.ts (the ported funnel engine), sg-date.ts, types.ts
+    calendar/      # Google Calendar: google.ts (OAuth client), sync.ts, event.ts,
+                   # retry.ts + timeout.ts (bounded, backed off)
     status-flow.ts, money.ts, format.ts
   middleware.ts    # Supabase session cookie refresh
 
 data/              # Kysely migrations live here (not in /supabase)
   migrate.ts       # `npm run db:migrate` runs all pending migrations
   migrations/      # YYYYMMDDHHMM_descriptive_name.ts (Kysely TS migrations)
+
+scripts/           # one-off operator tools, never imported by the app
+  db-query.ts             # throwaway query runner
+  import-leads.ts         # one-shot spreadsheet import (not idempotent)
+  verify-lead-engine.ts   # diffs the engine against the spreadsheet
+  google-oauth-consent.ts # mints the Calendar refresh token
 
 docs/
   prototype/       # HTML mockups (source of truth for UX)
@@ -79,6 +91,10 @@ These come up constantly. Full detail in `rules/` (see `rules/README.md` for the
 - **Don't offer what can't be quoted.** A product with no sale price is hidden from the consultation form, not shown at S$0. Mesh and blinds both gate this way. (`rules/code/forms.md`)
 - **Mirror the prototype exactly for UX.** Same classes, same breakpoints, same colours. Only diverge with explicit reason. (`rules/ui/design-tokens.md`, `rules/ui/responsive.md`)
 - **After every migration, regenerate types** with `npm run db:codegen` (writes `src/lib/db/schema.ts`).
+- **The lead queue is derived at read time, never stored.** Every rule in `queue-engine.ts` depends on today's date, so a stored copy is stale the moment the clock rolls over. The engine is a verbatim port of Alan's spreadsheet — including three bugs kept on purpose so the two can be diffed. Change a branch and `spreadsheet-parity.test.ts` (248 tests) will tell you.
+- **`select` a `date` column as `::text`.** node-postgres hands `date` back as a JS `Date` at *local* midnight. The engine compares `YYYY-MM-DD` strings, and a `Date` silently ruins every due-status and priority band. See the cast in `src/app/(app)/leads/page.tsx`.
+- **Calendar sync is a side effect, never a gate.** The appointment commits first; a Google outage costs a calendar entry, not a booking. Every call is bounded by a timeout and a total budget, and failures surface as a retry the consultant can press. Never make a booking `await` its way into failure.
+- **The leads spreadsheet is PII and must never be committed.** 244 real names, 98 mobiles. `*.xlsx` is gitignored; import via `scripts/`, never a migration.
 
 ## Common commands
 
@@ -92,6 +108,12 @@ npm run lint
 # create a new migration: add a file YYYYMMDDHHMM_<name>.ts under data/migrations/
 npm run db:migrate                   # apply pending migrations to remote
 npm run db:codegen                   # regenerate src/lib/db/schema.ts
+
+# Leads / calendar (operator tools, run by hand)
+npm run leads:verify                 # diff the engine against the spreadsheet
+npm run leads:import                 # one-shot import — NOT idempotent
+npm run calendar:consent             # mint GOOGLE_OAUTH_REFRESH_TOKEN (prints a secret;
+                                     # run it in your own terminal)
 
 # shadcn
 npx shadcn@latest add <component>    # add a primitive

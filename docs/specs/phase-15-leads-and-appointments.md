@@ -1,7 +1,33 @@
 # Phase 15 — Leads, Daily Queue & Appointments
 
-**Status:** Specified, not implemented
-**Supersedes:** `02 Leads Management & Appt.xlsx` (244 leads, hand-maintained)
+**Status:** Implemented 2026-08-25
+**Supersedes:** `02 Leads Management & Appt.xlsx` (244 leads, hand-maintained) — still on
+disk and still untracked. Task 26 retires it, and is deliberately **not** done yet; see
+the open items below.
+
+**Verified end-to-end:** the queue and its counts against the engine at today's date, the
+outcome-overrides-stage cascade, the booking CTA, booking → Google event (correct shape,
+no guests), Retry after a failed sync, reschedule (event patched not duplicated, action
+date follows), cancel (all three lead fields restored, event deleted), the quote-note
+prompt, mobile matching across `+65`/bare formats, and `/orders/new` prefill carrying
+`appointment_id` with an edited mobile persisted.
+
+**Open, and why:**
+
+- **No-show rollback** (Task 25 item 11) not exercised end-to-end. It shares one
+  `cancelled || no_show` restore branch with cancel, which passed, so the risk is the
+  button wiring rather than the logic.
+- **`ops` is locked out of leads** (item 13) — asserted by `requireRole` and `linksForRole`
+  but never run, because no `ops` profile exists to log in as.
+- **The hang drill** — that a Google which hangs rather than errors lands on the retry
+  card inside ~10s. The timeout and budget logic is unit-tested; the end-to-end proof
+  needs network interference and has not been run.
+- **Task 26** is gated on Task 25 passing in full, and is one-way. The parity fixture is
+  committed and passes without the spreadsheet, so nothing depends on the file any more —
+  but it stays until the three items above are closed.
+- **Deployment:** `GOOGLE_CALENDAR_ID` currently points at a primary calendar (an email
+  address), so bookings land in one person's own calendar rather than a shared one, and
+  events show the consenting account as organiser. One env var to change, no code.
 
 ## Why
 
@@ -27,7 +53,7 @@ Six sheets; two hold data.
 
 | Sheet | Role |
 |---|---|
-| `Leads` | 29 cols × 244 rows. A–H, J, L, O–V and AA–AC hand-typed. **I, K, M, N, W, X, Y, Z are formulas.** |
+| `Leads` | 29 cols × 244 rows. A–H, J, L, O–V and AA–AC hand-typed. **I, K, M, N, W, X, Y, Z are formulas — 1,463 of the 1,464 computed cells. The exception is `I215`, typed over by hand;** see "A fifth anomaly" below. |
 | `Daily Queue` | Flattened, priority-sorted worklist |
 | `Dashboard` | `COUNTIF` tallies by funnel stage and by action |
 | `Lists` | Enum definitions (3 enums + priority ranking) |
@@ -52,7 +78,7 @@ installation/delivery appointments, merging the customer duplicates that already
 | Decision | Choice | Reason |
 |---|---|---|
 | Booking source | Staff-entered in the CRM | No public surface, no slot logic, no spam handling |
-| Calendar target | One shared company Google Calendar via service account | No per-user OAuth; staff subscribe from their own Google Calendar |
+| Calendar target | One shared company Google Calendar, one stored OAuth token | Not per-user OAuth — one grant for the app, not a login per consultant; staff subscribe from their own Google Calendar |
 | Customer invited to event | No — internal event only | Customer contact stays on WhatsApp; the CRM never emails a customer unprompted |
 | Appointment → order | "Start consultation" prefills `/orders/new` | Nothing is created until the consultant actually works; no junk drafts from no-shows |
 | Customer identity | Match on mobile via a picker | Stops new duplicates without backfilling old ones |
@@ -68,8 +94,14 @@ depend on `TODAY()` and are derived at read time.
 
 ```
 id                          uuid pk
-lead_ref                    text unique      -- 'TG-28786858' / 'WA-6581817358'; see import hazards
-source_ref                  text             -- the sheet's Lead ID verbatim, NOT unique
+lead_ref                    text unique      -- the app's identity: 'TG-28786858', or 'TG-row233'
+                                             -- where the sheet had none; see import hazards
+source_ref                  text             -- the sheet's Lead ID verbatim, NOT unique.
+                                             -- Provenance only — never displayed, never
+                                             -- searched, deliberately not indexed. 12 rows
+                                             -- hold a bare 'TG'/'WA'/'WA-SEM', so it cannot
+                                             -- serve as an identity. After the spreadsheet is
+                                             -- deleted it is the only record of what it said.
 source                      lead_source      -- telegram | whatsapp | manual
 name                        text not null    -- Excel 'Customer'
 mobile                      text             -- 98 of 244
@@ -173,9 +205,17 @@ engine and the ones above it dominate:
   position would all come from the outcome and the stage would move only the chip on
   screen.
 - `action_date` feeds the effective-date rule, which feeds both due status and contact
-  priority. Clearing it drops a `Nurture` lead's future follow-up date from *Upcoming*
-  to *Schedule Date*, and moves its band wherever that band is date-derived. 53 leads
+  priority. Clearing it drops a lead's future follow-up date from *Upcoming* to
+  *Schedule Date*, and moves its band wherever that band is date-derived. 53 leads
   carry an `action_date` today; 11 are `Nurture` and all 11 are queue-visible.
+
+  Those 11 reach a booking by way of a stage change, not directly: **Book appointment**
+  is offered only where the engine derives `Book Appointment`, and `Nurture` derives
+  `Nurture / Re-engage`. Alan moves the lead to `Qualified / Pre-Appointment` first —
+  which does not clear the date. So the stage restored on cancel is the bookable one he
+  set, never `Nurture`; it is the *date* that survives the round trip and matters. The
+  speed bump is deliberate: booking straight out of `Nurture` would skip the
+  re-qualification that stage exists to force.
 
 Cancelling also deletes the calendar event and marks the sync `synced` — the desired end
 state has been reached, so a later sync must not treat it as outstanding work and
@@ -321,6 +361,41 @@ total is not an input to any rule, it is a number on a screen. **The CRM's figur
 therefore not match what Alan reads each morning, by design.** Recorded here so that
 difference reads as a decision rather than a defect.
 
+### A fifth anomaly — not a bug at all, but a hand edit
+
+Found by the Task 12 parity gate, and different in kind from the four above: those are
+formulas that behave badly, this is a cell with no formula in it.
+
+`I215` — lead `TG-876998359`, `funnel_stage` *Decision Pending*, `last_outcome`
+*Quote Sent* — holds the literal string `Nurture / Re-engage`, typed straight over the
+Action Required formula. The raw XML shows `<c r="I215" s="6" t="s"><v>33</v></c>` with
+no `<f>` element, and the shared-formula run splits around it (`I5:I214`, then
+`I216:I247`). That split *is* the fingerprint of the edit. It is the only non-formula
+cell in the whole computed block. Column `K215` is still a formula, but it reads `I215`,
+so its instruction diverges too.
+
+No ported rule can reproduce a hand-typed literal, and the engine is not wrong here:
+sheet rows 168 and 186 carry identical inputs and yield *Push for Decision* from the live
+formula. So the CRM will show this lead as **Push for Decision**, not Nurture.
+
+- **The engine was not changed.** Bending the cascade to match one typed cell would break
+  the two rows that agree with it.
+- **The lead's data was not changed.** If Alan meant that lead to be nurture, its funnel
+  stage is his to set in the CRM after launch. Editing Postgres to make a test go green
+  is the tail wagging the dog.
+- **The parity fixture records both values.** `expected` carries the engine's output for
+  those two fields and `excelOverride` preserves what was typed. That one case is
+  self-referential, so `spreadsheet-parity.test.ts` asserts it is the *only* one and that
+  it covers exactly those two fields — if a real formula divergence ever appeared it
+  could not hide inside the exception. The row's other four columns are live formulas and
+  are compared normally, so no coverage is lost.
+
+`scripts/verify-lead-engine.ts` detects this structurally rather than by row number: a
+computed cell holding a value but no formula marks the row hand-edited, and mismatches on
+such a row are reported under a `⚠` heading instead of failing the gate. A blank
+non-formula cell does not qualify, or an engine that invented a value where Excel has
+none would be excused as an override.
+
 ### Ordering within a priority band
 
 The sheet's `Daily Queue` numbers its actions — `07 - Attend / Confirm Appointment` down
@@ -402,20 +477,36 @@ the funnel. Added to `src/components/nav/links.ts`, which is the single link lis
 
 ## Google Calendar
 
-**Service account, one shared calendar.** No per-user OAuth, no token refresh, no
-`google` npm dependency beyond `googleapis` (or a direct signed-JWT fetch, which avoids
-the dependency entirely — decide at implementation).
+**One shared calendar, OAuth refresh token.** A service account was the original design
+and is not available: the Cloud organisation enforces
+`iam.managed.disableServiceAccountKeyCreation`, so no service-account key can be issued.
+Workload Identity Federation — Google's recommended alternative — needs an OIDC token
+from the runtime, which Railway does not issue, so it would add moving parts without
+removing the stored-secret problem. A refresh token is the remaining option.
 
 **Prerequisite, done by hand before this ships:** create a Google Cloud project, enable
-the Calendar API, create a service account, and share the target calendar with the
-service account's email at "Make changes to events".
+the Calendar API, configure the consent screen as **Internal**, create a **Desktop app**
+OAuth client, then run `npm run calendar:consent` and sign in as an account that can edit
+the target calendar.
 
-Env: `GOOGLE_CALENDAR_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_KEY`.
+Env: `GOOGLE_CALENDAR_ID`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+`GOOGLE_OAUTH_REFRESH_TOKEN`.
+
+Three things this costs us against the service account we wanted:
+
+- **Events show a human as organiser**, not a neutral company identity. Cosmetic, but
+  visible to anyone looking at the shared calendar.
+- **Consent is revocable.** Someone clearing app permissions on that Google account
+  breaks sync — as `invalid_grant`, which lands on the retry card like any other sync
+  failure. Recovery is re-running the consent script, not a code change.
+- **Internal consent screen is load-bearing.** An External app in Testing status issues
+  refresh tokens that expire after seven days. That failure arrives a week after launch,
+  looking like a working integration that suddenly wasn't.
 
 **Railway service variables only — not Dockerfile build args.** These are read at
-runtime on the server, and a private key passed as a build arg is baked into an image
-layer that anyone who can pull the image can read. The existing `ARG` lines are all
-`NEXT_PUBLIC_*`, which are public by definition; these are not.
+runtime on the server, and a client secret or refresh token passed as a build arg is
+baked into an image layer that anyone who can pull the image can read. The existing `ARG`
+lines are all `NEXT_PUBLIC_*`, which are public by definition; these are not.
 
 **Event shape** — internal, no attendees:
 
@@ -514,7 +605,17 @@ each verified against the file:
 
 **Verification gate:** after import, a script recomputes the six derived values for all
 244 leads and diffs against the values cached in the xlsx. The port is correct when the
-diff is empty. This is the whole reason for porting the enums verbatim.
+diff is empty. This is the whole reason for porting the enums verbatim. The gate ran
+clean on 1,462 of the 1,464 comparisons; the remaining two are the hand-typed `I215` and
+the cell downstream of it, reported separately under a `⚠` heading — see "A fifth
+anomaly" above.
+
+Two traps for anyone regenerating this. **A formula whose cached result is the empty
+string has no `result` key at all** — Excel writes `<v></v>` and ExcelJS drops the
+property — so an unwary `"result" in value` check hands back the formula object and
+stringifies it to `[object Object]`, producing 203 phantom mismatches across the blank
+cells of columns K and M. And the script cannot use top-level `await`: there is no
+`"type": "module"`, so tsx compiles it as CJS and esbuild rejects it outright.
 
 **Run it against `2026-08-21`, and work from a copy.** The sheet's `TODAY()` is frozen
 at its last recalculation — 2026-08-21, confirmed three ways: every `Due Today` row has
@@ -581,7 +682,7 @@ connects as table owner and bypasses them.
 | Risk | Mitigation |
 |---|---|
 | PII (244 names, 98 mobiles) committed to git | `.gitignore` for `*.xlsx` in the first commit; import via script, never a migration |
-| Google service-account setup blocks the build | Sync is decoupled behind `google_sync_state`; everything but sync ships and is testable without credentials |
+| Google auth setup blocks the build | Sync is decoupled behind `google_sync_state`; everything but sync ships and is testable without credentials. This risk paid off — the org policy ruled out service accounts mid-phase and nothing else was held up |
 | Verbatim enums entrench a messy model | Explicitly deferred to a follow-up redesign phase, not resolved during the port |
 | Undeclared outcome values break the import | Enum includes `Appointment Confirmed`, `Follow-Up Sent`, `Renovation Delayed` despite their absence from `Lists` |
 | `Asia/Singapore` vs UTC date boundary | Dedicated timezone tests; a single `todayInSingapore()` helper used everywhere |

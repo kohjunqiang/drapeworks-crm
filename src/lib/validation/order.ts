@@ -194,10 +194,18 @@ export const orderMetaSchema = z.object({
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
 });
 
+// Phase 15 — set when the consultation was started from a booked appointment
+// (/orders/new?appointmentId=…). It is not a field the consultant fills: it
+// rides along so the order records where it came from, and so the write path
+// can reuse the appointment's customer instead of inserting a second row for
+// the same person.
+const optionalAppointmentId = z.string().uuid().optional();
+
 export const orderCreateSchema = z.object({
   customer: customerSchema,
   order: orderMetaSchema,
   rooms: z.array(roomSchema).min(1, "Add at least one room"),
+  appointment_id: optionalAppointmentId,
 });
 
 // Draft variant: relaxed validation so consultants can persist a half-finished
@@ -237,6 +245,10 @@ export const orderDraftSchema = z.object({
   customer: customerDraftSchema,
   order: orderMetaSchema,
   rooms: z.array(draftRoom),
+  // A half-finished consultation started from an appointment is still that
+  // appointment's consultation — the draft path reuses the booked customer for
+  // the same reason the full save does.
+  appointment_id: optionalAppointmentId,
 });
 
 export type OrderDraftInput = z.infer<typeof orderDraftSchema>;

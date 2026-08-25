@@ -34,6 +34,20 @@ import type { CurtainTypeOption } from "./window-fields";
 
 type Mode = "create" | "edit";
 
+/**
+ * A consultation started from a booked appointment (Phase 15).
+ *
+ * The customer was captured once at booking; it seeds the form's defaults here
+ * so nobody retypes it, and the id rides along on save so the order records
+ * which appointment it came from. `id` is deliberately not a form field — it is
+ * where the consultation came from, not something the consultant fills in.
+ */
+export type AppointmentPrefill = {
+  id: string;
+  customer: { name: string; mobile: string; email?: string };
+  development?: string | null;
+};
+
 type Props = {
   mode: Mode;
   curtainTypes: CurtainTypeOption[];
@@ -42,6 +56,11 @@ type Props = {
   combos?: ActiveCombo[];
   orderId?: string;
   defaultValues?: OrderEditInput;
+  /**
+   * Create mode only: seeds `defaultValues` from the booked appointment. An
+   * edit always has its own saved values, so this is ignored there.
+   */
+  appointment?: AppointmentPrefill;
   roomPhotos?: Record<string, UploaderPhoto[]>;
   /**
    * windowId → the add-on ids that window had on load. Fixed for the life of
@@ -105,6 +124,27 @@ const EMPTY_DEFAULTS: OrderEditInput = {
   ],
 };
 
+// The booked customer replaces the blank one; everything else is an ordinary
+// new consultation. `development` only fills in when the appointment recorded
+// one — a blank booking must not blank out the form's default.
+function withAppointment(
+  base: OrderEditInput,
+  appointment: AppointmentPrefill,
+): OrderEditInput {
+  return {
+    ...base,
+    customer: {
+      name: appointment.customer.name,
+      mobile: appointment.customer.mobile,
+      email: appointment.customer.email ?? "",
+    },
+    order: {
+      ...base.order,
+      development: appointment.development || base.order.development,
+    },
+  };
+}
+
 export function ConsultationForm({
   mode,
   curtainTypes,
@@ -113,6 +153,7 @@ export function ConsultationForm({
   combos = [],
   orderId,
   defaultValues,
+  appointment,
   roomPhotos,
   persistedAddonIdsByWindow = {},
 }: Props) {
@@ -120,7 +161,11 @@ export function ConsultationForm({
   const router = useRouter();
 
   const schema = mode === "create" ? orderCreateSchema : orderEditSchema;
-  const initial = defaultValues ?? EMPTY_DEFAULTS;
+  const initial =
+    defaultValues ??
+    (appointment
+      ? withAppointment(EMPTY_DEFAULTS, appointment)
+      : EMPTY_DEFAULTS);
 
   const form = useForm<OrderEditInput>({
     // The Zod schema's transforms produce a slightly different output shape;
@@ -143,7 +188,10 @@ export function ConsultationForm({
   // and each edited order keep separate drafts.
   const { clearDraft } = useFormDraft(
     form,
-    formDraftKey("curtain", mode, orderId),
+    // Keyed by the appointment on a create too, so a recovery draft left over
+    // from an unrelated consultation in this tab cannot restore itself over the
+    // customer we just prefilled from the booking.
+    formDraftKey("curtain", mode, orderId ?? appointment?.id),
   );
 
   const {
@@ -184,7 +232,12 @@ export function ConsultationForm({
           if (!orderId) throw new Error("Missing order id for edit");
           await updateOrder(orderId, normalised);
         } else {
-          await createOrder(normalised);
+          // appointment_id travels beside the form values rather than inside
+          // them: it is where this consultation came from, not an input.
+          await createOrder({
+            ...normalised,
+            appointment_id: appointment?.id,
+          });
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -205,6 +258,9 @@ export function ConsultationForm({
     const values = getValues();
     const payload = {
       ...values,
+      // A half-finished consultation is still this appointment's consultation:
+      // saving it as a draft must not fork a second customer either.
+      appointment_id: appointment?.id,
       rooms: (values.rooms ?? []).map((room, rIdx) => ({
         ...room,
         position: rIdx,

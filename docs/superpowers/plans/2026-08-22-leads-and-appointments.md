@@ -6,7 +6,7 @@
 
 **Architecture:** Two Kysely migrations add `leads` and `appointments` plus `orders.appointment_id`. The spreadsheet's eight formula columns are **not stored** — they are recomputed per request by a pure, heavily-tested module (`src/lib/leads/queue-engine.ts`), because every rule depends on the current date. Dates are handled as `YYYY-MM-DD` strings in `Asia/Singapore` so that ISO string comparison *is* date comparison and no UTC boundary bug is possible. Google Calendar sync is a post-commit side effect behind a `google_sync_state` column — a Google outage can never lose a booking.
 
-**Tech Stack:** Next.js 15 App Router (RSC by default), Kysely migrations + codegen, Zod validation, React Hook Form, shadcn/ui, Vitest, Google Calendar API v3 via service-account JWT.
+**Tech Stack:** Next.js 15 App Router (RSC by default), Kysely migrations + codegen, Zod validation, React Hook Form, shadcn/ui, Vitest, Google Calendar API v3 via an OAuth refresh token.
 
 **Spec:** `docs/specs/phase-15-leads-and-appointments.md`
 
@@ -347,8 +347,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     //     outcome makes a restored stage unreachable;
     //   - action_date feeds deriveEffectiveActionDate, which feeds both due
     //     status and contact priority, so clearing it moves the row's band.
-    // 53 leads carry an action_date today, 11 of them Nurture and all 11
-    // queue-visible. See setAppointmentStatus.
+    // 53 leads carry an action_date today. 11 of them are Nurture, and those
+    // reach a booking only after being moved to a bookable stage — which does
+    // not clear the date. So the stage restored is the one Alan set, and it is
+    // the date that has to survive. See setAppointmentStatus.
     .addColumn("lead_stage_before", sql`lead_funnel_stage`)
     .addColumn("lead_outcome_before", sql`lead_outcome`)
     .addColumn("lead_action_date_before", "date")
@@ -365,6 +367,23 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       c.notNull().defaultTo(sql`now()`),
     )
     .execute();
+
+  // House convention: public.set_updated_at() already exists and every table
+  // that carries updated_at is bumped by a trigger, not by hand. See
+  // 202608211000_delivery_vendors.ts. Relying on the Server Actions to remember
+  // would leave calendar-sync writes stale, since those update the row without
+  // going through an action that sets it.
+  await sql`
+    create trigger appointments_set_updated_at
+      before update on public.appointments
+      for each row execute function public.set_updated_at()
+  `.execute(db);
+
+  await sql`
+    create trigger leads_set_updated_at
+      before update on public.leads
+      for each row execute function public.set_updated_at()
+  `.execute(db);
 
   await sql`create index appointments_lead_id_idx on public.appointments (lead_id)`.execute(db);
   await sql`create index appointments_scheduled_at_idx on public.appointments (scheduled_at)`.execute(db);
@@ -403,6 +422,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+  await sql`drop trigger if exists leads_set_updated_at on public.leads`.execute(db);
   await sql`drop index if exists customers_mobile_last8_idx`.execute(db);
   await db.schema.alterTable("orders").dropColumn("appointment_id").execute();
   await db.schema.dropTable("appointments").execute();
@@ -525,17 +545,25 @@ Expected: FAIL — `Failed to resolve import "./sg-date"`
  */
 export type SgDate = string;
 
-const SG_FORMATTER = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Singapore",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+/**
+ * Singapore has been a fixed +08:00 with no DST since 1982, so one constant is
+ * exact rather than an approximation. The same constant appears in the import
+ * scripts, which read wall-clock times out of the spreadsheet.
+ */
+const SG_OFFSET_MS = 8 * 60 * 60 * 1000;
 
 /** The Singapore calendar date on which `instant` falls. */
 export function toSgDate(instant: Date): SgDate {
-  // en-CA formats as YYYY-MM-DD, which is exactly the shape we want.
-  return SG_FORMATTER.format(instant);
+  // Deliberately arithmetic rather than Intl.DateTimeFormat with a timeZone.
+  // That would need full ICU tz data at runtime; a small-ICU build silently
+  // falls back to UTC and reintroduces exactly the eight-hour error this whole
+  // module exists to prevent — wrong, and wrong without failing.
+  //
+  // Shifting the instant by the offset and then reading UTC fields IS the
+  // Singapore calendar date. This is not the naive
+  // `instant.toISOString().slice(0, 10)`, which reads a wall-clock instant in
+  // the wrong zone; the shift is what makes it correct.
+  return new Date(instant.getTime() + SG_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 /** Today's date in Singapore. The engine's `TODAY()`. */
@@ -1540,7 +1568,7 @@ export function compareQueueRows(
 - [ ] **Step 4: Run the whole engine suite**
 
 Run: `npx vitest run src/lib/leads/`
-Expected: PASS, 62 tests across both files (53 engine + 9 date).
+Expected: PASS, 64 tests across both files (55 engine + 9 date).
 
 Note: writing this task-by-task leaves `queue-engine.test.ts` with several
 `import … from "./queue-engine"` statements, and `queue-engine.ts` itself with four
@@ -1579,6 +1607,51 @@ npm install --save-dev exceljs
 CVE-2024-22363 with fixes only on SheetJS's own CDN, and `exceljs` exposes row numbers,
 which the synthetic `lead_ref` needs.
 
+Also create `scripts/db-query.ts`. Every verification step below runs one query against
+the database, and there is no `psql` on this machine. `npx tsx -e` cannot do it either:
+the module the app uses (`src/lib/db/kysely.ts`) opens with `import "server-only"`,
+which throws outside a React Server Component, and `-e` compiles to CJS where top-level
+`await` is a syntax error. One small script solves all of it, and Task 26 deletes it
+alongside the others.
+
+```ts
+// scripts/db-query.ts
+//
+// Throwaway query runner for the phase-15 import checks. Builds its own Kysely
+// instance for the same reason data/migrate.ts does: @/lib/db/kysely is
+// server-only and cannot be imported from a plain Node script.
+//
+// Usage: npx tsx scripts/db-query.ts "select count(*) from public.leads"
+
+import "dotenv/config";
+import { Kysely, PostgresDialect, sql } from "kysely";
+import { Pool } from "pg";
+
+async function main() {
+  const statement = process.argv[2];
+  if (!statement) throw new Error("Pass a SQL statement as the first argument");
+
+  const db = new Kysely<Record<string, never>>({
+    dialect: new PostgresDialect({
+      pool: new Pool({
+        connectionString: process.env.DATABASE_URL,
+        max: 1,
+        ssl: { rejectUnauthorized: false },
+      }),
+    }),
+  });
+
+  const result = await sql.raw(statement).execute(db);
+  console.table(result.rows);
+  await db.destroy();
+}
+
+main().catch((error) => {
+  console.error(error.message);
+  process.exit(1);
+});
+```
+
 Add to `package.json` scripts:
 
 ```json
@@ -1599,10 +1672,27 @@ Add to `package.json` scripts:
 //
 // Usage: npm run leads:import -- "02 Leads Management & Appt.xlsx"
 
+import "dotenv/config";
 import ExcelJS from "exceljs";
+import { Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
 
-import { db } from "../src/lib/db";
+import type { DB } from "../src/lib/db/schema";
 import { toSgDate } from "../src/lib/leads/sg-date";
+
+// NOT `import { db } from "@/lib/db/kysely"`. That module starts with
+// `import "server-only"`, which throws outside a React Server Component — this
+// is a plain Node script. data/migrate.ts builds its own instance for the same
+// reason; follow that pattern.
+const db = new Kysely<DB>({
+  dialect: new PostgresDialect({
+    pool: new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+      ssl: { rejectUnauthorized: false },
+    }),
+  }),
+});
 
 const HEADER_ROW = 4; // rows 1–3 are the title, a note and usage instructions
 const FIRST_DATA_ROW = 5;
@@ -1834,7 +1924,11 @@ main().catch((error) => {
 
 Run: `rg -n "export interface Profiles" -A 12 src/lib/db/schema.ts`
 
-If the display column is not `full_name`, fix the owner lookup in the script.
+Confirmed already: the table is `profiles`, the display column is `full_name`, and the
+Alan row is `full_name = 'alan.wtl91'` / `alan.wtl91@gmail.com` / role `admin`. The
+`ilike '%Alan%'` lookup matches it case-insensitively and matches nothing else — the
+other two profiles are `Jason` and `jaytanjiabao`. No change needed; verify rather than
+assume, because the script throws by design if the match fails.
 
 - [ ] **Step 4: Run the import**
 
@@ -1861,12 +1955,10 @@ migration rather than editing the applied one.
 - [ ] **Step 5: Verify the row count and spot-check**
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(db.fn.countAll().as('n')).executeTakeFirst(); \
-  console.log(r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(*) as n from public.leads"
 ```
 
-Expected: `{ n: '244' }`
+Expected: `n: 244`
 
 - [ ] **Step 6: Prove the date serials survived**
 
@@ -1874,13 +1966,11 @@ The single most damaging silent failure would be 168 dates landing as `NULL`, be
 50 of them drive the 90-day stale rule and nothing would visibly break.
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(({fn}) => [ \
-    fn.countAll().as('total'), \
-    fn.count('first_initiated_at').as('first_initiated'), \
-    fn.count('last_contact_at').as('last_contact'), \
-    fn.count('last_customer_response_at').as('last_response')]).executeTakeFirst(); \
-  console.log(r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(*) as total,
+  count(first_initiated_at) as first_initiated,
+  count(last_contact_at) as last_contact,
+  count(last_customer_response_at) as last_response
+  from public.leads"
 ```
 
 Expected: `total: 244, first_initiated: 244, last_contact: 244, last_response: 196`.
@@ -1899,15 +1989,13 @@ drifts silently as the boundary sweeps across all 56 affected rows.
 Row 125's `Last Customer Response Date` is `2026-05-24 16:01:21` in the sheet:
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  import {toSgDate} from './src/lib/leads/sg-date'; \
-  const r = await db.selectFrom('leads').select(['lead_ref','last_customer_response_at']) \
-    .where('source_ref','=','TG-5149888764').executeTakeFirst(); \
-  console.log(r?.lead_ref, toSgDate(new Date(r!.last_customer_response_at as Date))); \
-  await db.destroy();"
+npx tsx scripts/db-query.ts "select lead_ref,
+  last_customer_response_at,
+  (last_customer_response_at at time zone 'Asia/Singapore')::date as sg_date
+  from public.leads where source_ref = 'TG-5149888764'"
 ```
 
-Expected the Singapore date to read **2026-05-24**. If it reads `2026-05-25`, the
+Expected `sg_date` to read **2026-05-24**. If it reads `2026-05-25`, the
 `SG_OFFSET_MS` subtraction is missing and 56 leads will leave the queue a day late.
 
 Substitute the `source_ref` of whichever row you can identify at hour ≥ 16 — the point
@@ -2257,7 +2345,7 @@ describe("spreadsheet parity", () => {
 - [ ] **Step 6: Run it**
 
 Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
-Expected: PASS, 247 tests (244 rows + 3 suite-level assertions).
+Expected: PASS, 248 tests (244 rows + 4 suite-level assertions).
 
 If `resolveJsonModule` is not already enabled, add `"resolveJsonModule": true` to
 `compilerOptions` in `tsconfig.json`.
@@ -2555,7 +2643,7 @@ git commit -m "feat(calendar): build consultation event payloads"
 - Create: `src/lib/calendar/google.ts`
 - Modify: `.env.example`, `Dockerfile`
 
-**Manual prerequisite, done once by the user before this ships:** create a Google Cloud project, enable the Calendar API, create a service account, download its JSON key, then share the target calendar with the service account's email at "Make changes to events". Without that last step every call returns 404 — the calendar simply is not visible to the service account.
+**Manual prerequisite, done once by the user before this ships:** create a Google Cloud project, enable the Calendar API, set the OAuth consent screen to **Internal**, create a **Desktop app** OAuth client, then run `npm run calendar:consent` signed in as an account that can edit the target calendar. A service account was the original plan and is unavailable — the Cloud organisation enforces `iam.managed.disableServiceAccountKeyCreation`. Internal is load-bearing: External apps in Testing status issue refresh tokens that expire after seven days.
 
 - [ ] **Step 1: Add the dependency**
 
@@ -2563,7 +2651,7 @@ git commit -m "feat(calendar): build consultation event payloads"
 npm install google-auth-library
 ```
 
-`google-auth-library` alone is enough — it handles the JWT signing, and the three Calendar calls are plain `fetch`. Pulling in all of `googleapis` for three endpoints is ~50 MB of surface for no gain.
+`google-auth-library` alone is enough — it handles the OAuth token refresh, and the three Calendar calls are plain `fetch`. Pulling in all of `googleapis` for three endpoints is ~50 MB of surface for no gain.
 
 - [ ] **Step 2: Write the client**
 
@@ -2571,29 +2659,50 @@ npm install google-auth-library
 // src/lib/calendar/google.ts
 import "server-only";
 
-import { JWT } from "google-auth-library";
+import { OAuth2Client } from "google-auth-library";
 
 import type { CalendarEvent } from "./event";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
+export const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
 
-function client(): { jwt: JWT; calendarId: string } {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+// A stored refresh token, not a service-account key: the Cloud organisation
+// enforces iam.managed.disableServiceAccountKeyCreation, so no key can be
+// issued. The consent screen must be INTERNAL — External apps in Testing hand
+// out refresh tokens that expire after seven days. See the spec.
+type Client = { oauth: OAuth2Client; calendarId: string };
+
+let cached: { credentials: string; client: Client } | null = null;
+
+function client(): Client {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
 
-  if (!email || !key || !calendarId) {
+  if (!clientId || !clientSecret || !refreshToken || !calendarId) {
     throw new Error(
-      "Google Calendar is not configured (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_KEY, GOOGLE_CALENDAR_ID)",
+      "Google Calendar is not configured (GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN, GOOGLE_CALENDAR_ID)",
     );
   }
 
-  return {
-    // Railway env vars cannot hold real newlines, so the private key is stored
-    // with literal \n sequences and unescaped here.
-    jwt: new JWT({ email, key: key.replace(/\\n/g, "\n"), scopes: SCOPES }),
+  // Cache the client: google-auth-library holds the access token on the
+  // instance, so rebuilding it per call means a full token refresh before
+  // every create, patch and delete. Keyed on the credentials so an env change
+  // is picked up without a restart.
+  const credentials = JSON.stringify([
+    clientId,
+    clientSecret,
+    refreshToken,
     calendarId,
-  };
+  ]);
+  if (cached?.credentials === credentials) return cached.client;
+
+  const oauth = new OAuth2Client({ clientId, clientSecret });
+  oauth.setCredentials({ refresh_token: refreshToken });
+
+  const next: Client = { oauth, calendarId };
+  cached = { credentials, client: next };
+  return next;
 }
 
 async function call(
@@ -2601,8 +2710,8 @@ async function call(
   path: string,
   body?: unknown,
 ): Promise<Record<string, unknown>> {
-  const { jwt, calendarId } = client();
-  const { token } = await jwt.getAccessToken();
+  const { oauth, calendarId } = client();
+  const { token } = await oauth.getAccessToken();
 
   const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(
     calendarId,
@@ -2655,8 +2764,9 @@ export async function deleteEvent(eventId: string): Promise<void> {
 
 export function isCalendarConfigured(): boolean {
   return Boolean(
-    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
-      process.env.GOOGLE_SERVICE_ACCOUNT_KEY &&
+    process.env.GOOGLE_OAUTH_CLIENT_ID &&
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+      process.env.GOOGLE_OAUTH_REFRESH_TOKEN &&
       process.env.GOOGLE_CALENDAR_ID,
   );
 }
@@ -2667,12 +2777,13 @@ export function isCalendarConfigured(): boolean {
 Append to `.env.example`:
 
 ```bash
-# Google Calendar — shared company calendar, service-account auth.
-# The calendar must be shared with GOOGLE_SERVICE_ACCOUNT_EMAIL at
+# Google Calendar — shared company calendar, OAuth refresh-token auth.
+# The consenting account must be able to edit the calendar. Consent screen at
 # "Make changes to events", or every API call returns 404.
 GOOGLE_CALENDAR_ID=
-GOOGLE_SERVICE_ACCOUNT_EMAIL=
-GOOGLE_SERVICE_ACCOUNT_KEY=
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+GOOGLE_OAUTH_REFRESH_TOKEN=
 ```
 
 These are runtime-only (server-side), so unlike the `NEXT_PUBLIC_*` vars they need **no** Dockerfile build args — only Railway service variables. Confirm by checking that the Dockerfile's `ARG` lines are all `NEXT_PUBLIC_*`:
@@ -2684,7 +2795,7 @@ Run: `rg -n "^ARG" Dockerfile`
 ```bash
 npx tsc --noEmit
 git add src/lib/calendar/google.ts .env.example package.json package-lock.json
-git commit -m "feat(calendar): add Google Calendar service-account client"
+git commit -m "feat(calendar): add Google Calendar OAuth client"
 ```
 
 ---
@@ -2702,7 +2813,7 @@ The rule this file exists to enforce: **a Google outage costs a calendar entry, 
 // src/lib/calendar/sync.ts
 import "server-only";
 
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 
 import { buildConsultationEvent } from "./event";
 import { createEvent, deleteEvent, isCalendarConfigured, patchEvent } from "./google";
@@ -2872,7 +2983,7 @@ import { redirect } from "next/navigation";
 import { sql } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import { leadCreateSchema, leadUpdateSchema } from "@/lib/validation/lead";
 
 function nextLeadRef(): string {
@@ -3030,7 +3141,7 @@ import { revalidatePath } from "next/cache";
 
 import { syncAppointment, unsyncAppointment } from "@/lib/calendar/sync";
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import {
   appointmentCreateSchema,
   appointmentRescheduleSchema,
@@ -3412,7 +3523,7 @@ import Link from "next/link";
 
 import { LeadTable, type LeadRow } from "@/components/leads/lead-table";
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import { compareQueueRows, deriveLead } from "@/lib/leads/queue-engine";
 import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
 import { formatSgd } from "@/lib/money";
@@ -3777,7 +3888,7 @@ import { AppointmentCard } from "@/components/leads/appointment-card";
 import { BookAppointmentDialog } from "@/components/leads/book-appointment-dialog";
 import { LeadFieldsForm } from "@/components/leads/lead-fields-form";
 import { requireRole } from "@/lib/auth/require-role";
-import { db } from "@/lib/db";
+import { db } from "@/lib/db/kysely";
 import { deriveLead } from "@/lib/leads/queue-engine";
 import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
 
@@ -4559,12 +4670,15 @@ npm run lint
 npm run build
 ```
 
-Expected: all tests pass (the pre-phase baseline of 489 plus 315 new ones — 62 engine/date, 247 spreadsheet parity, 6 calendar), no lint errors, build succeeds.
+Expected: 827 tests pass — the pre-phase baseline of 489 plus 338 new ones: 248
+spreadsheet parity, 55 engine, 11 lead validation, 9 date, 6 calendar event,
+5 calendar timeout, and 4 added to `order.test.ts` for the appointment link.
+No lint errors, build succeeds.
 
 - [ ] **Step 2: Re-run the parity gate**
 
 Run: `npx vitest run src/lib/leads/spreadsheet-parity.test.ts`
-Expected: PASS, 247 tests.
+Expected: PASS, 248 tests.
 
 **This is the acceptance test for the port.** If it fails now but passed at Task 12,
 something in a later task changed the engine's behaviour.
@@ -4583,21 +4697,38 @@ With `npm run dev` running, confirm each of these by hand:
 3. Set a lead to `Qualified / Pre-Appointment` → **Book appointment** appears.
 4. Book one → the appointment card shows, the lead advances to *Appointment Booked*, and the event appears on the shared Google Calendar with no guests.
 5. **Unset `GOOGLE_CALENDAR_ID` and book another** → the appointment still saves, the card shows "Calendar sync failed", and **Retry** succeeds once the variable is restored. This is the one that matters most: a Google outage must never lose a booking.
+
+   That covers *misconfigured*, which fails instantly via `isCalendarConfigured()`.
+   A real outage is a **hang**, so test that too: point
+   `GOOGLE_OAUTH_CLIENT_ID` at a host that blackholes (or block
+   `www.googleapis.com` in `/etc/hosts`) and book. The booking must return
+   within ~10s onto the retry card — not hold the request open until the socket
+   dies. Both halves are bounded by `CALENDAR_TIMEOUT_MS`; the JWT is cached on
+   the credentials, so restoring the env var takes effect without a restart.
 6. Reschedule → the existing calendar event moves, no duplicate is created, **and the
    lead's action date follows it** — the queue must not still show the old date.
 7. **Start consultation** → `/orders/new` opens with the customer prefilled. Change the
    mobile on the form before saving: the order's `appointment_id` is set, `customer_id`
    matches the appointment's, no new customer row appears, **and the edited mobile is
    persisted** rather than silently discarded.
-8. **Book from a `Nurture` lead that already has a future `action_date`, then cancel.**
-   All three must come back: stage *Nurture*, the original outcome, and the original
-   date. It must derive *Nurture / Re-engage, Future / Nurture* with its due date intact
-   — not *Book Appointment, Contact in 2–3 Days*, and not *Schedule Date*.
+8. **Book a lead that already carries a future `action_date`, then cancel.** Set one to
+   `Qualified / Pre-Appointment` + outcome `Ready to Book Appointment`, and give it an
+   `action_date` well in the future (say three weeks). Book it — stage, outcome and date
+   are all overwritten — then cancel.
 
-   Each wrong result names its own bug: deriving *Book Appointment* means the outcome
-   was overwritten rather than restored, which makes the stage unreachable. Showing
-   *Schedule Date* means `action_date` was cleared rather than restored. 11 queue-visible
-   Nurture leads carry a date today, so this is live data, not a hypothetical.
+   All three must come back: the bookable stage, `Ready to Book Appointment`, and **the
+   original future date**, not the appointment's and not null.
+
+   Each wrong result names its own bug: a stage that moves but an action that doesn't
+   means the outcome was overwritten rather than restored, which makes the restored stage
+   unreachable — outcome branches sit above every stage branch. Showing *Schedule Date*
+   means `action_date` was cleared rather than restored.
+
+   Note this is **not** phrased as "book from a `Nurture` lead", because you cannot:
+   **Book appointment** is gated on the engine deriving `Book Appointment`, and `Nurture`
+   derives `Nurture / Re-engage`. The 11 queue-visible Nurture leads that carry a date
+   today reach a booking only after Alan moves them to a bookable stage — which does not
+   clear the date. That is the live data this step stands in for.
 9. Find a lead whose `latest_quote_note` is set (two exist after import) → lead detail
    shows the sheet's text beside an empty quote field. Type the real figure and save:
    the prompt disappears because it is gated on the *amount* being absent. Re-check the
@@ -4608,9 +4739,14 @@ With `npm run dev` running, confirm each of these by hand:
    having no status guard would otherwise resurrect a deleted event.
 11. Mark an appointment **no-show** → same rollback as cancel: stage and outcome both
     return to their pre-booking values.
-12. Search the booking dialog's customer picker for `81817358` → it matches a customer
-    stored as `+6581817358`. Mixed formats are the norm: 40 leads store bare 8-digit
-    numbers, 58 store `+65`-prefixed ones.
+12. Search the booking dialog's customer picker for a known customer's mobile **written in
+    the other format** — take one stored bare and search it as `+65 9123 4567`, spaces and
+    all. It must still match: the lookup reduces both sides to the last 8 digits.
+
+    Pick the number from `customers`, not from `leads`. Mixed formats are the norm on the
+    lead side — 40 bare 8-digit, 58 `+65`-prefixed — but the picker searches customers,
+    and a lead's number that has never been converted to a customer will correctly return
+    "no existing customer matched", which looks like a failure and isn't.
 13. Log in as `ops` → `Leads` is absent from the nav and `/leads` returns 404.
 
 - [ ] **Step 4: Confirm the spreadsheet is still untracked**
@@ -4646,9 +4782,7 @@ gone, nothing can be re-imported and nothing can be re-diffed.
 - [ ] **Step 1: Confirm the CRM holds everything the spreadsheet did**
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(db.fn.countAll().as('n')).executeTakeFirst(); \
-  console.log('leads in CRM:', r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(*) as n from public.leads"
 ```
 
 Expected: `244`. If it is **242**, the two nameless leads (rows 118 and 143) were
@@ -4658,11 +4792,8 @@ Check the dates survived too — 168 of them arrive as raw Excel serials, and a 
 `NULL` here disables the 90-day stale rule with nothing visibly broken:
 
 ```bash
-npx tsx -e "import {db} from './src/lib/db'; \
-  const r = await db.selectFrom('leads').select(({fn}) => [ \
-    fn.count('last_customer_response_at').as('with_response'), \
-    fn.countAll().as('total')]).executeTakeFirst(); \
-  console.log(r); await db.destroy();"
+npx tsx scripts/db-query.ts "select count(last_customer_response_at) as with_response,
+  count(*) as total from public.leads"
 ```
 
 Expected: `with_response: 196, total: 244`. 196 because 48 leads have genuinely never
@@ -4675,7 +4806,7 @@ mv "02 Leads Management & Appt.xlsx" /tmp/leads-backup.xlsx
 npx vitest run src/lib/leads/spreadsheet-parity.test.ts
 ```
 
-Expected: PASS, 247 tests, with the spreadsheet absent. This proves the fixture stands
+Expected: PASS, 248 tests, with the spreadsheet absent. This proves the fixture stands
 on its own.
 
 - [ ] **Step 3: Take a backup that lives outside the repo**
@@ -4688,13 +4819,28 @@ Move it somewhere durable and off this machine — a Drive folder, not the repo.
 `.gitignore` rule from Task 1 stays in place regardless: it costs nothing and it stops
 the next export from being committed by accident.
 
+**Then shred every other copy.** Task 12 left `/tmp/leads-baseline.xlsx`, byte-identical
+to the original and outside the repo, so nothing ignores it. Once the durable backup
+exists, remove both `/tmp` copies — leaving 244 names and 98 mobiles in a world-readable
+temp directory is the same exposure the `.gitignore` rule exists to prevent.
+
+```bash
+rm -f /tmp/leads-baseline.xlsx /tmp/leads-backup.xlsx
+```
+
+**One-way note:** the fixture cannot be regenerated after this point, because
+regenerating it needs the xlsx. From here the fixture is the artifact and
+`verify-lead-engine.ts` is documentation. The `excelOverride` on case 210 in particular
+can only ever be read, never re-derived — which is why it carries its own explanatory
+note inside the JSON.
+
 - [ ] **Step 4: Remove the one-off scripts**
 
 They read a file that no longer exists, so leaving them in place is a broken command
 someone runs in six months and mistrusts the codebase over.
 
 ```bash
-rm scripts/import-leads.ts scripts/verify-lead-engine.ts
+rm scripts/import-leads.ts scripts/verify-lead-engine.ts scripts/db-query.ts
 ```
 
 Remove the `leads:import` and `leads:verify` entries from `package.json` scripts, and

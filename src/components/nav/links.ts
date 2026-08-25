@@ -14,6 +14,14 @@ export type NavLink = {
 
 export const NAV_LINKS: NavLink[] = [
   {
+    // The front of the funnel. Everything else in this nav starts after a
+    // customer has already said yes.
+    href: "/leads",
+    label: "Leads",
+    roles: ["consultant", "admin"],
+    match: (p) => p.startsWith("/leads"),
+  },
+  {
     href: "/orders",
     label: "Orders",
     match: (p) =>

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { CostBreakdown } from "@/components/orders/cost-breakdown";
+import { useCollapseOnScroll } from "@/components/orders/consultation-form/use-collapse-on-scroll";
 import { useQuoteAutofill } from "@/components/orders/consultation-form/use-quote-autofill";
 import { formatSGD } from "@/lib/money";
 import {
@@ -87,6 +88,7 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
 
   // Same rule as the curtain panel, from the one shared owner.
   useQuoteAutofill(quote.discountedSaleSgdCents);
+  const breakdownRef = useCollapseOnScroll();
 
   const hasPriced = quote.saleSgdCents > 0;
   const floorBps =
@@ -169,11 +171,16 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
       )}
 
       {hasPriced && (
-        <details className="mt-2 border-t border-slate-100 pt-2">
+        <details
+          ref={breakdownRef}
+          className="mt-2 border-t border-slate-100 pt-2"
+        >
           <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 select-none">
             Cost breakdown
           </summary>
-          <div className="mt-2 max-w-sm text-xs">
+          {/* Capped and self-scrolling for the same reason as the curtain
+              panel — see the note there. */}
+          <div className="mt-2 max-w-sm overflow-y-auto overscroll-contain text-xs max-h-[45dvh]">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               China costs (RMB)
             </p>

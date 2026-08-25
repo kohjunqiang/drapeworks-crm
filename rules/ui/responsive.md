@@ -132,6 +132,17 @@ A quote/summary bar with several figures on one row fits a desk, not a 375px pho
 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4
 ```
 
+## A sticky panel must not become the screen
+
+Anything `sticky` that can expand — the live-quote cost breakdown — needs both:
+
+- a height cap so it can never fill the viewport (`max-h-[45dvh] overflow-y-auto overscroll-contain` on the expanding body; `overscroll-contain` stops that inner scroll chaining into the page), and
+- `useCollapseOnScroll` on the `<details>`, so it closes when the user scrolls on.
+
+A sticky panel does not scroll away, so an open breakdown on a four-room order was 560px on a 549px viewport: every measurement field behind it, and no amount of scrolling revealed one. Expanding it is a glance, not a mode.
+
+Don't apply the collapse to non-sticky breakdowns (e.g. the order-detail `QuoteCard`) — those scroll away on their own and closing them would just be rude.
+
 ## Dialogs must cap their height in `dvh`
 
 `DialogContent` carries `max-h-[calc(100dvh-2rem)] overflow-y-auto`. Without it a dialog taller than the viewport is clipped at *both* ends with nothing to scroll — and the viewport halves the moment a text field opens the on-screen keyboard, which is exactly when a form dialog is in use. Use `dvh`, never `vh`: `vh` ignores the keyboard.

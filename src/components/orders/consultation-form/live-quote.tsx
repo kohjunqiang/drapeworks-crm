@@ -19,6 +19,7 @@ import {
 import type { CalcConfig } from "@/lib/pricing/order-quote";
 import type { OrderEditInput } from "@/lib/validation/order";
 
+import { useCollapseOnScroll } from "./use-collapse-on-scroll";
 import { useQuoteAutofill } from "./use-quote-autofill";
 
 import type { CurtainTypeOption } from "./window-fields";
@@ -162,6 +163,7 @@ export function LiveQuote({
 
   // Shared with the mesh quote panel — one owner of the 50% deposit rule.
   useQuoteAutofill(quote.discountedSaleSgdCents);
+  const breakdownRef = useCollapseOnScroll();
 
   return (
     <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">
@@ -217,11 +219,19 @@ export function LiveQuote({
       )}
 
       {hasMeasurements && (
-        <details className="mt-2 border-t border-slate-100 pt-2">
+        <details
+          ref={breakdownRef}
+          className="mt-2 border-t border-slate-100 pt-2"
+        >
           <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 select-none">
             Cost breakdown
           </summary>
-          <div className="mt-2 max-w-sm text-xs">
+          {/* Capped so a long order can't turn the sticky panel into the whole
+              screen — a four-room breakdown is taller than an iPhone SE. Past
+              the cap the list scrolls inside itself, and overscroll-contain
+              keeps that scroll from chaining into the page (which would
+              collapse the panel via useCollapseOnScroll mid-read). */}
+          <div className="mt-2 max-w-sm overflow-y-auto overscroll-contain text-xs max-h-[45dvh]">
             {/* China-side costs, in RMB → converted once. */}
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               China costs (RMB)

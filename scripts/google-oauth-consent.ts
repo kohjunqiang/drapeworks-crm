@@ -13,6 +13,7 @@
  * only sensible destination differs per environment (.env locally, Railway
  * service variables in production).
  */
+import "dotenv/config";
 import { createServer } from "node:http";
 
 import { OAuth2Client } from "google-auth-library";

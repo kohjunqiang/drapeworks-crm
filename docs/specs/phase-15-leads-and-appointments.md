@@ -1,7 +1,33 @@
 # Phase 15 — Leads, Daily Queue & Appointments
 
-**Status:** Specified, not implemented
-**Supersedes:** `02 Leads Management & Appt.xlsx` (244 leads, hand-maintained)
+**Status:** Implemented 2026-08-25
+**Supersedes:** `02 Leads Management & Appt.xlsx` (244 leads, hand-maintained) — still on
+disk and still untracked. Task 26 retires it, and is deliberately **not** done yet; see
+the open items below.
+
+**Verified end-to-end:** the queue and its counts against the engine at today's date, the
+outcome-overrides-stage cascade, the booking CTA, booking → Google event (correct shape,
+no guests), Retry after a failed sync, reschedule (event patched not duplicated, action
+date follows), cancel (all three lead fields restored, event deleted), the quote-note
+prompt, mobile matching across `+65`/bare formats, and `/orders/new` prefill carrying
+`appointment_id` with an edited mobile persisted.
+
+**Open, and why:**
+
+- **No-show rollback** (Task 25 item 11) not exercised end-to-end. It shares one
+  `cancelled || no_show` restore branch with cancel, which passed, so the risk is the
+  button wiring rather than the logic.
+- **`ops` is locked out of leads** (item 13) — asserted by `requireRole` and `linksForRole`
+  but never run, because no `ops` profile exists to log in as.
+- **The hang drill** — that a Google which hangs rather than errors lands on the retry
+  card inside ~10s. The timeout and budget logic is unit-tested; the end-to-end proof
+  needs network interference and has not been run.
+- **Task 26** is gated on Task 25 passing in full, and is one-way. The parity fixture is
+  committed and passes without the spreadsheet, so nothing depends on the file any more —
+  but it stays until the three items above are closed.
+- **Deployment:** `GOOGLE_CALENDAR_ID` currently points at a primary calendar (an email
+  address), so bookings land in one person's own calendar rather than a shared one, and
+  events show the consenting account as organiser. One env var to change, no code.
 
 ## Why
 

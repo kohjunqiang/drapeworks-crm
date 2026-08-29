@@ -103,8 +103,13 @@ export async function quickEditLead(input: unknown): Promise<void> {
   const p = leadQuickEditSchema.parse(input);
   await db.updateTable("leads").set({
     owner_id: p.owner_id, assigned_consultant_id: p.owner_id,
-    next_action_date: p.next_action_date ?? null,
-    action_detail: p.action_detail ?? null, updated_at: new Date(),
+    name: p.name, funnel_stage: p.funnel_stage,
+    ...(p.funnel_stage === "Lost" || p.funnel_stage === "Not Qualified" ? { closure_reason: p.closure_reason } : {}),
+    next_action_date: p.next_action_date ?? null, move_in_date: p.move_in_date ?? null,
+    latest_quote_cents: p.latest_quote_sgd === null ? null : Math.round(p.latest_quote_sgd * 100),
+    action_detail: p.action_detail ?? null, mobile: p.mobile ?? null,
+    development: p.development ?? null, contact_channel: p.contact_channel,
+    source: p.source, primary_product: p.primary_product, updated_at: new Date(),
   }).where("id", "=", p.id).executeTakeFirstOrThrow();
   revalidateLead(p.id);
 }

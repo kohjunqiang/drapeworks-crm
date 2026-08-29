@@ -8,7 +8,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { deriveRecommendations } from "@/lib/leads/funnel-engine";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
-import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, logUpdateSchema, recommendationSchema } from "@/lib/validation/lead";
+import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, leadQuickEditSchema, logUpdateSchema, recommendationSchema } from "@/lib/validation/lead";
 
 const nextLeadRef = () => `MN-${Date.now()}-${randomBytes(3).toString("hex")}`;
 const revalidateLead = (id: string) => {
@@ -83,19 +83,30 @@ export async function logLeadUpdate(input: unknown): Promise<void> {
 export async function editLeadDetails(input: unknown): Promise<void> {
   await requireRole(["consultant", "admin"]);
   const p = leadDetailsSchema.parse(input);
-  const { id, expected_updated_at, ...fields } = p;
+  const { id, expected_updated_at, owner_id, ...fields } = p;
   const before = await db.selectFrom("leads").select("move_in_date")
     .where("id", "=", id).executeTakeFirstOrThrow();
   const oldMoveIn = before.move_in_date ? String(before.move_in_date).slice(0, 10) : null;
   const moveInChanged = fields.move_in_date !== undefined && fields.move_in_date !== oldMoveIn;
   const row = await db.updateTable("leads").set({
-    ...fields,
+    ...fields, owner_id, assigned_consultant_id: owner_id,
     ...(moveInChanged ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
     updated_at: new Date(),
   }).where("id", "=", id).where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${expected_updated_at}`)
     .returning("id").executeTakeFirst();
   if (!row) throw new Error("This lead changed since you opened it. Reload and try again.");
   revalidateLead(id);
+}
+
+export async function quickEditLead(input: unknown): Promise<void> {
+  await requireRole(["consultant", "admin"]);
+  const p = leadQuickEditSchema.parse(input);
+  await db.updateTable("leads").set({
+    owner_id: p.owner_id, assigned_consultant_id: p.owner_id,
+    next_action_date: p.next_action_date ?? null,
+    action_detail: p.action_detail ?? null, updated_at: new Date(),
+  }).where("id", "=", p.id).executeTakeFirstOrThrow();
+  revalidateLead(p.id);
 }
 
 export async function acceptRecommendation(input: unknown): Promise<void> {

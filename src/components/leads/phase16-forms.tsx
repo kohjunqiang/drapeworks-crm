@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useTransition, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { acceptRecommendation, archiveLead, createLead, dismissRecommendation, editLeadDetails, logLeadUpdate } from "@/lib/actions/leads";
+import { acceptRecommendation, archiveLead, createLead, dismissRecommendation, editLeadDetails, logLeadUpdate, quickEditLead } from "@/lib/actions/leads";
 import { CLOSURE_REASONS, CONTACT_CHANNELS, FUNNEL_STAGES, INTERACTION_TYPES, LEAD_DIRECTIONS, LEAD_OUTCOMES, LEAD_SOURCES, PRIMARY_PRODUCTS, type FunnelStage, type Recommendation } from "@/lib/leads/funnel-types";
 
 const controlClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100";
@@ -15,10 +16,16 @@ const Select = ({ name, defaultValue, children, required = false }: { name: stri
 const Field = ({ label, hint, children, className = "" }: { label: string; hint?: string; children: ReactNode; className?: string }) => <label className={`block min-w-0 ${className}`}><span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>{children}{hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}</label>;
 const options = (values: readonly string[]) => <>{values.map(value => <option key={value} value={value}>{value}</option>)}</>;
 
-function useSubmit(action: (value: Record<string, FormDataEntryValue>) => Promise<unknown>) {
+function useSubmit(action: (value: Record<string, FormDataEntryValue>) => Promise<unknown>, onSuccess?: () => void) {
   const [pending, start] = useTransition();
   const router = useRouter();
-  return { pending, submit: (form: HTMLFormElement) => start(async () => { try { await action(Object.fromEntries(new FormData(form))); toast.success("Saved"); router.refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : "Save failed"); } }) };
+  return { pending, submit: (form: HTMLFormElement) => start(async () => { try { await action(Object.fromEntries(new FormData(form))); toast.success("Saved"); onSuccess?.(); router.refresh(); } catch (error) { toast.error(error instanceof Error ? error.message : "Save failed"); } }) };
+}
+
+export function QuickEditLead({ lead, consultants }: { lead: { id: string; name: string; funnel_stage: FunnelStage; next_action_date_text: string | null; action_detail: string | null; assigned_consultant_id: string | null; owner_id: string | null }; consultants: { id: string; full_name: string | null }[] }) {
+  const [open, setOpen] = useState(false);
+  const state = useSubmit(quickEditLead, () => setOpen(false));
+  return <><button type="button" onClick={() => setOpen(true)} className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">Quick edit</button>{open && <div role="dialog" aria-modal="true" aria-label={`Quick edit ${lead.name}`} className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-3 sm:items-center" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}><form onSubmit={event => { event.preventDefault(); state.submit(event.currentTarget); }} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-5 text-left shadow-xl"><input type="hidden" name="id" value={lead.id}/><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-slate-900">Quick edit</h2><p className="mt-0.5 text-sm text-slate-500">{lead.name}</p></div><button type="button" onClick={() => setOpen(false)} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100" aria-label="Close quick edit">×</button></div><div className="grid gap-4 sm:grid-cols-2"><Field label="Owner"><Select name="owner_id" required defaultValue={lead.assigned_consultant_id ?? lead.owner_id ?? ""}><option value="">Select owner</option>{consultants.map(person => <option key={person.id} value={person.id}>{person.full_name ?? "Unnamed"}</option>)}</Select></Field><Field label="Next action date"><Input name="next_action_date" type="date" defaultValue={lead.next_action_date_text ?? ""}/></Field><Field label="Next action" className="sm:col-span-2"><Input name="action_detail" defaultValue={lead.action_detail ?? ""} placeholder="What happens next?"/></Field></div><div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between"><Link href={`/leads/${lead.id}/edit`} className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50">Advanced edit</Link><div className="flex gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={state.pending}>{state.pending ? "Saving…" : "Save"}</Button></div></div></form></div>}</>;
 }
 
 export function NewLeadForm() {
@@ -84,7 +91,7 @@ export function DetailsForm({ lead, consultants }: { lead: any; consultants: { i
       <Field label="Lead source"><Select name="source" defaultValue={lead.source}><option value="">Unknown source</option>{options(LEAD_SOURCES)}</Select></Field>
       <Field label="Direction"><Select name="inbound_outbound" defaultValue={lead.inbound_outbound}><option value="">Unknown direction</option>{options(LEAD_DIRECTIONS)}</Select></Field>
       <Field label="Primary product"><Select name="primary_product" defaultValue={lead.primary_product}><option value="">Unknown product</option>{options(PRIMARY_PRODUCTS)}</Select></Field>
-      <Field label="Assigned consultant"><Select name="assigned_consultant_id" defaultValue={lead.assigned_consultant_id}><option value="">Unassigned</option>{consultants.map(consultant => <option key={consultant.id} value={consultant.id}>{consultant.full_name ?? "Unnamed"}</option>)}</Select></Field>
+      <Field label="Owner" hint="Required so this lead always appears in someone's work queue."><Select name="owner_id" required defaultValue={lead.assigned_consultant_id ?? lead.owner_id ?? ""}><option value="">Select owner</option>{consultants.map(consultant => <option key={consultant.id} value={consultant.id}>{consultant.full_name ?? "Unnamed"}</option>)}</Select></Field>
       <Field label="Move-in date"><Input name="move_in_date" type="date" defaultValue={lead.move_in_date_text ?? ""}/></Field>
       <Field label="Keys"><Select name="keys_collected" defaultValue={lead.keys_collected === null ? "" : String(lead.keys_collected)}><option value="">Unknown</option><option value="true">Collected</option><option value="false">Not collected</option></Select></Field>
       <Field label="Closure reason" className="sm:col-span-2"><Select name="closure_reason" defaultValue={lead.closure_reason}><option value="">No closure reason</option>{options(CLOSURE_REASONS)}</Select></Field>

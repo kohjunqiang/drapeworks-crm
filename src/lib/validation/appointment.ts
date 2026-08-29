@@ -18,6 +18,7 @@ const customerRef = z.discriminatedUnion("mode", [
 
 export const appointmentCreateSchema = z.object({
   lead_id: z.string().uuid(),
+  consultant_id: z.string().uuid("Select a consultant"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
   time: z.string().regex(/^\d{2}:\d{2}$/, "Use HH:MM"),
   duration_mins: z.coerce.number().int().min(15).max(480).default(90),

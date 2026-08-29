@@ -57,15 +57,15 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
-export type LeadFunnelStage = "Appointment Booked" | "Decision Pending" | "Lost" | "New Lead" | "Not Qualified" | "Nurture" | "Post-Appointment / Quote Pending" | "Qualified / Pre-Appointment" | "Quote Sent" | "Won";
-
-export type LeadInitiator = "Customer" | "Us";
-
-export type LeadOutcome = "Appointment Booked" | "Appointment Completed" | "Appointment Confirmed" | "Barrier / Objection Raised" | "Customer Declined" | "Customer Needs Time" | "Customer Replied" | "Follow-Up Sent" | "No Response" | "Order Confirmed" | "Quote Requested" | "Quote Sent" | "Ready to Book Appointment" | "Renovation Delayed";
-
-export type LeadSource = "manual" | "telegram" | "whatsapp";
-
-export type LeadStatus = "Active" | "Ignore" | "Lost" | "Nurture" | "Unresponsive" | "Won";
+export type LeadFunnelStage = "Qualify Lead" | "Nurture Lead – Long Term" | "Activate Lead – Short Term" | "Book Appointment" | "Attend Appointment" | "Send Quotation" | "Collect Deposit" | "Decision Pending" | "Won" | "Lost" | "Not Qualified";
+export type LeadOutcome = "Customer Replied" | "Awaiting Customer" | "No Response" | "Pre-Appointment Barrier" | "Appointment Booked" | "Quotation Sent" | "Post-Appointment Barrier" | "Customer Declined" | "Customer Confirmed";
+export type LeadStatus = "Active" | "Unresponsive" | "Closed – Won" | "Closed – Lost" | "Closed – Not Qualified";
+export type LeadContactChannel = "Telegram" | "WhatsApp" | "Other";
+export type LeadSource = "Telegram Group Buy" | "SEM" | "Organic" | "Carousell" | "Referral" | "Existing Customer" | "Other";
+export type LeadDirection = "Inbound" | "Outbound";
+export type LeadPrimaryProduct = "Curtains / Blinds" | "Mesh" | "Both";
+export type LeadClosureReason = "Competitor" | "Price / Budget" | "Ghosted" | "Small Order / Low Value" | "Product Mismatch" | "Timing / No Longer Needed" | "Communication / Poor Fit" | "Outside Scope" | "Other";
+export type InteractionType = "Customer Message" | "Reply" | "Follow-Up" | "Appointment" | "Quote" | "Payment" | "Note";
 
 export type MeshDrawDirection = "Double" | "Single Bottom" | "Single Left" | "Single Right" | "Single Top";
 
@@ -555,36 +555,48 @@ export interface ExtensionsPgStatStatementsInfo {
 }
 
 export interface Leads {
-  action_date: Timestamp | null;
-  action_detail_override: string | null;
-  buying_readiness: string | null;
+  action_detail: string | null;
+  assigned_consultant_id: string | null;
+  closure_reason: LeadClosureReason | null;
+  contact_channel: LeadContactChannel;
   created_at: Generated<Timestamp>;
   customer_id: string | null;
   development: string | null;
-  expected_key_date: string | null;
   first_initiated_at: Timestamp | null;
   funnel_stage: Generated<LeadFunnelStage>;
   historical_summary: string | null;
   id: Generated<string>;
-  initiator: LeadInitiator | null;
+  inbound_outbound: LeadDirection | null;
   interaction_summary: string | null;
   is_archived: Generated<boolean>;
-  keys_status: string | null;
+  keys_collected: boolean | null;
   last_contact_at: Timestamp | null;
   last_customer_response_at: Timestamp | null;
   last_outcome: LeadOutcome | null;
+  last_message_by: LeadDirection | null;
   latest_quote_cents: number | null;
   latest_quote_note: string | null;
   lead_ref: string;
   lead_status: Generated<LeadStatus>;
   mobile: string | null;
+  move_in_date: Timestamp | null;
   name: string;
+  next_action_date: Timestamp | null;
   owner_id: string | null;
-  source: LeadSource;
+  primary_product: LeadPrimaryProduct | null;
+  quotation_breakdown: string | null;
+  quotation_sent_at: Timestamp | null;
+  quote_valid_days: Generated<number>;
+  dismissed_recommendations: Generated<string[]>;
+  source: LeadSource | null;
   source_ref: string | null;
   telegram_chat_id: string | null;
   updated_at: Generated<Timestamp>;
+  unanswered_followups: Generated<number>;
 }
+
+export interface LeadInteractions { id: Generated<string>; lead_id: string; occurred_at: Timestamp; direction: LeadDirection | null; interaction_type: InteractionType; note: string | null; channel: LeadContactChannel | null; created_by: string | null; created_at: Generated<Timestamp>; }
+export interface LeadStageEvents { id: Generated<string>; lead_id: string; from_stage: LeadFunnelStage | null; to_stage: LeadFunnelStage; changed_at: Timestamp; changed_by: string | null; source: string; created_at: Generated<Timestamp>; }
 
 export interface ManufactureAllowances {
   height_delta_cm: number | null;
@@ -837,6 +849,7 @@ export interface Profiles {
   full_name: string | null;
   id: string;
   is_active: Generated<boolean>;
+  is_presales_owner: Generated<boolean>;
   role: Generated<UserRole>;
   updated_at: Generated<Timestamp>;
 }
@@ -1098,6 +1111,8 @@ export interface DB {
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
   leads: Leads;
+  lead_interactions: LeadInteractions;
+  lead_stage_events: LeadStageEvents;
   manufacture_allowances: ManufactureAllowances;
   manufacture_measurements: ManufactureMeasurements;
   manufacture_pos: ManufacturePos;

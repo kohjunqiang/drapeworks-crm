@@ -1,173 +1,31 @@
 import Link from "next/link";
 import { sql } from "kysely";
-
-import { LeadTable, type LeadRow } from "@/components/leads/lead-table";
-import { Input } from "@/components/ui/input";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
-import { compareQueueRows, deriveLead } from "@/lib/leads/queue-engine";
-import { todayInSingapore, toSgDate } from "@/lib/leads/sg-date";
-import { formatSGD } from "@/lib/money";
+import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_SOURCES, LEAD_STATUSES, PRIMARY_PRODUCTS } from "@/lib/leads/funnel-types";
 
 export const dynamic = "force-dynamic";
-
 export const metadata = { title: "Leads — Drapeworks CRM" };
 
-type SearchParams = { tab?: string; q?: string };
-
-export default async function LeadsPage({
-  searchParams,
-}: {
-  searchParams: Promise<SearchParams>;
-}) {
+export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireRole(["consultant", "admin"]);
-  const { tab: tabRaw, q: qRaw } = await searchParams;
-  const tab = tabRaw === "all" ? "all" : "queue";
-  const q = (qRaw ?? "").trim();
-  const today = todayInSingapore();
-
-  let query = db
-    .selectFrom("leads")
-    .select([
-      "id",
-      "lead_ref",
-      "name",
-      "mobile",
-      "development",
-      "funnel_stage",
-      "lead_status",
-      "last_outcome",
-      "action_detail_override",
-      "last_customer_response_at",
-      "latest_quote_cents",
-      // action_date is a `date` column, and node-pg hands those back as JS Date
-      // objects at LOCAL midnight. Reading the calendar date off one of those
-      // is a timezone bug waiting for the first deploy outside Singapore, and
-      // `String(date).slice(0, 10)` yields "Fri Aug 14" — which then sorts and
-      // compares as a string against "2026-08-22" and silently ruins every
-      // due-status and priority band. Casting in Postgres is exact.
-      sql<string | null>`leads.action_date::text`.as("action_date"),
-    ])
+  const p = await searchParams;
+  let q = db.selectFrom("leads")
+    .leftJoin("profiles as consultant", "consultant.id", "leads.assigned_consultant_id")
+    .select(["leads.id", "lead_ref", "name", "mobile", "funnel_stage", "lead_status", "last_outcome", "contact_channel", "source", "primary_product", "latest_quote_cents", "consultant.full_name as consultant_name", sql<string | null>`next_action_date::text`.as("next_action_date_text")])
     .where("is_archived", "=", false);
-
-  if (q.length >= 2) {
-    const like = `%${q.replace(/[%_]/g, "")}%`;
-    query = query.where((eb) =>
-      eb.or([
-        eb("name", "ilike", like),
-        eb("mobile", "ilike", like),
-        eb("development", "ilike", like),
-        eb("lead_ref", "ilike", like),
-      ]),
-    );
-  }
-
-  const leads = await query.execute();
-
-  // Derived at read time: every rule depends on today's date, so a stored copy
-  // would be stale the moment the clock rolls over.
-  const rows: LeadRow[] = leads.map((lead) => ({
-    id: lead.id,
-    lead_ref: lead.lead_ref,
-    name: lead.name,
-    mobile: lead.mobile,
-    development: lead.development,
-    latest_quote_cents: lead.latest_quote_cents,
-    derived: deriveLead(
-      {
-        funnel_stage: lead.funnel_stage,
-        lead_status: lead.lead_status,
-        last_outcome: lead.last_outcome,
-        action_detail_override: lead.action_detail_override,
-        action_date: lead.action_date,
-        last_customer_response_at: lead.last_customer_response_at
-          ? toSgDate(new Date(lead.last_customer_response_at))
-          : null,
-      },
-      today,
-    ),
-  }));
-
-  const inQueue = rows.filter((r) => r.derived.queueVisibility === "Include");
-  const visible = [...(tab === "all" ? rows : inQueue)].sort(compareQueueRows);
-
-  const queueCount = inQueue.length;
-  const todayCount = inQueue.filter((r) => r.derived.priorityRank === 1).length;
-
-  // The one aggregate Alan reads every morning. This figure will NOT match the
-  // spreadsheet, and that is the intended behaviour: the sheet's formula is
-  // =SUM(K8:K39), a 32-row range over a 40-row queue that was sized when the
-  // queue was shorter and never grown. It shows 16,476 where the true total is
-  // 20,106 — a 3,630 undercount. The fourth spreadsheet bug, and the only one
-  // fixed rather than carried, because unlike the other three nothing depends
-  // on reproducing it. See the spec's "bugs carried knowingly" section.
-  const pipelineCents = inQueue.reduce(
-    (sum, r) => sum + (r.latest_quote_cents ?? 0),
-    0,
-  );
-
-  const tabs = [
-    { key: "queue", label: `Daily Queue (${queueCount})` },
-    { key: "all", label: `All Leads (${rows.length})` },
-  ];
-
-  return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Leads</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {queueCount} in the queue · {todayCount} to contact today ·{" "}
-            {formatSGD(pipelineCents)} pipeline
-          </p>
-        </div>
-        <Link
-          href="/leads/new"
-          className="inline-flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm"
-        >
-          <span>+</span> New Lead
-        </Link>
-      </div>
-
-      <nav className="flex gap-1 border-b border-slate-200 mb-4">
-        {tabs.map((t) => (
-          <Link
-            key={t.key}
-            // The search survives a tab switch — losing it on every click is
-            // how you end up searching twice for the same person.
-            href={q ? `/leads?tab=${t.key}&q=${encodeURIComponent(q)}` : `/leads?tab=${t.key}`}
-            className={
-              tab === t.key
-                ? "px-4 py-2 text-sm border-b-2 border-teal-600 font-medium text-teal-700"
-                : "px-4 py-2 text-sm text-slate-500 hover:text-slate-700"
-            }
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
-
-      {/* A plain GET form, so the list stays a server component with no client
-          JavaScript at all. */}
-      <form
-        action="/leads"
-        className="bg-white rounded-lg border border-slate-200 mb-4 p-3"
-      >
-        <input type="hidden" name="tab" value={tab} />
-        <label htmlFor="q" className="sr-only">
-          Search leads
-        </label>
-        <Input
-          id="q"
-          name="q"
-          type="search"
-          defaultValue={q}
-          placeholder="Search name, mobile, development or lead ref"
-          className="h-9 border-slate-200 sm:max-w-sm"
-        />
-      </form>
-
-      <LeadTable rows={visible} />
-    </main>
-  );
+  if (p.q && p.q.length >= 2) q = q.where(eb => eb.or([eb("name", "ilike", `%${p.q}%`), eb("mobile", "ilike", `%${p.q}%`), eb("development", "ilike", `%${p.q}%`), eb("lead_ref", "ilike", `%${p.q}%`)]));
+  if (FUNNEL_STAGES.includes(p.stage as never)) q = q.where("funnel_stage", "=", p.stage as never);
+  if (LEAD_STATUSES.includes(p.status as never)) q = q.where("lead_status", "=", p.status as never);
+  if (CONTACT_CHANNELS.includes(p.channel as never)) q = q.where("contact_channel", "=", p.channel as never);
+  if (LEAD_SOURCES.includes(p.source as never)) q = q.where("source", "=", p.source as never);
+  if (PRIMARY_PRODUCTS.includes(p.product as never)) q = q.where("primary_product", "=", p.product as never);
+  if (p.needs_review === "1") q = q.where("move_in_date", "is", null).where(sql<boolean>`exists(select 1 from lead_legacy_import x where x.lead_id=leads.id and x.buying_readiness is not null)`);
+  const rows = await q.orderBy("name").execute();
+  const select = (name: string, label: string, values: readonly string[]) => <select name={name} defaultValue={p[name] ?? ""} className="h-9 rounded border px-2 text-sm"><option value="">{label}</option>{values.map(value => <option key={value}>{value}</option>)}</select>;
+  return <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div className="flex justify-between mb-5"><div><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">{rows.length} records</p></div><Link className="bg-teal-600 text-white rounded px-4 py-2" href="/leads/new">New Lead</Link></div>
+    <form className="bg-white border rounded-lg p-3 flex flex-col lg:flex-row gap-2 mb-4"><input name="q" defaultValue={p.q} placeholder="Search leads" className="h-9 rounded border px-3 flex-1"/>{select("stage", "All stages", FUNNEL_STAGES)}{select("status", "All statuses", LEAD_STATUSES)}{select("channel", "All channels", CONTACT_CHANNELS)}{select("source", "All sources", LEAD_SOURCES)}{select("product", "All products", PRIMARY_PRODUCTS)}<label className="h-9 flex items-center gap-2 px-2 text-sm whitespace-nowrap"><input type="checkbox" name="needs_review" value="1" defaultChecked={p.needs_review === "1"}/>Needs review</label><button className="h-9 px-3 rounded bg-slate-900 text-white">Filter</button></form>
+    <div className="overflow-x-auto bg-white border rounded-lg"><table className="w-full text-sm min-w-[900px]"><thead><tr className="text-left border-b">{["Customer", "Stage", "Status", "Outcome", "Owner", "Channel", "Source", "Next action", "Quote"].map(label => <th className="p-3" key={label}>{label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id} className="border-b"><td className="p-3"><Link className="font-medium text-teal-700" href={`/leads/${row.id}`}>{row.name}</Link><div className="text-xs text-slate-500">{row.lead_ref}</div></td><td className="p-3">{row.funnel_stage}</td><td className="p-3">{row.lead_status}</td><td className="p-3">{row.last_outcome ?? "—"}</td><td className="p-3">{row.consultant_name ?? "Pre-sales"}</td><td className="p-3">{row.contact_channel}</td><td className="p-3">{row.source ?? "—"}</td><td className="p-3">{row.next_action_date_text ?? "—"}</td><td className="p-3">{row.latest_quote_cents ? `$${(row.latest_quote_cents / 100).toFixed(2)}` : "—"}</td></tr>)}</tbody></table></div>
+  </main>;
 }

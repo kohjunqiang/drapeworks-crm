@@ -28,11 +28,13 @@ export function BookAppointmentDialog({
   leadName,
   leadMobile,
   development,
+  consultants,
 }: {
   leadId: string;
   leadName: string;
   leadMobile: string | null;
   development: string | null;
+  consultants: { id: string; full_name: string | null }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -59,6 +61,7 @@ export function BookAppointmentDialog({
       try {
         await bookAppointment({
           lead_id: leadId,
+          consultant_id: formData.get("consultant_id"),
           date: formData.get("date"),
           time: formData.get("time"),
           duration_mins: opt("duration_mins"),
@@ -97,6 +100,13 @@ export function BookAppointmentDialog({
         </DialogHeader>
 
         <form onSubmit={onSubmit} className="space-y-3">
+          <div>
+            <Label htmlFor="consultant_id" className={LABEL}>Assigned consultant</Label>
+            <select id="consultant_id" name="consultant_id" required className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm">
+              <option value="">Select consultant</option>
+              {consultants.map((consultant) => <option key={consultant.id} value={consultant.id}>{consultant.full_name ?? "Unnamed consultant"}</option>)}
+            </select>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <Label htmlFor="date" className={LABEL}>

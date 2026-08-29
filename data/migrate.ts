@@ -21,7 +21,13 @@ async function main() {
 
   const db = new Kysely<unknown>({
     dialect: new PostgresDialect({
-      pool: new Pool({ connectionString, max: 1, ssl: { rejectUnauthorized: false } }),
+      pool: new Pool({
+        connectionString,
+        max: 1,
+        ssl: /^postgres(?:ql)?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString)
+          ? false
+          : { rejectUnauthorized: false },
+      }),
     }),
   });
 

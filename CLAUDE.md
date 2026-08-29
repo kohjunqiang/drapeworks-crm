@@ -54,7 +54,7 @@ src/
     actions/       # 'use server' modules, one per feature
     validation/    # Zod schemas, shared client+server
     db/            # Kysely instance + generated schema.ts (kysely-codegen output)
-    leads/         # queue-engine.ts (the ported funnel engine), sg-date.ts, types.ts
+    leads/         # Phase 16 funnel engine, migration mapping, SG date utilities
     calendar/      # Google Calendar: google.ts (OAuth client), sync.ts, event.ts,
                    # retry.ts + timeout.ts (bounded, backed off)
     status-flow.ts, money.ts, format.ts
@@ -66,8 +66,8 @@ data/              # Kysely migrations live here (not in /supabase)
 
 scripts/           # one-off operator tools, never imported by the app
   db-query.ts             # throwaway query runner
-  import-leads.ts         # one-shot spreadsheet import (not idempotent)
-  verify-lead-engine.ts   # diffs the engine against the spreadsheet
+  verify-derivations.ts   # reconciles trigger-maintained lead state
+  verify-phase16-migrations.ts # rollback-only migration verifier
   google-oauth-consent.ts # mints the Calendar refresh token
 
 docs/
@@ -91,7 +91,7 @@ These come up constantly. Full detail in `rules/` (see `rules/README.md` for the
 - **Don't offer what can't be quoted.** A product with no sale price is hidden from the consultation form, not shown at S$0. Mesh and blinds both gate this way. (`rules/code/forms.md`)
 - **Mirror the prototype exactly for UX.** Same classes, same breakpoints, same colours. Only diverge with explicit reason. (`rules/ui/design-tokens.md`, `rules/ui/responsive.md`)
 - **After every migration, regenerate types** with `npm run db:codegen` (writes `src/lib/db/schema.ts`).
-- **The lead queue is derived at read time, never stored.** Every rule in `queue-engine.ts` depends on today's date, so a stored copy is stale the moment the clock rolls over. The engine is a verbatim port of Alan's spreadsheet — including three bugs kept on purpose so the two can be diffed. Change a branch and `spreadsheet-parity.test.ts` (248 tests) will tell you.
+- **The lead queue is derived at read time, never stored.** Phase 16 stores only trigger-maintained `lead_status` and `unanswered_followups`; action, due status, readiness, recommendations and ownership are derived by `funnel-engine.ts`. Migrations preserve the original imported values in `lead_legacy_import`.
 - **`select` a `date` column as `::text`.** node-postgres hands `date` back as a JS `Date` at *local* midnight. The engine compares `YYYY-MM-DD` strings, and a `Date` silently ruins every due-status and priority band. See the cast in `src/app/(app)/leads/page.tsx`.
 - **Calendar sync is a side effect, never a gate.** The appointment commits first; a Google outage costs a calendar entry, not a booking. Every call is bounded by a timeout and a total budget, and failures surface as a retry the consultant can press. Never make a booking `await` its way into failure.
 - **The leads spreadsheet is PII and must never be committed.** 244 real names, 98 mobiles. `*.xlsx` is gitignored; import via `scripts/`, never a migration.

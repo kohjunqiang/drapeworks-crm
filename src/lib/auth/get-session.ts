@@ -24,6 +24,26 @@ export type SessionState =
   | { kind: "none" };
 
 export const getSessionState = cache(async (): Promise<SessionState> => {
+  if (
+    process.env.NODE_ENV === "development" &&
+    process.env.LOCAL_DEV_AUTH_BYPASS === "1"
+  ) {
+    const profile = await db
+      .selectFrom("profiles")
+      .select(["id", "email", "full_name", "role", "is_active"])
+      .where("is_presales_owner", "=", true)
+      .executeTakeFirst();
+    if (profile) {
+      return {
+        kind: "session",
+        data: {
+          user: { id: profile.id, email: profile.email },
+          profile,
+        },
+      };
+    }
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

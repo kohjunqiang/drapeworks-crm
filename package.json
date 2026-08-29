@@ -13,8 +13,9 @@
     "db:migrate:up": "tsx data/migrate.ts up",
     "db:migrate:down": "tsx data/migrate.ts down",
     "db:codegen": "kysely-codegen --out-file src/lib/db/schema.ts",
-    "leads:import": "tsx scripts/import-leads.ts",
-    "leads:verify": "tsx scripts/verify-lead-engine.ts",
+    "leads:check": "tsx scripts/verify-derivations.ts",
+    "leads:migrations:check": "tsx scripts/verify-phase16-migrations.ts",
+    "leads:fixture:seed": "tsx scripts/seed-phase15-fixture.ts",
     "calendar:consent": "tsx scripts/google-oauth-consent.ts"
   },
   "dependencies": {

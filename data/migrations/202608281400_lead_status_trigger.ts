@@ -1,0 +1,10 @@
+import { sql, type Kysely } from "kysely";
+export async function up(db: Kysely<unknown>): Promise<void> {
+  await sql`alter table leads add column lead_status lead_status`.execute(db);
+  await sql`create function leads_derive_status() returns trigger language plpgsql as $$ begin new.lead_status=case when new.funnel_stage='Won' then 'Closed – Won'::lead_status when new.funnel_stage='Lost' then 'Closed – Lost'::lead_status when new.funnel_stage='Not Qualified' then 'Closed – Not Qualified'::lead_status when new.unanswered_followups>=2 then 'Unresponsive'::lead_status else 'Active'::lead_status end; return new; end $$; create trigger leads_derive_status before insert or update on leads for each row execute function leads_derive_status(); update leads set lead_status=null; alter table leads alter column lead_status set not null; create index leads_lead_status_idx on leads(lead_status)`.execute(db);
+  // Imported terminal rows legitimately have no structured reason. Guard new
+  // closures and prevent a known reason being erased, without blocking an
+  // unrelated update to one of those preserved legacy rows.
+  await sql`create function leads_require_closure_reason() returns trigger language plpgsql as $$ begin if new.funnel_stage in ('Lost','Not Qualified') and new.closure_reason is null and (tg_op='INSERT' or old.funnel_stage is distinct from new.funnel_stage or old.closure_reason is not null) then raise exception 'closure_reason is required for terminal stage %',new.funnel_stage; end if; return new; end $$; create trigger leads_require_closure_reason before insert or update on leads for each row execute function leads_require_closure_reason()`.execute(db);
+}
+export async function down(db: Kysely<unknown>): Promise<void> { await sql`drop trigger if exists leads_require_closure_reason on leads; drop function if exists leads_require_closure_reason(); drop index if exists leads_lead_status_idx; drop trigger if exists leads_derive_status on leads; drop function if exists leads_derive_status(); alter table leads drop column lead_status`.execute(db); }

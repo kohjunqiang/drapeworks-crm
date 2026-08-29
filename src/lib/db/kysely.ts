@@ -22,7 +22,9 @@ async function getPool(): Promise<Pool> {
     }
     global.__kyselyPool = new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false },
+      ssl: /^postgres(?:ql)?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString)
+        ? false
+        : { rejectUnauthorized: false },
     });
   }
   return global.__kyselyPool;

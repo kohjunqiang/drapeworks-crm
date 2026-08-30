@@ -9,15 +9,21 @@ import "server-only";
 // the person trying to fix it would be chasing a moving target.
 //
 // buildPos is pure and decides nothing about the world; this module is the
-// world. Everything it cannot answer comes back as a PROBLEM STRING naming what
-// is missing, never as a default, because every cell of a 采购订单 is a cutting
-// instruction and the phase exists to stop us printing a guess.
+// world. Missing source data comes back as a PROBLEM STRING; missing optional
+// Chinese wording falls back to the English value already recorded on the
+// order, so an incomplete translation cannot prevent generation.
 
 import { db } from "@/lib/db/kysely";
 import type { RoomType } from "@/lib/db/schema";
 import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 
-import type { PoInput, PoLine, PoRoomLabel, PoVendor } from "./build";
+import {
+  procurementLabel,
+  type PoInput,
+  type PoLine,
+  type PoRoomLabel,
+  type PoVendor,
+} from "./build";
 
 export type PoLoad = {
   /** Null when the order cannot produce a document at all; see `problems`. */
@@ -303,6 +309,7 @@ async function loadLines(
       "night_cs.vendor_id as night_vendor_id",
       "blind_ct.label as blind_label",
       "blind_cs.vendor_id as blind_vendor_id",
+      "blind_cs.name as blind_name",
       "blind_cs.name_cn as blind_name_cn",
     ])
     .where("rooms.order_id", "=", orderId)
@@ -316,10 +323,11 @@ async function loadLines(
   for (const w of rows) {
     const where = locate(w.room_label, w.position);
 
-    // 开法. A window with no draw direction recorded is a different failure from
-    // a draw direction with no Chinese, and sending someone to Admin →
-    // Procurement (which is what buildPos would say) would be the wrong advice.
-    const opening = w.draw ? (openingLabels.get(w.draw) ?? null) : null;
+    // 开法. Missing Chinese wording falls back to the recorded English draw.
+    // No draw direction at all remains a real source-data failure.
+    const opening = w.draw
+      ? procurementLabel(openingLabels.get(w.draw), w.draw)
+      : null;
     if (!w.draw) {
       problems.push(
         `${where} has no draw direction recorded, so its 开法 cell has nothing to say.`,
@@ -345,9 +353,12 @@ async function loadLines(
         vendorId: w.blind_vendor_id,
         kind: "blind",
         // Blind wording is per SERIES — 卷帘 is a roller specifically, and a
-        // Roman is a different word. po_type_labels('blind') is a fallback that
-        // is seeded null on purpose, so it cannot mislabel a Roman as a roller.
-        typeLabel: w.blind_name_cn ?? typeLabels.get("blind") ?? null,
+        // Roman is a different word. If neither Chinese source is configured,
+        // use the series' own English name rather than a generic translation.
+        typeLabel: procurementLabel(
+          w.blind_name_cn ?? typeLabels.get("blind"),
+          w.blind_name ?? "Blind",
+        ),
         fabricLabel: w.blind_label,
       });
     } else {
@@ -356,7 +367,7 @@ async function loadLines(
           lineId: `${w.id}:day`,
           vendorId: w.day_vendor_id,
           kind: "curtain",
-          typeLabel: typeLabels.get("day") ?? null,
+          typeLabel: procurementLabel(typeLabels.get("day"), "Day"),
           fabricLabel: w.day_label,
         });
       }
@@ -365,7 +376,7 @@ async function loadLines(
           lineId: `${w.id}:night`,
           vendorId: w.night_vendor_id,
           kind: "curtain",
-          typeLabel: typeLabels.get("night") ?? null,
+          typeLabel: procurementLabel(typeLabels.get("night"), "Night"),
           fabricLabel: w.night_label,
         });
       }

@@ -6,6 +6,7 @@ import {
   fabricLengthM,
   formatPoDate,
   fullnessLabel,
+  procurementLabel,
   roomLabel,
   sqmM,
   type PoDelivery,
@@ -181,6 +182,19 @@ describe("roomLabel", () => {
   it("numbers both halves when a type repeats", () => {
     expect(roomLabel("次卧", "BR", 1)).toBe("次卧 1 BR1");
     expect(roomLabel("次卧", "BR", 2)).toBe("次卧 2 BR2");
+  });
+});
+
+describe("procurementLabel", () => {
+  it("prefers a configured Chinese label", () => {
+    expect(procurementLabel("对开 Double draw", "Double")).toBe(
+      "对开 Double draw",
+    );
+  });
+
+  it("falls back to English when the Chinese label is unset or blank", () => {
+    expect(procurementLabel(null, "Single Left")).toBe("Single Left");
+    expect(procurementLabel("  ", "Night")).toBe("Night");
   });
 });
 
@@ -477,18 +491,17 @@ describe("buildPos — room numbering", () => {
     ]);
   });
 
-  it("reports an unlabelled room type by name rather than rendering it blank", () => {
+  it("uses the English room type when no procurement label exists", () => {
     const { pos, problems } = buildPos(
       input({ lines: [line({ lineId: "a", roomType: "Study Room" })] }),
     );
 
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain("Study Room");
-    expect(pos).toEqual([]);
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows[0].room).toBe("Study Room");
   });
 
-  it("reports each unlabelled room type once, however many windows it has", () => {
-    const { problems } = buildPos(
+  it("numbers repeated English room fallbacks", () => {
+    const { pos, problems } = buildPos(
       input({
         lines: [
           line({ lineId: "a", roomType: "Kitchen", roomId: "r1" }),
@@ -497,24 +510,21 @@ describe("buildPos — room numbering", () => {
       }),
     );
 
-    expect(problems).toHaveLength(1);
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows.map((row) => row.room)).toEqual([
+      "Kitchen 1",
+      "Kitchen 2",
+    ]);
   });
 });
 
 describe("buildPos — labels we do not have", () => {
-  // The rule this block enforces: a cell we cannot fill BLOCKS the document.
-  //
-  // These are cutting instructions. A blank 窗帘款式 does not tell a factory
-  // "no style", it tells them nothing, and somebody in Shenzhen then guesses —
-  // which is the failure this whole phase exists to remove. Only three of these
-  // labels are evidenced by the samples (纱窗 Day, 窗帘 Night, 对开 Double
-  // draw); every other one is NULL in the database, waiting for the business,
-  // and until it arrives the honest output is a refusal naming the gap.
+  // Room translations can fall back to known English. A caller that supplies
+  // no resolved type/opening/fabric wording at all is still rejected so the
+  // renderer can never receive a blank cutting-instruction cell.
 
-  it("reports a room type whose label row carries no Chinese name", () => {
-    // Service Yard's real state. The row EXISTS — the code SR is evidenced by
-    // the Blinds sample — but name_cn is NULL, so the row-absence check that
-    // catches Kitchen and Balcony cannot catch this one.
+  it("falls back to English for a room type with no Chinese name", () => {
+    // Keep the known SR code while substituting the canonical English name.
     const { pos, problems } = buildPos(
       input({
         roomLabels: new Map<string, PoRoomLabel>([
@@ -526,9 +536,8 @@ describe("buildPos — labels we do not have", () => {
       }),
     );
 
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain("Service Yard");
-    expect(pos).toEqual([]);
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows[0].room).toBe("Service Yard SR");
   });
 
   it("reports a line with no 窗帘款式 label instead of printing an empty cell", () => {

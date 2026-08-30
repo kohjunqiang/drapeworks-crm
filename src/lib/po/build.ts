@@ -93,6 +93,15 @@ export type PoLine = {
  */
 export type PoRoomLabel = { nameCn: string | null; code: string };
 
+/** Prefer the configured Chinese wording, but never discard known English. */
+export function procurementLabel(
+  labelCn: string | null | undefined,
+  english: string,
+): string {
+  const configured = labelCn?.trim();
+  return configured || english;
+}
+
 export type PoInput = {
   settings: PoSettings;
   /** orders.order_reference, snapshotted by the caller. */
@@ -248,6 +257,7 @@ export function roomLabel(
   code: string,
   index: number | null,
 ): string {
+  if (!code) return index == null ? nameCn : `${nameCn} ${index}`;
   return index == null
     ? `${nameCn} ${code}`
     : `${nameCn} ${index} ${code}${index}`;
@@ -386,28 +396,11 @@ export function buildPos(input: PoInput): {
 
   for (const line of ordered) {
     const label = input.roomLabels.get(line.roomType);
-    if (!label) {
-      // Named, never blank. A blank room cell on a cutting instruction is a
-      // curtain with nowhere to go; an English word on a Chinese one is a
-      // guess. Deduplicated below — one unlabelled type would otherwise repeat
-      // this once per window.
-      problems.push(
-        `Room type "${line.roomType}" has no Chinese name and code. Set it under Admin → Procurement before generating.`,
-      );
-      continue;
-    }
-
-    if (label.nameCn == null) {
-      // The half-known row: Service Yard has an evidenced code (SR, off the
-      // Blinds sample) and no evidenced Chinese at all. Absent row and null
-      // name are ONE state — "we do not know" — and they get one behaviour, so
-      // that seeding a placeholder to satisfy a NOT NULL can never be the thing
-      // that lets English onto a Chinese document.
-      problems.push(
-        `Room type "${line.roomType}" has no Chinese name. Set it under Admin → Procurement before generating.`,
-      );
-      continue;
-    }
+    // A translation improves the document, but is not required to identify the
+    // room. Fall back to the canonical English room type; retain a known short
+    // code when the label row is only partially configured.
+    const roomName = procurementLabel(label?.nameCn, line.roomType);
+    const roomCode = label?.code ?? "";
 
     if (!line.vendorId) {
       problems.push(
@@ -461,8 +454,8 @@ export function buildPos(input: PoInput): {
     const lines = byVendor.get(line.vendorId) ?? [];
     lines.push({
       line,
-      nameCn: label.nameCn,
-      code: label.code,
+      nameCn: roomName,
+      code: roomCode,
       typeLabel,
       openingLabel,
       fabricLabel,

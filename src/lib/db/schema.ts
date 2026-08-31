@@ -25,7 +25,11 @@ export type AuthOauthResponseType = "code";
 
 export type AuthOneTimeTokenType = "confirmation_token" | "email_change_token_current" | "email_change_token_new" | "phone_change_token" | "reauthentication_token" | "recovery_token";
 
+export type BlindPackageFamily = "combi" | "roller" | "roman_200" | "venetian_roman_non_200";
+
 export type CurtainCategory = "Day" | "Night";
+
+export type CurtainPackageDayGroup = "essential" | "none" | "signature";
 
 export type CurtainProductLine = "blind" | "curtain";
 
@@ -45,6 +49,8 @@ export type GoogleSyncState = "failed" | "pending" | "synced";
 
 export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
 
+export type InteractionType = "Appointment" | "Customer Message" | "Follow-Up" | "Note" | "Payment" | "Quote" | "Reply";
+
 export type Json = JsonValue;
 
 export type JsonArray = JsonValue[];
@@ -57,15 +63,27 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
-export type LeadFunnelStage = "Qualify Lead" | "Nurture Lead – Long Term" | "Activate Lead – Short Term" | "Book Appointment" | "Attend Appointment" | "Send Quotation" | "Collect Deposit" | "Decision Pending" | "Won" | "Lost" | "Not Qualified";
-export type LeadOutcome = "Customer Replied" | "Awaiting Customer" | "No Response" | "Pre-Appointment Barrier" | "Appointment Booked" | "Quotation Sent" | "Post-Appointment Barrier" | "Customer Declined" | "Customer Confirmed";
-export type LeadStatus = "Active" | "Unresponsive" | "Closed – Won" | "Closed – Lost" | "Closed – Not Qualified";
-export type LeadContactChannel = "Telegram" | "WhatsApp" | "Other";
-export type LeadSource = "Telegram Group Buy" | "SEM" | "Organic" | "Carousell" | "Referral" | "Existing Customer" | "Other";
+export type LeadClosureReason = "Communication / Poor Fit" | "Competitor" | "Ghosted" | "Other" | "Outside Scope" | "Price / Budget" | "Product Mismatch" | "Small Order / Low Value" | "Timing / No Longer Needed";
+
+export type LeadContactChannel = "Other" | "Telegram" | "WhatsApp";
+
 export type LeadDirection = "Inbound" | "Outbound";
-export type LeadPrimaryProduct = "Curtains / Blinds" | "Mesh" | "Both";
-export type LeadClosureReason = "Competitor" | "Price / Budget" | "Ghosted" | "Small Order / Low Value" | "Product Mismatch" | "Timing / No Longer Needed" | "Communication / Poor Fit" | "Outside Scope" | "Other";
-export type InteractionType = "Customer Message" | "Reply" | "Follow-Up" | "Appointment" | "Quote" | "Payment" | "Note";
+
+export type LeadFunnelStage = "Activate Lead – Short Term" | "Attend Appointment" | "Book Appointment" | "Collect Deposit" | "Decision Pending" | "Lost" | "Not Qualified" | "Nurture Lead – Long Term" | "Qualify Lead" | "Send Quotation" | "Won";
+
+export type LeadFunnelStageLegacy = "Appointment Booked" | "Decision Pending" | "Lost" | "New Lead" | "Not Qualified" | "Nurture" | "Post-Appointment / Quote Pending" | "Qualified / Pre-Appointment" | "Quote Sent" | "Won";
+
+export type LeadOutcome = "Appointment Booked" | "Awaiting Customer" | "Customer Confirmed" | "Customer Declined" | "Customer Replied" | "No Response" | "Post-Appointment Barrier" | "Pre-Appointment Barrier" | "Quotation Sent";
+
+export type LeadOutcomeLegacy = "Appointment Booked" | "Appointment Completed" | "Appointment Confirmed" | "Barrier / Objection Raised" | "Customer Declined" | "Customer Needs Time" | "Customer Replied" | "Follow-Up Sent" | "No Response" | "Order Confirmed" | "Quote Requested" | "Quote Sent" | "Ready to Book Appointment" | "Renovation Delayed";
+
+export type LeadPrimaryProduct = "Both" | "Curtains / Blinds" | "Mesh";
+
+export type LeadSource = "Carousell" | "Existing Customer" | "Organic" | "Other" | "Referral" | "SEM" | "Telegram Group Buy";
+
+export type LeadStatus = "Active" | "Closed – Lost" | "Closed – Not Qualified" | "Closed – Won" | "Unresponsive";
+
+export type LeadStatusLegacy = "Active" | "Ignore" | "Lost" | "Nurture" | "Unresponsive" | "Won";
 
 export type MeshDrawDirection = "Double" | "Single Bottom" | "Single Left" | "Single Right" | "Single Top";
 
@@ -444,6 +462,59 @@ export interface AuthWebauthnCredentials {
   user_id: string;
 }
 
+export interface BlindPackagePrices {
+  family: BlindPackageFamily;
+  price_sgd_cents: number | null;
+  property_tier_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainPackagePricesLegacy {
+  essential_price_sgd_cents: number | null;
+  pls_upgrade_sgd_cents: number | null;
+  property_tier_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainPackages {
+  base_tier: Generated<string>;
+  created_at: Generated<Timestamp>;
+  day_group: CurtainPackageDayGroup | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  night_group: string | null;
+  package_type: Generated<string>;
+  price_sgd_cents: number;
+  property_tier_id: string;
+  room_tier2_downgrade_sgd_cents: number | null;
+  room_tier2_upgrade_sgd_cents: number | null;
+  tier2_upgrade_sgd_cents: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainPricingAdjustments {
+  add_day_sgd_cents: number;
+  add_essential_sgd_cents: number;
+  add_pls_sgd_cents: number;
+  blackout_per_m_sgd_cents: number;
+  remove_day_sgd_cents: number;
+  remove_essential_sgd_cents: number;
+  remove_pls_sgd_cents: number;
+  s_fold_3m_sgd_cents: number;
+  s_fold_4m_sgd_cents: number;
+  s_fold_above_4m_sgd_cents: number | null;
+  singleton: Generated<boolean>;
+  slim_double_per_m_sgd_cents: number;
+  slim_single_per_m_sgd_cents: number;
+  ultimate_from_essential_sgd_cents: number;
+  ultimate_from_pls_sgd_cents: number;
+  updated_at: Generated<Timestamp>;
+  zen_4m_sgd_cents: number;
+  zen_5m_sgd_cents: number;
+  zen_default_sgd_cents: number;
+}
+
 export interface CurtainSeries {
   calc_method: Generated<PricingCalcMethod>;
   cost_rmb_cents: number | null;
@@ -554,6 +625,35 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface LeadInteractions {
+  channel: LeadContactChannel | null;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  direction: LeadDirection | null;
+  id: Generated<string>;
+  interaction_type: InteractionType;
+  lead_id: string;
+  note: string | null;
+  occurred_at: Timestamp;
+}
+
+export interface LeadLegacyImport {
+  action_date: Timestamp | null;
+  action_detail_override: string | null;
+  buying_readiness: string | null;
+  expected_key_date: string | null;
+  first_initiated_at: Timestamp | null;
+  funnel_stage: LeadFunnelStageLegacy;
+  keys_status: string | null;
+  last_contact_at: Timestamp | null;
+  last_customer_response_at: Timestamp | null;
+  last_outcome: LeadOutcomeLegacy | null;
+  lead_id: string;
+  lead_status: LeadStatusLegacy;
+  owner_id: string | null;
+  snapshot_at: Generated<Timestamp>;
+}
+
 export interface Leads {
   action_detail: string | null;
   assigned_consultant_id: string | null;
@@ -562,6 +662,7 @@ export interface Leads {
   created_at: Generated<Timestamp>;
   customer_id: string | null;
   development: string | null;
+  dismissed_recommendations: Generated<string[]>;
   first_initiated_at: Timestamp | null;
   funnel_stage: Generated<LeadFunnelStage>;
   historical_summary: string | null;
@@ -572,12 +673,12 @@ export interface Leads {
   keys_collected: boolean | null;
   last_contact_at: Timestamp | null;
   last_customer_response_at: Timestamp | null;
-  last_outcome: LeadOutcome | null;
   last_message_by: LeadDirection | null;
+  last_outcome: LeadOutcome | null;
   latest_quote_cents: number | null;
   latest_quote_note: string | null;
   lead_ref: string;
-  lead_status: Generated<LeadStatus>;
+  lead_status: LeadStatus;
   mobile: string | null;
   move_in_date: Timestamp | null;
   name: string;
@@ -587,16 +688,23 @@ export interface Leads {
   quotation_breakdown: string | null;
   quotation_sent_at: Timestamp | null;
   quote_valid_days: Generated<number>;
-  dismissed_recommendations: Generated<string[]>;
   source: LeadSource | null;
   source_ref: string | null;
   telegram_chat_id: string | null;
-  updated_at: Generated<Timestamp>;
   unanswered_followups: Generated<number>;
+  updated_at: Generated<Timestamp>;
 }
 
-export interface LeadInteractions { id: Generated<string>; lead_id: string; occurred_at: Timestamp; direction: LeadDirection | null; interaction_type: InteractionType; note: string | null; channel: LeadContactChannel | null; created_by: string | null; created_at: Generated<Timestamp>; }
-export interface LeadStageEvents { id: Generated<string>; lead_id: string; from_stage: LeadFunnelStage | null; to_stage: LeadFunnelStage; changed_at: Timestamp; changed_by: string | null; source: string; created_at: Generated<Timestamp>; }
+export interface LeadStageEvents {
+  changed_at: Timestamp;
+  changed_by: string | null;
+  created_at: Generated<Timestamp>;
+  from_stage: LeadFunnelStage | null;
+  id: Generated<string>;
+  lead_id: string;
+  source: string;
+  to_stage: LeadFunnelStage;
+}
 
 export interface ManufactureAllowances {
   height_delta_cm: number | null;
@@ -720,12 +828,6 @@ export interface MeshSystems {
 }
 
 export interface Orders {
-  curtain_package_id: string | null;
-  curtain_package_name: string | null;
-  curtain_package_rules: Json | null;
-  curtain_package_sale_sgd_cents: number | null;
-  curtain_package_tier: string | null;
-  curtain_package_type: string | null;
   po_customer_reference: string | null;
   appointment_id: string | null;
   balance_cents: Generated<number | null>;
@@ -733,6 +835,12 @@ export interface Orders {
   consultant_id: string | null;
   created_at: Generated<Timestamp>;
   current_status: Generated<FulfilmentStatus>;
+  curtain_package_id: string | null;
+  curtain_package_name: string | null;
+  curtain_package_rules: Json | null;
+  curtain_package_sale_sgd_cents: number | null;
+  curtain_package_tier: string | null;
+  curtain_package_type: string | null;
   customer_id: string;
   delivery_vendor_id: string | null;
   deposit_cents: Generated<number>;
@@ -827,6 +935,17 @@ export interface PricingCombos {
   name: string;
   night_series_id: string | null;
   price_sgd_cents: number;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface PricingPropertyTiers {
+  code: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  label: string;
+  position: number;
+  room_set_count: number;
   updated_at: Generated<Timestamp>;
 }
 
@@ -1086,80 +1205,7 @@ export interface Windows {
   width_cm: number | null;
 }
 
-export type BlindPackageFamily = "combi" | "roller" | "roman_200" | "venetian_roman_non_200";
-
-export type CurtainPackageDayGroup = "essential" | "none" | "signature";
-
-export interface BlindPackagePrices {
-  family: BlindPackageFamily;
-  price_sgd_cents: number | null;
-  property_tier_id: string;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface CurtainPackagePricesLegacy {
-  essential_price_sgd_cents: number | null;
-  pls_upgrade_sgd_cents: number | null;
-  property_tier_id: string;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface CurtainPackages {
-  base_tier: Generated<string>;
-  created_at: Generated<Timestamp>;
-  day_group: CurtainPackageDayGroup | null;
-  id: Generated<string>;
-  is_active: Generated<boolean>;
-  name: string;
-  night_group: string | null;
-  package_type: Generated<string>;
-  price_sgd_cents: number;
-  property_tier_id: string;
-  room_tier2_downgrade_sgd_cents: number | null;
-  room_tier2_upgrade_sgd_cents: number | null;
-  tier2_upgrade_sgd_cents: number | null;
-  updated_at: Generated<Timestamp>;
-}
-
-export interface CurtainPricingAdjustments {
-  add_day_sgd_cents: number;
-  add_essential_sgd_cents: number;
-  add_pls_sgd_cents: number;
-  blackout_per_m_sgd_cents: number;
-  remove_day_sgd_cents: number;
-  remove_essential_sgd_cents: number;
-  remove_pls_sgd_cents: number;
-  s_fold_3m_sgd_cents: number;
-  s_fold_4m_sgd_cents: number;
-  s_fold_above_4m_sgd_cents: number | null;
-  singleton: Generated<boolean>;
-  slim_double_per_m_sgd_cents: number;
-  slim_single_per_m_sgd_cents: number;
-  ultimate_from_essential_sgd_cents: number;
-  ultimate_from_pls_sgd_cents: number;
-  updated_at: Generated<Timestamp>;
-  zen_4m_sgd_cents: number;
-  zen_5m_sgd_cents: number;
-  zen_default_sgd_cents: number;
-}
-
-export interface PricingPropertyTiers {
-  code: string;
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  is_active: Generated<boolean>;
-  label: string;
-  position: number;
-  room_set_count: number;
-  updated_at: Generated<Timestamp>;
-}
-
 export interface DB {
-  blind_package_prices: BlindPackagePrices;
-  curtain_package_prices_legacy: CurtainPackagePricesLegacy;
-  curtain_packages: CurtainPackages;
-  curtain_pricing_adjustments: CurtainPricingAdjustments;
-  pricing_property_tiers: PricingPropertyTiers;
   appointments: Appointments;
   "auth.audit_log_entries": AuthAuditLogEntries;
   "auth.custom_oauth_providers": AuthCustomOauthProviders;
@@ -1184,15 +1230,20 @@ export interface DB {
   "auth.users": AuthUsers;
   "auth.webauthn_challenges": AuthWebauthnChallenges;
   "auth.webauthn_credentials": AuthWebauthnCredentials;
+  blind_package_prices: BlindPackagePrices;
+  curtain_package_prices_legacy: CurtainPackagePricesLegacy;
+  curtain_packages: CurtainPackages;
+  curtain_pricing_adjustments: CurtainPricingAdjustments;
   curtain_series: CurtainSeries;
   curtain_types: CurtainTypes;
   customers: Customers;
   delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
-  leads: Leads;
   lead_interactions: LeadInteractions;
+  lead_legacy_import: LeadLegacyImport;
   lead_stage_events: LeadStageEvents;
+  leads: Leads;
   manufacture_allowances: ManufactureAllowances;
   manufacture_measurements: ManufactureMeasurements;
   manufacture_pos: ManufacturePos;
@@ -1210,6 +1261,7 @@ export interface DB {
   pricing_addons: PricingAddons;
   pricing_assumptions: PricingAssumptions;
   pricing_combos: PricingCombos;
+  pricing_property_tiers: PricingPropertyTiers;
   procurement_settings: ProcurementSettings;
   profiles: Profiles;
   promotions: Promotions;

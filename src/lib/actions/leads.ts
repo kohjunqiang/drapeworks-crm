@@ -21,6 +21,9 @@ export async function createLead(input: unknown): Promise<never> {
   const p = leadCreateSchema.parse(input);
   const row = await db.insertInto("leads").values({
     lead_ref: nextLeadRef(), name: p.name, mobile: p.mobile ?? null,
+    // Required by the schema; the before-insert trigger immediately derives
+    // the authoritative value from the funnel fields.
+    lead_status: "Active",
     development: p.development ?? null, contact_channel: p.contact_channel,
     source: p.source ?? null, inbound_outbound: p.inbound_outbound ?? null,
     primary_product: p.primary_product ?? null, funnel_stage: p.funnel_stage,

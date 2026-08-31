@@ -10,13 +10,13 @@ export function deriveLeadStatus(stage: FunnelStage, unanswered: number): LeadSt
   if (stage === "Not Qualified") return "Closed – Not Qualified";
   return unanswered >= 2 ? "Unresponsive" : "Active";
 }
-export function deriveActionRequired(lead: FunnelEngineInput, today: SgDate): ActionRequired {
+export function deriveActionRequired(lead: Pick<FunnelEngineInput, "funnel_stage" | "last_outcome" | "next_action_date">, today: SgDate): ActionRequired {
   const stage = lead.funnel_stage, outcome = lead.last_outcome, date = lead.next_action_date;
   if (stage === "Won") return "Won";
   if (stage === "Lost" || stage === "Not Qualified") return "Closed";
   if (outcome === "Customer Confirmed") return "Won";
   if (outcome === "Customer Declined") return "Closed";
-  if (outcome === "Awaiting Customer") return date === null || date <= today ? "Follow-Up" : "Awaiting Customer";
+  if (outcome === "Awaiting Customer") return date !== null && date <= today ? "Follow-Up" : "Awaiting Customer";
   if (outcome === "Customer Replied") return "Reply Required";
   if (outcome === "No Response") return "Follow-Up";
   if (outcome === "Pre-Appointment Barrier") return "Resolve Appointment Barrier";

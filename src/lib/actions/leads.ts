@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { sql } from "kysely";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
-import { deriveRecommendations } from "@/lib/leads/funnel-engine";
+import { deriveRecommendations, deriveBuyingReadiness, deriveDaysToMoveIn, deriveActionRequired, deriveDueStatus } from "@/lib/leads/funnel-engine";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, leadQuickEditSchema, logUpdateSchema, recommendationSchema } from "@/lib/validation/lead";
 
@@ -15,6 +15,32 @@ const revalidateLead = (id: string) => {
   revalidatePath("/queue"); revalidatePath("/leads");
   revalidatePath(`/leads/${id}`); revalidatePath(`/leads/${id}/edit`);
 };
+
+export async function getLeadModalData(id: string) {
+  await requireRole(["consultant", "admin"]);
+  archiveLeadSchema.parse({ lead_id: id });
+  const lead = await db.selectFrom("leads").selectAll().select([
+    sql<string | null>`next_action_date::text`.as("next_action_date_text"),
+    sql<string | null>`move_in_date::text`.as("move_in_date_text"),
+  ]).where("id", "=", id).executeTakeFirstOrThrow();
+  const [interactions, profiles] = await Promise.all([
+    db.selectFrom("lead_interactions").leftJoin("profiles", "profiles.id", "lead_interactions.created_by")
+      .select(["lead_interactions.id", "occurred_at", "interaction_type", "direction", "channel", "note", "profiles.full_name"])
+      .where("lead_id", "=", id).orderBy("occurred_at", "desc").orderBy("lead_interactions.id", "desc").execute(),
+    db.selectFrom("profiles").select(["id", "full_name", "is_active", "role"]).execute(),
+  ]);
+  const date = (value: Date | string | null) => value ? toSgDate(new Date(value)) : null;
+  const actionRequired = deriveActionRequired({ ...lead, next_action_date: lead.next_action_date_text }, todayInSingapore());
+  return { lead: { ...lead,
+    created_date_text: date(lead.created_at), initiated_date_text: date(lead.first_initiated_at),
+    last_contact_date_text: date(lead.last_contact_at), last_response_date_text: date(lead.last_customer_response_at),
+    buying_readiness: deriveBuyingReadiness(lead.funnel_stage),
+    days_to_move_in: deriveDaysToMoveIn(lead.move_in_date_text, todayInSingapore()),
+    action_required: actionRequired, due_status: deriveDueStatus(actionRequired, lead.next_action_date_text, todayInSingapore()),
+  }, interactions, ownerName: profiles.find(person => person.id === (lead.assigned_consultant_id ?? lead.owner_id))?.full_name ?? "Unassigned",
+    consultants: profiles.filter(person => person.is_active && (person.role === "admin" || person.role === "consultant")),
+  };
+}
 
 export async function createLead(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
@@ -39,13 +65,13 @@ export async function logLeadUpdate(input: unknown): Promise<void> {
   await db.transaction().execute(async (trx) => {
     const before = await trx.selectFrom("leads")
       .select(["funnel_stage", "last_outcome", "quote_valid_days"])
-      .where("id", "=", p.lead_id).executeTakeFirstOrThrow();
+      .where("id", "=", p.lead_id).forUpdate().executeTakeFirstOrThrow();
     const quoteDate = p.quotation_sent_date
       ? new Date(`${p.quotation_sent_date}T00:00:00+08:00`) : undefined;
     const recommendationChanged = before.funnel_stage !== p.funnel_stage ||
       before.last_outcome !== p.last_outcome || quoteDate !== undefined ||
       before.quote_valid_days !== p.quote_valid_days;
-    await trx.updateTable("leads").set({
+    const updated = await trx.updateTable("leads").set({
       funnel_stage: p.funnel_stage, last_outcome: p.last_outcome,
       next_action_date: p.next_action_date ?? null,
       action_detail: p.action_detail ?? null,
@@ -60,7 +86,10 @@ export async function logLeadUpdate(input: unknown): Promise<void> {
       quote_valid_days: p.quote_valid_days,
       ...(recommendationChanged ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
       updated_at: new Date(),
-    }).where("id", "=", p.lead_id).executeTakeFirstOrThrow();
+    }).where("id", "=", p.lead_id)
+      .where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${p.expected_updated_at}`)
+      .returning("id").executeTakeFirst();
+    if (!updated) throw new Error("This lead changed since you opened it. Close and reopen it before saving.");
     const interaction = p.last_outcome === "Customer Replied"
       ? { direction: "Inbound" as const, interaction_type: "Customer Message" as const }
       : p.last_outcome === "No Response"
@@ -102,18 +131,39 @@ export async function editLeadDetails(input: unknown): Promise<void> {
 }
 
 export async function quickEditLead(input: unknown): Promise<void> {
-  await requireRole(["consultant", "admin"]);
+  const session = await requireRole(["consultant", "admin"]);
   const p = leadQuickEditSchema.parse(input);
-  await db.updateTable("leads").set({
+  await db.transaction().execute(async (trx) => {
+  const before = await trx.selectFrom("leads").select(["funnel_stage", sql<string | null>`move_in_date::text`.as("move_in_date")])
+    .where("id", "=", p.id).forUpdate().executeTakeFirstOrThrow();
+  const row = await trx.updateTable("leads").set({
+    ...(before.funnel_stage !== p.funnel_stage || before.move_in_date !== (p.move_in_date ?? null)
+      ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
     owner_id: p.owner_id, assigned_consultant_id: p.owner_id,
     name: p.name, funnel_stage: p.funnel_stage,
+    ...(p.inbound_outbound !== undefined ? { inbound_outbound: p.inbound_outbound } : {}),
+    ...(p.keys_collected !== undefined ? { keys_collected: p.keys_collected } : {}),
+    ...(p.interaction_summary !== undefined ? { interaction_summary: p.interaction_summary } : {}),
+    ...(p.latest_quote_note !== undefined ? { latest_quote_note: p.latest_quote_note } : {}),
+    ...(p.quotation_breakdown !== undefined ? { quotation_breakdown: p.quotation_breakdown } : {}),
+    ...(p.historical_summary !== undefined ? { historical_summary: p.historical_summary } : {}),
     ...(p.funnel_stage === "Lost" || p.funnel_stage === "Not Qualified" ? { closure_reason: p.closure_reason } : {}),
     next_action_date: p.next_action_date ?? null, move_in_date: p.move_in_date ?? null,
     latest_quote_cents: p.latest_quote_sgd === null ? null : Math.round(p.latest_quote_sgd * 100),
     action_detail: p.action_detail ?? null, mobile: p.mobile ?? null,
     development: p.development ?? null, contact_channel: p.contact_channel,
     source: p.source, primary_product: p.primary_product, updated_at: new Date(),
-  }).where("id", "=", p.id).executeTakeFirstOrThrow();
+  }).where("id", "=", p.id)
+    .where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${p.expected_updated_at}`)
+    .returning("id").executeTakeFirst();
+  if (!row) throw new Error("This lead changed since you opened it. Close and reopen it before saving.");
+  if (before.funnel_stage !== p.funnel_stage) {
+    await trx.insertInto("lead_stage_events").values({
+      lead_id: p.id, from_stage: before.funnel_stage, to_stage: p.funnel_stage,
+      changed_at: new Date(), changed_by: session.user.id, source: "user",
+    }).execute();
+  }
+  });
   revalidateLead(p.id);
 }
 

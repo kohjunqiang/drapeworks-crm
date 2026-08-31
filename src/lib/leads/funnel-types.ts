@@ -10,6 +10,8 @@ export const CONTACT_CHANNELS = ["Telegram", "WhatsApp", "Other"] as const;
 export const LEAD_SOURCES = ["Telegram Group Buy", "SEM", "Organic", "Carousell", "Referral", "Existing Customer", "Other"] as const;
 export const LEAD_DIRECTIONS = ["Inbound", "Outbound"] as const;
 export const PRIMARY_PRODUCTS = ["Curtains / Blinds", "Mesh", "Both"] as const;
+// Keep historical Both records readable, but do not offer it for new selections.
+export const SELECTABLE_PRIMARY_PRODUCTS = ["Curtains / Blinds", "Mesh"] as const;
 export const CLOSURE_REASONS = ["Competitor", "Price / Budget", "Ghosted", "Small Order / Low Value", "Product Mismatch", "Timing / No Longer Needed", "Communication / Poor Fit", "Outside Scope", "Other"] as const;
 export const INTERACTION_TYPES = ["Customer Message", "Reply", "Follow-Up", "Appointment", "Quote", "Payment", "Note"] as const;
 export type ActionRequired = "Reply Required" | "Follow-Up" | "Awaiting Customer" | "Resolve Appointment Barrier" | "Book Appointment" | "Confirm / Attend Appointment" | "Send Quotation" | "Push for Deposit" | "Push for Decision" | "Resolve Closing Barrier" | "Nurture Lead" | "Activate Lead" | "Qualify Lead" | "Closed" | "Won";

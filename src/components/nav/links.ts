@@ -47,7 +47,7 @@ export const NAV_LINKS: NavLink[] = [
     match: (p) => p.startsWith("/admin/vendors"),
   },
   {
-    href: "/admin/pricing-settings",
+    href: "/admin/pricing-settings/curtains",
     label: "Pricing",
     roles: ["admin"],
     match: (p) => p.startsWith("/admin/pricing-settings"),

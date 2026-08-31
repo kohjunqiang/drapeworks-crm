@@ -14,7 +14,7 @@ import {
   pricingAddonSchema,
 } from "@/lib/validation/pricing-settings";
 
-const PATH = "/admin/pricing-settings";
+const PATH = "/admin/pricing-settings/shared";
 
 export async function updatePricingAssumptions(input: unknown) {
   await requireRole(["admin"]);

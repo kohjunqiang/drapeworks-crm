@@ -214,6 +214,7 @@ describe("toCalcAddons / selectedAddonIds", () => {
     const resolved = resolveWindowAddons("curtain", 150, [id(2)], [], rows);
     expect(toCalcAddons(resolved)).toEqual([
       {
+        key: "blackout",
         label: "Blackout",
         costRmbCents: 1100,
         saleSgdCents: 8000,

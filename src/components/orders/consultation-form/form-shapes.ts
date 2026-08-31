@@ -30,6 +30,10 @@ export type ConsultationShellShape = {
     extra_install_cents: number;
     discount_bps: number;
     promo_label?: string;
+    curtain_package_id?: string;
+    curtain_package_tier: "essential" | "tier2";
+    curtain_package_single_layer: "day" | "night";
+    curtain_package_pricing_signature?: string;
   };
 };
 

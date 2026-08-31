@@ -90,6 +90,7 @@ export async function loadWindowCalcAddons(
     .select([
       "window_addons.window_id as window_id",
       "pricing_addons.label as label",
+      "pricing_addons.key as key",
       "pricing_addons.cost_rmb_cents as cost_rmb_cents",
       "pricing_addons.sale_sgd_cents as sale_sgd_cents",
       "pricing_addons.basis as basis",
@@ -102,6 +103,7 @@ export async function loadWindowCalcAddons(
     byWindow.set(r.window_id, [
       ...(byWindow.get(r.window_id) ?? []),
       {
+        key: r.key,
         label: r.label,
         costRmbCents: r.cost_rmb_cents,
         saleSgdCents: r.sale_sgd_cents,

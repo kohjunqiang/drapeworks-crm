@@ -91,6 +91,9 @@ const EMPTY_DEFAULTS: MeshOrderEditInput = {
     extra_install_cents: 0,
     discount_bps: 0,
     promo_label: undefined,
+    curtain_package_id: "",
+    curtain_package_tier: "essential",
+    curtain_package_single_layer: "night",
   },
   rooms: [
     {

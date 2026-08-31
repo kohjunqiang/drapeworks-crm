@@ -30,6 +30,7 @@ export type ResolvedAddon = AddonRule & {
 
 /** What the calculator needs — a resolved add-on stripped of its rules. */
 export type CalcAddon = {
+  key?: string;
   label: string;
   costRmbCents: number | null;
   saleSgdCents: number | null;
@@ -102,6 +103,7 @@ export function toCalcAddons(resolved: readonly ResolvedAddon[]): CalcAddon[] {
   return resolved
     .filter((a) => a.selected)
     .map((a) => ({
+      key: a.key,
       label: a.label,
       costRmbCents: a.costRmbCents,
       saleSgdCents: a.saleSgdCents,

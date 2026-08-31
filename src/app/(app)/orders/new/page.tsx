@@ -13,6 +13,7 @@ import {
   meshIsSellable,
 } from "@/lib/db/mesh-catalogue";
 import { loadActivePromotions } from "@/lib/db/promotions";
+import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
 import { db } from "@/lib/db/kysely";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 
@@ -151,11 +152,12 @@ async function CurtainConsultation({
 }: {
   appointment?: AppointmentPrefill;
 }) {
-  const [curtainTypes, calcConfig, promotions, combos] = await Promise.all([
+  const [curtainTypes, calcConfig, promotions, combos, curtainPackages] = await Promise.all([
     loadActiveCurtainTypeOptions(),
     loadCalcConfig(),
     loadActivePromotions(),
     loadActiveCombos(),
+    loadCurtainPackages(),
   ]);
 
   return (
@@ -165,6 +167,7 @@ async function CurtainConsultation({
       calcConfig={calcConfig}
       promotions={promotions}
       combos={combos}
+      curtainPackages={curtainPackages.filter((item) => item.isActive)}
       appointment={appointment}
     />
   );

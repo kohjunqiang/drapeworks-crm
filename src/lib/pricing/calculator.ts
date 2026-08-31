@@ -25,6 +25,8 @@
 // carries is window-addons.ts's job; pricing them is this module's. Both are
 // pure, and the dependency only runs one way.
 import type { CalcAddon } from "@/lib/orders/window-addons";
+import { resolveCurtainPackageQuote, packageAddonKind, type CurtainPackageContext } from "./curtain-package-rules";
+import type { PackagePriceLine } from "./package-calculator";
 
 export type FreightMode = "air" | "sea";
 
@@ -153,6 +155,7 @@ export type AddonPrice = {
 };
 
 export type CalcWindow = BreakdownIdentity & {
+  covering?: "curtain" | "blind";
   widthCm: number | null;
   /**
    * Manufacturing width, when a set has been confirmed (Phase 13B). Cost only —
@@ -492,6 +495,7 @@ export function windowQuote(
   );
 
   let total: Money = add(add(ZERO, dayLeg), nightLeg);
+  let chargeableAddonSaleSgdCents = 0;
 
   // The legs, in the order they are charged. A leg names its series only when
   // the window has more than one: with day and night on the same series the
@@ -523,6 +527,7 @@ export function windowQuote(
   if (hasDay || hasNight) {
     const extra = addonLegs(win.addons, win.widthCm, win.costWidthCm);
     total = add(total, extra.total);
+    chargeableAddonSaleSgdCents = extra.total.saleSgdCents;
     legs.push(...extra.legs);
   }
 
@@ -548,10 +553,17 @@ export function windowQuote(
   const offering: Offering =
     hasDay && hasNight ? "double" : hasDay || hasNight ? "single" : "none";
 
-  // Combo (Phase 10): a fixed bundle price overrides the window's sale. Cost
-  // (curtain COGS + add-ons + track) is unchanged, so the margin stays genuine.
+  // Combo (Phase 10): a fixed bundle price replaces the COVERING sale, not
+  // separately-selected add-ons. Replacing `total.saleSgdCents` here used to
+  // make S-Fold, blackout and every future chargeable treatment free whenever
+  // a combo was selected, while their COGS remained in the margin. The package
+  // is the base; extras stay on top.
+  const curtainCoveringSaleSgdCents =
+    win.comboPriceSgdCents != null && (hasDay || hasNight)
+      ? win.comboPriceSgdCents
+      : total.saleSgdCents - chargeableAddonSaleSgdCents;
   const saleSgdCents =
-    win.comboPriceSgdCents != null ? win.comboPriceSgdCents : total.saleSgdCents;
+    curtainCoveringSaleSgdCents + chargeableAddonSaleSgdCents;
 
   // Curtain-only COGS (excludes add-ons/tracks) — the air-freight base, per the
   // Excel's sum(Day COGS, Night COGS) × rate.
@@ -567,6 +579,8 @@ export function windowQuote(
 }
 
 export type QuoteResult = {
+  pricingIssues?: string[];
+  packageLines?: PackagePriceLine[];
   cogsRmbCents: number;
   /**
    * COGS broken out room by room. Together with `cogsExtras` the subtotals sum
@@ -712,13 +726,26 @@ export function computeQuote(
   freightMode: FreightMode = "air",
   extraInstallSgdCents = 0,
   discountBps = 0,
+  curtainPackage: number | CurtainPackageContext | null = null,
 ): QuoteResult {
+  const packageQuote = typeof curtainPackage === "object" && curtainPackage != null
+    ? resolveCurtainPackageQuote(windows, curtainPackage) : null;
+  const curtainPackageSaleSgdCents = packageQuote ? packageQuote.totalSgdCents : typeof curtainPackage === "number" ? curtainPackage : null;
   const totals = windows.reduce(
     (acc, w) => {
       const q = windowQuote(w, a);
+      const measuredCurtain =
+        !w.blindPrice && w.widthCm != null && w.widthCm > 0 &&
+        (!!w.dayPrice || !!w.nightPrice);
+      const addonSale = measuredCurtain
+        ? addonLegs(packageQuote ? w.addons?.filter((addon) => !packageAddonKind(addon.label, addon.key)) : w.addons, w.widthCm, w.costWidthCm).total.saleSgdCents
+        : 0;
+      const nonPackageSale = w.blindPrice ? q.saleSgdCents : addonSale;
       return {
         costRmbCents: acc.costRmbCents + q.costRmbCents,
         saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
+        nonPackageSaleSgdCents:
+          acc.nonPackageSaleSgdCents + nonPackageSale,
         curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
         installSgdCents: acc.installSgdCents + installFor(q.offering, a),
         // The window's own cost — fabric and its add-ons — with the rail taken
@@ -743,6 +770,7 @@ export function computeQuote(
     {
       costRmbCents: 0,
       saleSgdCents: 0,
+      nonPackageSaleSgdCents: 0,
       curtainCostRmbCents: 0,
       installSgdCents: 0,
       breakdown: [] as BreakdownInput[],
@@ -752,13 +780,16 @@ export function computeQuote(
 
   // Curtains bill air freight on curtain-only COGS — add-ons and tracks are
   // excluded, per the Excel's sum(Day COGS, Night COGS) × rate.
-  return finaliseQuote(
+  const result = finaliseQuote(
     {
       cogsRmbCents: totals.costRmbCents,
       cogsRooms: groupIntoRooms(totals.breakdown, "Window"),
       cogsExtras: countTracks(totals.tracks),
       freightBaseRmbCents: totals.curtainCostRmbCents,
-      saleSgdCents: totals.saleSgdCents,
+      saleSgdCents:
+        curtainPackageSaleSgdCents == null
+          ? totals.saleSgdCents
+          : curtainPackageSaleSgdCents + totals.nonPackageSaleSgdCents,
       installSgdCents: totals.installSgdCents,
     },
     a,
@@ -766,4 +797,16 @@ export function computeQuote(
     extraInstallSgdCents,
     discountBps,
   );
+  if (!packageQuote) return result;
+  // Never publish a partial/misleading quote while one charge is unresolved.
+  return {
+    ...result,
+    // These are already Groupbuy offers. Only an explicit order promotion
+    // may discount them further; do not suggest a second automatic discount.
+    groupbuySgdCents: result.discountedSaleSgdCents,
+    groupbuyMarginBps: result.marginBps,
+    ...(packageQuote.issues.length ? { saleSgdCents: 0, discountedSaleSgdCents: 0, groupbuySgdCents: 0, marginBps: 0, groupbuyMarginBps: 0 } : {}),
+    pricingIssues: packageQuote.issues,
+    packageLines: packageQuote.lines,
+  };
 }

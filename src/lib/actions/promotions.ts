@@ -9,7 +9,7 @@ import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
 import { promotionSchema } from "@/lib/validation/promotion";
 
-const PATH = "/admin/pricing-settings";
+const PATH = "/admin/pricing-settings/shared";
 
 // Returns the created row on insert (so the client list can append it without
 // a full reload); null on update.

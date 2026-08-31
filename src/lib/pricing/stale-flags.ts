@@ -15,6 +15,7 @@ import {
   type MeshPriceBook,
 } from "./mesh-calculator";
 import { quoteStaleness } from "./quote-staleness";
+import { readPackageContext } from "./curtain-package-rules";
 
 export type StaleOrderRow = {
   id: string;
@@ -23,6 +24,8 @@ export type StaleOrderRow = {
   extra_install_sgd_cents: number;
   discount_bps: number;
   price_calc_at_quote_cents: number | null;
+  curtain_package_sale_sgd_cents?: number | null;
+  curtain_package_rules?: unknown;
 };
 
 export type StaleFlagsInput = {
@@ -60,11 +63,12 @@ export function computeStaleFlags(
             o.freight_mode,
             o.extra_install_sgd_cents,
             o.discount_bps,
+            readPackageContext(o.curtain_package_rules) ?? o.curtain_package_sale_sgd_cents ?? null,
           );
 
     flags.set(
       o.id,
-      quoteStaleness(o.price_calc_at_quote_cents, live.discountedSaleSgdCents)
+      !!live.pricingIssues?.length || quoteStaleness(o.price_calc_at_quote_cents, live.discountedSaleSgdCents)
         .isStale,
     );
   }

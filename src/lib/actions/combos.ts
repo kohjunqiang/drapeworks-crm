@@ -10,7 +10,7 @@ import { userMessage } from "@/lib/errors";
 import { centsToDisplay, dollarsToCents } from "@/lib/money";
 import { comboSchema } from "@/lib/validation/combo";
 
-const PATH = "/admin/pricing-settings";
+const PATH = "/admin/pricing-settings/curtains";
 
 // Returns the created row on insert (so the client list can append it without
 // a full reload); null on update.

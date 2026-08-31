@@ -720,6 +720,12 @@ export interface MeshSystems {
 }
 
 export interface Orders {
+  curtain_package_id: string | null;
+  curtain_package_name: string | null;
+  curtain_package_rules: Json | null;
+  curtain_package_sale_sgd_cents: number | null;
+  curtain_package_tier: string | null;
+  curtain_package_type: string | null;
   po_customer_reference: string | null;
   appointment_id: string | null;
   balance_cents: Generated<number | null>;
@@ -1080,7 +1086,80 @@ export interface Windows {
   width_cm: number | null;
 }
 
+export type BlindPackageFamily = "combi" | "roller" | "roman_200" | "venetian_roman_non_200";
+
+export type CurtainPackageDayGroup = "essential" | "none" | "signature";
+
+export interface BlindPackagePrices {
+  family: BlindPackageFamily;
+  price_sgd_cents: number | null;
+  property_tier_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainPackagePricesLegacy {
+  essential_price_sgd_cents: number | null;
+  pls_upgrade_sgd_cents: number | null;
+  property_tier_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainPackages {
+  base_tier: Generated<string>;
+  created_at: Generated<Timestamp>;
+  day_group: CurtainPackageDayGroup | null;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  name: string;
+  night_group: string | null;
+  package_type: Generated<string>;
+  price_sgd_cents: number;
+  property_tier_id: string;
+  room_tier2_downgrade_sgd_cents: number | null;
+  room_tier2_upgrade_sgd_cents: number | null;
+  tier2_upgrade_sgd_cents: number | null;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface CurtainPricingAdjustments {
+  add_day_sgd_cents: number;
+  add_essential_sgd_cents: number;
+  add_pls_sgd_cents: number;
+  blackout_per_m_sgd_cents: number;
+  remove_day_sgd_cents: number;
+  remove_essential_sgd_cents: number;
+  remove_pls_sgd_cents: number;
+  s_fold_3m_sgd_cents: number;
+  s_fold_4m_sgd_cents: number;
+  s_fold_above_4m_sgd_cents: number | null;
+  singleton: Generated<boolean>;
+  slim_double_per_m_sgd_cents: number;
+  slim_single_per_m_sgd_cents: number;
+  ultimate_from_essential_sgd_cents: number;
+  ultimate_from_pls_sgd_cents: number;
+  updated_at: Generated<Timestamp>;
+  zen_4m_sgd_cents: number;
+  zen_5m_sgd_cents: number;
+  zen_default_sgd_cents: number;
+}
+
+export interface PricingPropertyTiers {
+  code: string;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  is_active: Generated<boolean>;
+  label: string;
+  position: number;
+  room_set_count: number;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface DB {
+  blind_package_prices: BlindPackagePrices;
+  curtain_package_prices_legacy: CurtainPackagePricesLegacy;
+  curtain_packages: CurtainPackages;
+  curtain_pricing_adjustments: CurtainPricingAdjustments;
+  pricing_property_tiers: PricingPropertyTiers;
   appointments: Appointments;
   "auth.audit_log_entries": AuthAuditLogEntries;
   "auth.custom_oauth_providers": AuthCustomOauthProviders;

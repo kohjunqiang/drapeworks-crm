@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { CostBreakdown } from "@/components/orders/cost-breakdown";
 import type { ActiveCombo } from "@/lib/db/combos";
+import type { CurtainPackageRow } from "@/lib/db/product-pricing-settings";
+import { makePackageContext, packagePricingSignature, type SavedPackageSnapshot } from "@/lib/pricing/curtain-package-rules";
 import { formatSGD } from "@/lib/money";
 import {
   computeQuote,
@@ -36,14 +38,18 @@ export function LiveQuote({
   curtainTypes,
   config,
   combos,
+  curtainPackages,
+  savedPackageSnapshot,
   persistedAddonIdsByWindow = {},
 }: {
   curtainTypes: CurtainTypeOption[];
   config: CalcConfig;
   combos: ActiveCombo[];
+  curtainPackages: CurtainPackageRow[];
+  savedPackageSnapshot?: SavedPackageSnapshot;
   persistedAddonIdsByWindow?: Record<string, string[]>;
 }) {
-  const { control } = useFormContext<OrderEditInput>();
+  const { control, setValue } = useFormContext<OrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
   const quotedCents =
     useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
@@ -53,6 +59,19 @@ export function LiveQuote({
   const extraInstallCents =
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
   const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
+  const packageId = useWatch({ control, name: "order.curtain_package_id" }) ?? "";
+  const packageTier = useWatch({ control, name: "order.curtain_package_tier" }) ?? "essential";
+  const singleLayer = useWatch({ control, name: "order.curtain_package_single_layer" }) ?? "night";
+  const selectedPackage = curtainPackages.find((item) => item.id === packageId);
+  const packageContext = useMemo(() => {
+    if (savedPackageSnapshot?.id === packageId && savedPackageSnapshot.rules) {
+      return { ...savedPackageSnapshot.rules, tier: packageTier, singleLayer };
+    }
+    return selectedPackage ? makePackageContext(selectedPackage, packageTier, singleLayer, config.curtainRates) : null;
+  }, [savedPackageSnapshot, packageId, packageTier, singleLayer, selectedPackage, config.curtainRates]);
+  useEffect(() => {
+    setValue("order.curtain_package_pricing_signature", packageContext ? packagePricingSignature(packageContext) : undefined);
+  }, [packageContext, setValue]);
 
   const priceById = useMemo(() => {
     const m = new Map<string, SeriesPrice>();
@@ -104,6 +123,7 @@ export function LiveQuote({
         if (w.variant === "blind") {
           return {
             ...where,
+            covering: "blind",
             widthCm,
             blindPrice: priceOf(w.blind_type_id || undefined),
             addons: addonsFor("blind"),
@@ -114,6 +134,7 @@ export function LiveQuote({
         const comboId = (w as { combo_id?: string }).combo_id;
         return {
           ...where,
+          covering: "curtain",
           widthCm,
           dayPrice: priceOf(w.day_curtain_type_id || undefined),
           nightPrice: priceOf(w.night_curtain_type_id || undefined),
@@ -130,6 +151,7 @@ export function LiveQuote({
       freightMode,
       extraInstallCents,
       discountBps,
+      packageContext,
     );
   }, [
     rooms,
@@ -140,6 +162,7 @@ export function LiveQuote({
     freightMode,
     extraInstallCents,
     discountBps,
+    packageContext,
   ]);
 
   const hasMeasurements = quote.saleSgdCents > 0;
@@ -205,7 +228,7 @@ export function LiveQuote({
           </div>
         ) : (
           <span className="text-xs text-slate-400">
-            Select priced curtains + widths to see the margin
+            {quote.pricingIssues?.length ? "Resolve package pricing below to see a quote" : "Select priced curtains + widths to see the margin"}
           </span>
         )}
       </div>
@@ -213,9 +236,25 @@ export function LiveQuote({
         <p className="mt-1.5 text-xs text-red-600">
           ⚠ Below the {pct(floorBps)}{" "}
           {channel === "carousell" ? "Carousell " : ""}
-          margin floor — review before quoting. Groupbuy{" "}
-          {formatSGD(groupbuyCents)} · {pct(groupbuyMarginBps)}.
+          margin floor — review before quoting.
+          {!packageContext && <> Groupbuy {formatSGD(groupbuyCents)} · {pct(groupbuyMarginBps)}.</>}
         </p>
+      )}
+      {!!quote.pricingIssues?.length && (
+        <div role="alert" className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+          <p className="font-semibold">Package pricing incomplete — final save is blocked</p>
+          <ul className="mt-1 list-disc pl-4">{quote.pricingIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+        </div>
+      )}
+      {quote.packageLines && !quote.pricingIssues?.length && (
+        <details className="mt-2 border-t pt-2 text-xs">
+          <summary className="cursor-pointer font-medium text-teal-700">Package selling-price breakdown</summary>
+          <dl className="mt-2 max-h-[35dvh] space-y-1 overflow-y-auto">
+            {quote.packageLines.map((line) => <div key={line.key} className="flex justify-between gap-4"><dt>{line.label}{line.quantity !== 1 ? ` × ${line.quantity}` : ""}</dt><dd className="whitespace-nowrap">{formatSGD(line.totalSgdCents)}</dd></div>)}
+            <div className="flex justify-between gap-4 border-t pt-1"><dt>Other items / operational extras</dt><dd>{formatSGD(quote.saleSgdCents - quote.packageLines.reduce((sum, line) => sum + line.totalSgdCents, 0))}</dd></div>
+            <div className="flex justify-between gap-4 font-semibold"><dt>Total before order discount</dt><dd>{formatSGD(quote.saleSgdCents)}</dd></div>
+          </dl>
+        </details>
       )}
 
       {hasMeasurements && (

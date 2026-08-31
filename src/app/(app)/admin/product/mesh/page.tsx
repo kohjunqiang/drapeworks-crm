@@ -20,9 +20,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Mesh — Drapeworks CRM" };
 
-export default async function MeshCataloguePage() {
-  await requireRole(["admin"]);
-
+export async function MeshPricingContent() {
   const [
     categories,
     colours,
@@ -76,7 +74,7 @@ export default async function MeshCataloguePage() {
               <li>
                 Mesh install cost is S$0. Set it in{" "}
                 <Link
-                  href="/admin/pricing-settings"
+                  href="/admin/pricing-settings/shared"
                   className="underline font-medium"
                 >
                   Pricing settings
@@ -102,4 +100,9 @@ export default async function MeshCataloguePage() {
       />
     </>
   );
+}
+
+export default async function MeshCataloguePage() {
+  await requireRole(["admin"]);
+  return <MeshPricingContent />;
 }

@@ -8,6 +8,8 @@ import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
 import { loadActivePromotions } from "@/lib/db/promotions";
+import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
+import { readPackageContext } from "@/lib/pricing/curtain-package-rules";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 import { db } from "@/lib/db/kysely";
 import {
@@ -65,6 +67,10 @@ export default async function EditOrderPage({
       "orders.extra_install_sgd_cents as extra_install_sgd_cents",
       "orders.discount_bps as discount_bps",
       "orders.promo_label as promo_label",
+      "orders.curtain_package_id as curtain_package_id",
+      "orders.curtain_package_tier as curtain_package_tier",
+      "orders.curtain_package_sale_sgd_cents as curtain_package_sale_sgd_cents",
+      "orders.curtain_package_rules as curtain_package_rules",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
@@ -231,6 +237,10 @@ export default async function EditOrderPage({
         extra_install_cents: order.extra_install_sgd_cents,
         discount_bps: order.discount_bps,
         promo_label: order.promo_label ?? undefined,
+        curtain_package_id: order.curtain_package_id ?? "",
+        curtain_package_single_layer: "night",
+        curtain_package_tier:
+          (order.curtain_package_tier as "essential" | "tier2" | null) ?? "essential",
       },
       rooms: rooms.map((r, rIdx) => ({
         id: r.id,
@@ -278,11 +288,12 @@ export default async function EditOrderPage({
     );
   }
 
-  const [curtainTypes, calcConfig, promotions, combos] = await Promise.all([
+  const [curtainTypes, calcConfig, promotions, combos, curtainPackages] = await Promise.all([
     loadActiveCurtainTypeOptions(),
     loadCalcConfig(),
     loadActivePromotions(),
     loadActiveCombos(),
+    loadCurtainPackages(),
   ]);
 
   const defaultValues: OrderEditInput = {
@@ -305,6 +316,10 @@ export default async function EditOrderPage({
       extra_install_cents: order.extra_install_sgd_cents,
       discount_bps: order.discount_bps,
       promo_label: order.promo_label ?? undefined,
+      curtain_package_id: order.curtain_package_id ?? "",
+      curtain_package_single_layer: readPackageContext(order.curtain_package_rules)?.singleLayer ?? "night",
+      curtain_package_tier:
+        (order.curtain_package_tier as "essential" | "tier2" | null) ?? "essential",
     },
     rooms: rooms.map((r, rIdx) => {
       const isToilet = isToiletRoom(r.type);
@@ -364,6 +379,20 @@ export default async function EditOrderPage({
         calcConfig={calcConfig}
         promotions={promotions}
         combos={combos}
+        curtainPackages={curtainPackages.filter(
+          (item) => item.isActive || (!order.is_draft && item.id === order.curtain_package_id),
+        )}
+        savedPackageSnapshot={
+          !order.is_draft && order.curtain_package_id && order.curtain_package_tier &&
+          order.curtain_package_sale_sgd_cents != null
+            ? {
+                id: order.curtain_package_id,
+                tier: order.curtain_package_tier as "essential" | "tier2",
+                saleSgdCents: order.curtain_package_sale_sgd_cents,
+                rules: readPackageContext(order.curtain_package_rules),
+              }
+            : undefined
+        }
         defaultValues={defaultValues}
         roomPhotos={roomPhotos}
         persistedAddonIdsByWindow={persistedAddonIdsByWindow}

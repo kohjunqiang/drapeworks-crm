@@ -137,6 +137,48 @@ describe("windowQuote", () => {
     expect(combo.offering).toBe(plain.offering);
   });
 
+  it("adds chargeable extras on top of a combo instead of making them free", () => {
+    const q = windowQuote(
+      {
+        widthCm: 300,
+        nightPrice: { costRmbCents: 2_000, saleSgdCents: 10_000 },
+        comboPriceSgdCents: 45_000,
+        addons: [
+          {
+            label: "Blackout",
+            costRmbCents: 500,
+            saleSgdCents: 5_000,
+            basis: "per_metre",
+          },
+        ],
+      },
+      ASSUMPTIONS,
+    );
+
+    expect(q.saleSgdCents).toBe(60_000); // S$450 package + 3m × S$50
+  });
+
+  it("does not charge a stale combo or flat add-on on an unmeasured window", () => {
+    const q = windowQuote(
+      {
+        widthCm: null,
+        nightPrice: { costRmbCents: 2_000, saleSgdCents: 10_000 },
+        comboPriceSgdCents: 45_000,
+        addons: [
+          {
+            label: "Layer",
+            costRmbCents: 500,
+            saleSgdCents: 5_000,
+            basis: "per_unit",
+          },
+        ],
+      },
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(0);
+    expect(q.costRmbCents).toBe(0);
+  });
+
   it("is zero for an unmeasured / unpriced window", () => {
     expect(
       windowQuote(
@@ -452,6 +494,17 @@ describe("computeQuote", () => {
     expect(q.marginBps).toBe(
       marginBps(q.netCostSgdCents, q.discountedSaleSgdCents),
     );
+  });
+
+  it("a curtain package replaces covering sale but keeps measured add-ons", () => {
+    const win = {
+      widthCm: 300,
+      dayPrice: SIGNATURE,
+      nightPrice: SIGNATURE,
+      addons: [S_FOLD],
+    };
+    const q = computeQuote([win], ASSUMPTIONS, "air", 0, 0, 76_800);
+    expect(q.saleSgdCents).toBe(76_800 + 24_000);
   });
 
   it("with no discount, discountedSale equals sale (unchanged behaviour)", () => {

@@ -27,6 +27,14 @@ export function QuoteCard({
   const belowFloor = realMarginBps < quote.minMarginBps;
   const hasDiscount = quote.discountBps > 0;
 
+  if (quote.pricingIssues?.length) return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      <h2 className="font-semibold">Package pricing needs attention</h2>
+      <ul className="mt-2 list-disc pl-4">{quote.pricingIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+      <p className="mt-2">The saved customer price has not changed. Resolve these items before re-quoting.</p>
+    </section>
+  );
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-4">
       <div className="flex items-center justify-between mb-3">
@@ -38,6 +46,15 @@ export function QuoteCard({
         </span>
       </div>
 
+      {quote.packageLines && (
+        <details className="mb-3 border-b pb-3 text-xs">
+          <summary className="cursor-pointer font-medium text-teal-700">Package selling-price breakdown</summary>
+          <dl className="mt-2 space-y-1">
+            {quote.packageLines.map((line) => <div key={line.key} className="flex justify-between gap-4"><dt>{line.label}{line.quantity !== 1 ? ` × ${line.quantity}` : ""}</dt><dd className="whitespace-nowrap">{formatSGD(line.totalSgdCents)}</dd></div>)}
+            <div className="flex justify-between gap-4 border-t pt-1"><dt>Other items / operational extras</dt><dd>{formatSGD(quote.saleSgdCents - quote.packageLines.reduce((sum, line) => sum + line.totalSgdCents, 0))}</dd></div>
+          </dl>
+        </details>
+      )}
       <dl className="space-y-1.5 text-sm">
         {hasDiscount && (
           <>
@@ -97,14 +114,14 @@ export function QuoteCard({
         </p>
       )}
 
-      <div className="mt-3 pt-3 border-t border-slate-100">
+      {!quote.packageLines && <div className="mt-3 pt-3 border-t border-slate-100">
         <div className="flex justify-between text-xs text-slate-500">
           <span>Groupbuy price</span>
           <span>
             {formatSGD(quote.groupbuySgdCents)} · {pct(quote.groupbuyMarginBps)}
           </span>
         </div>
-      </div>
+      </div>}
 
       <details className="mt-3">
         <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">

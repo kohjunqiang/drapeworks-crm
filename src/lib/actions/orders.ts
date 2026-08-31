@@ -21,7 +21,10 @@ import {
   type AddonRule,
 } from "@/lib/orders/window-addons";
 import { windowValues } from "@/lib/orders/window-values";
-import { computeOrderQuote } from "@/lib/pricing/order-quote";
+import { computeOrderQuote, loadCurtainRates } from "@/lib/pricing/order-quote";
+import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
+import { makePackageContext, packagePricingSignature, readPackageContext, resolveCurtainPackageQuote, type CurtainPackageContext } from "@/lib/pricing/curtain-package-rules";
+import { toCalcAddons } from "@/lib/orders/window-addons";
 import { isLocked } from "@/lib/status-flow";
 import { adminClient } from "@/lib/supabase/admin";
 import {
@@ -39,6 +42,78 @@ import {
   type OrderDraftInput,
   type OrderEditInput,
 } from "@/lib/validation/order";
+
+async function resolveCurtainPackage(order: {
+  curtain_package_id?: string;
+  curtain_package_tier?: "essential" | "tier2";
+  curtain_package_single_layer?: "day" | "night";
+  curtain_package_pricing_signature?: string;
+}, allowInactiveId?: string | null, savedRules?: unknown) {
+  if (!order.curtain_package_id) {
+    return { values: {
+        curtain_package_id: null, curtain_package_name: null,
+        curtain_package_type: null, curtain_package_tier: null,
+        curtain_package_sale_sgd_cents: null,
+        curtain_package_rules: null,
+      } as const, rules: null, inputSignature: order.curtain_package_pricing_signature };
+  }
+  const saved = readPackageContext(savedRules);
+  const item = (await loadCurtainPackages()).find((item) => item.id === order.curtain_package_id);
+  if (!item || (!item.isActive && item.id !== allowInactiveId)) {
+    throw new Error("Select an active curtain package");
+  }
+  const tier = order.curtain_package_tier ?? "essential";
+  const singleLayer = order.curtain_package_single_layer ?? "night";
+  const rules: CurtainPackageContext = saved?.id === item.id
+    ? { ...saved, tier, singleLayer }
+    : makePackageContext(item, tier, singleLayer, await loadCurtainRates());
+  if (tier === "tier2" && rules.tier2UpgradeCents == null) {
+    throw new Error("This package does not offer Tier 2");
+  }
+  return { values: {
+    curtain_package_id: item.id,
+    curtain_package_name: rules.name,
+    curtain_package_type: rules.packageType,
+    curtain_package_tier: tier,
+    curtain_package_sale_sgd_cents:
+      rules.baseCents + (tier === "tier2" ? rules.tier2UpgradeCents ?? 0 : 0),
+    curtain_package_rules: rules,
+    } as const, rules, inputSignature: order.curtain_package_pricing_signature };
+}
+
+async function validateCurtainPackageRooms(
+  resolved: Awaited<ReturnType<typeof resolveCurtainPackage>>,
+  rooms: OrderCreateInput["rooms"],
+  persistedByWindow: Map<string, string[]> = new Map(),
+): Promise<void> {
+  if (!resolved.rules) return;
+  if (resolved.inputSignature !== packagePricingSignature(resolved.rules)) {
+    throw new Error("Package prices changed or the preview is not ready. Refresh the consultation and review its price before saving.");
+  }
+  if (rooms.some((room) => room.windows.some((window) => window.variant === "blind" && !window.blind_type_id))) {
+    throw new Error("Select a blind type for every blind window before finalising a package order");
+  }
+  const ids = [...new Set(rooms.flatMap((room) => room.windows.flatMap((window) => window.variant === "regular" ? [window.day_curtain_type_id, window.night_curtain_type_id] : []).filter((id): id is string => !!id)))];
+  const [series, addons] = await Promise.all([
+    ids.length ? db.selectFrom("curtain_types as type").innerJoin("curtain_series as series", "series.id", "type.series_id")
+      .select(["type.id", "series.name", "series.cost_rmb_cents", "series.sale_sgd_cents"]).where("type.id", "in", ids).execute() : [],
+    loadAddonCatalogue(),
+  ]);
+  const price = (id?: string) => {
+    if (!id) return null;
+    const item = series.find((row) => row.id === id);
+    if (!item) throw new Error("Selected curtain series no longer exists");
+    return { label: item.name, costRmbCents: item.cost_rmb_cents, saleSgdCents: item.sale_sgd_cents };
+  };
+  const result = resolveCurtainPackageQuote(rooms.flatMap((room, roomIndex) => room.windows.map((window) => ({
+    roomIndex, roomLabel: room.label, covering: window.variant === "blind" ? "blind" as const : "curtain" as const,
+    widthCm: window.width_cm ?? null, dayPrice: window.variant === "regular" ? price(window.day_curtain_type_id) : null, nightPrice: window.variant === "regular" ? price(window.night_curtain_type_id) : null,
+    comboPriceSgdCents: window.variant === "regular" && window.combo_id ? 0 : null,
+    addons: toCalcAddons(resolveWindowAddons(window.variant === "blind" ? "blind" : "curtain", window.width_cm ?? null,
+      window.addon_ids ?? [], persistedByWindow.get((window as { id?: string }).id ?? "") ?? [], addons)),
+  }))), resolved.rules);
+  if (result.issues.length) throw new Error(result.issues.join("; "));
+}
 
 // The shared write-path obligations (quote baseline, photo sweep, order meta
 // columns, numbering placeholders) live in order-shared.ts so the curtain and
@@ -157,6 +232,8 @@ async function resolveOrderCustomer(
 export async function createOrder(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderCreateInput = orderCreateSchema.parse(input);
+  const packageSnapshot = await resolveCurtainPackage(parsed.order);
+  await validateCurtainPackageRooms(packageSnapshot, parsed.rooms);
   // Read once, outside the transaction: every window resolves against the same
   // catalogue, so one order cannot be half-quoted under an edit made mid-save.
   const addonCatalogue = await loadAddonCatalogue();
@@ -188,6 +265,7 @@ export async function createOrder(input: unknown): Promise<never> {
         extra_install_sgd_cents: parsed.order.extra_install_cents,
         discount_bps: parsed.order.discount_bps,
         promo_label: parsed.order.promo_label ?? null,
+        ...packageSnapshot.values,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: parsed.order.is_draft,
         // display_id / seq_year / seq_num populated by trigger
@@ -264,6 +342,22 @@ export async function updateOrder(
 
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderEditInput = orderEditSchema.parse(input);
+  const existingPackage = await db
+    .selectFrom("orders")
+    .select([
+      "curtain_package_id", "curtain_package_name", "curtain_package_type",
+      "curtain_package_tier", "curtain_package_sale_sgd_cents",
+      "curtain_package_rules",
+      "is_draft",
+    ])
+    .where("id", "=", orderId)
+    .executeTakeFirst();
+  const packageSnapshot = await resolveCurtainPackage(
+    parsed.order,
+    existingPackage?.is_draft ? null : existingPackage?.curtain_package_id,
+    existingPackage?.is_draft ? null : existingPackage?.curtain_package_rules,
+  );
+  const packageValues = packageSnapshot.values;
 
   const addonCatalogue = await loadAddonCatalogue();
   // What the join table holds RIGHT NOW, straight from the database. This — not
@@ -281,6 +375,7 @@ export async function updateOrder(
   );
 
   const orphanStoragePaths: string[] = [];
+  await validateCurtainPackageRooms(packageSnapshot, parsed.rooms, persistedByWindow);
 
   await db.transaction().execute(async (trx) => {
     const order = await trx
@@ -326,6 +421,7 @@ export async function updateOrder(
         extra_install_sgd_cents: parsed.order.extra_install_cents,
         discount_bps: parsed.order.discount_bps,
         promo_label: parsed.order.promo_label ?? null,
+        ...packageValues,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: parsed.order.is_draft,
       })
@@ -478,6 +574,7 @@ export async function requoteOrder(orderId: string): Promise<void> {
 
   const quote = await computeOrderQuote(orderId);
   if (!quote) throw new Error("Nothing priced to re-quote");
+  if (quote.pricingIssues?.length) throw new Error(quote.pricingIssues.join("; "));
 
   await db
     .updateTable("orders")
@@ -558,6 +655,7 @@ export async function deleteOrder(input: {
 export async function createOrderDraft(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderDraftInput = orderDraftSchema.parse(input);
+  const packageSnapshot = await resolveCurtainPackage(parsed.order);
   const addonCatalogue = await loadAddonCatalogue();
 
   const orderId = await db.transaction().execute(async (trx) => {
@@ -587,6 +685,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         extra_install_sgd_cents: parsed.order.extra_install_cents,
         discount_bps: parsed.order.discount_bps,
         promo_label: parsed.order.promo_label ?? null,
+        ...packageSnapshot.values,
         general_notes: parsed.order.general_notes ?? null,
         is_draft: true,
         seq_year: 0,

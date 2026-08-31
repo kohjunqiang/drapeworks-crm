@@ -36,7 +36,7 @@ export async function stampQuoteBaseline(orderId: string): Promise<void> {
   await db
     .updateTable("orders")
     .set({
-      price_calc_at_quote_cents: quote ? quote.discountedSaleSgdCents : null,
+      price_calc_at_quote_cents: quote && !quote.pricingIssues?.length ? quote.discountedSaleSgdCents : null,
     })
     .where("id", "=", orderId)
     .execute();

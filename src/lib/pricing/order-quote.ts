@@ -23,6 +23,7 @@ import type { MeshDraw } from "@/lib/validation/mesh";
 
 import { quoteStaleness } from "./quote-staleness";
 import { computeStaleFlags } from "./stale-flags";
+import { CURTAIN_RATE_KEYS, readPackageContext, type CurtainRates } from "./curtain-package-rules";
 
 export type OrderQuote = QuoteResult & {
   minMarginBps: number; // for the "below floor?" warning
@@ -35,6 +36,7 @@ export type OrderQuote = QuoteResult & {
 };
 
 export type CalcConfig = {
+  curtainRates: CurtainRates;
   assumptions: CalcAssumptions;
   /**
    * Every add-on row, unfiltered. The form's resolver decides what to show —
@@ -83,17 +85,19 @@ function assumptionsRowToCalc(r: {
 // Assumptions + add-on prices for the consultation form's live quote. Plain
 // serialisable objects so they cross the server→client boundary as props.
 export async function loadCalcConfig(): Promise<CalcConfig | null> {
-  const [assumptionsRow, addonCatalogue] = await Promise.all([
+  const [assumptionsRow, addonCatalogue, rates] = await Promise.all([
     db
       .selectFrom("pricing_assumptions")
       .selectAll()
       .where("singleton", "=", true)
       .executeTakeFirst(),
     loadAddonCatalogue(),
+    loadCurtainRates(),
   ]);
   if (!assumptionsRow) return null;
 
   return {
+    curtainRates: rates,
     assumptions: assumptionsRowToCalc(assumptionsRow),
     // The rail is not in here: it is one cost-per-metre on the assumptions row,
     // not an add-on with a sale price and a basis. See CalcAssumptions.
@@ -101,6 +105,11 @@ export async function loadCalcConfig(): Promise<CalcConfig | null> {
     minMarginBps: assumptionsRow.min_margin_bps,
     minMarginCarousellBps: assumptionsRow.min_margin_carousell_bps,
   };
+}
+
+export async function loadCurtainRates(): Promise<CurtainRates> {
+  const row = await db.selectFrom("curtain_pricing_adjustments").selectAll().where("singleton", "=", true).executeTakeFirst();
+  return Object.fromEntries(CURTAIN_RATE_KEYS.map((key) => [key, row?.[`${key}_cents`] ?? null])) as CurtainRates;
 }
 
 // ── mesh ─────────────────────────────────────────────────────────────────
@@ -329,6 +338,7 @@ const rowToMeshPanel = (p: MeshPanelRow): MeshPanel => ({
 // series prices + combo price) that both the single-order quote and the
 // batched staleness sweep select and map into a `CalcWindow`.
 type WindowPriceRow = {
+  blind_type_id: string | null;
   /** Needed to look this window's add-ons up. */
   id: string;
   // Room identity, for the cost breakdown's room -> window tree. Position (not
@@ -376,9 +386,10 @@ function rowToCalcWindow(
 
   // A blind occupies the window instead of curtains: no day/night leg and no
   // combo. It DOES carry add-ons — that is new in Phase 14.
-  if (w.blind_sale != null || w.blind_cost != null) {
+  if (w.blind_type_id != null) {
     return {
       ...where,
+      covering: "blind",
       widthCm: w.width_cm,
       costWidthCm: w.mfg_width_cm,
       blindPrice: {
@@ -392,7 +403,7 @@ function rowToCalcWindow(
   }
 
   const dayPrice =
-    w.day_sale != null || w.day_cost != null
+    w.day_series != null
       ? {
           costRmbCents: w.day_cost,
           saleSgdCents: w.day_sale,
@@ -400,7 +411,7 @@ function rowToCalcWindow(
         }
       : null;
   const nightPrice =
-    w.night_sale != null || w.night_cost != null
+    w.night_series != null
       ? {
           costRmbCents: w.night_cost,
           saleSgdCents: w.night_sale,
@@ -435,6 +446,8 @@ export async function computeOrderQuote(
         "discount_bps",
         "promo_label",
         "price_calc_at_quote_cents",
+        "curtain_package_sale_sgd_cents",
+        "curtain_package_rules",
       ])
       .where("id", "=", orderId)
       .executeTakeFirst(),
@@ -458,6 +471,7 @@ export async function computeOrderQuote(
       .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
       .select([
         "windows.id as id",
+        "windows.blind_type_id as blind_type_id",
         "rooms.label as room_label",
         "rooms.position as room_position",
         "windows.width_cm as width_cm",
@@ -539,9 +553,10 @@ export async function computeOrderQuote(
           order?.freight_mode ?? "air",
           order?.extra_install_sgd_cents ?? 0,
           order?.discount_bps ?? 0,
+          readPackageContext(order?.curtain_package_rules) ?? order?.curtain_package_sale_sgd_cents ?? null,
         );
   // Nothing priced yet → not worth showing a $0 quote.
-  if (result.saleSgdCents === 0 && result.cogsRmbCents === 0) return null;
+  if (result.saleSgdCents === 0 && result.cogsRmbCents === 0 && !result.pricingIssues?.length) return null;
 
   // Carousell orders use the lower margin floor.
   const minMarginBps =
@@ -585,6 +600,8 @@ export async function orderStaleFlags(
           "extra_install_sgd_cents",
           "discount_bps",
           "price_calc_at_quote_cents",
+          "curtain_package_sale_sgd_cents",
+          "curtain_package_rules",
         ])
         .where("id", "in", orderIds)
         .execute(),
@@ -614,6 +631,7 @@ export async function orderStaleFlags(
         .select([
           "rooms.order_id as order_id",
           "windows.id as id",
+          "windows.blind_type_id as blind_type_id",
           "rooms.label as room_label",
           "rooms.position as room_position",
           "windows.width_cm as width_cm",

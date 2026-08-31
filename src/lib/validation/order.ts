@@ -192,6 +192,10 @@ export const orderMetaSchema = z.object({
     .max(120)
     .optional()
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
+  curtain_package_id: z.string().uuid().optional().or(z.literal("")).transform((v) => v || undefined),
+  curtain_package_tier: z.enum(["essential", "tier2"]).default("essential"),
+  curtain_package_single_layer: z.enum(["day", "night"]).default("night"),
+  curtain_package_pricing_signature: z.string().max(10000).optional(),
 });
 
 // Phase 15 — set when the consultation was started from a booked appointment

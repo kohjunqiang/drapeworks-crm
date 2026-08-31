@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { AppSelect, FormSelect } from "@/components/ui/app-select";
 import type { ActivePromotion } from "@/lib/db/promotions";
+import type { CurtainPackageRow } from "@/lib/db/product-pricing-settings";
 
 import type { ConsultationShellShape } from "./form-shapes";
 
@@ -138,8 +139,12 @@ function PromotionControl({ promotions }: { promotions: ActivePromotion[] }) {
 
 export function PricingSection({
   promotions = [],
+  curtainPackages = [],
+  savedPackageSnapshot,
 }: {
   promotions?: ActivePromotion[];
+  curtainPackages?: CurtainPackageRow[];
+  savedPackageSnapshot?: import("@/lib/pricing/curtain-package-rules").SavedPackageSnapshot;
 }) {
   const { control, register, setValue } =
     useFormContext<ConsultationShellShape>();
@@ -150,6 +155,27 @@ export function PricingSection({
   const extraInstallCents =
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
   const balanceCents = Math.max(quotedCents - depositCents, 0);
+  const packageId = useWatch({ control, name: "order.curtain_package_id" }) ?? "";
+  const packageTier = useWatch({ control, name: "order.curtain_package_tier" }) ?? "essential";
+  const currentPackage = curtainPackages.find((item) => item.id === packageId);
+  const savedRules = savedPackageSnapshot?.id === packageId ? savedPackageSnapshot.rules : null;
+  const selectedPackage = useMemo(() => currentPackage && savedRules ? {
+    ...currentPackage, name: savedRules.name, packageType: savedRules.packageType,
+    roomSetCount: savedRules.roomSetCount, priceSgd: (savedRules.baseCents / 100).toFixed(2),
+    tier2UpgradeSgd: savedRules.tier2UpgradeCents == null ? "" : (savedRules.tier2UpgradeCents / 100).toFixed(2),
+  } : currentPackage, [currentPackage, savedRules]);
+
+  // A Tier 2 value can otherwise remain hidden in react-hook-form after the
+  // consultant switches to an Essential-only package. Keep what is submitted
+  // aligned with what the form actually shows.
+  useEffect(() => {
+    if ((!selectedPackage || !selectedPackage.tier2UpgradeSgd) && packageTier !== "essential") {
+      setValue("order.curtain_package_tier", "essential", {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  }, [packageTier, selectedPackage, setValue]);
 
   const setCents = (
     field:
@@ -164,6 +190,62 @@ export function PricingSection({
       <h2 className="text-base font-semibold text-slate-900 mb-4">
         Pricing &amp; payment
       </h2>
+      {curtainPackages.length > 0 && (
+        <div className="mb-4 grid grid-cols-1 gap-3 rounded-md border border-teal-100 bg-teal-50/40 p-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Curtain package</label>
+            <FormSelect
+              control={control}
+              name="order.curtain_package_id"
+              options={curtainPackages.map((item) => ({
+                value: item.id,
+                label: `${item.name} · ${item.packageType} · S$${item.priceSgd}`,
+              }))}
+              placeholder="No package — use item pricing"
+            />
+          </div>
+          {selectedPackage?.packageType === "single" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Included single layer</label>
+              <FormSelect control={control} name="order.curtain_package_single_layer" options={[
+                { value: "day", label: "Day curtain included" },
+                { value: "night", label: "Night curtain included" },
+              ]} />
+              <p className="mt-1 text-xs text-slate-500">Select what the base package includes. Adding the other layer or removing this layer uses the configured room rate.</p>
+            </div>
+          )}
+          {selectedPackage && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Package tier</label>
+              <FormSelect
+                control={control}
+                name="order.curtain_package_tier"
+                options={[
+                  { value: "essential", label: `Essential · S$${selectedPackage.priceSgd}` },
+                  ...(selectedPackage.tier2UpgradeSgd
+                    ? [{
+                        value: "tier2",
+                        label: `Tier 2 (P/L/S) · S$${(
+                          Number(selectedPackage.priceSgd) + Number(selectedPackage.tier2UpgradeSgd)
+                        ).toFixed(2)}`,
+                      }]
+                    : []),
+                ]}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                {selectedPackage.roomSetCount} room sets · {selectedPackage.packageType} curtain
+              </p>
+              <p className="mt-1 text-xs text-slate-500">Room selections determine upgrades and credits. Essential/Signature day curtains are included; Zen adds its room-width rate. Night series names determine Essential, Tier 2 (P/L/S), or Ultimate.</p>
+              {savedPackageSnapshot?.id === packageId &&
+                savedPackageSnapshot.tier === packageTier && (
+                  <p className="mt-1 text-xs font-medium text-teal-700">
+                    Saved package rates are in use. Room changes recalculate against these rates, not today&apos;s settings.
+                  </p>
+                )}
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">

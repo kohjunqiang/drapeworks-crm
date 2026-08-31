@@ -24,6 +24,7 @@ import {
 import type { CalcConfig } from "@/lib/pricing/order-quote";
 import type { ActivePromotion } from "@/lib/db/promotions";
 import type { ActiveCombo } from "@/lib/db/combos";
+import type { CurtainPackageRow } from "@/lib/db/product-pricing-settings";
 
 import { CustomerSection } from "./customer-section";
 import { LiveQuote } from "./live-quote";
@@ -54,6 +55,8 @@ type Props = {
   calcConfig?: CalcConfig | null;
   promotions?: ActivePromotion[];
   combos?: ActiveCombo[];
+  curtainPackages?: CurtainPackageRow[];
+  savedPackageSnapshot?: import("@/lib/pricing/curtain-package-rules").SavedPackageSnapshot;
   orderId?: string;
   defaultValues?: OrderEditInput;
   /**
@@ -113,6 +116,9 @@ const EMPTY_DEFAULTS: OrderEditInput = {
     extra_install_cents: 0,
     discount_bps: 0,
     promo_label: undefined,
+    curtain_package_id: "",
+    curtain_package_tier: "essential",
+    curtain_package_single_layer: "night",
   },
   rooms: [
     {
@@ -151,6 +157,8 @@ export function ConsultationForm({
   calcConfig,
   promotions = [],
   combos = [],
+  curtainPackages = [],
+  savedPackageSnapshot,
   orderId,
   defaultValues,
   appointment,
@@ -296,13 +304,15 @@ export function ConsultationForm({
     <FormProvider {...form}>
       <form onSubmit={onSubmit}>
         <CustomerSection />
-        <PricingSection promotions={promotions} />
+        <PricingSection promotions={promotions} curtainPackages={curtainPackages} savedPackageSnapshot={savedPackageSnapshot} />
 
         {calcConfig && (
           <LiveQuote
             curtainTypes={curtainTypes}
             config={calcConfig}
             combos={combos}
+            curtainPackages={curtainPackages}
+            savedPackageSnapshot={savedPackageSnapshot}
             persistedAddonIdsByWindow={persistedAddonIdsByWindow}
           />
         )}

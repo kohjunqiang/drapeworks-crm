@@ -682,5 +682,6 @@ export async function setOrderReference(input: unknown): Promise<void> {
   }
 
   revalidatePath(`/orders/${parsed.orderId}`);
+  revalidatePath(`/orders/${parsed.orderId}/manufacture`);
   revalidatePath("/orders");
 }

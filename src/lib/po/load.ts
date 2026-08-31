@@ -16,6 +16,7 @@ import "server-only";
 import { db } from "@/lib/db/kysely";
 import type { RoomType } from "@/lib/db/schema";
 import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
+import { customerReference } from "./customer-reference";
 
 import {
   procurementLabel,
@@ -37,26 +38,6 @@ function locate(roomLabel: string, position: number): string {
   return `${roomLabel} Window ${position + 1}`;
 }
 
-/**
- * CUST REF — who the order is for, in the words the business already uses.
- *
- * The sample prints `Omar Tampines 957B 08-146`: a customer, a development, a
- * unit. We hold the first three; the trailing figure on the sample is off-system.
- * Composed from what we have rather than left blank, because this is the line a
- * vendor quotes back when they ring about a document — and unlike every Chinese
- * cell on the page, it is OURS to write.
- */
-function custRefOf(order: {
-  customer_name: string;
-  development: string | null;
-  unit_type: string | null;
-}): string | null {
-  const parts = [order.customer_name, order.development, order.unit_type]
-    .map((p) => p?.trim())
-    .filter((p): p is string => !!p);
-  return parts.length > 0 ? parts.join(" ") : null;
-}
-
 export async function loadPoInput(
   orderId: string,
   generatedAt: Date,
@@ -66,6 +47,7 @@ export async function loadPoInput(
     .innerJoin("customers", "customers.id", "orders.customer_id")
     .select([
       "orders.order_reference as order_reference",
+      "orders.po_customer_reference as po_customer_reference",
       "orders.current_status as current_status",
       "orders.freight_mode as freight_mode",
       "orders.product_line as product_line",
@@ -93,7 +75,7 @@ export async function loadPoInput(
   const poNumber = order.order_reference?.trim() ?? "";
   if (!poNumber) {
     problems.push(
-      "This order has no order reference, and the reference IS the PO number. Set one on the order before generating.",
+      "This order has no PO number. Enter and save a PO number above before generating.",
     );
   }
 
@@ -237,7 +219,7 @@ export async function loadPoInput(
         floorClearanceCm: settings.floor_clearance_cm,
       },
       poNumber,
-      custRef: custRefOf(order),
+      custRef: customerReference(order),
       generatedAt,
       freightMode: order.freight_mode,
       // The current 收货地址. Null is not a refusal: the block is air-only and

@@ -720,6 +720,7 @@ export interface MeshSystems {
 }
 
 export interface Orders {
+  po_customer_reference: string | null;
   appointment_id: string | null;
   balance_cents: Generated<number | null>;
   channel: Generated<SalesChannel>;

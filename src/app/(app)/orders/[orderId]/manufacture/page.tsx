@@ -12,6 +12,9 @@ import {
 } from "@/components/manufacture/frozen-measurements";
 import { PoList, type PoListItem } from "@/components/manufacture/po-list";
 import { ShipsToSelect } from "@/components/manufacture/ships-to-select";
+import { CustomerReferenceInput } from "@/components/manufacture/customer-reference-input";
+import { PoNumberInput } from "@/components/manufacture/po-number-input";
+import { customerReference } from "@/lib/po/customer-reference";
 import { TrackOrderCard } from "@/components/manufacture/track-order-card";
 import {
   Reconciliation,
@@ -118,6 +121,9 @@ export default async function ManufacturePage({
       "orders.id as id",
       "orders.display_id as display_id",
       "orders.order_reference as order_reference",
+      "orders.po_customer_reference as po_customer_reference",
+      "orders.development as development",
+      "orders.unit_type as unit_type",
       "orders.current_status as current_status",
       "orders.freight_mode as freight_mode",
       "orders.delivery_vendor_id as delivery_vendor_id",
@@ -141,6 +147,16 @@ export default async function ManufacturePage({
 
   return (
     <Shell order={order}>
+      <PoNumberInput
+        key={`${order.id}:${order.order_reference ?? ""}`}
+        orderId={order.id}
+        initialValue={order.order_reference}
+      />
+      <CustomerReferenceInput
+        key={`${order.id}:${order.po_customer_reference ?? ""}`}
+        orderId={order.id}
+        initialValue={customerReference(order) ?? ""}
+      />
       {/* Above both views: the address has to be right BEFORE the documents
           are generated, and changeable after, since a forwarder can fall over
           while an order is in production. */}

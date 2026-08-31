@@ -5,18 +5,18 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
-import { generateOrderReference } from "@/lib/orders/reference";
 import { buildPos } from "@/lib/po/build";
 import { loadPoInput } from "@/lib/po/load";
 import { renderPo } from "@/lib/po/render";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   deliveryVendorSchema,
+  poCustomerReferenceSchema,
   poOpeningLabelSchema,
   poTypeLabelSchema,
   procurementSettingsSchema,
@@ -42,6 +42,29 @@ function parseOrThrow<T>(
 }
 
 const PROCUREMENT_PATH = "/admin/procurement";
+
+/** Document metadata may be corrected even after manufacturing is locked. */
+export async function savePoCustomerReference(
+  orderId: unknown,
+  reference: unknown,
+): Promise<void> {
+  await requireRole(["ops", "admin"]);
+  const id = parseOrThrow(orderIdSchema, orderId, "That is not a valid order.");
+  const value = parseOrThrow(poCustomerReferenceSchema, reference, "Invalid customer reference.");
+  try {
+    const result = await db.updateTable("orders")
+      .set({ po_customer_reference: value })
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (Number(result.numUpdatedRows) === 0) {
+      throw new AuthoredError("That order no longer exists.");
+    }
+  } catch (e) {
+    if (e instanceof AuthoredError) throw new Error(e.message);
+    throw new Error(userMessage(e, "Could not save the customer reference."));
+  }
+  revalidatePath(`/orders/${id}/manufacture`);
+}
 
 /**
  * The singleton company + delivery row.
@@ -427,55 +450,6 @@ function poFileName(poNumber: string, vendorName: string | null): string {
  * vendor may already be cutting fabric from one, and "what did we actually send,
  * and when" is the only way to settle an argument about a wrong dimension.
  */
-/**
- * Make sure the order has a reference, minting one if it does not.
- *
- * The reference IS the PO number, so generation used to refuse without one —
- * which asked a human to invent an identifier the system is perfectly capable
- * of inventing itself. It stays editable afterwards: a minted reference is a
- * default, not a decision, and the business overwrites it whenever it has its
- * own numbering.
- *
- * Writing it is allowed even though the order is locked by then: order_reference
- * is on the lock trigger's allow-list precisely because it is paperwork rather
- * than a manufacturing input.
- */
-async function ensureOrderReference(orderId: string): Promise<string> {
-  const existing = await db
-    .selectFrom("orders")
-    .select("order_reference")
-    .where("id", "=", orderId)
-    .executeTakeFirst();
-  if (!existing) throw new AuthoredError("That order no longer exists.");
-
-  const current = existing.order_reference?.trim() ?? "";
-  if (current) return current;
-
-  // The partial unique index is the authority, not the odds. 32^8 makes a
-  // collision vanishingly unlikely, but retrying costs nothing and turns
-  // "vanishingly unlikely" into "handled".
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const candidate = generateOrderReference((max) => randomInt(max));
-    try {
-      await db
-        .updateTable("orders")
-        .set({ order_reference: candidate })
-        .where("id", "=", orderId)
-        .execute();
-      return candidate;
-    } catch (e) {
-      // 23505 = unique_violation on orders_order_reference_key. Anything else
-      // is not a collision and must not be retried.
-      const code =
-        typeof e === "object" && e !== null && "code" in e ? e.code : null;
-      if (code !== "23505") throw e;
-    }
-  }
-  throw new AuthoredError(
-    "Could not allocate an order reference. Set one by hand on the order.",
-  );
-}
-
 export async function generateOrderPos(
   orderId: string,
 ): Promise<{ count: number }> {
@@ -491,10 +465,8 @@ export async function generateOrderPos(
   // are all the same instant.
   const generatedAt = new Date();
 
-  // Before loading: the loader refuses without a reference, and there is no
-  // reason to make a person type one we can mint.
-  await ensureOrderReference(parsedId);
-
+  // PO numbering is manual for now. The loader rejects an unset number rather
+  // than silently allocating a random reference.
   const loaded = await loadPoInput(parsedId, generatedAt);
   if (!loaded.input) throw new Error(refusal(loaded.problems));
 

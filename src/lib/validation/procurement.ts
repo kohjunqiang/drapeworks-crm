@@ -34,6 +34,8 @@ function optionalText(max: number, field: string) {
 }
 
 /** A field the document cannot print around. */
+export const poCustomerReferenceSchema = optionalText(500, "Customer reference");
+
 function requiredText(max: number, field: string) {
   return z
     .string({ error: `${field} is required.` })

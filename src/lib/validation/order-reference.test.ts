@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import { orderReferenceSchema } from "./order";
 
 describe("orderReferenceSchema", () => {
+  it("preserves manually entered running numbers, including leading zeroes", () => {
+    expect(orderReferenceSchema.parse({
+      orderId: "550e8400-e29b-41d4-a716-446655440000",
+      reference: "0010041",
+    }).reference).toBe("0010041");
+  });
   it("trims surrounding whitespace", () => {
     const parsed = orderReferenceSchema.parse({
       orderId: "550e8400-e29b-41d4-a716-446655440000",

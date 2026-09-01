@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { parseLeadSort, sortLeadRows } from "@/lib/leads/workspace-sort";
 import { LeadFilterToolbar } from "@/components/leads/filter-toolbar";
-import { ACTION_FILTERS, DUE_FILTERS, validFilterDate } from "@/lib/leads/workspace-filters";
+import { ACTION_FILTERS, DUE_FILTERS, selectedFilterValues, validFilterDate } from "@/lib/leads/workspace-filters";
 import { deriveActionRequired, deriveDueStatus } from "@/lib/leads/funnel-engine";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 import { sql } from "kysely";
@@ -35,7 +35,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   if (p.owner === "unassigned") q = q.where("assigned_consultant_id", "is", null).where("owner_id", "is", null);
   else if (filterOwners.some(person => person.id === p.owner)) q = q.where(sql<string>`coalesce(leads.assigned_consultant_id, leads.owner_id)`, "=", p.owner!);
   if (p.q?.trim()) q = q.where(eb => eb.or([eb("name", "ilike", `%${p.q}%`), eb("mobile", "ilike", `%${p.q}%`), eb("development", "ilike", `%${p.q}%`), eb("lead_ref", "ilike", `%${p.q}%`)]));
-  if (FUNNEL_STAGES.includes(p.stage as never)) q = q.where("funnel_stage", "=", p.stage as never);
+  const selectedStages = selectedFilterValues(p.stage, FUNNEL_STAGES);
+  if (selectedStages.length) q = q.where("funnel_stage", "in", selectedStages as (typeof FUNNEL_STAGES)[number][]);
   if (LEAD_STATUSES.includes(p.status as never)) q = q.where("lead_status", "=", p.status as never);
   if (CONTACT_CHANNELS.includes(p.channel as never)) q = q.where("contact_channel", "=", p.channel as never);
   if (LEAD_SOURCES.includes(p.source as never)) q = q.where("source", "=", p.source as never);

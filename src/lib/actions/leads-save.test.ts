@@ -27,6 +27,10 @@ const log = () => ({ lead_id: id, expected_updated_at: version,
   funnel_stage: "Qualify Lead", last_outcome: "Customer Replied",
   direction: "Outbound", interaction_type: "Note", quote_valid_days: 7,
 });
+const savedInteraction = { table: "lead_interactions", values: {
+  lead_id: id, occurred_at: expect.any(Date), direction: null,
+  interaction_type: "Note", note: "Lead details saved", created_by: owner,
+} };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,7 +84,7 @@ describe("Versioned lead saves", () => {
   it("audits stage changes and resets dismissed recommendations", async () => {
     await quickEditLead({ ...edit(), funnel_stage: "Book Appointment" });
     expect(mocks.set.mock.calls[0][0]).toHaveProperty("dismissed_recommendations");
-    expect(mocks.inserts).toEqual([{ table: "lead_stage_events", values: {
+    expect(mocks.inserts).toEqual([savedInteraction, { table: "lead_stage_events", values: {
       lead_id: id, from_stage: "Qualify Lead", to_stage: "Book Appointment",
       changed_at: expect.any(Date), changed_by: owner, source: "user",
     } }]);
@@ -88,14 +92,14 @@ describe("Versioned lead saves", () => {
 
   it("does not create a stage event or invalidate recommendations for unchanged workflow fields", async () => {
     await quickEditLead(edit());
-    expect(mocks.inserts).toEqual([]);
+    expect(mocks.inserts).toEqual([savedInteraction]);
     expect(mocks.set.mock.calls[0][0]).not.toHaveProperty("dismissed_recommendations");
   });
 
   it("invalidates move-in recommendations without recording a stage change", async () => {
     await quickEditLead({ ...edit(), move_in_date: "2026-10-01" });
     expect(mocks.set.mock.calls[0][0]).toHaveProperty("dismissed_recommendations");
-    expect(mocks.inserts).toEqual([]);
+    expect(mocks.inserts).toEqual([savedInteraction]);
   });
 
   it("preserves omitted optional fields and explicitly clears empty optional values", async () => {
@@ -110,6 +114,11 @@ describe("Versioned lead saves", () => {
   it("preserves newlines and historical product values through validation and persistence", async () => {
     await quickEditLead({ ...edit(), action_detail: "First line\nSecond line", latest_quote_note: "Curtain\nMesh" });
     expect(mocks.set.mock.calls[0][0]).toMatchObject({ action_detail: "First line\nSecond line", latest_quote_note: "Curtain\nMesh", primary_product: "Both" });
+  });
+
+  it("automatically logs every full lead save as a non-contact note", async () => {
+    await quickEditLead(edit());
+    expect(mocks.inserts).toEqual([savedInteraction]);
   });
 
   it("normalizes a customer reply into an inbound interaction", async () => {

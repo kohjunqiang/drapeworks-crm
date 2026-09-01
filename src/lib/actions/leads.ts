@@ -159,6 +159,10 @@ export async function quickEditLead(input: unknown): Promise<void> {
     .where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${p.expected_updated_at}`)
     .returning("id").executeTakeFirst();
   if (!row) throw new Error("This lead changed since you opened it. Close and reopen it before saving.");
+  await trx.insertInto("lead_interactions").values({
+    lead_id: p.id, occurred_at: new Date(), direction: null,
+    interaction_type: "Note", note: "Lead details saved", created_by: session.user.id,
+  }).execute();
   if (before.funnel_stage !== p.funnel_stage) {
     await trx.insertInto("lead_stage_events").values({
       lead_id: p.id, from_stage: before.funnel_stage, to_stage: p.funnel_stage,

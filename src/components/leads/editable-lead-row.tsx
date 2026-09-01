@@ -2,7 +2,6 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { toast } from "sonner";
 
 import { QuickEditLead } from "@/components/leads/phase16-forms";
@@ -24,7 +23,7 @@ export function EditableLeadRow({ lead, consultants, variant, ownerName, actionL
   lead: LeadRow; consultants: { id: string; full_name: string | null }[]; variant: "work" | "all";
   ownerName: string; actionLabel?: string; moveInDisplay?: string; lastContactText?: string; dueLabel?: string;
 }) {
-  const actions = <div className="flex items-center justify-end gap-1.5">{lead.funnel_stage === "Attend Appointment" && <Link href={`/leads/${lead.id}`} className="inline-flex h-8 items-center justify-center rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-xs font-medium text-teal-700 hover:bg-teal-100">Appointment</Link>}<QuickEditLead lead={lead} consultants={consultants} trigger="edit"/><DeleteLeadButton leadId={lead.id} leadName={lead.name}/></div>;
+  const actions = <div className="flex items-center justify-end gap-1.5"><QuickEditLead lead={lead} consultants={consultants} trigger="edit"/><DeleteLeadButton leadId={lead.id} leadName={lead.name}/></div>;
   return variant === "work" ? <tr className="border-b last:border-b-0 hover:bg-slate-50/70"><td className="px-2 py-3"><QuickEditLead lead={lead} consultants={consultants} trigger="name"/><div className="text-xs text-slate-500">{lead.lead_ref}</div></td><td className="px-2 py-3 font-medium">{actionLabel}</td><td className="px-2 py-3"><FunnelStagePill stage={lead.funnel_stage}/></td><td className="max-w-64 p-3 text-slate-600">{lead.action_detail ?? "—"}</td><td className="px-2 py-3">{lead.next_action_date_text ?? "—"}</td><td className="px-2 py-3">{moveInDisplay ?? "—"}</td><td className="px-2 py-3">{lead.latest_quote_cents ? `$${(lead.latest_quote_cents / 100).toLocaleString("en-SG", { minimumFractionDigits: 2 })}` : "—"}</td><td className="px-2 py-3">{lastContactText ?? "—"}</td><td className="px-2 py-3">{ownerName}</td><td className="px-2 py-3">{actions}</td></tr>
     : <tr className="border-b last:border-b-0 hover:bg-slate-50/70">
       <td className="px-2 py-2"><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></td>

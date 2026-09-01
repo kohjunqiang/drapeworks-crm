@@ -20,11 +20,15 @@ export const FILTER_DATES = [
   { key: "next", label: "Next Action Date" },
 ] as const;
 export const validFilterDate = (value: string | undefined): value is string => !!value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+export function selectedFilterValues(value: string | undefined, allowed: readonly string[]) {
+  if (!value) return [];
+  return [...new Set(value.split(",").map(item => item.trim()).filter(item => allowed.includes(item)))];
+}
 export function selectedFilters(params: Record<string, string | undefined>, owners: { id: string; full_name: string | null }[]) {
   const selected: { key: string; label: string }[] = [];
   for (const field of FILTER_SELECTS) {
-    const value = params[field.key];
-    if (value && (field.values as readonly string[]).includes(value)) selected.push({ key: field.key, label: `${field.label}: ${value}` });
+    const values = selectedFilterValues(params[field.key], field.values as readonly string[]);
+    if (values.length) selected.push({ key: field.key, label: `${field.label}: ${values.join(", ")}` });
   }
   for (const field of FILTER_DATES) for (const bound of ["from", "to"]) {
     const key = `${field.key}_${bound}`;
@@ -53,8 +57,9 @@ export function columnFilterPills(params: Record<string, string | undefined>, ow
   const pills = columns.map(([key, label]) => {
     const matches = selected.filter(item => item.key === key || item.key === `${key}_from` || item.key === `${key}_to`);
     const range = FILTER_DATES.some(field => field.key === key);
-    const value = range && matches.length ? `${validFilterDate(params[`${key}_from`]) ? params[`${key}_from`] : "Any"} – ${validFilterDate(params[`${key}_to`]) ? params[`${key}_to`] : "Any"}` : matches.length ? params[key]! : "All";
-    return { key, label, value: key === "stage" && view === "work" ? `${value} except Lost, Not Qualified` : value, keys: matches.map(item => item.key), preset: key === "stage" && view === "work" };
+    const value = range && matches.length ? `${validFilterDate(params[`${key}_from`]) ? params[`${key}_from`] : "Any"} – ${validFilterDate(params[`${key}_to`]) ? params[`${key}_to`] : "Any"}` : matches.length ? selectedFilterValues(params[key], FILTER_SELECTS.find(field => field.key === key)?.values ?? []).join(", ") : "All";
+    const stagePreset = key === "stage" && view === "work" && !matches.length;
+    return { key, label, value: stagePreset ? "All except Lost, Not Qualified" : value, keys: matches.map(item => item.key), preset: stagePreset };
   });
   for (const item of selected.filter(item => !pills.some(pill => pill.keys.includes(item.key)))) {
     const [label, ...value] = item.label.split(": ");

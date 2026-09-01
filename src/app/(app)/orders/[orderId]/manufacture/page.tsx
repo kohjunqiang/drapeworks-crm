@@ -16,6 +16,7 @@ import { CustomerReferenceInput } from "@/components/manufacture/customer-refere
 import { PoNumberInput } from "@/components/manufacture/po-number-input";
 import { SendToVendorButton } from "@/components/manufacture/send-to-vendor-button";
 import { customerReference } from "@/lib/po/customer-reference";
+import { nextPoNumber } from "@/lib/po/number";
 import { TrackOrderCard } from "@/components/manufacture/track-order-card";
 import {
   Reconciliation,
@@ -142,10 +143,20 @@ export default async function ManufacturePage({
   }
 
   const locked = isLocked(order.current_status);
-  const [lines, deliveryAddresses] = await Promise.all([
+  const [lines, deliveryAddresses, existingPoReferences] = await Promise.all([
     loadManufactureLines(order.id),
     loadDeliveryVendors(),
+    order.order_reference
+      ? Promise.resolve([])
+      : db
+          .selectFrom("orders")
+          .select("order_reference")
+          .where("order_reference", "is not", null)
+          .execute(),
   ]);
+  const suggestedPoNumber = nextPoNumber(
+    existingPoReferences.map((row) => row.order_reference),
+  );
 
   return (
     <Shell order={order}>
@@ -153,6 +164,7 @@ export default async function ManufacturePage({
         key={`${order.id}:${order.order_reference ?? ""}`}
         orderId={order.id}
         initialValue={order.order_reference}
+        suggestedValue={suggestedPoNumber}
       />
       <CustomerReferenceInput
         key={`${order.id}:${order.po_customer_reference ?? ""}`}
@@ -489,7 +501,13 @@ async function FrozenView({
         )}
       </div>
       <div className="mb-4">
-        <PoList orderId={orderId} pos={pos} problems={poProblems} />
+        <PoList
+          orderId={orderId}
+          pos={pos}
+          problems={poProblems}
+          hasCurtains={lines.some((line) => line.line === "curtain")}
+          hasBlinds={lines.some((line) => line.line === "blind")}
+        />
       </div>
       {/* Nothing at all on a blinds-only or mesh order: there are no rails to
           order, and an empty card is a thing to wonder about. */}

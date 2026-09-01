@@ -284,9 +284,11 @@ function PoRow({ po }: { po: PoListItem }) {
 function RegenerateButton({
   orderId,
   hasDocuments,
+  blocked,
 }: {
   orderId: string;
   hasDocuments: boolean;
+  blocked: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -316,10 +318,13 @@ function RegenerateButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        disabled={pending}
+        disabled={pending || blocked}
+        title={blocked ? "Fix the listed issues before generating" : undefined}
         className="px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium whitespace-nowrap"
       >
-        {pending
+        {blocked
+          ? "Fix issues first"
+          : pending
           ? "Generating…"
           : hasDocuments
             ? "Regenerate"
@@ -390,9 +395,13 @@ export function PoList({
   orderId,
   pos,
   problems,
+  hasCurtains,
+  hasBlinds,
 }: {
   orderId: string;
   pos: PoListItem[];
+  hasCurtains: boolean;
+  hasBlinds: boolean;
   /**
    * Why there is no current document, from the same loader generation uses.
    * Empty when the documents are up to date.
@@ -405,7 +414,11 @@ export function PoList({
         <span className="text-sm font-semibold text-slate-800">
           Purchase orders <span className="text-slate-500">采购订单</span>
         </span>
-        <RegenerateButton orderId={orderId} hasDocuments={pos.length > 0} />
+        <RegenerateButton
+          orderId={orderId}
+          hasDocuments={pos.length > 0}
+          blocked={problems.length > 0}
+        />
       </div>
 
       {problems.length > 0 && (
@@ -434,25 +447,57 @@ export function PoList({
         </div>
       )}
 
-      {pos.length === 0
-        ? problems.length === 0 && (
-            <div className="border-t border-slate-100 px-4 py-4">
-              <p className="text-sm text-slate-600">
-                No purchase order exists yet. Generate separate Day curtain,
-                Night curtain, and Blinds documents for every applicable vendor.
-              </p>
-            </div>
-          )
-        : ["day", "night", "blind", "legacy"].map((category) => {
-            const rows = pos.filter((po) => (po.category ?? "legacy") === category);
+      {hasCurtains && (
+        <section className="border-t border-slate-200">
+          <h3 className="bg-slate-50/70 px-4 py-2 text-sm font-semibold text-slate-700">
+            Curtain orders
+          </h3>
+          {["day", "night"].map((category) => {
+            const rows = pos.filter((po) => po.category === category);
             if (rows.length === 0) return null;
-            return <section key={category}>
-              <h3 className="border-t border-slate-200 bg-slate-50/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                {CATEGORY_LABELS[category] ?? "Earlier combined POs"}
-              </h3>
-              {rows.map((po) => <PoRow key={po.id} po={po} />)}
-            </section>;
+            return (
+              <section key={category}>
+                <h4 className="border-t border-slate-100 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {CATEGORY_LABELS[category]}
+                </h4>
+                {rows.map((po) => <PoRow key={po.id} po={po} />)}
+              </section>
+            );
           })}
+          {!pos.some((po) => po.category === "day" || po.category === "night") && (
+            <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-500">
+              Day and Night curtain PDFs will appear here after generation.
+            </p>
+          )}
+        </section>
+      )}
+
+      {hasBlinds && (
+        <section className="border-t border-slate-200">
+          <h3 className="bg-slate-50/70 px-4 py-2 text-sm font-semibold text-slate-700">
+            Blinds order
+          </h3>
+          {pos.filter((po) => po.category === "blind").map((po) => (
+            <PoRow key={po.id} po={po} />
+          ))}
+          {!pos.some((po) => po.category === "blind") && (
+            <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-500">
+              The blinds PDF will appear here after generation.
+            </p>
+          )}
+        </section>
+      )}
+
+      {pos.some((po) => !po.category || po.category === "legacy") && (
+        <section className="border-t border-slate-200">
+          <h3 className="bg-slate-50/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            Earlier combined POs
+          </h3>
+          {pos
+            .filter((po) => !po.category || po.category === "legacy")
+            .map((po) => <PoRow key={po.id} po={po} />)}
+        </section>
+      )}
     </div>
   );
 }

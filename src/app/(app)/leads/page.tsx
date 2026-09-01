@@ -11,6 +11,8 @@ import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_SOURCES, LEAD_STATUSES, LEAD_DIRE
 import { QuickEditLead } from "@/components/leads/phase16-forms";
 import { DeleteLeadButton, EditableLeadRow } from "@/components/leads/editable-lead-row";
 import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
+import { LeadAnalyticsView } from "@/components/leads/analytics-view";
+import { analyticsMonthWindow, calculateLeadAnalytics, inclusiveCalendarDays } from "@/lib/leads/analytics";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Leads — Drapeworks CRM" };
@@ -22,11 +24,41 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const sort = parseLeadSort(p.sort);
   const sortDirection = sort === "initiated" ? (p.sort === "initiated" && p.order === "asc" ? "asc" : "desc") : p.order === "desc" ? "desc" : "asc";
   const actionFor = (row: { funnel_stage: Parameters<typeof deriveActionRequired>[0]["funnel_stage"]; last_outcome: Parameters<typeof deriveActionRequired>[0]["last_outcome"]; next_action_date_text: string | null }) => deriveActionRequired({ ...row, next_action_date: row.next_action_date_text as SgDate | null }, today);
-  const view = p.view === "all" ? "all" : "work";
-  const tabs = <nav aria-label="Lead workspace views" className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm"><Link href="/leads?view=all" className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${view === "all" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}>All Leads</Link><Link href="/leads?view=work" className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${view === "work" ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}>Active Queue</Link></nav>;
-  const toolbar = <div className="mb-6 flex items-center justify-between gap-3">{tabs}<Link className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-teal-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2" href="/leads/new">New Lead</Link></div>;
+  const view = p.view === "analytics" ? "analytics" : p.view === "all" ? "all" : "work";
+  const tabClass = (selected: boolean) => `whitespace-nowrap rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${selected ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`;
+  const tabs = <nav aria-label="Lead workspace views" className="inline-flex min-w-0 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm"><Link aria-current={view === "all" ? "page" : undefined} href="/leads?view=all" className={tabClass(view === "all")}>All Leads</Link><Link aria-current={view === "work" ? "page" : undefined} href="/leads?view=work" className={tabClass(view === "work")}>Active Queue</Link><Link aria-current={view === "analytics" ? "page" : undefined} href="/leads?view=analytics" className={tabClass(view === "analytics")}>Analytics</Link></nav>;
+  const toolbar = <div className="mb-6 flex items-center justify-between gap-2 max-[360px]:flex-col max-[360px]:items-stretch sm:gap-3">{tabs}<Link className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-teal-600 px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2 sm:px-4" href="/leads/new">New Lead</Link></div>;
   const filterOwners = await db.selectFrom("profiles").select(["id", "full_name", "is_active"]).where("role", "in", ["consultant", "admin"]).orderBy("full_name").execute();
   const consultants = filterOwners.filter(person => person.is_active);
+  if (view === "analytics") {
+    const allTime = p.month === "all";
+    const window = analyticsMonthWindow(allTime ? undefined : p.month, today);
+    const availableMonthRows = await db.selectFrom("leads")
+      .select(sql<string>`to_char(first_initiated_at at time zone 'Asia/Singapore', 'YYYY-MM')`.as("month"))
+      .where("is_archived", "=", false)
+      .where("first_initiated_at", "is not", null)
+      .distinct()
+      .orderBy("month", "desc")
+      .execute();
+    const availableMonths = [...new Set([today.slice(0, 7), ...availableMonthRows.map(row => row.month)])];
+    let cohortQuery = db.selectFrom("leads")
+      .select(["id", "funnel_stage", "lead_status", "first_initiated_at"])
+      .where("is_archived", "=", false)
+      .where("first_initiated_at", "is not", null);
+    if (!allTime) cohortQuery = cohortQuery.where("first_initiated_at", ">=", window.start).where("first_initiated_at", "<", window.end);
+    const cohortLeads = await cohortQuery.execute();
+    const appointments = cohortLeads.length
+      ? await db.selectFrom("appointments").select(["lead_id", "status"]).where("lead_id", "in", cohortLeads.map(lead => lead.id)).execute()
+      : [];
+    const earliestInitiated = cohortLeads.reduce<Date | null>((earliest, lead) => !earliest || lead.first_initiated_at! < earliest ? lead.first_initiated_at! : earliest, null);
+    const elapsedDays = allTime ? inclusiveCalendarDays(earliestInitiated ? toSgDate(new Date(earliestInitiated)) : null, today) : window.elapsedDays;
+    const metrics = calculateLeadAnalytics(cohortLeads, appointments, elapsedDays);
+    return <main className="mx-auto max-w-[1880px] px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">Monthly lead conversion and sales performance</p></div>
+      {toolbar}
+      <LeadAnalyticsView metrics={metrics} period={allTime ? "all" : window.month} availableMonths={availableMonths} elapsedDays={elapsedDays} daysInPeriod={allTime ? elapsedDays : window.daysInMonth} asOf={today}/>
+    </main>;
+  }
   let q = db.selectFrom("leads")
     .leftJoin("profiles as consultant", join => join.onRef("consultant.id", "=", sql<string>`coalesce(leads.assigned_consultant_id, leads.owner_id)`))
     .select(["leads.id", "leads.created_at", "first_initiated_at", "last_contact_at", "inbound_outbound", "lead_ref", "name", "mobile", "development", "funnel_stage", "lead_status", "last_outcome", "contact_channel", "source", "primary_product", "latest_quote_cents", "assigned_consultant_id", "owner_id", "action_detail", "closure_reason", "consultant.full_name as consultant_name", sql<string | null>`next_action_date::text`.as("next_action_date_text"), sql<string | null>`move_in_date::text`.as("move_in_date_text")])

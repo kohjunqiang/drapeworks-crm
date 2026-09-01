@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { deriveRecommendations, deriveBuyingReadiness, deriveDaysToMoveIn, deriveActionRequired, deriveDueStatus } from "@/lib/leads/funnel-engine";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
+import { unsyncAppointment } from "@/lib/calendar/sync";
 import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, leadQuickEditSchema, logUpdateSchema, recommendationSchema } from "@/lib/validation/lead";
 
 const nextLeadRef = () => `MN-${Date.now()}-${randomBytes(3).toString("hex")}`;
@@ -46,6 +47,7 @@ export async function createLead(input: unknown): Promise<{ id: string }> {
   const p = leadCreateSchema.parse(input);
   const row = await db.insertInto("leads").values({
     lead_ref: nextLeadRef(), name: p.name, mobile: p.mobile ?? null,
+    first_initiated_at: new Date(`${p.first_initiated_date}T00:00:00+08:00`),
     // Required by the schema; the before-insert trigger immediately derives
     // the authoritative value from the funnel fields.
     lead_status: "Active",
@@ -214,6 +216,23 @@ export async function archiveLead(input: unknown): Promise<void> {
   const p = archiveLeadSchema.parse(typeof input === "string" ? { lead_id: input } : input);
   await db.updateTable("leads").set({ is_archived: true, updated_at: new Date() })
     .where("id", "=", p.lead_id).execute();
+  revalidateLead(p.lead_id);
+}
+
+export async function deleteLead(input: unknown): Promise<void> {
+  await requireRole(["consultant", "admin"]);
+  const p = archiveLeadSchema.parse(typeof input === "string" ? { lead_id: input } : input);
+  const appointments = await db.selectFrom("appointments").select("id")
+    .where("lead_id", "=", p.lead_id).execute();
+  await Promise.all(appointments.map(appointment => unsyncAppointment(appointment.id)));
+  await db.transaction().execute(async trx => {
+    await trx.deleteFrom("lead_interactions").where("lead_id", "=", p.lead_id).execute();
+    await trx.deleteFrom("lead_stage_events").where("lead_id", "=", p.lead_id).execute();
+    await sql`delete from lead_import_baselines where lead_id = ${p.lead_id}`.execute(trx);
+    await trx.deleteFrom("lead_legacy_import").where("lead_id", "=", p.lead_id).execute();
+    await trx.deleteFrom("appointments").where("lead_id", "=", p.lead_id).execute();
+    await trx.deleteFrom("leads").where("id", "=", p.lead_id).executeTakeFirstOrThrow();
+  });
   revalidateLead(p.lead_id);
 }
 

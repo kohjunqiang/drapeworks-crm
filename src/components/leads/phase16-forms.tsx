@@ -62,7 +62,7 @@ export function QuickEditLead({ lead: initialLead, consultants, fullWidth = fals
 <section><h3 className="mb-3 text-sm font-semibold">Interactions</h3>{detailData?.interactions.length ? <ol className="space-y-3">{detailData.interactions.map(item => <li key={item.id} className="border-l-2 border-teal-200 pl-3"><div className="text-sm font-medium">{item.interaction_type}{item.direction ? ` · ${item.direction}` : ""}</div><div className="text-xs text-slate-500">{new Date(item.occurred_at).toLocaleString("en-SG", { timeZone: "Asia/Singapore" })} · {item.full_name ?? "System"}</div><p className="mt-1 whitespace-pre-wrap break-words text-sm">{item.note ?? "—"}</p></li>)}</ol> : <p className="text-sm text-slate-500">No interactions recorded.</p>}</section></><div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between"><Button type="button" variant="outline" disabled={state.pending} onClick={() => { if (dirty && !window.confirm("Discard unsaved edits and log an interaction?")) return; setDirty(false); setStage(lead.funnel_stage); setLogging(true); }}>Log interaction</Button><div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Close</Button>{editing ? <Button type="submit" disabled={state.pending}>{state.pending ? "Saving…" : "Save"}</Button> : <Button type="button" onClick={() => setEditing(true)}>Edit</Button>}</div></div></form>}</div></div>}</>;
 }
 
-export function NewLeadForm() {
+export function NewLeadForm({ initialInitiatedDate }: { initialInitiatedDate: string }) {
   const router = useRouter();
   const state = useSubmit(
     createLead,
@@ -79,6 +79,7 @@ export function NewLeadForm() {
       <Field label="Lead source"><Select name="source"><option value="">Select source</option>{options(LEAD_SOURCES)}</Select></Field>
       <Field label="Direction"><Select name="inbound_outbound"><option value="">Select direction</option>{options(LEAD_DIRECTIONS)}</Select></Field>
       <Field label="Primary product"><Select name="primary_product"><option value="">Select product</option>{options(SELECTABLE_PRIMARY_PRODUCTS)}</Select></Field>
+      <Field label="Initiated date"><Input name="first_initiated_date" type="date" required defaultValue={initialInitiatedDate}/></Field>
     </div>
     <Field label="Interaction summary" hint="A short handover note describing the conversation so far."><Textarea name="interaction_summary" placeholder="What does the customer need, and what has already happened?"/></Field>
     <div className="flex justify-end"><Button className="h-10 w-full px-5 sm:w-auto" type="submit" disabled={state.pending}>{state.pending ? "Creating…" : "Create lead"}</Button></div>

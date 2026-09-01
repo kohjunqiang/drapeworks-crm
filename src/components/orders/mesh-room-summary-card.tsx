@@ -12,6 +12,8 @@ export type MeshPanelSummary = {
   colour_name: string | null;
   width_cm: number | null;
   height_cm: number | null;
+  installation_width_cm?: number | null;
+  installation_height_cm?: number | null;
   has_window: boolean;
   has_inset_horizontal: boolean;
   has_inset_vertical: boolean;
@@ -42,6 +44,16 @@ function dims(p: MeshPanelSummary): string {
   return `${cm(p.width_cm)} × ${cm(p.height_cm)}`;
 }
 
+function installationDims(p: MeshPanelSummary): string {
+  if (
+    p.installation_width_cm == null &&
+    p.installation_height_cm == null
+  ) {
+    return "—";
+  }
+  return `${cm(p.installation_width_cm ?? null)} × ${cm(p.installation_height_cm ?? null)}`;
+}
+
 /** Area in m², shown alongside the raw measurements. Null until both are set. */
 function areaSqm(p: MeshPanelSummary): string | null {
   if (p.width_cm == null || p.height_cm == null) return null;
@@ -65,6 +77,11 @@ function split(p: MeshPanelSummary): string {
 }
 
 export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
+  const hasInstallation = panels.some(
+    (panel) =>
+      panel.installation_width_cm != null ||
+      panel.installation_height_cm != null,
+  );
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden mb-4">
       <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
@@ -79,7 +96,14 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
               <th className="text-left px-4 py-2 font-medium w-16">#</th>
               <th className="text-left px-4 py-2 font-medium">Category</th>
               <th className="text-left px-4 py-2 font-medium">Colour</th>
-              <th className="text-left px-4 py-2 font-medium">W × H (cm)</th>
+              <th className="text-left px-4 py-2 font-medium">
+                Measured W × H (cm)
+              </th>
+              {hasInstallation && (
+                <th className="text-left px-4 py-2 font-medium">
+                  Installation W × H (cm)
+                </th>
+              )}
               <th className="text-left px-4 py-2 font-medium">Area (m²)</th>
               <th className="text-left px-4 py-2 font-medium">Fixing to</th>
               <th className="text-left px-4 py-2 font-medium">Draw</th>
@@ -114,6 +138,11 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
                     )}
                   </span>
                 </td>
+                {hasInstallation && (
+                  <td className="px-4 py-2 font-medium text-slate-900 tabular-nums">
+                    {installationDims(p)}
+                  </td>
+                )}
                 <td className="px-4 py-2 text-slate-600 tabular-nums">
                   {areaSqm(p) ?? "—"}
                   {p.billedSqm && (

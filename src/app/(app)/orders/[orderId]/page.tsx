@@ -193,6 +193,7 @@ export default async function OrderDetailPage({
           )
           .leftJoin("mesh_colours as mcol", "mcol.id", "mesh_panels.colour_id")
           .select([
+            "mesh_panels.id as id",
             "mesh_panels.room_id as room_id",
             "mesh_panels.position as position",
             "mesh_panels.width_cm as width_cm",
@@ -212,6 +213,32 @@ export default async function OrderDetailPage({
           .where("mesh_panels.room_id", "in", roomIds)
           .orderBy("mesh_panels.position", "asc")
           .execute();
+
+  // Once the PO measurements have been confirmed, keep the original site
+  // measurement and the frozen installation size together on the order page.
+  // The latter must come from the stored snapshot, never be recalculated from
+  // today's allowance settings.
+  const frozenMeasurements =
+    statusIndex(order.current_status) < statusIndex("po_ready")
+      ? []
+      : await db
+          .selectFrom("manufacture_measurements")
+          .select([
+            "window_id",
+            "mesh_panel_id",
+            "mfg_width_cm",
+            "mfg_height_cm",
+          ])
+          .where("order_id", "=", order.id)
+          .execute();
+  const installationByLine = new Map(
+    frozenMeasurements.flatMap((measurement) => {
+      const lineId = measurement.window_id ?? measurement.mesh_panel_id;
+      return lineId
+        ? [[lineId, measurement] as const]
+        : [];
+    }),
+  );
 
   // The track system is derived, never stored (§5.9), so it is resolved here
   // for the factory sheet rather than read off the row.
@@ -252,6 +279,10 @@ export default async function OrderDetailPage({
       : null;
     list.push({
       ...p,
+      installation_width_cm:
+        installationByLine.get(p.id)?.mfg_width_cm ?? null,
+      installation_height_cm:
+        installationByLine.get(p.id)?.mfg_height_cm ?? null,
       system: resolved.status === "resolved" ? resolved.system : null,
       trackCm:
         track.status === "resolved" ? formatMmAsCm(track.trackMm) : null,
@@ -317,6 +348,10 @@ export default async function OrderDetailPage({
     position: w.position,
     width_cm: w.width_cm,
     height_cm: w.height_cm,
+    installation_width_cm:
+      installationByLine.get(w.id)?.mfg_width_cm ?? null,
+    installation_height_cm:
+      installationByLine.get(w.id)?.mfg_height_cm ?? null,
     notes: w.notes,
     draw: w.draw,
     addon_labels: addonLabelsByWindow.get(w.id) ?? [],
@@ -558,6 +593,12 @@ export default async function OrderDetailPage({
               Rooms &amp; measurements{" "}
               <span className="text-xs font-normal text-slate-500">(cm)</span>
             </h2>
+            {frozenMeasurements.length > 0 && (
+              <p className="text-xs text-slate-500 -mt-2 mb-4">
+                Measured is the original site measurement. Installation is the
+                finalized size confirmed at PO Ready.
+              </p>
+            )}
             {rooms.length === 0 && (
               <p className="text-sm text-slate-500">No rooms recorded.</p>
             )}

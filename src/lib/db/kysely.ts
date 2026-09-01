@@ -20,8 +20,24 @@ async function getPool(): Promise<Pool> {
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set");
     }
+    const configuredMax = Number.parseInt(
+      process.env.DATABASE_POOL_MAX ?? "3",
+      10,
+    );
+    const maxConnections =
+      Number.isInteger(configuredMax) && configuredMax > 0
+        ? configuredMax
+        : 3;
     global.__kyselyPool = new Pool({
       connectionString,
+      // Supabase session mode dedicates one backend connection to every pool
+      // client. Keep this deliberately below its 15-session allowance so a
+      // local dev server and the deployed app can coexist safely.
+      max: maxConnections,
+      min: 0,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+      application_name: "drapeworks-crm",
       ssl: /^postgres(?:ql)?:\/\/(?:localhost|127\.0\.0\.1)(?::|\/)/.test(connectionString)
         ? false
         : { rejectUnauthorized: false },

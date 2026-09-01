@@ -6,6 +6,8 @@ type WindowSummary = {
   position: number;
   width_cm: number | null;
   height_cm: number | null;
+  installation_width_cm?: number | null;
+  installation_height_cm?: number | null;
   notes: string | null;
   draw: string | null;
   /** The add-ons this window carries, by name, in catalogue order. */
@@ -62,12 +64,21 @@ function CurtainCell({
 // Blinds table. Separate from the curtain tables because the columns genuinely
 // differ — one covering, a control side, and none of the curtain add-ons.
 function BlindTable({ windows }: { windows: WindowSummary[] }) {
+  const hasInstallation = windows.some(
+    (w) =>
+      w.installation_width_cm != null || w.installation_height_cm != null,
+  );
   return (
     <table className="w-full text-xs min-w-[640px]">
       <thead className="text-slate-500">
         <tr>
           <th className="text-left px-4 py-2 font-medium">Blind</th>
-          <th className="text-left px-4 py-2 font-medium">W × H</th>
+          <th className="text-left px-4 py-2 font-medium">Measured W × H</th>
+          {hasInstallation && (
+            <th className="text-left px-4 py-2 font-medium">
+              Installation W × H
+            </th>
+          )}
           <th className="text-left px-4 py-2 font-medium">Control side</th>
           <th className="text-left px-4 py-2 font-medium">Notes</th>
         </tr>
@@ -79,6 +90,11 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
               <CurtainCell label={w.blind_label} photoUrl={w.blind_photo_url} />
             </td>
             <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
+            {hasInstallation && (
+              <td className="px-4 py-2 font-medium text-slate-900">
+                {dim(w.installation_width_cm ?? null, w.installation_height_cm ?? null)}
+              </td>
+            )}
             <td className="px-4 py-2">
               {w.draw === "Single Left"
                 ? "Left"
@@ -99,6 +115,10 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
   // the split is per window, not per room.
   const blindWindows = windows.filter((w) => w.is_blind);
   const curtainWindows = windows.filter((w) => !w.is_blind);
+  const hasCurtainInstallation = curtainWindows.some(
+    (w) =>
+      w.installation_width_cm != null || w.installation_height_cm != null,
+  );
   return (
     <div className="border border-slate-200 rounded mb-3 overflow-hidden">
       <div className="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 break-words">
@@ -113,7 +133,14 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
                 <th className="text-left px-4 py-2 font-medium">
                   Night Curtain
                 </th>
-                <th className="text-left px-4 py-2 font-medium">W × H</th>
+                <th className="text-left px-4 py-2 font-medium">
+                  Measured W × H
+                </th>
+                {hasCurtainInstallation && (
+                  <th className="text-left px-4 py-2 font-medium">
+                    Installation W × H
+                  </th>
+                )}
                 <th className="text-left px-4 py-2 font-medium">Draw</th>
                 <th className="text-left px-4 py-2 font-medium">Add-ons</th>
                 <th className="text-left px-4 py-2 font-medium">Notes</th>
@@ -135,6 +162,14 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
                     />
                   </td>
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
+                  {hasCurtainInstallation && (
+                    <td className="px-4 py-2 font-medium text-slate-900">
+                      {dim(
+                        w.installation_width_cm ?? null,
+                        w.installation_height_cm ?? null,
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-2">{w.draw ?? "—"}</td>
                   <td className="px-4 py-2 text-slate-600">
                     <div className="flex flex-col gap-1">

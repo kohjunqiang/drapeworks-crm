@@ -70,6 +70,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const activeCount = countStatus("Active");
   const unresponsiveCount = countStatus("Unresponsive");
   const closedCount = total - activeCount - unresponsiveCount;
+  const pipelineCents = derivedRows.filter(row => row.lead_status === "Active").reduce((sum, row) => sum + (row.latest_quote_cents ?? 0), 0);
   const requestedPageSize = Number.parseInt(p.pageSize ?? "25", 10);
   const pageSize = [10, 25, 50].includes(requestedPageSize) ? requestedPageSize : 25;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -88,7 +89,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   return <main className="max-w-[1880px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
     <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">{view === "work" ? "All leads except Lost and Not Qualified" : "Search and manage every lead"}</p></div>
     {toolbar}
-    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">{[{label:"Matching leads",value:total},{label:"Active",value:activeCount},{label:"Unresponsive",value:unresponsiveCount},{label:"Closed",value:closedCount}].map(stat=><div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-medium uppercase tracking-wide text-slate-500">{stat.label}</div><div className="mt-1 text-xl font-semibold text-slate-900">{stat.value}</div></div>)}</div>
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">{[{label:"Matching leads",value:String(total)},{label:"Active",value:String(activeCount)},{label:"Unresponsive",value:String(unresponsiveCount)},{label:"Closed",value:String(closedCount)},{label:"Active Pipeline Value",value:new Intl.NumberFormat("en-SG",{style:"currency",currency:"SGD",maximumFractionDigits:0}).format(pipelineCents / 100)}].map(stat=><div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-medium uppercase tracking-wide text-slate-500">{stat.label}</div><div className="mt-1 text-xl font-semibold text-slate-900">{stat.value}</div></div>)}</div>
     <LeadFilterToolbar key={JSON.stringify(p)} params={p} view={view} pageSize={pageSize} owners={filterOwners}/>
     <div className="mb-3 flex items-center justify-between gap-3"><h2 aria-label={`${total} matching leads`} className="text-sm font-semibold text-slate-600">{total}</h2><span className="text-xs text-slate-500">{sortLabel} · Page {page} of {pageCount}</span></div>
     <div aria-label="Lead sorting" className="mb-3 flex flex-wrap items-center gap-3 text-xs xl:hidden"><span>Sort:</span>{(["initiated", "next", "due"] as const).map(key => <Link key={key} href={sortHref(key)} className={sort === key ? "font-semibold text-teal-700 underline" : "text-slate-600"}>{key === "initiated" ? "Initiated Date" : key === "next" ? "Next Action Date" : "Due Status"}{sort === key ? sortDirection === "asc" ? " ↑" : " ↓" : ""}</Link>)}</div>

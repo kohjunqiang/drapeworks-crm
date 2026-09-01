@@ -506,7 +506,7 @@ export default async function OrderDetailPage({
                   href={`/orders/${order.id}/manufacture`}
                   className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
                 >
-                  Manufacturing measurements
+                  View vendor POs
                 </Link>
               )}
               <PrintButton />

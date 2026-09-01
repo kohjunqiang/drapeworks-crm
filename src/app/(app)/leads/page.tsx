@@ -10,6 +10,7 @@ import { db } from "@/lib/db/kysely";
 import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_SOURCES, LEAD_STATUSES, LEAD_DIRECTIONS, LEAD_OUTCOMES, PRIMARY_PRODUCTS } from "@/lib/leads/funnel-types";
 import { QuickEditLead } from "@/components/leads/phase16-forms";
 import { EditableLeadRow } from "@/components/leads/editable-lead-row";
+import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Leads — Drapeworks CRM" };
@@ -100,7 +101,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         ["Action Detail", row.action_detail ?? "—"],
         ["Next Action Date", row.next_action_date_text ?? "—"],
         ["Due Status", deriveDueStatus(actionFor(row), row.next_action_date_text, today)],
-      ].map(([label, value]) => <div key={label} className="min-w-0 break-words"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1">{value}</dd></div>)}</dl>
+      ].map(([label, value]) => <div key={label} className="min-w-0 break-words"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1">{label === "Funnel Stage" ? <FunnelStagePill stage={row.funnel_stage}/> : value}</dd></div>)}</dl>
       <div className="mt-4 grid grid-cols-2 gap-2"><QuickEditLead lead={row} consultants={consultants} trigger="view" fullWidth/><QuickEditLead lead={row} consultants={consultants} fullWidth/></div>
     </article>)}</div>
 {rows.length > 0 &&     <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block"><table className="w-full table-fixed text-xs [&_th]:break-words"><colgroup>{[13,7,8,7,10,6,10,8,10,8,7,6].map((width, index) => <col key={index} style={{width: `${width}%`}}/>)}</colgroup><thead><tr className="border-b bg-slate-50/70 text-left text-slate-600">{["Customer Name", "Inbound / Outbound", "Initiated Date", "Last Contact Date", "Funnel Stage", "Lead Status", "Last Contact Outcome", "Action Required", "Action Detail", "Next Action Date", "Due Status", "Actions"].map((label, index) => {

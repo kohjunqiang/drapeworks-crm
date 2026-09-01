@@ -53,6 +53,7 @@ export async function loadPoInput(
       "orders.product_line as product_line",
       "orders.delivery_vendor_id as delivery_vendor_id",
       "orders.development as development",
+      "orders.site_address as site_address",
       "orders.unit_type as unit_type",
       "customers.name as customer_name",
     ])
@@ -66,7 +67,7 @@ export async function loadPoInput(
   // Nothing is frozen before sent_to_vendor, so there are no manufacturing
   // dimensions to print — only candidates, which is precisely what must never
   // reach a factory.
-  if (statusIndex(order.current_status) < statusIndex("sent_to_vendor")) {
+  if (statusIndex(order.current_status) < statusIndex("po_ready")) {
     problems.push(
       `This order is at "${STATUS_LABELS[order.current_status]}". Its manufacturing measurements are not frozen yet, so there is nothing to send a vendor.`,
     );
@@ -186,13 +187,15 @@ export async function loadPoInput(
   // sample's 都要绑带 off the reissued page.
   const current = await db
     .selectFrom("manufacture_pos")
-    .select(["vendor_id", "notes"])
+    .select(["vendor_id", "category", "notes"])
     .where("order_id", "=", orderId)
     .where("superseded_at", "is", null)
     .execute();
-  const notesByVendorId = new Map<string, string | null>();
+  const notesByDocument = new Map<string, string | null>();
   for (const row of current) {
-    if (row.vendor_id) notesByVendorId.set(row.vendor_id, row.notes);
+    if (row.vendor_id && row.category) {
+      notesByDocument.set(`${row.vendor_id}:${row.category}`, row.notes);
+    }
   }
 
   const vendors: PoVendor[] = vendorRows.map((v) => ({
@@ -237,7 +240,7 @@ export async function loadPoInput(
       vendors,
       roomLabels,
       lines,
-      notesByVendorId,
+      notesByDocument,
     },
     problems: [],
   };
@@ -246,7 +249,7 @@ export async function loadPoInput(
 /** What distinguishes one covering on a window from another on the same one. */
 type Covering = Pick<
   PoLine,
-  "lineId" | "vendorId" | "kind" | "typeLabel" | "fabricLabel"
+  "lineId" | "vendorId" | "kind" | "category" | "typeLabel" | "fabricLabel"
 >;
 
 /**
@@ -334,6 +337,7 @@ async function loadLines(
         lineId: `${w.id}:blind`,
         vendorId: w.blind_vendor_id,
         kind: "blind",
+        category: "blind",
         // Blind wording is per SERIES — 卷帘 is a roller specifically, and a
         // Roman is a different word. If neither Chinese source is configured,
         // use the series' own English name rather than a generic translation.
@@ -349,6 +353,7 @@ async function loadLines(
           lineId: `${w.id}:day`,
           vendorId: w.day_vendor_id,
           kind: "curtain",
+          category: "day",
           typeLabel: procurementLabel(typeLabels.get("day"), "Day"),
           fabricLabel: w.day_label,
         });
@@ -358,6 +363,7 @@ async function loadLines(
           lineId: `${w.id}:night`,
           vendorId: w.night_vendor_id,
           kind: "curtain",
+          category: "night",
           typeLabel: procurementLabel(typeLabels.get("night"), "Night"),
           fabricLabel: w.night_label,
         });

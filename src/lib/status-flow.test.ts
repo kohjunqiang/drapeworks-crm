@@ -10,10 +10,11 @@ import {
 } from "./status-flow";
 
 describe("STATUS_FLOW", () => {
-  it("runs recorded → deposit → vendor → logistics → shipping → delivered → fulfilment → completed", () => {
+  it("runs recorded → deposit → PO ready → vendor → logistics → shipping → delivered → fulfilment → completed", () => {
     expect(STATUS_FLOW).toEqual([
       "order_recorded",
       "deposit_received",
+      "po_ready",
       "sent_to_vendor",
       "sent_logistic",
       "shipping_sg",
@@ -42,9 +43,10 @@ describe("STATUS_FLOW", () => {
 });
 
 describe("nextStatus", () => {
-  it("advances an order through the two new steps", () => {
+  it("separates measurement confirmation from vendor dispatch", () => {
     expect(nextStatus("order_recorded")).toBe("deposit_received");
-    expect(nextStatus("deposit_received")).toBe("sent_to_vendor");
+    expect(nextStatus("deposit_received")).toBe("po_ready");
+    expect(nextStatus("po_ready")).toBe("sent_to_vendor");
     expect(nextStatus("sent_to_vendor")).toBe("sent_logistic");
   });
 
@@ -67,7 +69,8 @@ describe("isLocked", () => {
     expect(isLocked("deposit_received")).toBe(false);
   });
 
-  it("is true from sent_to_vendor onward", () => {
+  it("is true once measurements are frozen at PO Ready", () => {
+    expect(isLocked("po_ready")).toBe(true);
     expect(isLocked("sent_to_vendor")).toBe(true);
     expect(isLocked("sent_logistic")).toBe(true);
     expect(isLocked("shipping_sg")).toBe(true);

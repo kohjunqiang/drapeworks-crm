@@ -105,6 +105,7 @@ const EMPTY_DEFAULTS: OrderEditInput = {
   order: {
     property_type: "HDB",
     development: "",
+    site_address: "",
     unit_type: "",
     move_in_date: "",
     price_quoted_cents: 0,

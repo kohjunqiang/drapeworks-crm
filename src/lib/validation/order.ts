@@ -150,6 +150,7 @@ export const orderMetaSchema = z.object({
     .optional()
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
   development: z.string().max(200).optional(),
+  site_address: z.string().max(500).optional(),
   unit_type: z.string().max(100).optional(),
   move_in_date: z
     .string()

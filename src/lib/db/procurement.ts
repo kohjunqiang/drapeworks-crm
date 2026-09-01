@@ -9,6 +9,7 @@ import type { RoomType } from "@/lib/db/schema";
 // so each is loaded whole rather than filtered.
 
 export type OrderPoRow = {
+  category: string | null;
   id: string;
   po_number: string;
   notes: string | null;
@@ -33,6 +34,7 @@ export async function loadOrderPos(orderId: string): Promise<OrderPoRow[]> {
     .leftJoin("vendors", "vendors.id", "manufacture_pos.vendor_id")
     .select([
       "manufacture_pos.id as id",
+      "manufacture_pos.category as category",
       "manufacture_pos.po_number as po_number",
       "manufacture_pos.notes as notes",
       "manufacture_pos.generated_at as generated_at",

@@ -29,6 +29,7 @@ import {
 
 export type PoListItem = {
   id: string;
+  category: string | null;
   /** The vendor's Latin name, or null if the vendor row has gone. */
   vendorName: string | null;
   vendorNameCn: string | null;
@@ -43,6 +44,12 @@ export type PoListItem = {
 const BUTTON =
   "px-3 py-1.5 text-sm border border-slate-300 rounded hover:bg-slate-50 " +
   "disabled:opacity-50 disabled:hover:bg-transparent whitespace-nowrap";
+
+const CATEGORY_LABELS: Record<string, string> = {
+  day: "Day curtains",
+  night: "Night curtains",
+  blind: "Blinds",
+};
 
 /**
  * Whether this device can share a file at all.
@@ -223,6 +230,11 @@ function PoRow({ po }: { po: PoListItem }) {
           <span className="text-xs text-slate-500 tabular-nums">
             PO {po.poNumber}
           </span>
+          {po.category && (
+            <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-teal-800">
+              {CATEGORY_LABELS[po.category] ?? po.category}
+            </span>
+          )}
         </div>
         <p className="mt-0.5 text-xs text-slate-500">
           Generated {po.generatedLabel}
@@ -325,8 +337,8 @@ function RegenerateButton({
           </DialogHeader>
           <div className="space-y-3 text-sm text-slate-700">
             <p>
-              This builds one document per vendor from the frozen measurements
-              as they stand now.
+              This builds separate Day curtain, Night curtain, and Blinds
+              documents for each vendor from the frozen measurements.
             </p>
             {hasDocuments && (
               <ul className="list-disc pl-5 space-y-1">
@@ -426,15 +438,21 @@ export function PoList({
         ? problems.length === 0 && (
             <div className="border-t border-slate-100 px-4 py-4">
               <p className="text-sm text-slate-600">
-                No purchase order exists for this order. Confirming the
-                measurements normally produces one for each vendor, so
-                something stopped it at the time — most often a label that was
-                still missing. Nothing is missing now, so generating will
-                produce them.
+                No purchase order exists yet. Generate separate Day curtain,
+                Night curtain, and Blinds documents for every applicable vendor.
               </p>
             </div>
           )
-        : pos.map((po) => <PoRow key={po.id} po={po} />)}
+        : ["day", "night", "blind", "legacy"].map((category) => {
+            const rows = pos.filter((po) => (po.category ?? "legacy") === category);
+            if (rows.length === 0) return null;
+            return <section key={category}>
+              <h3 className="border-t border-slate-200 bg-slate-50/70 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                {CATEGORY_LABELS[category] ?? "Earlier combined POs"}
+              </h3>
+              {rows.map((po) => <PoRow key={po.id} po={po} />)}
+            </section>;
+          })}
     </div>
   );
 }

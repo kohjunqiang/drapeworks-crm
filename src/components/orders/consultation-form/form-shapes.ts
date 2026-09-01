@@ -19,6 +19,7 @@ export type ConsultationShellShape = {
   order: {
     property_type?: "HDB" | "Condo" | "Landed" | "Commercial";
     development?: string;
+    site_address?: string;
     unit_type?: string;
     move_in_date?: string;
     price_quoted_cents: number;

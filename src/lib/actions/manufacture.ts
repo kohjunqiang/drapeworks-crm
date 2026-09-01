@@ -24,24 +24,20 @@ import {
 import { generateOrderPos } from "./procurement";
 
 /**
- * Produce the vendor documents, and never let that undo what just happened.
+ * Reissue vendor documents after an amendment without undoing the amendment.
  *
  * Called OUTSIDE the transaction on purpose. By the time this runs the
- * measurements are frozen and the order is genuinely with the vendor; a missing
- * Chinese label, a font that will not load or a storage hiccup must not roll
- * that back. Most orders will land here and fail today, because most of the
- * labels are still null — the frozen screen says so, lists exactly what is
- * missing, and offers Regenerate once it is filled in.
+ * measurements are frozen; a missing label, font, or storage failure must not
+ * roll that back. The frozen screen explains the problem and allows retrying.
  */
 async function generatePosQuietly(
   orderId: string,
-  after: "confirm" | "amend",
 ): Promise<string | null> {
   try {
     await generateOrderPos(orderId);
     return null;
   } catch (e) {
-    console.error(`[po] generation failed after ${after}`, e);
+    console.error("[po] generation failed after amend", e);
     // Returned, not thrown. The caller reports it to the person standing there
     // rather than only to a server log: a document that silently failed to
     // appear reads as "the app made me press an extra button", and the reason
@@ -117,12 +113,12 @@ export async function saveManufactureAllowance(input: unknown): Promise<void> {
 }
 
 /**
- * Freeze an order's manufacturing measurements and hand it to the vendor.
+ * Freeze an order's manufacturing measurements for PO review.
  *
  * Everything happens in ONE transaction — the status re-read, the line-item
  * load, the precondition check, the measurement rows and the status advance —
- * so a failure part-way leaves no half-confirmed order: no rows, no status
- * change, nothing for the next person to unpick.
+ * so a failure part-way leaves no half-confirmed order. This deliberately does
+ * not generate files or claim they were sent; that is a later human workflow.
  */
 export async function confirmManufactureMeasurements(
   input: unknown,
@@ -234,7 +230,7 @@ export async function confirmManufactureMeasurements(
         .insertInto("order_status_events")
         .values({
           order_id: parsed.orderId,
-          status: "sent_to_vendor",
+          status: "po_ready",
           note: null,
           created_by: session.user.id,
         })
@@ -247,21 +243,67 @@ export async function confirmManufactureMeasurements(
     );
   }
 
-  const poWarning = await generatePosQuietly(parsed.orderId, "confirm");
-
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath(`/orders/${parsed.orderId}/manufacture`);
   revalidatePath("/orders");
 
-  return { poWarning };
+  return { poWarning: null };
+}
+
+/** Record the human handoff only after the generated documents were reviewed. */
+export async function markOrderSentToVendor(orderId: unknown): Promise<void> {
+  const session = await requireRole(["ops", "admin"]);
+  const parsedId = parseOrThrow(
+    z.string().uuid(),
+    orderId,
+    "That is not a valid order.",
+  );
+
+  try {
+    await db.transaction().execute(async (trx) => {
+      const order = await trx.selectFrom("orders")
+        .select("current_status")
+        .where("id", "=", parsedId)
+        .executeTakeFirst();
+      if (!order) throw new AuthoredError("Order not found");
+      if (order.current_status !== "po_ready") {
+        throw new AuthoredError(
+          `This order is at "${STATUS_LABELS[order.current_status]}". Only a PO Ready order can be marked as sent.`,
+        );
+      }
+
+      const current = await trx.selectFrom("manufacture_pos")
+        .select(["id", "category"])
+        .where("order_id", "=", parsedId)
+        .where("superseded_at", "is", null)
+        .execute();
+      if (current.length === 0 || current.some((po) => po.category == null)) {
+        throw new AuthoredError(
+          "Generate and review the Day, Night, or Blinds purchase orders before marking this order as sent.",
+        );
+      }
+
+      await trx.insertInto("order_status_events").values({
+        order_id: parsedId,
+        status: "sent_to_vendor",
+        note: "Purchase orders manually sent to vendor",
+        created_by: session.user.id,
+      }).execute();
+    });
+  } catch (error) {
+    if (error instanceof AuthoredError) throw new Error(error.message);
+    throw new Error(userMessage(error, "Could not mark the order as sent to vendor."));
+  }
+
+  revalidatePath(`/orders/${parsedId}`);
+  revalidatePath(`/orders/${parsedId}/manufacture`);
+  revalidatePath("/orders");
 }
 
 /**
- * Correct the manufacturing measurements of an order already with the vendor.
+ * Correct frozen manufacturing measurements before or just after vendor handoff.
  *
- * The order STAYS at sent_to_vendor. An amendment corrects what the vendor is
- * building; it is not a step backwards through the flow, and reverting the
- * status would misdescribe where the order actually is.
+ * The order stays at its current PO Ready or Sent to Vendor status.
  *
  * Rows are UPDATED, never re-inserted — there is exactly one measurement row
  * per line item (two partial unique indexes enforce it), and the history of
@@ -287,12 +329,11 @@ export async function amendManufactureMeasurements(
         .executeTakeFirst();
       if (!order) throw new AuthoredError("Order not found");
 
-      // Only from sent_to_vendor. Earlier and the measurements are not frozen
-      // yet (that is the reconciliation screen's job); later and the goods have
-      // shipped, so changing what we "told the vendor" would be fiction.
-      if (order.current_status !== "sent_to_vendor") {
+      // PO Ready is frozen but unsent; Sent to Vendor may need a documented
+      // correction. Later means the goods have shipped and is too late.
+      if (order.current_status !== "po_ready" && order.current_status !== "sent_to_vendor") {
         throw new AuthoredError(
-          `This order is at "${STATUS_LABELS[order.current_status]}". Manufacturing measurements can only be amended while it is at "${STATUS_LABELS.sent_to_vendor}".`,
+          `This order is at "${STATUS_LABELS[order.current_status]}". Manufacturing measurements can only be amended while it is PO Ready or Sent to Vendor.`,
         );
       }
 
@@ -356,7 +397,7 @@ export async function amendManufactureMeasurements(
         .insertInto("order_status_events")
         .values({
           order_id: parsed.orderId,
-          status: "sent_to_vendor",
+          status: order.current_status,
           note: `[MEASUREMENTS AMENDED] ${parsed.reason}`,
           created_by: session.user.id,
         })
@@ -372,7 +413,7 @@ export async function amendManufactureMeasurements(
   // An amendment supersedes and reissues: the vendor's copy now states a
   // dimension we no longer intend, and the corrected document is the whole
   // point of having amended.
-  await generatePosQuietly(parsed.orderId, "amend");
+  await generatePosQuietly(parsed.orderId);
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath(`/orders/${parsed.orderId}/manufacture`);

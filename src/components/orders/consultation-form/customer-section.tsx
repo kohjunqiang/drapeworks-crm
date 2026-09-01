@@ -102,6 +102,20 @@ export function CustomerSection() {
             {...register("order.development")}
           />
         </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Installation Address
+          </label>
+          <textarea
+            rows={2}
+            placeholder="Block, street, unit number and postal code"
+            className={INPUT_CLS}
+            {...register("order.site_address")}
+          />
+          {errors.order?.site_address && (
+            <p className="mt-1 text-xs text-red-600">{errors.order.site_address.message}</p>
+          )}
+        </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">
             Unit Type

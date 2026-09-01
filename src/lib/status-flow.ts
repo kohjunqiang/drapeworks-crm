@@ -3,6 +3,7 @@ import type { FulfilmentStatus } from "@/lib/db/schema";
 export const STATUS_FLOW: FulfilmentStatus[] = [
   "order_recorded",
   "deposit_received",
+  "po_ready",
   "sent_to_vendor",
   "sent_logistic",
   "shipping_sg",
@@ -14,6 +15,7 @@ export const STATUS_FLOW: FulfilmentStatus[] = [
 export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
   order_recorded: "Order Recorded",
   deposit_received: "Deposit Received",
+  po_ready: "PO Ready",
   sent_to_vendor: "Sent to Vendor",
   sent_logistic: "Sent to Logistic Partner",
   shipping_sg: "Shipping to SG",
@@ -25,6 +27,7 @@ export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
 export const STATUS_COLOURS: Record<FulfilmentStatus, string> = {
   order_recorded: "bg-slate-100 text-slate-700",
   deposit_received: "bg-amber-100 text-amber-700",
+  po_ready: "bg-teal-100 text-teal-700",
   sent_to_vendor: "bg-orange-100 text-orange-700",
   sent_logistic: "bg-indigo-100 text-indigo-700",
   shipping_sg: "bg-blue-100 text-blue-700",
@@ -57,5 +60,5 @@ export function isLocked(s: FulfilmentStatus): boolean {
   // returns -1, and treating that as "not locked" would leave orders editable
   // precisely when nobody knows what stage they are at.
   if (i < 0) return true;
-  return i >= statusIndex("sent_to_vendor");
+  return i >= statusIndex("po_ready");
 }

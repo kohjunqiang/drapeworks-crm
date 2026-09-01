@@ -254,6 +254,7 @@ export async function createOrder(input: unknown): Promise<never> {
         appointment_id: customer.appointmentId,
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
+        site_address: parsed.order.site_address?.trim() || null,
         unit_type: parsed.order.unit_type ?? null,
         move_in_date: parsed.order.move_in_date
           ? parsed.order.move_in_date
@@ -412,6 +413,7 @@ export async function updateOrder(
       .set({
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
+        site_address: parsed.order.site_address?.trim() || null,
         unit_type: parsed.order.unit_type ?? null,
         move_in_date: parsed.order.move_in_date ?? null,
         price_quoted_cents: parsed.order.price_quoted_cents,
@@ -674,6 +676,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         appointment_id: customer.appointmentId,
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
+        site_address: parsed.order.site_address?.trim() || null,
         unit_type: parsed.order.unit_type ?? null,
         move_in_date: parsed.order.move_in_date
           ? parsed.order.move_in_date

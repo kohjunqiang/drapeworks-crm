@@ -94,6 +94,7 @@ function line(over: Partial<PoLine> & Pick<PoLine, "lineId">): PoLine {
     roomPosition: 0,
     position: 0,
     kind: "curtain",
+    category: "night",
     typeLabel: "窗帘 Night",
     fabricLabel: "清风麻 -2",
     openingLabel: "对开 Double draw",
@@ -325,6 +326,7 @@ describe("buildPos — the Blinds sample", () => {
     roomType: "Service Yard",
     roomPosition: 0,
     kind: "blind",
+    category: "blind",
     typeLabel: "卷帘",
     fabricLabel: "1079-13",
     openingLabel: "要罩盒 - with cover",
@@ -377,18 +379,33 @@ describe("buildPos — vendor grouping", () => {
     expect(pos[0].tables[0].rows).toHaveLength(2);
   });
 
-  it("splits by vendor, not by product type", () => {
+  it("creates separate Day and Night PDFs for the same vendor", () => {
+    const { pos, problems } = buildPos(input({
+      lines: [
+        line({ lineId: "day", category: "day", typeLabel: "纱窗 Day" }),
+        line({ lineId: "night", category: "night" }),
+      ],
+    }));
+
+    expect(problems).toEqual([]);
+    expect(pos).toHaveLength(2);
+    expect(pos.map((po) => po.category)).toEqual(["day", "night"]);
+    expect(pos.every((po) => po.vendor.id === RISING.id)).toBe(true);
+  });
+
+  it("splits by vendor and product category", () => {
     // The Omar order's day and night curtains are the same window; they went to
     // different vendors, which is the only reason they are two documents.
     const { pos } = buildPos(
       input({
         lines: [
-          line({ lineId: "day", vendorId: ZHUYINGTAI.id, typeLabel: "纱窗 Day" }),
+          line({ lineId: "day", vendorId: ZHUYINGTAI.id, category: "day", typeLabel: "纱窗 Day" }),
           line({ lineId: "night", vendorId: RISING.id }),
           line({
             lineId: "blind",
             vendorId: SHUNJIN.id,
             kind: "blind",
+            category: "blind",
             roomType: "Service Yard",
             roomId: "r9",
             roomPosition: 1,
@@ -531,7 +548,7 @@ describe("buildPos — labels we do not have", () => {
           ["Service Yard", { nameCn: null, code: "SR" }],
         ]),
         lines: [
-          line({ lineId: "a", roomType: "Service Yard", kind: "blind" }),
+          line({ lineId: "a", roomType: "Service Yard", kind: "blind", category: "blind" }),
         ],
       }),
     );
@@ -698,6 +715,7 @@ describe("buildPos — a vendor supplying both curtains and blinds", () => {
           line({
             lineId: "b",
             kind: "blind",
+            category: "blind",
             roomId: "r2",
             roomType: "Service Yard",
             roomPosition: 1,
@@ -708,11 +726,11 @@ describe("buildPos — a vendor supplying both curtains and blinds", () => {
       }),
     );
 
-    expect(pos).toHaveLength(1);
-    expect(pos[0].tables.map((t) => t.columnSet)).toEqual(["curtain", "blind"]);
-    expect(pos[0].tables[1].rows[0].derived).toBe("2.46");
-    // Curtains are on the document, so the curtain-only block is filled.
+    expect(pos).toHaveLength(2);
+    expect(pos.map((po) => po.category)).toEqual(["night", "blind"]);
+    expect(pos[1].tables[0].rows[0].derived).toBe("2.46");
     expect(pos[0].orderDetails).not.toBeNull();
+    expect(pos[1].orderDetails).toBeNull();
   });
 });
 
@@ -721,7 +739,7 @@ describe("buildPos — notes", () => {
     const { pos } = buildPos(
       input({
         lines: [line({ lineId: "a" })],
-        notesByVendorId: new Map([[RISING.id, "都要绑带"]]),
+        notesByDocument: new Map([[`${RISING.id}:night`, "都要绑带"]]),
       }),
     );
 

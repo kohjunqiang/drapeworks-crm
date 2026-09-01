@@ -427,10 +427,10 @@ const poIdSchema = z.string().uuid("That is not a valid document.");
  * whatever phone or laptop it lands on. The CONTENT is the Chinese document; the
  * filename only has to survive the trip.
  */
-function poFileName(poNumber: string, vendorName: string | null): string {
+function poFileName(poNumber: string, vendorName: string | null, category: string | null): string {
   const slug = (s: string) =>
     s.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const parts = ["PO", slug(poNumber), vendorName ? slug(vendorName) : ""].filter(
+  const parts = ["PO", slug(poNumber), category ? slug(category) : "", vendorName ? slug(vendorName) : ""].filter(
     Boolean,
   );
   return `${parts.join("-") || "PO"}.pdf`;
@@ -490,6 +490,7 @@ export async function generateOrderPos(
       return {
         id,
         vendorId: doc.vendor.id,
+        category: doc.category,
         // Snapshot: order_reference stays editable after the order locks, and a
         // document already in Shenzhen cannot be retroactively renamed by
         // somebody tidying up a reference in the CRM. The row has to keep
@@ -553,6 +554,7 @@ export async function generateOrderPos(
             id: document.id,
             order_id: parsedId,
             vendor_id: document.vendorId,
+            category: document.category,
             po_number: document.poNumber,
             storage_path: document.path,
             notes: document.notes,
@@ -614,13 +616,14 @@ export async function getPoDownloadUrl(
     .select([
       "manufacture_pos.storage_path as storage_path",
       "manufacture_pos.po_number as po_number",
+      "manufacture_pos.category as category",
       "vendors.name as vendor_name",
     ])
     .where("manufacture_pos.id", "=", parsedId)
     .executeTakeFirst();
   if (!row) throw new Error("That purchase order no longer exists.");
 
-  const fileName = poFileName(row.po_number, row.vendor_name);
+  const fileName = poFileName(row.po_number, row.vendor_name, row.category);
 
   // Service-role for the same reason as the upload above: the bucket is
   // private, the role guard on this action is the access control, and a

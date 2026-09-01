@@ -125,25 +125,16 @@ export function Reconciliation({
 
     startTransition(async () => {
       try {
-        const { poWarning } = await confirmManufactureMeasurements({
+        await confirmManufactureMeasurements({
           orderId,
           lines: payload,
         });
         setOpen(false);
         router.refresh();
 
-        // The confirmation stands either way — the measurements are frozen and
-        // the order is with the vendor. But a purchase order that quietly
-        // failed to appear reads as "the app made me press an extra button",
-        // and the reason never reaches the person who could fix it.
-        if (poWarning) {
-          toast.warning("Confirmed, but no purchase order was produced", {
-            description: poWarning,
-            duration: 12000,
-          });
-        } else {
-          toast.success("Confirmed — purchase orders generated");
-        }
+        // Confirmation freezes measurements only. Generation and the human
+        // vendor handoff are separate, reviewable actions on the next screen.
+        toast.success("Measurements confirmed — review and generate the purchase orders");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not confirm");
       }

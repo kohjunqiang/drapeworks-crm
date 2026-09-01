@@ -56,6 +56,7 @@ export default async function EditOrderPage({
       "orders.product_line as product_line",
       "orders.property_type as property_type",
       "orders.development as development",
+      "orders.site_address as site_address",
       "orders.unit_type as unit_type",
       "orders.move_in_date as move_in_date",
       "orders.price_quoted_cents as price_quoted_cents",
@@ -226,6 +227,7 @@ export default async function EditOrderPage({
       order: {
         property_type: order.property_type ?? undefined,
         development: order.development ?? "",
+        site_address: order.site_address ?? "",
         unit_type: order.unit_type ?? "",
         move_in_date: toDateInput(order.move_in_date),
         price_quoted_cents: order.price_quoted_cents,
@@ -305,6 +307,7 @@ export default async function EditOrderPage({
     order: {
       property_type: order.property_type ?? undefined,
       development: order.development ?? "",
+      site_address: order.site_address ?? "",
       unit_type: order.unit_type ?? "",
       move_in_date: toDateInput(order.move_in_date),
       price_quoted_cents: order.price_quoted_cents,

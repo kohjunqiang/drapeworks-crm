@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
+import { DeliveryNumbersCard } from "@/components/orders/delivery-numbers-card";
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
@@ -87,6 +88,10 @@ export default async function OrderDetailPage({
       "orders.deposit_cents as deposit_cents",
       "orders.balance_cents as balance_cents",
       "orders.general_notes as general_notes",
+      "orders.goods_overseas_tracking_number as goods_overseas_tracking_number",
+      "orders.goods_local_delivery_number as goods_local_delivery_number",
+      "orders.track_overseas_tracking_number as track_overseas_tracking_number",
+      "orders.track_local_delivery_number as track_local_delivery_number",
       "orders.created_at as created_at",
       "customers.id as customer_id",
       "customers.name as customer_name",
@@ -505,7 +510,7 @@ export default async function OrderDetailPage({
                 </Link>
               )}
               <PrintButton />
-              {isAdvancer && (
+              {isAdvancer && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && (
                 <AdvanceStatusButton
                   orderId={order.id}
                   atEnd={atEnd}
@@ -528,6 +533,15 @@ export default async function OrderDetailPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
         <div className="lg:col-span-2 space-y-4 order-2 lg:order-1">
+          {statusIndex(order.current_status) >= statusIndex("sent_to_vendor") && (
+            <DeliveryNumbersCard orderId={order.id} canEdit={session.profile.role === "ops" || session.profile.role === "admin"}
+              initial={{
+                goodsOverseas: order.goods_overseas_tracking_number ?? "",
+                goodsLocal: order.goods_local_delivery_number ?? "",
+                trackOverseas: order.track_overseas_tracking_number ?? "",
+                trackLocal: order.track_local_delivery_number ?? "",
+              }} />
+          )}
           <StatusTimeline
             orderId={order.id}
             currentStatus={order.current_status}

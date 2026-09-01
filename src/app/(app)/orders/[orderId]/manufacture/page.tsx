@@ -14,6 +14,7 @@ import { PoList, type PoListItem } from "@/components/manufacture/po-list";
 import { ShipsToSelect } from "@/components/manufacture/ships-to-select";
 import { CustomerReferenceInput } from "@/components/manufacture/customer-reference-input";
 import { PoNumberInput } from "@/components/manufacture/po-number-input";
+import { SendToVendorButton } from "@/components/manufacture/send-to-vendor-button";
 import { customerReference } from "@/lib/po/customer-reference";
 import { TrackOrderCard } from "@/components/manufacture/track-order-card";
 import {
@@ -123,6 +124,7 @@ export default async function ManufacturePage({
       "orders.order_reference as order_reference",
       "orders.po_customer_reference as po_customer_reference",
       "orders.development as development",
+      "orders.site_address as site_address",
       "orders.unit_type as unit_type",
       "orders.current_status as current_status",
       "orders.freight_mode as freight_mode",
@@ -174,6 +176,7 @@ export default async function ManufacturePage({
       {locked ? (
         <FrozenView
           orderId={order.id}
+          status={order.current_status}
           lines={lines}
           canAmend={session.profile.role === "admin"}
         />
@@ -367,10 +370,12 @@ async function EditableView({
 // ── after confirmation ─────────────────────────────────────────────────────
 async function FrozenView({
   orderId,
+  status,
   lines,
   canAmend,
 }: {
   orderId: string;
+  status: FulfilmentStatus;
   lines: ManufactureLine[];
   canAmend: boolean;
 }) {
@@ -436,6 +441,7 @@ async function FrozenView({
     : poLoad.problems;
   const pos: PoListItem[] = poRows.map((row) => ({
     id: row.id,
+    category: row.category,
     vendorName: row.vendor_name,
     vendorNameCn: row.vendor_name_cn,
     poNumber: row.po_number,
@@ -472,8 +478,8 @@ async function FrozenView({
     <>
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="text-sm text-slate-600">
-          These measurements are frozen. They are what the vendor was given
-          {confirmedAt && ` on ${SG_DATE.format(confirmedAt)}`}, and they do not
+          These measurements are frozen{confirmedAt && ` as of ${SG_DATE.format(confirmedAt)}`}.
+          {status === "po_ready" ? " Review the documents below before sending them to the vendor." : " They are the measurements recorded for the vendor."} They do not
           change if an allowance is edited later.
         </p>
         {canAmend && amendLines.length > 0 && (
@@ -493,6 +499,11 @@ async function FrozenView({
             text={trackOrderLines}
             unmeasured={trackOrder.unmeasured}
           />
+        </div>
+      )}
+      {status === "po_ready" && (
+        <div className="mb-4 flex justify-end">
+          <SendToVendorButton orderId={orderId} />
         </div>
       )}
       <FrozenMeasurements rooms={rooms} />

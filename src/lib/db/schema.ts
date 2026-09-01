@@ -39,7 +39,7 @@ export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
 export type FreightMode = "air" | "sea";
 
-export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
+export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "po_ready" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
@@ -733,6 +733,7 @@ export interface ManufactureMeasurements {
 }
 
 export interface ManufacturePos {
+  category: string | null;
   generated_at: Generated<Timestamp>;
   generated_by: string | null;
   id: Generated<string>;
@@ -828,6 +829,8 @@ export interface MeshSystems {
 }
 
 export interface Orders {
+  goods_local_delivery_number: string | null;
+  goods_overseas_tracking_number: string | null;
   po_customer_reference: string | null;
   appointment_id: string | null;
   balance_cents: Generated<number | null>;
@@ -861,6 +864,9 @@ export interface Orders {
   property_type: PropertyType | null;
   seq_num: number;
   seq_year: number;
+  site_address: string | null;
+  track_local_delivery_number: string | null;
+  track_overseas_tracking_number: string | null;
   unit_type: string | null;
   updated_at: Generated<Timestamp>;
 }

@@ -260,6 +260,12 @@ export function PoDocument({ data }: { data: PoDocData }) {
               in. Dropped on the user's instruction, 2026-08-20. */}
           <View style={styles.refs}>
             <View style={styles.refRow}>
+              <Text style={styles.refLabel}>PO TYPE</Text>
+              <Text style={styles.refValue}>
+                {data.category === "day" ? "DAY CURTAIN" : data.category === "night" ? "NIGHT CURTAIN" : "BLINDS"}
+              </Text>
+            </View>
+            <View style={styles.refRow}>
               <Text style={styles.refLabel}>DATE</Text>
               <Text style={styles.refValue}>{data.dateLabel}</Text>
             </View>

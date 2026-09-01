@@ -61,6 +61,8 @@ export type PoLine = {
   position: number;
   /** Decides the fourth column: fabric length for curtains, area for blinds. */
   kind: "curtain" | "blind";
+  /** Determines which separate vendor document this covering belongs to. */
+  category: PoCategory;
   /**
    * 窗帘款式 cell — "窗帘 Night", "纱窗 Day", "卷帘". Printed verbatim.
    *
@@ -121,7 +123,7 @@ export type PoInput = {
   roomLabels: ReadonlyMap<string, PoRoomLabel>;
   lines: readonly PoLine[];
   /** manufacture_pos.notes, per vendor — the Night sample's 都要绑带. */
-  notesByVendorId?: ReadonlyMap<string, string | null>;
+  notesByDocument?: ReadonlyMap<string, string | null>;
 };
 
 /** One table row, fully formatted. The renderer prints these strings as-is. */
@@ -151,6 +153,7 @@ export type PoRow = {
  * curtain_series.vendor_id permits it.
  */
 export type PoTable = { columnSet: "curtain" | "blind"; rows: PoRow[] };
+export type PoCategory = "day" | "night" | "blind";
 
 /** 订单资料 — curtain-only; blank on the Blinds sample. */
 export type PoOrderDetails = {
@@ -184,6 +187,7 @@ export type PoDelivery = {
  * "is this a curtain" in the component.
  */
 export type PoDocData = {
+  category: PoCategory;
   settings: PoSettings;
   vendor: PoVendor;
   poNumber: string;
@@ -392,7 +396,7 @@ export function buildPos(input: PoInput): {
   // Vendor grouping in first-appearance order. The split is by VENDOR, not by
   // product type: an order whose day and night curtains share a vendor is one
   // document, which is what that vendor wants.
-  const byVendor = new Map<string, ReadyLine[]>();
+  const groups = new Map<string, { vendorId: string; category: PoCategory; lines: ReadyLine[] }>();
 
   for (const line of ordered) {
     const label = input.roomLabels.get(line.roomType);
@@ -451,7 +455,9 @@ export function buildPos(input: PoInput): {
       continue;
     }
 
-    const lines = byVendor.get(line.vendorId) ?? [];
+    const key = `${line.vendorId}:${line.category}`;
+    const group = groups.get(key) ?? { vendorId: line.vendorId, category: line.category, lines: [] };
+    const lines = group.lines;
     lines.push({
       line,
       nameCn: roomName,
@@ -460,14 +466,15 @@ export function buildPos(input: PoInput): {
       openingLabel,
       fabricLabel,
     });
-    byVendor.set(line.vendorId, lines);
+    group.lines = lines;
+    groups.set(key, group);
   }
 
   const dateLabel = formatPoDate(input.generatedAt);
   const delivery = deliveryOf(input);
 
   const pos: PoDocData[] = [];
-  for (const [vendorId, ready] of byVendor) {
+  for (const { vendorId, category, lines: ready } of groups.values()) {
     const roomIndexes = numberRooms(ready.map((r) => r.line));
 
     const rowsFor = (kind: PoLine["kind"]): PoRow[] =>
@@ -493,6 +500,7 @@ export function buildPos(input: PoInput): {
     }
 
     pos.push({
+      category,
       settings: input.settings,
       vendor: vendorsById.get(vendorId)!,
       poNumber: input.poNumber,
@@ -511,7 +519,7 @@ export function buildPos(input: PoInput): {
             }
           : null,
       tables,
-      notes: input.notesByVendorId?.get(vendorId) ?? null,
+      notes: input.notesByDocument?.get(`${vendorId}:${category}`) ?? null,
     });
   }
 

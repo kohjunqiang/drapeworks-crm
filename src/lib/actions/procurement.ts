@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { poFileName } from "@/lib/po/file-name";
 import { userMessage } from "@/lib/errors";
 import { buildPos } from "@/lib/po/build";
 import { loadPoInput } from "@/lib/po/load";
@@ -420,23 +421,6 @@ const orderIdSchema = z.string().uuid("That is not a valid order.");
 const poIdSchema = z.string().uuid("That is not a valid document.");
 
 /**
- * "PO-10040-Rising.pdf".
- *
- * ASCII only, and not because the rest of the system is squeamish about Hanzi —
- * this string travels in a Content-Disposition header and then becomes a file on
- * whatever phone or laptop it lands on. The CONTENT is the Chinese document; the
- * filename only has to survive the trip.
- */
-function poFileName(poNumber: string, vendorName: string | null, category: string | null): string {
-  const slug = (s: string) =>
-    s.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const parts = ["PO", slug(poNumber), category ? slug(category) : "", vendorName ? slug(vendorName) : ""].filter(
-    Boolean,
-  );
-  return `${parts.join("-") || "PO"}.pdf`;
-}
-
-/**
  * Generate one 采购订单 per vendor for an order, from its frozen measurements.
  *
  * REFUSES rather than producing a partial document. Every missing Chinese label,
@@ -613,17 +597,25 @@ export async function getPoDownloadUrl(
   const row = await db
     .selectFrom("manufacture_pos")
     .leftJoin("vendors", "vendors.id", "manufacture_pos.vendor_id")
+    .innerJoin("orders", "orders.id", "manufacture_pos.order_id")
+    .innerJoin("customers", "customers.id", "orders.customer_id")
     .select([
       "manufacture_pos.storage_path as storage_path",
       "manufacture_pos.po_number as po_number",
       "manufacture_pos.category as category",
       "vendors.name as vendor_name",
+      "customers.name as customer_name",
     ])
     .where("manufacture_pos.id", "=", parsedId)
     .executeTakeFirst();
   if (!row) throw new Error("That purchase order no longer exists.");
 
-  const fileName = poFileName(row.po_number, row.vendor_name, row.category);
+  const fileName = poFileName(
+    row.po_number,
+    row.customer_name,
+    row.category,
+    row.vendor_name,
+  );
 
   // Service-role for the same reason as the upload above: the bucket is
   // private, the role guard on this action is the access control, and a

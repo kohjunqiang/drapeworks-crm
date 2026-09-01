@@ -2,7 +2,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { sql } from "kysely";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
@@ -42,7 +41,7 @@ export async function getLeadModalData(id: string) {
   };
 }
 
-export async function createLead(input: unknown): Promise<never> {
+export async function createLead(input: unknown): Promise<{ id: string }> {
   const session = await requireRole(["consultant", "admin"]);
   const p = leadCreateSchema.parse(input);
   const row = await db.insertInto("leads").values({
@@ -56,7 +55,8 @@ export async function createLead(input: unknown): Promise<never> {
     closure_reason: p.closure_reason ?? null,
     interaction_summary: p.interaction_summary ?? null, owner_id: session.user.id,
   }).returning("id").executeTakeFirstOrThrow();
-  revalidateLead(row.id); redirect(`/leads/${row.id}`);
+  revalidateLead(row.id);
+  return { id: row.id };
 }
 
 export async function logLeadUpdate(input: unknown): Promise<void> {
@@ -134,14 +134,14 @@ export async function quickEditLead(input: unknown): Promise<void> {
   const session = await requireRole(["consultant", "admin"]);
   const p = leadQuickEditSchema.parse(input);
   await db.transaction().execute(async (trx) => {
-  const before = await trx.selectFrom("leads").select(["funnel_stage", sql<string | null>`move_in_date::text`.as("move_in_date")])
+  const before = await trx.selectFrom("leads").select(["funnel_stage", "last_outcome", sql<string | null>`move_in_date::text`.as("move_in_date")])
     .where("id", "=", p.id).forUpdate().executeTakeFirstOrThrow();
   const row = await trx.updateTable("leads").set({
-    ...(before.funnel_stage !== p.funnel_stage || before.move_in_date !== (p.move_in_date ?? null)
+    ...(before.funnel_stage !== p.funnel_stage || before.move_in_date !== (p.move_in_date ?? null) || (p.last_outcome !== undefined && before.last_outcome !== p.last_outcome)
       ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
     owner_id: p.owner_id, assigned_consultant_id: p.owner_id,
     name: p.name, funnel_stage: p.funnel_stage,
-    ...(p.inbound_outbound !== undefined ? { inbound_outbound: p.inbound_outbound } : {}),
+    ...(p.last_outcome !== undefined ? { last_outcome: p.last_outcome } : {}),
     ...(p.keys_collected !== undefined ? { keys_collected: p.keys_collected } : {}),
     ...(p.interaction_summary !== undefined ? { interaction_summary: p.interaction_summary } : {}),
     ...(p.latest_quote_note !== undefined ? { latest_quote_note: p.latest_quote_note } : {}),

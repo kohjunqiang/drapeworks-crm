@@ -59,6 +59,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     return (!filterAction || action === p.action) && (!filterDue || deriveDueStatus(action, row.next_action_date_text, today) === p.due);
   });
   const sortedRows = sortLeadRows(derivedRows, sort, sortDirection, row => deriveDueStatus(actionFor(row), row.next_action_date_text, today));
+  const createdLeadIndex = p.created ? sortedRows.findIndex(row => row.id === p.created) : -1;
+  const orderedRows = createdLeadIndex > 0
+    ? [sortedRows[createdLeadIndex], ...sortedRows.slice(0, createdLeadIndex), ...sortedRows.slice(createdLeadIndex + 1)]
+    : sortedRows;
   const total = derivedRows.length;
   const statusCounts = LEAD_STATUSES.map(lead_status => ({ lead_status, count: derivedRows.filter(row => row.lead_status === lead_status).length }));
   const countStatus = (status: string) => statusCounts.find(row => row.lead_status === status)?.count ?? 0;
@@ -70,7 +74,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const requestedPage = Number.parseInt(p.page ?? "1", 10);
   const page = Math.min(Math.max(Number.isFinite(requestedPage) ? requestedPage : 1, 1), pageCount);
-  const rows = sortedRows.slice((page - 1) * pageSize, page * pageSize).map(row => ({ ...row, created_date_text: toSgDate(new Date(row.created_at)), initiated_date_text: row.first_initiated_at ? toSgDate(new Date(row.first_initiated_at)) : null, last_contact_date_text: row.last_contact_at ? toSgDate(new Date(row.last_contact_at)) : null }));
+  const rows = orderedRows.slice((page - 1) * pageSize, page * pageSize).map(row => ({ ...row, created_date_text: toSgDate(new Date(row.created_at)), initiated_date_text: row.first_initiated_at ? toSgDate(new Date(row.first_initiated_at)) : null, last_contact_date_text: row.last_contact_at ? toSgDate(new Date(row.last_contact_at)) : null }));
   const pageHref = (nextPage: number) => { const params = new URLSearchParams(Object.entries(p).filter((entry): entry is [string, string] => entry[1] !== undefined)); params.set("view", view); params.set("page", String(nextPage)); return `/leads?${params.toString()}`; };
   const pageSizeHref = (size: number) => { const params = new URLSearchParams(Object.entries(p).filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== "page")); params.set("view", view); params.set("pageSize", String(size)); return `/leads?${params.toString()}`; };
   const sortHref = (key: "next" | "due" | "initiated") => {

@@ -4,6 +4,7 @@ export type ConsultationEventInput = {
   development: string | null;
   address: string | null;
   notes: string | null;
+  quotationBreakdown: string | null;
   leadRef: string;
   leadId: string;
   scheduledAt: Date;
@@ -36,6 +37,9 @@ export function buildConsultationEvent(
   const description = [
     input.customerMobile ? `Mobile: ${input.customerMobile}` : null,
     `Lead: ${input.leadRef}`,
+    input.quotationBreakdown
+      ? `Quotation Breakdown:\n${input.quotationBreakdown}`
+      : null,
     input.notes,
     `${input.appUrl}/leads/${input.leadId}`,
   ]

@@ -44,7 +44,8 @@ type Mode = "create" | "edit";
  * where the consultation came from, not something the consultant fills in.
  */
 export type AppointmentPrefill = {
-  id: string;
+  id?: string;
+  leadId: string;
   customer: { name: string; mobile: string; email?: string };
   development?: string | null;
 };
@@ -246,6 +247,7 @@ export function ConsultationForm({
           await createOrder({
             ...normalised,
             appointment_id: appointment?.id,
+            lead_id: appointment?.leadId,
           });
         }
       } catch (e) {
@@ -270,6 +272,7 @@ export function ConsultationForm({
       // A half-finished consultation is still this appointment's consultation:
       // saving it as a draft must not fork a second customer either.
       appointment_id: appointment?.id,
+      lead_id: appointment?.leadId,
       rooms: (values.rooms ?? []).map((room, rIdx) => ({
         ...room,
         position: rIdx,

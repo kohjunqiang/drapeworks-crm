@@ -15,7 +15,7 @@ export async function bookAppointment(input:unknown):Promise<void>{
     const customerId=p.customer.mode==="existing"?p.customer.customer_id:(await trx.insertInto("customers").values({name:p.customer.name,mobile:p.customer.mobile,email:p.customer.email||null,created_by:session.user.id}).returning("id").executeTakeFirstOrThrow()).id;
     const appointment=await trx.insertInto("appointments").values({lead_id:p.lead_id,customer_id:customerId,scheduled_at:sgInstant(p.date,p.time),duration_mins:p.duration_mins,development:p.development??null,address:p.address??null,notes:p.notes??null,status:"scheduled",lead_stage_before:before.funnel_stage,lead_outcome_before:before.last_outcome,lead_action_date_before:before.next_action_date,google_sync_state:"pending",created_by:session.user.id}).returning("id").executeTakeFirstOrThrow();
     await trx.updateTable("leads").set({customer_id:customerId,funnel_stage:"Attend Appointment",last_outcome:"Appointment Booked",next_action_date:p.date,assigned_consultant_id:p.consultant_id,updated_at:new Date()}).where("id","=",p.lead_id).execute();
-    await trx.insertInto("lead_stage_events").values({lead_id:p.lead_id,from_stage:before.funnel_stage,to_stage:"Attend Appointment",changed_at:new Date(),changed_by:session.user.id,source:"system"}).execute();return appointment.id;
+    if(before.funnel_stage!=="Attend Appointment")await trx.insertInto("lead_stage_events").values({lead_id:p.lead_id,from_stage:before.funnel_stage,to_stage:"Attend Appointment",changed_at:new Date(),changed_by:session.user.id,source:"system"}).execute();return appointment.id;
   });
   await syncAppointment(appointmentId);refresh(p.lead_id);
 }

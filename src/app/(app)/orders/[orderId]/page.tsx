@@ -488,13 +488,15 @@ export default async function OrderDetailPage({
             : STATUS_LABELS[STATUS_FLOW[currentIdx + 1]];
           const ctaLabel =
             order.current_status === "order_recorded"
-              ? "Record deposit received"
+              ? "Mark quotation sent"
+              : order.current_status === "quotation_sent"
+                ? "Record deposit received"
               : undefined;
           // Recording the deposit exists to unblock the measurements review, so
           // go straight there rather than returning to this page and asking for
           // a second click to do the thing the first click was for.
           const advanceTo =
-            order.current_status === "order_recorded"
+            order.current_status === "quotation_sent"
               ? `/orders/${order.id}/manufacture`
               : undefined;
 

@@ -47,6 +47,7 @@ export async function syncAppointment(appointmentId: string): Promise<void> {
         "appointments.google_event_id",
         "leads.id as lead_id",
         "leads.lead_ref",
+        "leads.quotation_breakdown",
         "customers.name as customer_name",
         "customers.mobile as customer_mobile",
       ])
@@ -64,6 +65,7 @@ export async function syncAppointment(appointmentId: string): Promise<void> {
       development: row.development,
       address: row.address,
       notes: row.notes,
+      quotationBreakdown: row.quotation_breakdown,
       leadRef: row.lead_ref,
       leadId: row.lead_id,
       scheduledAt: new Date(row.scheduled_at),

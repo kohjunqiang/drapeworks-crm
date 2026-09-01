@@ -204,13 +204,15 @@ export const orderMetaSchema = z.object({
 // rides along so the order records where it came from, and so the write path
 // can reuse the appointment's customer instead of inserting a second row for
 // the same person.
-const optionalAppointmentId = z.string().uuid().optional();
+export const optionalAppointmentId = z.string().uuid().optional();
+export const optionalLeadId = z.string().uuid().optional();
 
 export const orderCreateSchema = z.object({
   customer: customerSchema,
   order: orderMetaSchema,
   rooms: z.array(roomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
+  lead_id: optionalLeadId,
 });
 
 // Draft variant: relaxed validation so consultants can persist a half-finished
@@ -254,6 +256,7 @@ export const orderDraftSchema = z.object({
   // appointment's consultation — the draft path reuses the booked customer for
   // the same reason the full save does.
   appointment_id: optionalAppointmentId,
+  lead_id: optionalLeadId,
 });
 
 export type OrderDraftInput = z.infer<typeof orderDraftSchema>;

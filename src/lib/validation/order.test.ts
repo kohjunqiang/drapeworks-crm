@@ -200,3 +200,19 @@ describe("orderCreateSchema / orderDraftSchema — appointment_id", () => {
     expect(parsed.appointment_id).toBe(APPOINTMENT);
   });
 });
+
+describe("orderCreateSchema / orderDraftSchema — lead_id", () => {
+  it("carries a direct Attend Appointment lead link", () => {
+    const parsed = orderCreateSchema.parse({ ...MINIMAL_ORDER, lead_id: APPOINTMENT });
+    expect(parsed.lead_id).toBe(APPOINTMENT);
+  });
+
+  it("rejects a free-text lead status or identifier", () => {
+    expect(orderCreateSchema.safeParse({ ...MINIMAL_ORDER, lead_id: "Attend Appointment" }).success).toBe(false);
+  });
+
+  it("carries the lead link through a draft", () => {
+    const parsed = orderDraftSchema.parse({ customer: { name: "Tan Wei Ming" }, order: {}, rooms: [], lead_id: APPOINTMENT });
+    expect(parsed.lead_id).toBe(APPOINTMENT);
+  });
+});

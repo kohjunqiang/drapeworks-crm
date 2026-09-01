@@ -2,6 +2,7 @@ import type { SgDate } from "./sg-date";
 
 export const FUNNEL_STAGES = ["Qualify Lead", "Nurture Lead – Long Term", "Activate Lead – Short Term", "Book Appointment", "Attend Appointment", "Send Quotation", "Collect Deposit", "Decision Pending", "Won", "Lost", "Not Qualified"] as const;
 export type FunnelStage = (typeof FUNNEL_STAGES)[number];
+export const ATTEND_APPOINTMENT_STAGE = "Attend Appointment" satisfies FunnelStage;
 export const LEAD_STATUSES = ["Active", "Unresponsive", "Closed – Won", "Closed – Lost", "Closed – Not Qualified"] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export const LEAD_OUTCOMES = ["Customer Replied", "Awaiting Customer", "No Response", "Pre-Appointment Barrier", "Appointment Booked", "Quotation Sent", "Post-Appointment Barrier", "Customer Declined", "Customer Confirmed"] as const;

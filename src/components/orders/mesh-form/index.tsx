@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import { CustomerSection } from "@/components/orders/consultation-form/customer-section";
+import type { AppointmentPrefill } from "@/components/orders/consultation-form";
 import {
   formDraftKey,
   useFormDraft,
@@ -56,6 +57,7 @@ type Props = {
   orderId?: string;
   defaultValues?: MeshOrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
+  appointment?: AppointmentPrefill;
 };
 
 function makePanel(position: number) {
@@ -115,13 +117,18 @@ export function MeshConsultationForm({
   orderId,
   defaultValues,
   roomPhotos,
+  appointment,
 }: Props) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   const schema =
     mode === "create" ? meshOrderCreateSchema : meshOrderEditSchema;
-  const initial = defaultValues ?? EMPTY_DEFAULTS;
+  const initial = defaultValues ?? (appointment ? {
+    ...EMPTY_DEFAULTS,
+    customer: { name: appointment.customer.name, mobile: appointment.customer.mobile, email: appointment.customer.email ?? "" },
+    order: { ...EMPTY_DEFAULTS.order, development: appointment.development ?? "" },
+  } : EMPTY_DEFAULTS);
 
   const form = useForm<MeshOrderEditInput>({
     // Same reasoning as the curtain form: the Zod transforms make the output
@@ -234,7 +241,7 @@ export function MeshConsultationForm({
         if (!orderId) throw new Error("Missing order id for edit");
         return updateMeshOrder(orderId, payload);
       }
-      return createMeshOrder(payload);
+      return createMeshOrder({ ...payload, appointment_id: appointment?.id, lead_id: appointment?.leadId });
     }, "Save failed");
   });
 
@@ -242,7 +249,7 @@ export function MeshConsultationForm({
     // Raw current values — skip the strict resolver so partial input is
     // allowed. The draft action does its own relaxed validation.
     runAction(
-      () => createMeshOrderDraft(normalise(getValues())),
+      () => createMeshOrderDraft({ ...normalise(getValues()), appointment_id: appointment?.id, lead_id: appointment?.leadId }),
       "Draft save failed",
     );
   }

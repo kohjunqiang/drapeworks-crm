@@ -8,6 +8,7 @@ const base = {
   development: "Tembusu Grand",
   address: "12 Tanjong Katong Rd #08-11",
   notes: "Day + night, 4 windows",
+  quotationBreakdown: "Curtains: $2,400\nTracks: $360",
   leadRef: "WA-6596253507",
   leadId: "3f1c7e2a-0000-4000-8000-000000000001",
   scheduledAt: new Date("2026-08-25T02:30:00Z"), // 10:30 SGT
@@ -33,6 +34,7 @@ describe("buildConsultationEvent", () => {
     expect(description).toContain("Mobile: +6596253507");
     expect(description).toContain("Lead: WA-6596253507");
     expect(description).toContain("Day + night, 4 windows");
+    expect(description).toContain("Quotation Breakdown:\nCurtains: $2,400\nTracks: $360");
     expect(description).toContain(
       "https://crm.drapeworks.sg/leads/3f1c7e2a-0000-4000-8000-000000000001",
     );
@@ -60,6 +62,7 @@ describe("buildConsultationEvent", () => {
       customerMobile: null,
       address: null,
       notes: null,
+      quotationBreakdown: null,
     });
     expect(event.location).toBeUndefined();
     expect(event.description).not.toContain("Mobile:");

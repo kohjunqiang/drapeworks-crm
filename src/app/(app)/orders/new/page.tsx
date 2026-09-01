@@ -4,6 +4,7 @@ import {
 } from "@/components/orders/consultation-form";
 import { MeshConsultationForm } from "@/components/orders/mesh-form";
 import { ProductLineChooser } from "@/components/orders/product-line-chooser";
+import { LeadConsultationPicker, type ConsultationLeadOption } from "@/components/orders/lead-consultation-picker";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
@@ -16,12 +17,13 @@ import { loadActivePromotions } from "@/lib/db/promotions";
 import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
 import { db } from "@/lib/db/kysely";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
+import { ATTEND_APPOINTMENT_STAGE } from "@/lib/leads/funnel-types";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "New Consultation — Drapeworks CRM" };
 
-type SearchParams = { product?: string; appointmentId?: string };
+type SearchParams = { product?: string; appointmentId?: string; leadId?: string };
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,7 +41,20 @@ const UUID_RE =
  */
 async function loadAppointmentPrefill(
   appointmentId: string | undefined,
+  leadId: string | undefined,
 ): Promise<AppointmentPrefill | undefined> {
+  if (leadId && UUID_RE.test(leadId)) {
+    const lead = await db.selectFrom("leads")
+      .select(["id", "name", "mobile", "development"])
+      .where("id", "=", leadId)
+      .where("is_archived", "=", false)
+      .executeTakeFirst();
+    if (lead) return {
+      leadId: lead.id,
+      customer: { name: lead.name, mobile: lead.mobile ?? "" },
+      development: lead.development,
+    };
+  }
   if (!appointmentId || !UUID_RE.test(appointmentId)) return undefined;
 
   const booked = await db
@@ -47,6 +62,7 @@ async function loadAppointmentPrefill(
     .innerJoin("customers", "customers.id", "appointments.customer_id")
     .select([
       "appointments.id as appointment_id",
+      "appointments.lead_id",
       "appointments.development as development",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
@@ -59,6 +75,7 @@ async function loadAppointmentPrefill(
 
   return {
     id: booked.appointment_id,
+    leadId: booked.lead_id,
     customer: {
       name: booked.customer_name,
       mobile: booked.customer_mobile,
@@ -74,8 +91,24 @@ export default async function NewConsultationPage({
   searchParams: Promise<SearchParams>;
 }) {
   const session = await requireRole(["consultant", "admin"]);
-  const { product, appointmentId } = await searchParams;
-  const appointment = await loadAppointmentPrefill(appointmentId);
+  const { product, appointmentId, leadId } = await searchParams;
+  const appointment = await loadAppointmentPrefill(appointmentId, leadId);
+  const consultationLeads = await db.selectFrom("leads")
+    .leftJoin("orders", "orders.lead_id", "leads.id")
+    .select([
+      "leads.id as lead_id", "leads.name as lead_name", "leads.mobile", "leads.development",
+    ])
+    .where("leads.is_archived", "=", false)
+    .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
+    .where("orders.id", "is", null)
+    .orderBy("leads.updated_at", "desc")
+    .execute();
+  const leadOptions: ConsultationLeadOption[] = consultationLeads.map(item => ({
+    leadId: item.lead_id,
+    leadName: item.lead_name,
+    mobile: item.mobile,
+    development: item.development,
+  }));
 
   const today = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -132,6 +165,8 @@ export default async function NewConsultationPage({
         </div>
       </div>
 
+      <LeadConsultationPicker options={leadOptions} selectedId={appointment?.leadId} />
+
       {/* The appointment link lands here with no ?product, so the chooser has
           to carry the booking through the choice — dropping it would lose the
           prefill at the very click that leads to the form. */}
@@ -139,10 +174,11 @@ export default async function NewConsultationPage({
         <ProductLineChooser
           meshEnabled={meshEnabled}
           appointmentId={appointment?.id}
+          leadId={appointment?.leadId}
         />
       )}
       {chosen === "curtain" && <CurtainConsultation appointment={appointment} />}
-      {chosen === "mesh" && <MeshConsultation />}
+      {chosen === "mesh" && <MeshConsultation appointment={appointment} />}
     </main>
   );
 }
@@ -173,7 +209,7 @@ async function CurtainConsultation({
   );
 }
 
-async function MeshConsultation() {
+async function MeshConsultation({ appointment }: { appointment?: AppointmentPrefill }) {
   // No in-use ids to union: a new order references nothing yet, so this is the
   // active catalogue only.
   const [meshConfig, promotions, systemBands, systemSpecs] =
@@ -199,6 +235,7 @@ async function MeshConsultation() {
       systemBands={systemBands}
       systemSpecs={systemSpecs}
       promotions={promotions}
+      appointment={appointment}
     />
   );
 }

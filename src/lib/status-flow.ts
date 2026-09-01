@@ -1,7 +1,9 @@
 import type { FulfilmentStatus } from "@/lib/db/schema";
+import type { FunnelStage, LeadOutcome } from "@/lib/leads/funnel-types";
 
 export const STATUS_FLOW: FulfilmentStatus[] = [
   "order_recorded",
+  "quotation_sent",
   "deposit_received",
   "po_ready",
   "sent_to_vendor",
@@ -14,6 +16,7 @@ export const STATUS_FLOW: FulfilmentStatus[] = [
 
 export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
   order_recorded: "Order Recorded",
+  quotation_sent: "Quotation Sent (to customer)",
   deposit_received: "Deposit Received",
   po_ready: "PO Ready",
   sent_to_vendor: "Sent to Vendor",
@@ -26,6 +29,7 @@ export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
 
 export const STATUS_COLOURS: Record<FulfilmentStatus, string> = {
   order_recorded: "bg-slate-100 text-slate-700",
+  quotation_sent: "bg-sky-100 text-sky-700",
   deposit_received: "bg-amber-100 text-amber-700",
   po_ready: "bg-teal-100 text-teal-700",
   sent_to_vendor: "bg-orange-100 text-orange-700",
@@ -46,6 +50,12 @@ export function nextStatus(
 
 export function statusIndex(s: FulfilmentStatus): number {
   return STATUS_FLOW.indexOf(s);
+}
+
+export function leadMilestoneForOrderStatus(status: FulfilmentStatus): { stage: FunnelStage; outcome: LeadOutcome } | null {
+  if (status === "quotation_sent") return { stage: "Decision Pending", outcome: "Quotation Sent" };
+  if (status === "deposit_received") return { stage: "Won", outcome: "Customer Confirmed" };
+  return null;
 }
 
 // Once an order has gone to the vendor, its measurements are being cut. Editing

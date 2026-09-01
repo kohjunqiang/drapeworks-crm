@@ -39,7 +39,7 @@ export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
 export type FreightMode = "air" | "sea";
 
-export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "po_ready" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
+export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "po_ready" | "quotation_sent" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
@@ -625,6 +625,15 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface LeadImportBaselines {
+  as_of: Timestamp;
+  last_contact_at: Timestamp | null;
+  last_customer_response_at: Timestamp | null;
+  last_message_by: LeadDirection | null;
+  lead_id: string;
+  unanswered_followups: number;
+}
+
 export interface LeadInteractions {
   channel: LeadContactChannel | null;
   created_at: Generated<Timestamp>;
@@ -829,9 +838,6 @@ export interface MeshSystems {
 }
 
 export interface Orders {
-  goods_local_delivery_number: string | null;
-  goods_overseas_tracking_number: string | null;
-  po_customer_reference: string | null;
   appointment_id: string | null;
   balance_cents: Generated<number | null>;
   channel: Generated<SalesChannel>;
@@ -853,10 +859,14 @@ export interface Orders {
   extra_install_sgd_cents: Generated<number>;
   freight_mode: Generated<FreightMode>;
   general_notes: string | null;
+  goods_local_delivery_number: string | null;
+  goods_overseas_tracking_number: string | null;
   id: Generated<string>;
   is_draft: Generated<boolean>;
+  lead_id: string | null;
   move_in_date: Timestamp | null;
   order_reference: string | null;
+  po_customer_reference: string | null;
   price_calc_at_quote_cents: number | null;
   price_quoted_cents: Generated<number>;
   product_line: Generated<ProductLine>;
@@ -1246,6 +1256,7 @@ export interface DB {
   delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  lead_import_baselines: LeadImportBaselines;
   lead_interactions: LeadInteractions;
   lead_legacy_import: LeadLegacyImport;
   lead_stage_events: LeadStageEvents;

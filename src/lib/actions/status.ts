@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
-import { STATUS_FLOW } from "@/lib/status-flow";
+import { STATUS_FLOW, leadMilestoneForOrderStatus } from "@/lib/status-flow";
 
 const advanceSchema = z.object({
   orderId: z.string().uuid(),
@@ -20,7 +20,7 @@ export async function advanceOrderStatus(input: unknown) {
 
   const order = await db
     .selectFrom("orders")
-    .select("current_status")
+    .select(["current_status", "appointment_id", "lead_id"])
     .where("id", "=", parsed.orderId)
     .executeTakeFirst();
   if (!order) throw new Error("Order not found");
@@ -31,18 +31,48 @@ export async function advanceOrderStatus(input: unknown) {
 
   const next = STATUS_FLOW[idx + 1];
 
-  await db
-    .insertInto("order_status_events")
-    .values({
+  const linkedLead = order.lead_id
+    ? await db.selectFrom("leads").select(["id", "funnel_stage"]).where("id", "=", order.lead_id).executeTakeFirst()
+    : order.appointment_id
+    ? await db.selectFrom("appointments").innerJoin("leads", "leads.id", "appointments.lead_id")
+        .select(["leads.id", "leads.funnel_stage"])
+        .where("appointments.id", "=", order.appointment_id).executeTakeFirst()
+    : undefined;
+
+  await db.transaction().execute(async trx => {
+    await trx.insertInto("order_status_events").values({
       order_id: parsed.orderId,
       status: next,
       note: parsed.note?.trim() || null,
       created_by: session.user.id,
-    })
-    .execute();
+    }).execute();
+    const milestone = leadMilestoneForOrderStatus(next);
+    if (linkedLead && milestone) {
+      await trx.updateTable("leads").set({
+        funnel_stage: milestone.stage,
+        last_outcome: milestone.outcome,
+        ...(next === "quotation_sent" ? { quotation_sent_at: new Date() } : {}),
+        updated_at: new Date(),
+      }).where("id", "=", linkedLead.id).execute();
+      if (linkedLead.funnel_stage !== milestone.stage) {
+        await trx.insertInto("lead_stage_events").values({
+          lead_id: linkedLead.id,
+          from_stage: linkedLead.funnel_stage,
+          to_stage: milestone.stage,
+          changed_at: new Date(),
+          changed_by: session.user.id,
+          source: "system",
+        }).execute();
+      }
+    }
+  });
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath("/orders");
+  if (linkedLead) {
+    revalidatePath("/leads");
+    revalidatePath(`/leads/${linkedLead.id}`);
+  }
 }
 
 const noteSchema = z.object({

@@ -164,7 +164,7 @@ async function writeWindowAddons(
 }
 
 /** The customer an order belongs to, and the appointment it came from. */
-type OrderCustomer = { customerId: string; appointmentId: string | null };
+type OrderCustomer = { customerId: string; appointmentId: string | null; leadId: string | null };
 
 /**
  * Reuse the booked customer, or create one.
@@ -186,18 +186,24 @@ type OrderCustomer = { customerId: string; appointmentId: string | null };
 async function resolveOrderCustomer(
   trx: Transaction<DB>,
   appointmentId: string | undefined,
+  leadId: string | undefined,
   customer: { name: string; mobile: string; email?: string },
   userId: string,
 ): Promise<OrderCustomer> {
   const booked = appointmentId
     ? await trx
         .selectFrom("appointments")
-        .select("customer_id")
+        .select(["customer_id", "lead_id"])
         .where("id", "=", appointmentId)
         .executeTakeFirst()
     : undefined;
 
-  if (!booked) {
+  const linkedLead = !booked && leadId
+    ? await trx.selectFrom("leads").select(["id", "customer_id"]).where("id", "=", leadId).where("is_archived", "=", false).executeTakeFirst()
+    : undefined;
+  const existingCustomerId = booked?.customer_id ?? linkedLead?.customer_id;
+
+  if (!existingCustomerId) {
     const inserted = await trx
       .insertInto("customers")
       .values({
@@ -208,7 +214,8 @@ async function resolveOrderCustomer(
       })
       .returning("id")
       .executeTakeFirstOrThrow();
-    return { customerId: inserted.id, appointmentId: null };
+    if (linkedLead) await trx.updateTable("leads").set({ customer_id: inserted.id }).where("id", "=", linkedLead.id).execute();
+    return { customerId: inserted.id, appointmentId: null, leadId: booked?.lead_id ?? linkedLead?.id ?? null };
   }
 
   await trx
@@ -220,12 +227,13 @@ async function resolveOrderCustomer(
       ...(customer.mobile.trim().length > 0 ? { mobile: customer.mobile } : {}),
       email: customer.email ?? null,
     })
-    .where("id", "=", booked.customer_id)
+    .where("id", "=", existingCustomerId)
     .execute();
 
   return {
-    customerId: booked.customer_id,
+    customerId: existingCustomerId,
     appointmentId: appointmentId ?? null,
+    leadId: booked?.lead_id ?? linkedLead?.id ?? null,
   };
 }
 
@@ -242,6 +250,7 @@ export async function createOrder(input: unknown): Promise<never> {
     const customer = await resolveOrderCustomer(
       trx,
       parsed.appointment_id,
+      parsed.lead_id,
       parsed.customer,
       session.user.id,
     );
@@ -252,6 +261,7 @@ export async function createOrder(input: unknown): Promise<never> {
         customer_id: customer.customerId,
         consultant_id: session.user.id,
         appointment_id: customer.appointmentId,
+        lead_id: customer.leadId,
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
         site_address: parsed.order.site_address?.trim() || null,
@@ -664,6 +674,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
     const customer = await resolveOrderCustomer(
       trx,
       parsed.appointment_id,
+      parsed.lead_id,
       parsed.customer,
       session.user.id,
     );
@@ -674,6 +685,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         customer_id: customer.customerId,
         consultant_id: session.user.id,
         appointment_id: customer.appointmentId,
+        lead_id: customer.leadId,
         property_type: parsed.order.property_type ?? null,
         development: parsed.order.development ?? null,
         site_address: parsed.order.site_address?.trim() || null,

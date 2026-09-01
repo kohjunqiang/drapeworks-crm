@@ -10,13 +10,17 @@ import {
   type FrozenLine,
   type FrozenRoom,
 } from "@/components/manufacture/frozen-measurements";
-import { PoList, type PoListItem } from "@/components/manufacture/po-list";
+import {
+  PoGenerationButton,
+  PoList,
+  type PoListItem,
+} from "@/components/manufacture/po-list";
 import { ShipsToSelect } from "@/components/manufacture/ships-to-select";
 import { CustomerReferenceInput } from "@/components/manufacture/customer-reference-input";
 import { PoNumberInput } from "@/components/manufacture/po-number-input";
 import { SendToVendorButton } from "@/components/manufacture/send-to-vendor-button";
 import { customerReference } from "@/lib/po/customer-reference";
-import { nextPoNumber } from "@/lib/po/number";
+import { ensurePoNumber } from "@/lib/po/assign-number";
 import { TrackOrderCard } from "@/components/manufacture/track-order-card";
 import {
   Reconciliation,
@@ -142,64 +146,102 @@ export default async function ManufacturePage({
     redirect(`/orders/${order.id}`);
   }
 
+  // A number shown here must already be the number generation will read. Do
+  // this on the server so a stalled or disabled browser cannot display a
+  // suggestion while the database still says the order has no PO number.
+  order.order_reference = await ensurePoNumber(order.id);
+
   const locked = isLocked(order.current_status);
-  const [lines, deliveryAddresses, existingPoReferences] = await Promise.all([
+  const [lines, deliveryAddresses] = await Promise.all([
     loadManufactureLines(order.id),
     loadDeliveryVendors(),
-    order.order_reference
-      ? Promise.resolve([])
-      : db
-          .selectFrom("orders")
-          .select("order_reference")
-          .where("order_reference", "is not", null)
-          .execute(),
   ]);
-  const suggestedPoNumber = nextPoNumber(
-    existingPoReferences.map((row) => row.order_reference),
-  );
 
   return (
     <Shell order={order}>
-      <PoNumberInput
-        key={`${order.id}:${order.order_reference ?? ""}`}
-        orderId={order.id}
-        initialValue={order.order_reference}
-        suggestedValue={suggestedPoNumber}
-      />
-      <CustomerReferenceInput
-        key={`${order.id}:${order.po_customer_reference ?? ""}`}
-        orderId={order.id}
-        initialValue={customerReference(order) ?? ""}
-      />
-      {/* Above both views: the address has to be right BEFORE the documents
-          are generated, and changeable after, since a forwarder can fall over
-          while an order is in production. */}
-      <ShipsToSelect
-        orderId={order.id}
-        addresses={deliveryAddresses.map((a) => ({
-          id: a.id,
-          label: a.label,
-          isDefault: a.is_default,
-          isActive: a.is_active,
-        }))}
-        selectedId={order.delivery_vendor_id}
-        isAir={order.freight_mode === "air"}
-      />
       {locked ? (
         <FrozenView
           orderId={order.id}
           status={order.current_status}
           lines={lines}
           canAmend={session.profile.role === "admin"}
+          order={order}
+          deliveryAddresses={deliveryAddresses}
         />
       ) : (
-        <EditableView
-          order={order}
-          lines={lines}
-          isAdmin={session.profile.role === "admin"}
-        />
+        <>
+          <PoDetailsSection order={order} deliveryAddresses={deliveryAddresses} />
+          <EditableView
+            order={order}
+            lines={lines}
+            isAdmin={session.profile.role === "admin"}
+          />
+        </>
       )}
     </Shell>
+  );
+}
+
+type DeliveryAddress = Awaited<ReturnType<typeof loadDeliveryVendors>>[number];
+
+function PoDetailsSection({
+  order,
+  deliveryAddresses,
+  measurements,
+  action,
+}: {
+  order: OrderHeader;
+  deliveryAddresses: DeliveryAddress[];
+  measurements?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="mb-4 rounded-lg border border-slate-200 bg-white overflow-hidden">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-2">
+        <h2 className="text-sm font-semibold text-slate-800">PO details</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          These details are printed on every vendor PDF for this order.
+        </p>
+      </div>
+      {measurements && (
+        <div className="border-b border-slate-200 p-4">
+          {measurements}
+        </div>
+      )}
+      <div className="grid gap-4 p-4 md:grid-cols-2">
+        <PoNumberInput
+          key={`${order.id}:${order.order_reference}`}
+          orderId={order.id}
+          initialValue={order.order_reference ?? ""}
+          embedded
+        />
+        <ShipsToSelect
+          orderId={order.id}
+          addresses={deliveryAddresses.map((address) => ({
+            id: address.id,
+            label: address.label,
+            isDefault: address.is_default,
+            isActive: address.is_active,
+          }))}
+          selectedId={order.delivery_vendor_id}
+          isAir={order.freight_mode === "air"}
+          embedded
+        />
+        <div className="md:col-span-2 border-t border-slate-100 pt-4">
+          <CustomerReferenceInput
+            key={`${order.id}:${order.po_customer_reference ?? ""}`}
+            orderId={order.id}
+            initialValue={customerReference(order) ?? ""}
+            embedded
+          />
+        </div>
+      </div>
+      {action && (
+        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
+          {action}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -207,6 +249,10 @@ type OrderHeader = {
   id: string;
   display_id: string;
   order_reference: string | null;
+  po_customer_reference: string | null;
+  development: string | null;
+  site_address: string | null;
+  unit_type: string | null;
   current_status: FulfilmentStatus;
   freight_mode: FreightMode;
   delivery_vendor_id: string | null;
@@ -385,11 +431,15 @@ async function FrozenView({
   status,
   lines,
   canAmend,
+  order,
+  deliveryAddresses,
 }: {
   orderId: string;
   status: FulfilmentStatus;
   lines: ManufactureLine[];
   canAmend: boolean;
+  order: OrderHeader;
+  deliveryAddresses: DeliveryAddress[];
 }) {
   const stored = await db
     .selectFrom("manufacture_measurements")
@@ -463,6 +513,7 @@ async function FrozenView({
       : null,
     notes: row.notes,
   }));
+  const hasCurrentPos = pos.some((po) => po.supersededLabel === null);
 
   // Built on the server so the page ships the finished text: what is copied is
   // exactly what is on screen, with no second assembly in the browser.
@@ -488,21 +539,37 @@ async function FrozenView({
 
   return (
     <>
-      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <p className="text-sm text-slate-600">
-          These measurements are frozen{confirmedAt && ` as of ${SG_DATE.format(confirmedAt)}`}.
-          {status === "po_ready" ? " Review the documents below before sending them to the vendor." : " They are the measurements recorded for the vendor."} They do not
-          change if an allowance is edited later.
-        </p>
-        {canAmend && amendLines.length > 0 && (
-          <div className="self-start">
-            <AmendDialog orderId={orderId} lines={amendLines} />
-          </div>
+      <PoDetailsSection
+        order={order}
+        deliveryAddresses={deliveryAddresses}
+        measurements={(
+          <>
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">
+                  Installation measurements
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Frozen{confirmedAt && ` on ${SG_DATE.format(confirmedAt)}`}.
+                  {status === "po_ready" ? " Review before generating." : " These are the figures recorded for the vendor."}
+                </p>
+              </div>
+              {canAmend && amendLines.length > 0 && (
+                <AmendDialog orderId={orderId} lines={amendLines} />
+              )}
+            </div>
+            <FrozenMeasurements rooms={rooms} />
+          </>
         )}
-      </div>
+        action={poProblems.length === 0 ? (
+          <PoGenerationButton
+            orderId={orderId}
+            hasDocuments={pos.length > 0}
+          />
+        ) : undefined}
+      />
       <div className="mb-4">
         <PoList
-          orderId={orderId}
           pos={pos}
           problems={poProblems}
           hasCurtains={lines.some((line) => line.line === "curtain")}
@@ -519,12 +586,11 @@ async function FrozenView({
           />
         </div>
       )}
-      {status === "po_ready" && (
+      {status === "po_ready" && hasCurrentPos && poProblems.length === 0 && (
         <div className="mb-4 flex justify-end">
           <SendToVendorButton orderId={orderId} />
         </div>
       )}
-      <FrozenMeasurements rooms={rooms} />
     </>
   );
 }

@@ -42,6 +42,7 @@ export function ShipsToSelect({
   orderId,
   addresses,
   selectedId,
+  embedded = false,
   /** True when the order flies. A sea order prints no delivery block at all. */
   isAir,
 }: {
@@ -49,6 +50,7 @@ export function ShipsToSelect({
   addresses: ShipsToOption[];
   selectedId: string | null;
   isAir: boolean;
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -81,7 +83,9 @@ export function ShipsToSelect({
   }
 
   return (
-    <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className={embedded
+      ? "flex flex-col gap-2"
+      : "mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"}>
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-800">
           Ships to <span className="text-slate-500">收货地址</span>
@@ -104,7 +108,7 @@ export function ShipsToSelect({
         </p>
       </div>
 
-      <div className="w-full sm:w-72 shrink-0">
+      <div className={embedded ? "w-full" : "w-full sm:w-72 shrink-0"}>
         <AppSelect
           value={value}
           onChange={choose}

@@ -78,7 +78,7 @@ export function FrozenMeasurements({ rooms }: { rooms: FrozenRoom[] }) {
           </div>
           <div className="hidden sm:grid grid-cols-2 gap-3 px-4 py-1.5 border-t border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
             <div>Measured</div>
-            <div className="pl-4">Sent to the vendor</div>
+            <div className="pl-4">Installation</div>
           </div>
           {room.lines.map((line) => (
             <div

@@ -5,8 +5,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 
 import { revalidatePath } from "next/cache";
-import { sql, type Transaction } from "kysely";
-import { z } from "zod";
+import type { Transaction } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
@@ -16,7 +15,6 @@ import {
   loadWindowAddonIds,
 } from "@/lib/db/window-addons";
 import { userMessage } from "@/lib/errors";
-import { nextPoNumber } from "@/lib/po/number";
 import {
   resolveWindowAddons,
   selectedAddonIds,
@@ -764,46 +762,6 @@ export async function createOrderDraft(input: unknown): Promise<never> {
 // status-gated: it's a paperwork identifier rather than a manufacturing
 // input, and a vendor may ask for a renumber mid-production even after the
 // order locks at sent_to_vendor.
-export async function assignNextOrderReference(orderId: unknown): Promise<string> {
-  await requireRole(["ops", "admin"]);
-  const id = z.string().uuid().parse(orderId);
-
-  const reference = await db.transaction().execute(async (trx) => {
-    // Serialise automatic assignments so two orders opened together cannot be
-    // shown the same running number. Manual edits remain protected by the
-    // unique index as before.
-    await sql`select pg_advisory_xact_lock(10052)`.execute(trx);
-
-    const order = await trx
-      .selectFrom("orders")
-      .select("order_reference")
-      .where("id", "=", id)
-      .executeTakeFirst();
-    if (!order) throw new Error("Order not found");
-    if (order.order_reference) return order.order_reference;
-
-    const existing = await trx
-      .selectFrom("orders")
-      .select("order_reference")
-      .where("order_reference", "is not", null)
-      .execute();
-    const assigned = nextPoNumber(existing.map((row) => row.order_reference));
-
-    await trx
-      .updateTable("orders")
-      .set({ order_reference: assigned })
-      .where("id", "=", id)
-      .where("order_reference", "is", null)
-      .execute();
-    return assigned;
-  });
-
-  revalidatePath(`/orders/${id}`);
-  revalidatePath(`/orders/${id}/manufacture`);
-  revalidatePath("/orders");
-  return reference;
-}
-
 export async function setOrderReference(input: unknown): Promise<void> {
   await requireRole(["ops", "admin"]);
   const parsed = orderReferenceSchema.parse(input);

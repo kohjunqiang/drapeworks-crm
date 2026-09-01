@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { savePoCustomerReference } from "@/lib/actions/procurement";
 
-export function CustomerReferenceInput({ orderId, initialValue }: {
+export function CustomerReferenceInput({ orderId, initialValue, embedded = false }: {
   orderId: string;
   initialValue: string;
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(initialValue);
@@ -17,7 +18,7 @@ export function CustomerReferenceInput({ orderId, initialValue }: {
   const [pending, startTransition] = useTransition();
 
   return (
-    <form className="mb-4 rounded-lg border border-slate-200 bg-white p-4 space-y-2"
+    <form className={embedded ? "space-y-2" : "mb-4 rounded-lg border border-slate-200 bg-white p-4 space-y-2"}
       onSubmit={(event) => {
         event.preventDefault();
         startTransition(async () => {
@@ -43,9 +44,11 @@ export function CustomerReferenceInput({ orderId, initialValue }: {
         value={value} onChange={(event) => setValue(event.target.value)}
         rows={3} maxLength={500} disabled={pending}
         placeholder={"Customer name\nStreet address, unit number and postal code"} />
-      <Button type="submit" disabled={pending || value === saved}>
-        {pending ? "Saving…" : "Save customer reference"}
-      </Button>
+      {value !== saved && (
+        <Button type="submit" disabled={pending}>
+          {pending ? "Saving…" : "Save customer reference"}
+        </Button>
+      )}
       {value !== saved && <p className="text-xs text-amber-700">Unsaved changes — save before generating the PO.</p>}
     </form>
   );

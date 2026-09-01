@@ -281,14 +281,12 @@ function PoRow({ po }: { po: PoListItem }) {
   );
 }
 
-function RegenerateButton({
+export function PoGenerationButton({
   orderId,
   hasDocuments,
-  blocked,
 }: {
   orderId: string;
   hasDocuments: boolean;
-  blocked: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -318,13 +316,10 @@ function RegenerateButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        disabled={pending || blocked}
-        title={blocked ? "Fix the listed issues before generating" : undefined}
+        disabled={pending}
         className="px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium whitespace-nowrap"
       >
-        {blocked
-          ? "Fix issues first"
-          : pending
+        {pending
           ? "Generating…"
           : hasDocuments
             ? "Regenerate"
@@ -392,13 +387,11 @@ function RegenerateButton({
 }
 
 export function PoList({
-  orderId,
   pos,
   problems,
   hasCurtains,
   hasBlinds,
 }: {
-  orderId: string;
   pos: PoListItem[];
   hasCurtains: boolean;
   hasBlinds: boolean;
@@ -410,15 +403,10 @@ export function PoList({
 }) {
   return (
     <div className="border border-slate-200 rounded overflow-hidden bg-white">
-      <div className="bg-slate-50 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="bg-slate-50 px-4 py-2">
         <span className="text-sm font-semibold text-slate-800">
           Purchase orders <span className="text-slate-500">采购订单</span>
         </span>
-        <RegenerateButton
-          orderId={orderId}
-          hasDocuments={pos.length > 0}
-          blocked={problems.length > 0}
-        />
       </div>
 
       {problems.length > 0 && (

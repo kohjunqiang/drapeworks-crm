@@ -126,7 +126,7 @@ export function AmendDialog({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-3 py-1.5 text-xs sm:text-sm border border-amber-400 text-amber-900 bg-amber-50 rounded hover:bg-amber-100 font-medium whitespace-nowrap"
+        className="px-1 py-1 text-xs sm:text-sm text-amber-800 underline underline-offset-2 hover:text-amber-950 whitespace-nowrap"
       >
         Amend measurements
       </button>

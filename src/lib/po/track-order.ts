@@ -36,6 +36,8 @@ export type TrackOrderLine = {
   kind: "single" | "double";
   /** The track is fixed to the side wall rather than installed conventionally. */
   sideInstallation: boolean;
+  /** Supply the overlap-track attachment for this opening. */
+  overlapTracksAttachment: boolean;
 };
 
 /**
@@ -112,9 +114,12 @@ function mmToM(mm: number): string {
 export function trackOrderLine(line: TrackOrderLine): string {
   const kindCn = line.kind === "double" ? "双轨" : "单轨";
   const installation = line.sideInstallation ? " 侧装 Side installation" : "";
+  const overlap = line.overlapTracksAttachment
+    ? " Overlap tracks / attachment"
+    : "";
   return `${cmToM(line.widthCm)}米 ${kindCn}裁成${mmToM(
     cutLengthMm(line.widthCm),
-  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${installation}`;
+  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${installation}${overlap}`;
 }
 
 /**

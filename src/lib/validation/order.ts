@@ -81,6 +81,7 @@ const regularWindow = baseWindow.extend({
   split_right_cm: optionalInt,
   // Explicitly-picked combo (Phase 10) — fixes this window's sale price.
   combo_id: optionalTypeId,
+  overlap_tracks_attachment: z.boolean().default(false),
 });
 
 // A blind's chain/control side. "Double" is a curtain concept — two leaves
@@ -280,6 +281,7 @@ const draftWindow = baseWindow.extend({
   split_left_cm: optionalInt,
   split_right_cm: optionalInt,
   combo_id: optionalTypeId,
+  overlap_tracks_attachment: z.boolean().default(false),
 });
 
 const draftRoom = z.object({

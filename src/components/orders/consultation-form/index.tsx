@@ -108,6 +108,7 @@ function makeWindow(roomType: RoomType, position: number) {
     combo_id: "",
     addon_ids: [] as string[],
     side_installation: false,
+    overlap_tracks_attachment: false,
   };
 }
 

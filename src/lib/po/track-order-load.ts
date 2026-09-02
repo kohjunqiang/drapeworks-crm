@@ -50,6 +50,7 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
         "windows.night_curtain_type_id as night_curtain_type_id",
         "windows.blind_type_id as blind_type_id",
         "windows.side_installation as side_installation",
+        "windows.overlap_tracks_attachment as overlap_tracks_attachment",
         "rooms.label as room_label",
       ])
       .where("rooms.order_id", "=", orderId)
@@ -92,6 +93,7 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       // Phase 14, so it carries its own headrail and never reaches here.
       kind: curtains >= 2 ? "double" : "single",
       sideInstallation: w.side_installation,
+      overlapTracksAttachment: w.overlap_tracks_attachment,
     });
   }
 

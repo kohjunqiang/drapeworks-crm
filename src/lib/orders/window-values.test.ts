@@ -28,6 +28,7 @@ describe("windowValues — regular window", () => {
       height_cm: 240,
       notes: "beam clearance",
       side_installation: false,
+      overlap_tracks_attachment: false,
       day_curtain_type_id: DAY,
       night_curtain_type_id: NIGHT,
       blind_type_id: null,
@@ -77,6 +78,7 @@ describe("windowValues — blind window", () => {
       height_cm: 200,
       notes: null,
       side_installation: false,
+      overlap_tracks_attachment: false,
       day_curtain_type_id: null,
       night_curtain_type_id: null,
       blind_type_id: BLIND,
@@ -131,6 +133,22 @@ describe("windowValues — blind window", () => {
       0,
     );
     expect(values.side_installation).toBe(true);
+  });
+
+  it("persists the overlap-track attachment as an operational instruction", () => {
+    const values = windowValues(
+      { variant: "regular", overlap_tracks_attachment: true },
+      0,
+    );
+    expect(values.overlap_tracks_attachment).toBe(true);
+  });
+
+  it("drops a stale overlap-track instruction when switched to a blind", () => {
+    const values = windowValues(
+      { variant: "blind", overlap_tracks_attachment: true },
+      0,
+    );
+    expect(values.overlap_tracks_attachment).toBe(false);
   });
 });
 

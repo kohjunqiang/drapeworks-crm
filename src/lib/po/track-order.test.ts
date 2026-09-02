@@ -14,6 +14,7 @@ const line = (over: Partial<TrackOrderLine> = {}): TrackOrderLine => ({
   widthCm: 266,
   kind: "double",
   sideInstallation: false,
+  overlapTracksAttachment: false,
   ...over,
 });
 
@@ -38,6 +39,22 @@ describe("trackOrderLine", () => {
   it("marks a side-installed track as a cutting and installation instruction", () => {
     expect(trackOrderLine(line({ sideInstallation: true }))).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
+    );
+  });
+
+  it("adds the overlap-track attachment instruction", () => {
+    expect(trackOrderLine(line({ overlapTracksAttachment: true }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 Overlap tracks / attachment",
+    );
+  });
+
+  it("keeps both operational instructions when both are selected", () => {
+    expect(
+      trackOrderLine(
+        line({ sideInstallation: true, overlapTracksAttachment: true }),
+      ),
+    ).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation Overlap tracks / attachment",
     );
   });
 

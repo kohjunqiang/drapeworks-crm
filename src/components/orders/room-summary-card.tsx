@@ -10,6 +10,7 @@ type WindowSummary = {
   installation_height_cm?: number | null;
   notes: string | null;
   side_installation?: boolean;
+  overlap_tracks_attachment?: boolean;
   draw: string | null;
   split_left_cm?: number | null;
   split_right_cm?: number | null;
@@ -108,7 +109,10 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
                   : "—"}
             </td>
             <td className="px-4 py-2 text-slate-500">
-              {[w.side_installation ? "Side installation" : null, w.notes]
+              {[
+                w.side_installation ? "Side installation" : null,
+                w.notes,
+              ]
                 .filter(Boolean)
                 .join(" · ") || "—"}
             </td>
@@ -202,7 +206,13 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
                     </div>
                   </td>
                   <td className="px-4 py-2 text-slate-500">
-                    {[w.side_installation ? "Side installation" : null, w.notes]
+                    {[
+                      w.side_installation ? "Side installation" : null,
+                      w.overlap_tracks_attachment
+                        ? "Overlap tracks / attachment"
+                        : null,
+                      w.notes,
+                    ]
                       .filter(Boolean)
                       .join(" · ") || "—"}
                   </td>

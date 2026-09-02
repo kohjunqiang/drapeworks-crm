@@ -1261,6 +1261,7 @@ export interface Windows {
   id: Generated<string>;
   night_curtain_type_id: string | null;
   notes: string | null;
+  overlap_tracks_attachment: Generated<boolean>;
   position: number;
   room_id: string;
   side_installation: Generated<boolean>;

@@ -102,6 +102,16 @@ export function AddonCheckboxes({
         />
         Side-installation
       </label>
+      {covering === "curtain" && (
+        <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+            {...register(`${base}.overlap_tracks_attachment`)}
+          />
+          Overlap tracks / attachment
+        </label>
+      )}
     </fieldset>
   );
 }

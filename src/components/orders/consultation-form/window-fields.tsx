@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
@@ -9,6 +10,10 @@ import type { AddonRule } from "@/lib/orders/window-addons";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 import { AddonCheckboxes } from "./addon-checkboxes";
+import {
+  drawAfterCoveringChange,
+  type WindowDraw,
+} from "./covering-transition";
 
 export type CurtainTypeOption = {
   id: string;
@@ -167,6 +172,9 @@ export function WindowFields({
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
   const variant = useWatch({ control, name: `${base}.variant` });
   const isBlind = variant === "blind";
+  const rememberedCurtainDraw = useRef<WindowDraw | undefined>(
+    variant === "regular" ? (getValues(`${base}.draw`) ?? "Double") : undefined,
+  );
   const splitLeftError = getFieldState(
     `${base}.split_left_cm`,
     formState,
@@ -176,28 +184,36 @@ export function WindowFields({
     formState,
   ).error?.message;
 
-  // Switching covering clears the other side's selections. Measurements and
-  // notes survive — they describe the OPENING, not what hangs in it.
+  // Measurements, notes and an optional unequal curtain split survive a
+  // covering switch so an accidental toggle does not destroy entered data.
   //
-  // draw survives too, but its meaning changes: on a curtain it is the pull
-  // direction, on a blind the chain/control side. "Double" has no blind
-  // equivalent, so it is cleared rather than silently reinterpreted.
+  // Draw has a different meaning on each covering: curtain pull direction vs
+  // blind control side. Remember the curtain value independently so a blind
+  // choice cannot silently change it; Double is temporarily unset on a blind.
   function setCovering(next: "curtain" | "blind") {
     // Add-ons that no longer apply are dropped on the switch, mirroring how the
     // day/night selections already are. The resolver would hide them by scope
     // anyway, but leaving them in form state means resubmitting them on every
     // save for the server to discard.
     setValue(`${base}.addon_ids`, [], { shouldDirty: true });
+    const currentDraw = getValues(`${base}.draw`);
+    const transition = drawAfterCoveringChange(
+      next,
+      currentDraw,
+      rememberedCurtainDraw.current,
+    );
+    rememberedCurtainDraw.current = transition.rememberedCurtainDraw;
     if (next === "blind") {
-      setValue(`${base}.split_left_cm`, null, { shouldDirty: true });
-      setValue(`${base}.split_right_cm`, null, { shouldDirty: true });
-      if (getValues(`${base}.draw`) === "Double") {
-        setValue(`${base}.draw`, undefined, { shouldDirty: true });
-      }
       setValue(`${base}.variant`, "blind", { shouldDirty: true });
+      if (transition.draw !== currentDraw) {
+        setValue(`${base}.draw`, transition.draw, { shouldDirty: true });
+      }
       return;
     }
     setValue(`${base}.variant`, "regular", { shouldDirty: true });
+    if (transition.draw !== currentDraw) {
+      setValue(`${base}.draw`, transition.draw, { shouldDirty: true });
+    }
   }
 
   // Every curtain picker takes curtain-line options only. The day/night
@@ -222,6 +238,21 @@ export function WindowFields({
   const blindId = useWatch({ control, name: `${base}.blind_type_id` });
   const comboId = useWatch({ control, name: `${base}.combo_id` });
   const draw = useWatch({ control, name: `${base}.draw` });
+
+  // Drafts saved by the old toggle bug can hold a regular curtain with no draw
+  // value. The select then looks like its first option (Double), but the split
+  // controls key off the real undefined value and disappear. Repair that stale
+  // state on load as well as handling new toggles correctly.
+  useEffect(() => {
+    if (variant !== "regular" || draw !== undefined) return;
+    const restored = rememberedCurtainDraw.current ?? "Double";
+    rememberedCurtainDraw.current = restored;
+    setValue(`${base}.draw`, restored, {
+      shouldDirty: false,
+      shouldValidate: false,
+    });
+  }, [base, draw, setValue, variant]);
+
   const activeCombo = comboId
     ? combos.find((c) => c.id === comboId)
     : undefined;

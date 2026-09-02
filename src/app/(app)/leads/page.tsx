@@ -12,7 +12,7 @@ import { QuickEditLead } from "@/components/leads/phase16-forms";
 import { ArchiveLeadButton, EditableLeadRow } from "@/components/leads/editable-lead-row";
 import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
 import { LeadAnalyticsView } from "@/components/leads/analytics-view";
-import { APPOINTMENT_TRACKING_STARTED_AT, analyticsMonthWindow, calculateLeadAnalytics, inclusiveCalendarDays } from "@/lib/leads/analytics";
+import { APPOINTMENT_TRACKING_STARTED_AT, analyticsMonthWindow, calculateLeadAnalytics, calculatePeriodActivity, inclusiveCalendarDays } from "@/lib/leads/analytics";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Leads — Drapeworks CRM" };
@@ -48,26 +48,46 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     if (!allTime) cohortQuery = cohortQuery.where("first_initiated_at", ">=", window.start).where("first_initiated_at", "<", window.end);
     const cohortLeads = await cohortQuery.execute();
     const cohortIds = cohortLeads.map(lead => lead.id);
-    const [appointmentEvents, winEvents] = cohortIds.length ? await Promise.all([
+    const [appointmentEvents, stageEvents, periodAppointmentEvents, periodStageEvents] = await Promise.all([
       db.selectFrom("appointment_events")
         .select(["id", "lead_id", "event_type", "occurred_at", "is_backfilled"])
-        .where("lead_id", "in", cohortIds)
+        .$if(cohortIds.length > 0, query => query.where("lead_id", "in", cohortIds))
+        .$if(cohortIds.length === 0, query => query.where(sql<boolean>`false`))
         .where("occurred_at", ">=", APPOINTMENT_TRACKING_STARTED_AT)
         .execute(),
       db.selectFrom("lead_stage_events")
-        .select(["lead_id", "changed_at"])
-        .where("lead_id", "in", cohortIds)
-        .where("to_stage", "=", "Won")
+        .select(["lead_id", "to_stage", "changed_at"])
+        .$if(cohortIds.length > 0, query => query.where("lead_id", "in", cohortIds))
+        .$if(cohortIds.length === 0, query => query.where(sql<boolean>`false`))
+        .where("to_stage", "in", ["Attend Appointment", "Won"])
+        .where(eb => eb.or([eb("lead_stage_events.source", "=", "user"), eb("lead_stage_events.changed_by", "is not", null)]))
         .where("changed_at", ">=", APPOINTMENT_TRACKING_STARTED_AT)
         .execute(),
-    ]) : [[], []];
+      db.selectFrom("appointment_events")
+        .innerJoin("leads", "leads.id", "appointment_events.lead_id")
+        .select(["appointment_events.id", "appointment_events.lead_id", "event_type", "occurred_at", "is_backfilled"])
+        .where("leads.is_archived", "=", false)
+        .where("occurred_at", ">=", allTime ? APPOINTMENT_TRACKING_STARTED_AT : window.start)
+        .$if(!allTime, query => query.where("occurred_at", "<", window.end))
+        .execute(),
+      db.selectFrom("lead_stage_events")
+        .innerJoin("leads", "leads.id", "lead_stage_events.lead_id")
+        .select(["lead_stage_events.lead_id", "to_stage", "changed_at"])
+        .where("leads.is_archived", "=", false)
+        .where("to_stage", "in", ["Attend Appointment", "Won"])
+        .where(eb => eb.or([eb("lead_stage_events.source", "=", "user"), eb("lead_stage_events.changed_by", "is not", null)]))
+        .where("changed_at", ">=", allTime ? APPOINTMENT_TRACKING_STARTED_AT : window.start)
+        .$if(!allTime, query => query.where("changed_at", "<", window.end))
+        .execute(),
+    ]);
     const earliestInitiated = cohortLeads.reduce<Date | null>((earliest, lead) => !earliest || lead.first_initiated_at! < earliest ? lead.first_initiated_at! : earliest, null);
     const elapsedDays = allTime ? inclusiveCalendarDays(earliestInitiated ? toSgDate(new Date(earliestInitiated)) : null, today) : window.elapsedDays;
-    const metrics = calculateLeadAnalytics(cohortLeads, appointmentEvents, winEvents, elapsedDays);
+    const metrics = calculateLeadAnalytics(cohortLeads, appointmentEvents, stageEvents, elapsedDays);
+    const activity = calculatePeriodActivity(periodAppointmentEvents, periodStageEvents);
     return <main className="mx-auto max-w-[1880px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">Monthly lead conversion and sales performance</p></div>
       {toolbar}
-      <LeadAnalyticsView metrics={metrics} period={allTime ? "all" : window.month} availableMonths={availableMonths} elapsedDays={elapsedDays} daysInPeriod={allTime ? elapsedDays : window.daysInMonth} asOf={today}/>
+      <LeadAnalyticsView metrics={metrics} activity={activity} period={allTime ? "all" : window.month} availableMonths={availableMonths} elapsedDays={elapsedDays} daysInPeriod={allTime ? elapsedDays : window.daysInMonth} asOf={today}/>
     </main>;
   }
   let q = db.selectFrom("leads")

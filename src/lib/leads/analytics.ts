@@ -19,7 +19,11 @@ export type AnalyticsAppointmentEvent = {
   is_backfilled: boolean;
 };
 
-export type AnalyticsWinEvent = { lead_id: string; changed_at: Date | string };
+export type AnalyticsStageEvent = {
+  lead_id: string;
+  to_stage: FunnelStage;
+  changed_at: Date | string;
+};
 
 export type AnalyticsDrilldownItem = {
   key: string;
@@ -29,13 +33,53 @@ export type AnalyticsDrilldownItem = {
   occurredAt?: string;
 };
 
+export type PeriodActivity = {
+  booked: number;
+  attended: number;
+  won: number;
+  appointmentWins: number;
+  appointmentAttendanceRate: number | null;
+  appointmentClosingRate: number | null;
+};
+
 const rate = (numerator: number, denominator: number) => denominator ? Math.round(numerator / denominator * 1000) / 10 : null;
 const instant = (value: Date | string) => new Date(value).getTime();
+
+export function calculatePeriodActivity(
+  appointmentEvents: AnalyticsAppointmentEvent[],
+  stageEvents: AnalyticsStageEvent[],
+): PeriodActivity {
+  // A conversion is recorded when the lead enters Attend Appointment. The
+  // scheduled appointment date—and an appointment row on its own—must not
+  // change the month in which that conversion is counted.
+  const booked = new Set(stageEvents
+    .filter(event => event.to_stage === "Attend Appointment")
+    .map(event => event.lead_id));
+  const completedAt = new Map<string, number>();
+  for (const event of appointmentEvents.filter(event => event.event_type === "completed")) {
+    const at = instant(event.occurred_at);
+    completedAt.set(event.lead_id, Math.min(completedAt.get(event.lead_id) ?? at, at));
+  }
+  const attended = new Set(completedAt.keys());
+  const won = new Set(stageEvents.filter(event => event.to_stage === "Won").map(event => event.lead_id));
+  const appointmentWins = new Set(stageEvents.filter(event => {
+    const completed = completedAt.get(event.lead_id);
+    return event.to_stage === "Won" && completed !== undefined && instant(event.changed_at) >= completed;
+  }).map(event => event.lead_id));
+  return {
+    booked: booked.size,
+    attended: attended.size,
+    won: won.size,
+    appointmentWins: appointmentWins.size,
+    appointmentAttendanceRate: rate(attended.size, booked.size),
+    appointmentClosingRate: rate(appointmentWins.size, attended.size),
+  };
+}
 
 export function calculateLeadAnalytics(
   leads: AnalyticsLead[],
   appointmentEvents: AnalyticsAppointmentEvent[],
-  winEvents: AnalyticsWinEvent[],
+  stageEvents: AnalyticsStageEvent[],
   elapsedDays: number,
 ) {
   const leadById = new Map(leads.map(lead => [lead.id, lead]));
@@ -44,7 +88,14 @@ export function calculateLeadAnalytics(
   // Every terminal/reschedule event proves that an appointment existed. This
   // matters for the one-time backfill: an older booking may predate the
   // tracking boundary while its completion was captured after it.
-  const booked = new Set(events.map(event => event.lead_id));
+  const trackedStageEvents = stageEvents.filter(event =>
+    leadById.has(event.lead_id) && instant(event.changed_at) >= trackingStart
+  );
+  // Conversion is defined by the lead entering Attend Appointment. Calendar
+  // rows remain the source of truth for attendance, cancellation and no-show.
+  const booked = new Set(trackedStageEvents
+    .filter(event => event.to_stage === "Attend Appointment")
+    .map(event => event.lead_id));
   const completedAt = new Map<string, number>();
   for (const event of events.filter(event => event.event_type === "completed")) {
     const at = instant(event.occurred_at);
@@ -55,7 +106,8 @@ export function calculateLeadAnalytics(
   const curtainsBlinds = new Set(leads.filter(lead => lead.primary_product === "Curtains / Blinds").map(lead => lead.id));
   const mesh = new Set(leads.filter(lead => lead.primary_product === "Mesh").map(lead => lead.id));
   const categorizedProducts = curtainsBlinds.size + mesh.size;
-  const orderedWins = new Set(winEvents.filter(event => {
+  const orderedWins = new Set(trackedStageEvents.filter(event => {
+    if (event.to_stage !== "Won") return false;
     const completed = completedAt.get(event.lead_id);
     return completed !== undefined && instant(event.changed_at) >= completed;
   }).map(event => event.lead_id));

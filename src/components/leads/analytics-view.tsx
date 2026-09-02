@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { calculateLeadAnalytics } from "@/lib/leads/analytics";
+import type { calculateLeadAnalytics, PeriodActivity } from "@/lib/leads/analytics";
 
 type Metrics = ReturnType<typeof calculateLeadAnalytics>;
 
 const percent = (value: number | null) => value == null ? "Not available" : `${value}%`;
 
-export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDays, daysInPeriod, asOf }: {
+export function LeadAnalyticsView({ metrics, activity, period, availableMonths, elapsedDays, daysInPeriod, asOf }: {
   metrics: Metrics;
+  activity: PeriodActivity;
   period: string;
   availableMonths: string[];
   elapsedDays: number;
@@ -42,27 +43,29 @@ export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDay
     { label: "Calendar days elapsed", value: elapsedDays, detail: allTime ? "From the first initiated lead through today" : `${daysInPeriod} days in ${periodLabel}`, drilldown: null },
     { label: "Leads initiated", value: metrics.leads, detail: allTime ? "Across all available months" : `Started in ${periodLabel}`, drilldown: "leads" as const },
     { label: "Average Leads per Day", value: metrics.averageLeadsPerDay, detail: "Based on elapsed calendar days", drilldown: null },
-    { label: "Closed-Won Leads", value: metrics.won, detail: `${percent(metrics.leadToSalesRate)} lead-to-sale rate`, drilldown: "won" as const },
+    { label: "Leads Converted to Appointment", value: activity.booked, detail: allTime ? "Converted since 1 Sep 2026" : `Converted in ${periodLabel}`, drilldown: null },
+    { label: "Appointments Attended", value: activity.attended, detail: allTime ? "Tracked since 1 Sep 2026" : `Attended in ${periodLabel}`, drilldown: null },
+    { label: "Sales Closed-Won", value: activity.won, detail: allTime ? "Tracked since 1 Sep 2026" : `Closed in ${periodLabel}`, drilldown: null },
   ];
   const stages = [
-    { label: "Cohort Leads", value: metrics.leads, detail: allTime ? "Initiated across all dates" : `Initiated in ${periodLabel}`, drilldown: "leads" as const },
-    { label: "Leads with Appointment", value: metrics.booked, detail: `${percent(metrics.leadToAppointmentRate)} of cohort leads`, drilldown: "booked" as const },
-    { label: "Leads that Attended", value: metrics.attended, detail: metrics.booked ? `${percent(metrics.appointmentAttendanceRate)} of leads with an appointment` : "Not available — no appointment records", drilldown: "attended" as const },
-    { label: "Closed Won after Attendance", value: metrics.appointmentWins, detail: metrics.attended ? `${percent(metrics.appointmentClosingRate)} of attended leads` : "Not available — no completed appointments", drilldown: "appointmentWins" as const },
+    { label: "Leads Initiated", value: metrics.leads, detail: allTime ? "Across all available dates" : `Initiated in ${periodLabel}`, drilldown: "leads" as const },
+    { label: "Leads Converted to Appointment", value: activity.booked, detail: `${percent(metrics.leads ? Math.round(activity.booked / metrics.leads * 1000) / 10 : null)} of leads initiated`, drilldown: null },
+    { label: "Appointments Attended", value: activity.attended, detail: activity.booked ? `${percent(activity.appointmentAttendanceRate)} of converted leads` : "Not available — no appointment conversions", drilldown: null },
+    { label: "Closed Won after Attendance", value: activity.appointmentWins, detail: activity.attended ? `${percent(activity.appointmentClosingRate)} of attended appointments` : "Not available — no attended appointments", drilldown: null },
   ];
-  const appointmentHistoryIncomplete = metrics.booked === 0 && metrics.won > 0;
+  const leadToAppointmentRate = metrics.leads ? Math.round(activity.booked / metrics.leads * 1000) / 10 : null;
   const conversionRates = [
     {
       label: "Lead → Appointment",
-      value: appointmentHistoryIncomplete ? "Not available" : percent(metrics.leadToAppointmentRate),
-      detail: appointmentHistoryIncomplete ? "Historical appointment records are incomplete" : "Leads with an appointment ÷ cohort leads",
-      drilldown: "booked" as const,
+      value: percent(leadToAppointmentRate),
+      detail: "Leads converted in period ÷ leads initiated in period",
+      drilldown: null,
     },
     {
       label: "Appointment → Closed Won",
-      value: percent(metrics.appointmentClosingRate),
-      detail: metrics.attended ? "Closed-Won leads after attendance ÷ attended leads" : "No completed appointment records",
-      drilldown: "appointmentWins" as const,
+      value: percent(activity.appointmentClosingRate),
+      detail: activity.attended ? "Period wins after attendance ÷ period attendance" : "No attended appointments in period",
+      drilldown: null,
     },
   ];
   const drilldownTitles: Record<keyof Metrics["details"], string> = {
@@ -77,7 +80,7 @@ export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDay
     <section className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">{periodLabel} lead cohort</h2>
+          <h2 className="text-lg font-semibold text-slate-900">{periodLabel} performance</h2>
           <p className="mt-1 text-sm text-slate-500">Outcomes as of {asOfLabel} · Asia/Singapore</p>
         </div>
         <form action="/leads">
@@ -92,7 +95,7 @@ export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDay
       </div>
     </section>
 
-    <dl className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <dl className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
       {summary.map(item => <div key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{item.label}</dt>
         <dd className="mt-2 text-2xl font-semibold text-slate-900">{item.drilldown ? <button type="button" onClick={() => setDrilldown(item.drilldown)} className="rounded text-left underline decoration-slate-300 underline-offset-4 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">{item.value}</button> : item.value}</dd>
@@ -118,18 +121,18 @@ export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDay
     <section className="mb-5">
       <h2 className="mb-3 font-semibold text-slate-900">Conversion rates</h2>
       <div className="grid gap-3 sm:grid-cols-2">
-        {conversionRates.map(item => <button type="button" onClick={() => setDrilldown(item.drilldown)} key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 sm:p-5">
+        {conversionRates.map(item => <div key={item.label} className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm sm:p-5">
           <span className="block text-sm font-medium text-slate-600">{item.label}</span>
           <span className="mt-2 block text-3xl font-semibold text-slate-900">{item.value}</span>
           <span className="mt-1 block text-sm text-slate-500">{item.detail}</span>
-        </button>)}
+        </div>)}
       </div>
     </section>
 
     <section className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="mb-4">
-        <h2 className="font-semibold text-slate-900">Appointment conversion</h2>
-        <p className="mt-1 text-sm text-slate-500">Unique leads from the {periodLabel.toLowerCase()} cohort, followed through current CRM appointment records.</p>
+        <h2 className="font-semibold text-slate-900">Period activity flow</h2>
+        <p className="mt-1 text-sm text-slate-500">Activity that occurred during {periodLabel.toLowerCase()}, regardless of when each lead was first created.</p>
       </div>
       <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
         Structured appointment tracking begins 1 Sep 2026. Earlier appointments stored only in imported notes are not counted.{metrics.backfilledEventCount ? ` ${metrics.backfilledEventCount} event${metrics.backfilledEventCount === 1 ? " was" : "s were"} inferred from existing appointment records.` : ""}
@@ -138,7 +141,7 @@ export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDay
         {stages.map((stage, index) => <div key={stage.label} className="relative rounded-xl border border-slate-200 bg-slate-50/60 p-4">
           {index > 0 && <span aria-hidden="true" className="absolute -left-3 top-1/2 hidden -translate-y-1/2 text-slate-400 md:block">→</span>}
           <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500"><span className="inline-flex size-6 items-center justify-center rounded-full bg-slate-200 text-slate-700">{index + 1}</span>{stage.label}</dt>
-          <dd className="mt-2 text-3xl font-semibold text-slate-900"><button type="button" onClick={() => setDrilldown(stage.drilldown)} className="rounded text-left underline decoration-slate-300 underline-offset-4 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">{stage.value}</button></dd>
+          <dd className="mt-2 text-3xl font-semibold text-slate-900">{stage.drilldown ? <button type="button" onClick={() => setDrilldown(stage.drilldown)} className="rounded text-left underline decoration-slate-300 underline-offset-4 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500">{stage.value}</button> : stage.value}</dd>
           <dd className="mt-1 text-sm text-slate-500">{stage.detail}</dd>
         </div>)}
       </dl>
@@ -147,7 +150,7 @@ export function LeadAnalyticsView({ metrics, period, availableMonths, elapsedDay
         <button type="button" onClick={() => setDrilldown("noShow")} className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-left hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"><span className="text-sm font-medium text-slate-700">No-show appointment events</span><span className="float-right font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4">{metrics.noShow}</span></button>
       </div>
     </section>
-    <p className="text-xs text-slate-500">Cohort membership is based on initiation month. Outcomes use the lead’s current state as of {asOfLabel}.</p>
+    <p className="text-xs text-slate-500">Monthly activity uses the date each event occurred. Lead and product totals use initiation dates. Data shown as of {asOfLabel}.</p>
     {drilldown && <div role="dialog" aria-modal="true" aria-labelledby="analytics-drilldown-title" className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 sm:items-center sm:p-6" onMouseDown={event => { if (event.target === event.currentTarget) setDrilldown(null); }}>
       <section className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
         <header className="flex items-center justify-between gap-4 border-b border-slate-200 p-4 sm:p-5"><div><h2 id="analytics-drilldown-title" className="text-lg font-semibold text-slate-900">{drilldownTitles[drilldown]}</h2><p className="text-sm text-slate-500">{drilldownItems.length} {drilldown === "cancelled" || drilldown === "noShow" ? "event" : "lead"}{drilldownItems.length === 1 ? "" : "s"}</p></div><button type="button" onClick={() => setDrilldown(null)} className="inline-flex size-10 items-center justify-center rounded-lg border border-slate-200 text-xl text-slate-600 hover:bg-slate-50" aria-label="Close drilldown">×</button></header>

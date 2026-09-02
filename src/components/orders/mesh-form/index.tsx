@@ -6,7 +6,10 @@ import { FormProvider, useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
-import { CustomerSection } from "@/components/orders/consultation-form/customer-section";
+import {
+  CustomerSection,
+  type CustomerLeadOption,
+} from "@/components/orders/consultation-form/customer-section";
 import type { AppointmentPrefill } from "@/components/orders/consultation-form";
 import {
   formDraftKey,
@@ -58,6 +61,7 @@ type Props = {
   defaultValues?: MeshOrderEditInput;
   roomPhotos?: Record<string, UploaderPhoto[]>;
   appointment?: AppointmentPrefill;
+  leadOptions?: CustomerLeadOption[];
 };
 
 function makePanel(position: number) {
@@ -118,6 +122,7 @@ export function MeshConsultationForm({
   defaultValues,
   roomPhotos,
   appointment,
+  leadOptions,
 }: Props) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -151,7 +156,11 @@ export function MeshConsultationForm({
   // and each edited order keep separate drafts.
   const { clearDraft } = useFormDraft(
     form,
-    formDraftKey("mesh", mode, orderId),
+    formDraftKey(
+      "mesh",
+      mode,
+      orderId ?? appointment?.id ?? appointment?.leadId,
+    ),
   );
 
   const {
@@ -262,7 +271,10 @@ export function MeshConsultationForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={onSubmit}>
-        <CustomerSection />
+        <CustomerSection
+          leadOptions={mode === "create" ? leadOptions : undefined}
+          selectedLeadId={appointment?.leadId}
+        />
         <PricingSection promotions={promotions} />
 
         <MeshLiveQuote config={meshConfig} />

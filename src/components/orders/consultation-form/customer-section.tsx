@@ -1,10 +1,25 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
+import { useTransition } from "react";
 import { useFormContext } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
 
 import type { ConsultationShellShape } from "./form-shapes";
+
+export type CustomerLeadOption = {
+  leadId: string;
+  leadName: string;
+  mobile: string | null;
+  development: string | null;
+};
+
+type Props = {
+  /** Present only on a new consultation. Edit mode keeps the normal name input. */
+  leadOptions?: CustomerLeadOption[];
+  selectedLeadId?: string;
+};
 
 const INPUT_CLS =
   "w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
@@ -13,12 +28,30 @@ const INPUT_CLS =
 // schema, so it can be dropped into the curtain or the mesh form without
 // claiming to know what the line items are. register/errors come from context
 // for the same reason — props typed to one schema wouldn't accept the other.
-export function CustomerSection() {
+export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     control,
     register,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useFormContext<ConsultationShellShape>();
+  const [isChangingCustomer, startCustomerChange] = useTransition();
+  const choosingCustomer = leadOptions !== undefined && leadOptions.length > 0;
+
+  function selectCustomer(value: string) {
+    if (
+      isDirty &&
+      !window.confirm("Changing customer will reset this consultation. Continue?")
+    ) return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("appointmentId");
+    if (value === "brand-new") params.delete("leadId");
+    else params.set("leadId", value);
+    startCustomerChange(() => router.push(`/orders/new?${params.toString()}`));
+  }
+
   return (
     <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
       <h2 className="text-base font-semibold text-slate-900 mb-4">
@@ -26,17 +59,67 @@ export function CustomerSection() {
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
+          <label
+            htmlFor={choosingCustomer ? "consultation-customer" : "customer-name"}
+            className="block text-xs font-medium text-slate-600 mb-1"
+          >
             Customer Name <span className="text-red-500">*</span>
           </label>
-          <input
-            type="text"
-            placeholder="e.g. Tan Wei Ming"
-            className={INPUT_CLS}
-            {...register("customer.name")}
-          />
+          {choosingCustomer ? (
+            <>
+              <select
+                id="consultation-customer"
+                value={selectedLeadId ?? "brand-new"}
+                onChange={(event) => selectCustomer(event.target.value)}
+                disabled={isChangingCustomer}
+                aria-describedby="customer-picker-hint"
+                className={`${INPUT_CLS} min-h-11 disabled:cursor-wait disabled:bg-slate-50`}
+              >
+                {leadOptions.map((option) => (
+                  <option key={option.leadId} value={option.leadId}>
+                    {[option.leadName, option.mobile, option.development]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </option>
+                ))}
+                <option value="brand-new">Brand new customer</option>
+              </select>
+              <p id="customer-picker-hint" className="mt-1 text-xs text-slate-500">
+                Choose an appointment lead or add a new customer.
+              </p>
+              <div className="mt-2">
+                <label htmlFor="customer-name" className="block text-xs font-medium text-slate-600 mb-1">
+                  {selectedLeadId ? "Customer name" : "New customer name"}
+                </label>
+                <input
+                  id="customer-name"
+                  type="text"
+                  placeholder="Enter customer name"
+                  aria-invalid={errors.customer?.name ? true : undefined}
+                  aria-describedby={errors.customer?.name ? "customer-name-error" : undefined}
+                  className={`${INPUT_CLS} min-h-11`}
+                  {...register("customer.name")}
+                />
+              </div>
+              {isChangingCustomer && (
+                <p role="status" className="mt-1 text-xs text-slate-500">
+                  Loading customer…
+                </p>
+              )}
+            </>
+          ) : (
+            <input
+              id="customer-name"
+              type="text"
+              placeholder="e.g. Tan Wei Ming"
+              aria-invalid={errors.customer?.name ? true : undefined}
+              aria-describedby={errors.customer?.name ? "customer-name-error" : undefined}
+              className={`${INPUT_CLS} min-h-11`}
+              {...register("customer.name")}
+            />
+          )}
           {errors.customer?.name && (
-            <p className="mt-1 text-xs text-red-600">
+            <p id="customer-name-error" className="mt-1 text-xs text-red-600">
               {errors.customer.name.message}
             </p>
           )}

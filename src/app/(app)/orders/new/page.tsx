@@ -2,9 +2,9 @@ import {
   ConsultationForm,
   type AppointmentPrefill,
 } from "@/components/orders/consultation-form";
+import type { CustomerLeadOption } from "@/components/orders/consultation-form/customer-section";
 import { MeshConsultationForm } from "@/components/orders/mesh-form";
 import { ProductLineChooser } from "@/components/orders/product-line-chooser";
-import { LeadConsultationPicker, type ConsultationLeadOption } from "@/components/orders/lead-consultation-picker";
 import { requireRole } from "@/lib/auth/require-role";
 import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
@@ -43,45 +43,63 @@ async function loadAppointmentPrefill(
   appointmentId: string | undefined,
   leadId: string | undefined,
 ): Promise<AppointmentPrefill | undefined> {
-  if (leadId && UUID_RE.test(leadId)) {
-    const lead = await db.selectFrom("leads")
-      .select(["id", "name", "mobile", "development"])
-      .where("id", "=", leadId)
-      .where("is_archived", "=", false)
+  if (appointmentId && UUID_RE.test(appointmentId)) {
+    const booked = await db
+      .selectFrom("appointments")
+      .innerJoin("customers", "customers.id", "appointments.customer_id")
+      .select([
+        "appointments.id as appointment_id",
+        "appointments.lead_id",
+        "appointments.development as development",
+        "customers.name as customer_name",
+        "customers.mobile as customer_mobile",
+        "customers.email as customer_email",
+      ])
+      .where("appointments.id", "=", appointmentId)
       .executeTakeFirst();
-    if (lead) return {
-      leadId: lead.id,
-      customer: { name: lead.name, mobile: lead.mobile ?? "" },
-      development: lead.development,
-    };
-  }
-  if (!appointmentId || !UUID_RE.test(appointmentId)) return undefined;
 
-  const booked = await db
-    .selectFrom("appointments")
-    .innerJoin("customers", "customers.id", "appointments.customer_id")
+    if (booked) {
+      return {
+        id: booked.appointment_id,
+        leadId: booked.lead_id,
+        customer: {
+          name: booked.customer_name,
+          mobile: booked.customer_mobile,
+          email: booked.customer_email ?? undefined,
+        },
+        development: booked.development,
+      };
+    }
+  }
+
+  if (!leadId || !UUID_RE.test(leadId)) return undefined;
+  const lead = await db.selectFrom("leads")
+    .leftJoin("orders", "orders.lead_id", "leads.id")
+    .leftJoin("customers", "customers.id", "leads.customer_id")
     .select([
-      "appointments.id as appointment_id",
-      "appointments.lead_id",
-      "appointments.development as development",
+      "leads.id",
+      "leads.name as lead_name",
+      "leads.mobile as lead_mobile",
+      "leads.development",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
     ])
-    .where("appointments.id", "=", appointmentId)
+    .where("leads.id", "=", leadId)
+    .where("leads.is_archived", "=", false)
+    .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
+    .where("orders.id", "is", null)
     .executeTakeFirst();
-
-  if (!booked) return undefined;
+  if (!lead) return undefined;
 
   return {
-    id: booked.appointment_id,
-    leadId: booked.lead_id,
+    leadId: lead.id,
     customer: {
-      name: booked.customer_name,
-      mobile: booked.customer_mobile,
-      email: booked.customer_email ?? undefined,
+      name: lead.customer_name ?? lead.lead_name,
+      mobile: lead.customer_mobile ?? lead.lead_mobile ?? "",
+      email: lead.customer_email ?? undefined,
     },
-    development: booked.development,
+    development: lead.development,
   };
 }
 
@@ -103,12 +121,20 @@ export default async function NewConsultationPage({
     .where("orders.id", "is", null)
     .orderBy("leads.updated_at", "desc")
     .execute();
-  const leadOptions: ConsultationLeadOption[] = consultationLeads.map(item => ({
+  const leadOptions: CustomerLeadOption[] = consultationLeads.map(item => ({
     leadId: item.lead_id,
     leadName: item.lead_name,
     mobile: item.mobile,
     development: item.development,
   }));
+  if (appointment?.leadId && !leadOptions.some(item => item.leadId === appointment.leadId)) {
+    leadOptions.unshift({
+      leadId: appointment.leadId,
+      leadName: appointment.customer.name,
+      mobile: appointment.customer.mobile,
+      development: appointment.development ?? null,
+    });
+  }
 
   const today = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -165,8 +191,6 @@ export default async function NewConsultationPage({
         </div>
       </div>
 
-      <LeadConsultationPicker options={leadOptions} selectedId={appointment?.leadId} />
-
       {/* The appointment link lands here with no ?product, so the chooser has
           to carry the booking through the choice — dropping it would lose the
           prefill at the very click that leads to the form. */}
@@ -177,16 +201,30 @@ export default async function NewConsultationPage({
           leadId={appointment?.leadId}
         />
       )}
-      {chosen === "curtain" && <CurtainConsultation appointment={appointment} />}
-      {chosen === "mesh" && <MeshConsultation appointment={appointment} />}
+      {chosen === "curtain" && (
+        <CurtainConsultation
+          key={appointment?.id ?? appointment?.leadId ?? "brand-new"}
+          appointment={appointment}
+          leadOptions={leadOptions}
+        />
+      )}
+      {chosen === "mesh" && (
+        <MeshConsultation
+          key={appointment?.id ?? appointment?.leadId ?? "brand-new"}
+          appointment={appointment}
+          leadOptions={leadOptions}
+        />
+      )}
     </main>
   );
 }
 
 async function CurtainConsultation({
   appointment,
+  leadOptions,
 }: {
   appointment?: AppointmentPrefill;
+  leadOptions: CustomerLeadOption[];
 }) {
   const [curtainTypes, calcConfig, promotions, combos, curtainPackages] = await Promise.all([
     loadActiveCurtainTypeOptions(),
@@ -205,11 +243,18 @@ async function CurtainConsultation({
       combos={combos}
       curtainPackages={curtainPackages.filter((item) => item.isActive)}
       appointment={appointment}
+      leadOptions={leadOptions}
     />
   );
 }
 
-async function MeshConsultation({ appointment }: { appointment?: AppointmentPrefill }) {
+async function MeshConsultation({
+  appointment,
+  leadOptions,
+}: {
+  appointment?: AppointmentPrefill;
+  leadOptions: CustomerLeadOption[];
+}) {
   // No in-use ids to union: a new order references nothing yet, so this is the
   // active catalogue only.
   const [meshConfig, promotions, systemBands, systemSpecs] =
@@ -236,6 +281,7 @@ async function MeshConsultation({ appointment }: { appointment?: AppointmentPref
       systemSpecs={systemSpecs}
       promotions={promotions}
       appointment={appointment}
+      leadOptions={leadOptions}
     />
   );
 }

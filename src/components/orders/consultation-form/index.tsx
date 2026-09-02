@@ -26,7 +26,10 @@ import type { ActivePromotion } from "@/lib/db/promotions";
 import type { ActiveCombo } from "@/lib/db/combos";
 import type { CurtainPackageRow } from "@/lib/db/product-pricing-settings";
 
-import { CustomerSection } from "./customer-section";
+import {
+  CustomerSection,
+  type CustomerLeadOption,
+} from "./customer-section";
 import { LiveQuote } from "./live-quote";
 import { PricingSection } from "./pricing-section";
 import { QuickAddRoomBar, type RoomTemplate } from "./quick-add-room-bar";
@@ -65,6 +68,8 @@ type Props = {
    * edit always has its own saved values, so this is ignored there.
    */
   appointment?: AppointmentPrefill;
+  /** Eligible Attend Appointment leads shown in the Customer Name selector. */
+  leadOptions?: CustomerLeadOption[];
   roomPhotos?: Record<string, UploaderPhoto[]>;
   /**
    * windowId → the add-on ids that window had on load. Fixed for the life of
@@ -166,6 +171,7 @@ export function ConsultationForm({
   orderId,
   defaultValues,
   appointment,
+  leadOptions,
   roomPhotos,
   persistedAddonIdsByWindow = {},
 }: Props) {
@@ -203,7 +209,11 @@ export function ConsultationForm({
     // Keyed by the appointment on a create too, so a recovery draft left over
     // from an unrelated consultation in this tab cannot restore itself over the
     // customer we just prefilled from the booking.
-    formDraftKey("curtain", mode, orderId ?? appointment?.id),
+    formDraftKey(
+      "curtain",
+      mode,
+      orderId ?? appointment?.id ?? appointment?.leadId,
+    ),
   );
 
   const {
@@ -309,7 +319,10 @@ export function ConsultationForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={onSubmit}>
-        <CustomerSection />
+        <CustomerSection
+          leadOptions={mode === "create" ? leadOptions : undefined}
+          selectedLeadId={appointment?.leadId}
+        />
         <PricingSection promotions={promotions} curtainPackages={curtainPackages} savedPackageSnapshot={savedPackageSnapshot} />
 
         {calcConfig && (

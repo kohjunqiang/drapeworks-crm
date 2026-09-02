@@ -40,6 +40,12 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
       );
     }
 
+    const previousArrangement = await trx
+      .selectFrom("fulfilment_arrangements")
+      .select(["id", "cancelled_at"])
+      .where("order_id", "=", parsed.order_id)
+      .executeTakeFirst();
+
     const arrangement = await trx
       .insertInto("fulfilment_arrangements")
       .values({
@@ -65,6 +71,22 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
       )
       .returning("id")
       .executeTakeFirstOrThrow();
+
+    await trx
+      .insertInto("fulfilment_arrangement_events")
+      .values({
+        arrangement_id: arrangement.id,
+        event_type:
+          !previousArrangement || previousArrangement.cancelled_at
+            ? "booked"
+            : "rescheduled",
+        scheduled_at: scheduledAt,
+        duration_mins: parsed.duration_mins,
+        address: parsed.address,
+        cancellation_reason: null,
+        created_by: session.user.id,
+      })
+      .execute();
 
     // Booking is the structured action that moves Delivered & Checked into the
     // Fulfillment Arrangement stage. It cannot be skipped by a generic advance.
@@ -106,7 +128,13 @@ export async function cancelFulfilmentArrangement(input: unknown): Promise<void>
 
     const arrangement = await trx
       .selectFrom("fulfilment_arrangements")
-      .select(["id", "cancelled_at"])
+      .select([
+        "id",
+        "cancelled_at",
+        "scheduled_at",
+        "duration_mins",
+        "address",
+      ])
       .where("order_id", "=", parsed.order_id)
       .executeTakeFirst();
     if (!arrangement || arrangement.cancelled_at) {
@@ -123,6 +151,19 @@ export async function cancelFulfilmentArrangement(input: unknown): Promise<void>
         google_sync_error: null,
       })
       .where("id", "=", arrangement.id)
+      .execute();
+
+    await trx
+      .insertInto("fulfilment_arrangement_events")
+      .values({
+        arrangement_id: arrangement.id,
+        event_type: "cancelled",
+        scheduled_at: arrangement.scheduled_at,
+        duration_mins: arrangement.duration_mins,
+        address: arrangement.address,
+        cancellation_reason: parsed.reason,
+        created_by: session.user.id,
+      })
       .execute();
 
     // The booking is the action that entered Fulfillment Arrangement, so its

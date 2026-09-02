@@ -41,6 +41,8 @@ export type DrawDirection = "Double" | "Single Left" | "Single Right";
 
 export type FreightMode = "air" | "sea";
 
+export type FulfilmentArrangementEventType = "booked" | "cancelled" | "rescheduled";
+
 export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "po_ready" | "quotation_sent" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
@@ -637,6 +639,18 @@ export interface ExtensionsPgStatStatements {
 export interface ExtensionsPgStatStatementsInfo {
   dealloc: Int8 | null;
   stats_reset: Timestamp | null;
+}
+
+export interface FulfilmentArrangementEvents {
+  address: string;
+  arrangement_id: string;
+  cancellation_reason: string | null;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  duration_mins: number;
+  event_type: FulfilmentArrangementEventType;
+  id: Generated<string>;
+  scheduled_at: Timestamp;
 }
 
 export interface FulfilmentArrangements {
@@ -1289,6 +1303,7 @@ export interface DB {
   delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  fulfilment_arrangement_events: FulfilmentArrangementEvents;
   fulfilment_arrangements: FulfilmentArrangements;
   lead_import_baselines: LeadImportBaselines;
   lead_interactions: LeadInteractions;

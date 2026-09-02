@@ -8,6 +8,7 @@ import { revalidatePath } from "next/cache";
 import type { Transaction } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
+import { resolveOrderCustomer } from "@/lib/actions/order-customer";
 import { db } from "@/lib/db/kysely";
 import type { DB } from "@/lib/db/schema";
 import {
@@ -161,80 +162,6 @@ async function writeWindowAddons(
       .values(ids.map((addon_id) => ({ window_id: windowId, addon_id })))
       .execute();
   }
-}
-
-/** The customer an order belongs to, and the appointment it came from. */
-type OrderCustomer = { customerId: string; appointmentId: string | null; leadId: string | null };
-
-/**
- * Reuse the booked customer, or create one.
- *
- * An order started from an appointment belongs to that appointment's customer
- * rather than to a second row for the same person — booking and then retyping
- * the name and mobile at /orders/new is exactly what produced the duplicate
- * rows already sitting in `customers`.
- *
- * Reusing the row must NOT mean ignoring the form. The consultant is standing
- * in the customer's home and may well have just corrected a mobile number or
- * added the email that was missing at booking, so the submitted values are
- * written back over the booked ones. (`updated_at` is bumped by a trigger.)
- *
- * An appointment_id that no longer resolves — a stale link, a deleted booking —
- * falls back to a plain insert and links nothing, so a vanished appointment
- * costs the prefill rather than the whole save via a foreign-key error.
- */
-async function resolveOrderCustomer(
-  trx: Transaction<DB>,
-  appointmentId: string | undefined,
-  leadId: string | undefined,
-  customer: { name: string; mobile: string; email?: string },
-  userId: string,
-): Promise<OrderCustomer> {
-  const booked = appointmentId
-    ? await trx
-        .selectFrom("appointments")
-        .select(["customer_id", "lead_id"])
-        .where("id", "=", appointmentId)
-        .executeTakeFirst()
-    : undefined;
-
-  const linkedLead = !booked && leadId
-    ? await trx.selectFrom("leads").select(["id", "customer_id"]).where("id", "=", leadId).where("is_archived", "=", false).executeTakeFirst()
-    : undefined;
-  const existingCustomerId = booked?.customer_id ?? linkedLead?.customer_id;
-
-  if (!existingCustomerId) {
-    const inserted = await trx
-      .insertInto("customers")
-      .values({
-        name: customer.name,
-        mobile: customer.mobile,
-        email: customer.email ?? null,
-        created_by: userId,
-      })
-      .returning("id")
-      .executeTakeFirstOrThrow();
-    if (linkedLead) await trx.updateTable("leads").set({ customer_id: inserted.id }).where("id", "=", linkedLead.id).execute();
-    return { customerId: inserted.id, appointmentId: null, leadId: booked?.lead_id ?? linkedLead?.id ?? null };
-  }
-
-  await trx
-    .updateTable("customers")
-    .set({
-      name: customer.name,
-      // A draft may be saved with the mobile left blank; that must not wipe
-      // the number the appointment was booked on.
-      ...(customer.mobile.trim().length > 0 ? { mobile: customer.mobile } : {}),
-      email: customer.email ?? null,
-    })
-    .where("id", "=", existingCustomerId)
-    .execute();
-
-  return {
-    customerId: existingCustomerId,
-    appointmentId: appointmentId ?? null,
-    leadId: booked?.lead_id ?? linkedLead?.id ?? null,
-  };
 }
 
 export async function createOrder(input: unknown): Promise<never> {

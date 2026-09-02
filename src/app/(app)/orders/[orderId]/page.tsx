@@ -584,6 +584,7 @@ export default async function OrderDetailPage({
               {isAdvancer && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && order.current_status !== "delivered_checked" && (
                 <AdvanceStatusButton
                   orderId={order.id}
+                  currentStatus={order.current_status}
                   atEnd={atEnd}
                   nextLabel={nextLabel}
                   ctaLabel={ctaLabel}

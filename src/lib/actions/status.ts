@@ -7,10 +7,17 @@ import { z } from "zod";
 
 import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import type { FulfilmentStatus } from "@/lib/db/schema";
 import { STATUS_FLOW, leadMilestoneForOrderStatus } from "@/lib/status-flow";
 
 const advanceSchema = z.object({
   orderId: z.string().uuid(),
+  expectedStatus: z.custom<FulfilmentStatus>(
+    (value) =>
+      typeof value === "string" &&
+      STATUS_FLOW.includes(value as FulfilmentStatus),
+    "Order status invalid",
+  ),
   note: z.string().max(2000).optional(),
 });
 
@@ -18,33 +25,47 @@ export async function advanceOrderStatus(input: unknown) {
   const session = await requireRole(["ops", "admin"]);
   const parsed = advanceSchema.parse(input);
 
-  const order = await db
-    .selectFrom("orders")
-    .select(["current_status", "appointment_id", "lead_id"])
-    .where("id", "=", parsed.orderId)
-    .executeTakeFirst();
-  if (!order) throw new Error("Order not found");
+  const linkedLeadId = await db.transaction().execute(async (trx) => {
+    const order = await trx
+      .selectFrom("orders")
+      .select(["current_status", "appointment_id", "lead_id"])
+      .where("id", "=", parsed.orderId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!order) throw new Error("Order not found");
+    if (order.current_status !== parsed.expectedStatus) {
+      throw new Error("Order status already changed. Refresh and try again.");
+    }
 
-  const idx = STATUS_FLOW.indexOf(order.current_status);
-  if (idx === -1) throw new Error("Order status invalid");
-  if (idx === STATUS_FLOW.length - 1) throw new Error("Already completed");
-  if (order.current_status === "delivered_checked") {
-    throw new Error(
-      "Arrange the installation date before moving to Fulfillment Arrangement",
-    );
-  }
+    const idx = STATUS_FLOW.indexOf(order.current_status);
+    if (idx === -1) throw new Error("Order status invalid");
+    if (idx === STATUS_FLOW.length - 1) throw new Error("Already completed");
+    if (order.current_status === "delivered_checked") {
+      throw new Error(
+        "Arrange the installation date before moving to Fulfillment Arrangement",
+      );
+    }
 
-  const next = STATUS_FLOW[idx + 1];
+    const next = STATUS_FLOW[idx + 1];
+    const fallbackLeadId = !order.lead_id && order.appointment_id
+      ? (
+          await trx
+            .selectFrom("appointments")
+            .select("lead_id")
+            .where("id", "=", order.appointment_id)
+            .executeTakeFirst()
+        )?.lead_id
+      : undefined;
+    const leadId = order.lead_id ?? fallbackLeadId;
+    const linkedLead = leadId
+      ? await trx
+          .selectFrom("leads")
+          .select(["id", "funnel_stage"])
+          .where("id", "=", leadId)
+          .forUpdate()
+          .executeTakeFirst()
+      : undefined;
 
-  const linkedLead = order.lead_id
-    ? await db.selectFrom("leads").select(["id", "funnel_stage"]).where("id", "=", order.lead_id).executeTakeFirst()
-    : order.appointment_id
-    ? await db.selectFrom("appointments").innerJoin("leads", "leads.id", "appointments.lead_id")
-        .select(["leads.id", "leads.funnel_stage"])
-        .where("appointments.id", "=", order.appointment_id).executeTakeFirst()
-    : undefined;
-
-  await db.transaction().execute(async trx => {
     await trx.insertInto("order_status_events").values({
       order_id: parsed.orderId,
       status: next,
@@ -70,13 +91,14 @@ export async function advanceOrderStatus(input: unknown) {
         }).execute();
       }
     }
+    return linkedLead?.id ?? null;
   });
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath("/orders");
-  if (linkedLead) {
+  if (linkedLeadId) {
     revalidatePath("/leads");
-    revalidatePath(`/leads/${linkedLead.id}`);
+    revalidatePath(`/leads/${linkedLeadId}`);
   }
 }
 

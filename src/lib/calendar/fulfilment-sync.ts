@@ -42,6 +42,7 @@ async function createIdempotentEvent(
 export async function syncFulfilmentArrangement(
   arrangementId: string,
 ): Promise<FulfilmentSyncResult> {
+  let observedUpdatedAt: Date | null = null;
   try {
     // A booking may be edited while an earlier Calendar request is in flight.
     // updated_at is an optimistic version: if it changed, reconcile again from
@@ -61,22 +62,21 @@ export async function syncFulfilmentArrangement(
         ])
         .where("id", "=", arrangementId)
         .executeTakeFirstOrThrow();
+      observedUpdatedAt = arrangement.updated_at;
 
       // Cancellation is database-first. Reconciliation then removes both a
       // stored legacy id and the deterministic id a concurrent create may use.
       if (arrangement.cancelled_at) {
-        if (!isCalendarConfigured() && arrangement.google_event_id) {
+        // Even without a stored id, a deterministic event may exist if Google
+        // accepted an insert just before the process failed to persist its id.
+        if (!isCalendarConfigured()) {
           throw new Error(CALENDAR_NOT_CONFIGURED);
         }
-        if (isCalendarConfigured()) {
-          const eventIds = new Set([
-            ...(arrangement.google_event_id
-              ? [arrangement.google_event_id]
-              : []),
-            fulfilmentCalendarEventId(arrangement.id),
-          ]);
-          for (const eventId of eventIds) await deleteEvent(eventId);
-        }
+        const eventIds = new Set([
+          ...(arrangement.google_event_id ? [arrangement.google_event_id] : []),
+          fulfilmentCalendarEventId(arrangement.id),
+        ]);
+        for (const eventId of eventIds) await deleteEvent(eventId);
         const updated = await db
           .updateTable("fulfilment_arrangements")
           .set({
@@ -151,14 +151,17 @@ export async function syncFulfilmentArrangement(
   } catch (error) {
     const message =
       error instanceof Error ? error.message.slice(0, 1000) : "Unknown error";
-    await db
-      .updateTable("fulfilment_arrangements")
-      .set({
-        google_sync_state: "failed",
-        google_sync_error: message,
-      })
-      .where("id", "=", arrangementId)
-      .execute();
+    if (observedUpdatedAt) {
+      await db
+        .updateTable("fulfilment_arrangements")
+        .set({
+          google_sync_state: "failed",
+          google_sync_error: message,
+        })
+        .where("id", "=", arrangementId)
+        .where("updated_at", "=", observedUpdatedAt)
+        .execute();
+    }
     return { ok: false, error: message };
   }
 }

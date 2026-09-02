@@ -55,7 +55,13 @@ async function loadAppointmentPrefill(
         "customers.mobile as customer_mobile",
         "customers.email as customer_email",
       ])
+      .innerJoin("leads", "leads.id", "appointments.lead_id")
+      .leftJoin("orders", "orders.lead_id", "appointments.lead_id")
       .where("appointments.id", "=", appointmentId)
+      .where("appointments.status", "=", "scheduled")
+      .where("leads.is_archived", "=", false)
+      .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
+      .where("orders.id", "is", null)
       .executeTakeFirst();
 
     if (booked) {

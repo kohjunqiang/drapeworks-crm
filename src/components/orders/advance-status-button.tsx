@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/dialog";
 
 import { advanceOrderStatus } from "@/lib/actions/status";
+import type { FulfilmentStatus } from "@/lib/db/schema";
 
 type Props = {
   orderId: string;
+  currentStatus: FulfilmentStatus;
   atEnd: boolean;
   nextLabel?: string;
   /** Overrides the generic "Advance →" wording. Used at order_recorded, where
@@ -28,6 +30,7 @@ type Props = {
 
 export function AdvanceStatusButton({
   orderId,
+  currentStatus,
   atEnd,
   nextLabel,
   ctaLabel,
@@ -41,7 +44,11 @@ export function AdvanceStatusButton({
   function submit() {
     startTransition(async () => {
       try {
-        await advanceOrderStatus({ orderId, note: note || undefined });
+        await advanceOrderStatus({
+          orderId,
+          expectedStatus: currentStatus,
+          note: note || undefined,
+        });
         toast.success(
           nextLabel ? `Advanced to ${nextLabel}` : "Status advanced",
         );

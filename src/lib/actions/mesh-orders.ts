@@ -4,11 +4,10 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { Transaction } from "kysely";
 
+import { resolveOrderCustomer } from "@/lib/actions/order-customer";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
-import type { DB } from "@/lib/db/schema";
 import { loadActiveMeshSystemBands } from "@/lib/db/mesh-catalogue";
 import { meshPanelValues } from "@/lib/orders/mesh-panel-values";
 import { meshSystemProblems } from "@/lib/orders/mesh-system";
@@ -30,23 +29,6 @@ import {
   type MeshOrderDraftInput,
   type MeshOrderEditInput,
 } from "@/lib/validation/mesh";
-
-async function resolveMeshCustomer(trx: Transaction<DB>, appointmentId: string | undefined, leadId: string | undefined, customer: { name: string; mobile: string; email?: string }, userId: string) {
-  const booked = appointmentId
-    ? await trx.selectFrom("appointments").select(["customer_id", "lead_id"]).where("id", "=", appointmentId).executeTakeFirst()
-    : undefined;
-  const linkedLead = !booked && leadId
-    ? await trx.selectFrom("leads").select(["id", "customer_id"]).where("id", "=", leadId).where("is_archived", "=", false).executeTakeFirst()
-    : undefined;
-  const existingCustomerId = booked?.customer_id ?? linkedLead?.customer_id;
-  if (!existingCustomerId) {
-    const inserted = await trx.insertInto("customers").values({ name: customer.name, mobile: customer.mobile, email: customer.email ?? null, created_by: userId }).returning("id").executeTakeFirstOrThrow();
-    if (linkedLead) await trx.updateTable("leads").set({ customer_id: inserted.id }).where("id", "=", linkedLead.id).execute();
-    return { customerId: inserted.id, appointmentId: null, leadId: booked?.lead_id ?? linkedLead?.id ?? null };
-  }
-  await trx.updateTable("customers").set({ name: customer.name, ...(customer.mobile.trim() ? { mobile: customer.mobile } : {}), email: customer.email ?? null }).where("id", "=", existingCustomerId).execute();
-  return { customerId: existingCustomerId, appointmentId: appointmentId ?? null, leadId: booked?.lead_id ?? linkedLead?.id ?? null };
-}
 
 // Mesh consultations. Parallel to actions/orders.ts rather than branching
 // inside it: the line-item half shares nothing with curtains, while the order
@@ -91,7 +73,7 @@ export async function createMeshOrder(input: unknown): Promise<never> {
   await assertBuildable(parsed.rooms);
 
   const orderId = await db.transaction().execute(async (trx) => {
-    const customer = await resolveMeshCustomer(trx, parsed.appointment_id, parsed.lead_id, parsed.customer, session.user.id);
+    const customer = await resolveOrderCustomer(trx, parsed.appointment_id, parsed.lead_id, parsed.customer, session.user.id);
 
     const order = await trx
       .insertInto("orders")
@@ -297,7 +279,7 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
   const parsed: MeshOrderDraftInput = meshOrderDraftSchema.parse(input);
 
   const orderId = await db.transaction().execute(async (trx) => {
-    const customer = await resolveMeshCustomer(trx, parsed.appointment_id, parsed.lead_id, parsed.customer, session.user.id);
+    const customer = await resolveOrderCustomer(trx, parsed.appointment_id, parsed.lead_id, parsed.customer, session.user.id);
 
     const order = await trx
       .insertInto("orders")

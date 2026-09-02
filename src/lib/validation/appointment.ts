@@ -37,7 +37,7 @@ export const appointmentRescheduleSchema = z.object({
 
 export const appointmentStatusSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(["scheduled", "completed", "cancelled", "no_show"]),
+  status: z.enum(["completed", "cancelled", "no_show"]),
 });
 
 export type AppointmentCreateInput = z.infer<typeof appointmentCreateSchema>;

@@ -45,10 +45,12 @@ const STATUS_LABEL: Record<AppointmentStatus, string> = {
 export function AppointmentCard({
   appointment,
   calendarConfigured,
+  onChanged,
 }: {
   appointment: AppointmentSummary;
   /** Whether the GOOGLE_* vars are set on the server *right now*. */
   calendarConfigured: boolean;
+  onChanged?: () => void | Promise<void>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -58,6 +60,7 @@ export function AppointmentCard({
       try {
         await fn();
         toast.success(success);
+        await onChanged?.();
         router.refresh();
       } catch (error) {
         toast.error(

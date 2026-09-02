@@ -8,6 +8,7 @@ import { db } from "@/lib/db/kysely";
 import { deriveRecommendations, deriveBuyingReadiness, deriveDaysToMoveIn, deriveActionRequired, deriveDueStatus } from "@/lib/leads/funnel-engine";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 import { unsyncAppointment } from "@/lib/calendar/sync";
+import { isCalendarConfigured } from "@/lib/calendar/google";
 import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, leadQuickEditSchema, logUpdateSchema, recommendationSchema } from "@/lib/validation/lead";
 
 const nextLeadRef = () => `MN-${Date.now()}-${randomBytes(3).toString("hex")}`;
@@ -23,11 +24,12 @@ export async function getLeadModalData(id: string) {
     sql<string | null>`next_action_date::text`.as("next_action_date_text"),
     sql<string | null>`move_in_date::text`.as("move_in_date_text"),
   ]).where("id", "=", id).executeTakeFirstOrThrow();
-  const [interactions, profiles] = await Promise.all([
+  const [interactions, profiles, appointment] = await Promise.all([
     db.selectFrom("lead_interactions").leftJoin("profiles", "profiles.id", "lead_interactions.created_by")
       .select(["lead_interactions.id", "occurred_at", "interaction_type", "direction", "channel", "note", "profiles.full_name"])
       .where("lead_id", "=", id).orderBy("occurred_at", "desc").orderBy("lead_interactions.id", "desc").execute(),
     db.selectFrom("profiles").select(["id", "full_name", "is_active", "role"]).execute(),
+    db.selectFrom("appointments").selectAll().where("lead_id", "=", id).orderBy("created_at", "desc").executeTakeFirst(),
   ]);
   const date = (value: Date | string | null) => value ? toSgDate(new Date(value)) : null;
   const actionRequired = deriveActionRequired({ ...lead, next_action_date: lead.next_action_date_text }, todayInSingapore());
@@ -37,7 +39,7 @@ export async function getLeadModalData(id: string) {
     buying_readiness: deriveBuyingReadiness(lead.funnel_stage),
     days_to_move_in: deriveDaysToMoveIn(lead.move_in_date_text, todayInSingapore()),
     action_required: actionRequired, due_status: deriveDueStatus(actionRequired, lead.next_action_date_text, todayInSingapore()),
-  }, interactions, ownerName: profiles.find(person => person.id === (lead.assigned_consultant_id ?? lead.owner_id))?.full_name ?? "Unassigned",
+  }, interactions, appointment: appointment ?? null, calendarConfigured: isCalendarConfigured(), ownerName: profiles.find(person => person.id === (lead.assigned_consultant_id ?? lead.owner_id))?.full_name ?? "Unassigned",
     consultants: profiles.filter(person => person.is_active && (person.role === "admin" || person.role === "consultant")),
   };
 }
@@ -218,13 +220,21 @@ export async function dismissRecommendation(input: unknown): Promise<void> {
 export async function archiveLead(input: unknown): Promise<void> {
   await requireRole(["consultant", "admin"]);
   const p = archiveLeadSchema.parse(typeof input === "string" ? { lead_id: input } : input);
-  await db.updateTable("leads").set({ is_archived: true, updated_at: new Date() })
-    .where("id", "=", p.lead_id).execute();
+  await db.transaction().execute(async trx => {
+    const scheduled = await trx.selectFrom("appointments").select("id")
+      .where("lead_id", "=", p.lead_id).where("status", "=", "scheduled")
+      .executeTakeFirst();
+    if (scheduled) throw new Error("Complete or cancel the scheduled appointment before archiving this lead.");
+    const archived = await trx.updateTable("leads").set({ is_archived: true, updated_at: new Date() })
+      .where("id", "=", p.lead_id).where("is_archived", "=", false)
+      .returning("id").executeTakeFirst();
+    if (!archived) throw new Error("This lead is already archived or no longer exists.");
+  });
   revalidateLead(p.lead_id);
 }
 
 export async function deleteLead(input: unknown): Promise<void> {
-  await requireRole(["consultant", "admin"]);
+  await requireRole(["admin"]);
   const p = archiveLeadSchema.parse(typeof input === "string" ? { lead_id: input } : input);
   const appointments = await db.selectFrom("appointments").select("id")
     .where("lead_id", "=", p.lead_id).execute();

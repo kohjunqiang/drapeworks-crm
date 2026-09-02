@@ -9,10 +9,10 @@ import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_SOURCES, LEAD_STATUSES, LEAD_DIRECTIONS, LEAD_OUTCOMES, PRIMARY_PRODUCTS } from "@/lib/leads/funnel-types";
 import { QuickEditLead } from "@/components/leads/phase16-forms";
-import { DeleteLeadButton, EditableLeadRow } from "@/components/leads/editable-lead-row";
+import { ArchiveLeadButton, EditableLeadRow } from "@/components/leads/editable-lead-row";
 import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
 import { LeadAnalyticsView } from "@/components/leads/analytics-view";
-import { analyticsMonthWindow, calculateLeadAnalytics, inclusiveCalendarDays } from "@/lib/leads/analytics";
+import { APPOINTMENT_TRACKING_STARTED_AT, analyticsMonthWindow, calculateLeadAnalytics, inclusiveCalendarDays } from "@/lib/leads/analytics";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Leads — Drapeworks CRM" };
@@ -42,17 +42,28 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       .execute();
     const availableMonths = [...new Set([today.slice(0, 7), ...availableMonthRows.map(row => row.month)])];
     let cohortQuery = db.selectFrom("leads")
-      .select(["id", "funnel_stage", "lead_status", "first_initiated_at"])
+      .select(["id", "name", "lead_ref", "funnel_stage", "lead_status", "primary_product", "first_initiated_at"])
       .where("is_archived", "=", false)
       .where("first_initiated_at", "is not", null);
     if (!allTime) cohortQuery = cohortQuery.where("first_initiated_at", ">=", window.start).where("first_initiated_at", "<", window.end);
     const cohortLeads = await cohortQuery.execute();
-    const appointments = cohortLeads.length
-      ? await db.selectFrom("appointments").select(["lead_id", "status"]).where("lead_id", "in", cohortLeads.map(lead => lead.id)).execute()
-      : [];
+    const cohortIds = cohortLeads.map(lead => lead.id);
+    const [appointmentEvents, winEvents] = cohortIds.length ? await Promise.all([
+      db.selectFrom("appointment_events")
+        .select(["id", "lead_id", "event_type", "occurred_at", "is_backfilled"])
+        .where("lead_id", "in", cohortIds)
+        .where("occurred_at", ">=", APPOINTMENT_TRACKING_STARTED_AT)
+        .execute(),
+      db.selectFrom("lead_stage_events")
+        .select(["lead_id", "changed_at"])
+        .where("lead_id", "in", cohortIds)
+        .where("to_stage", "=", "Won")
+        .where("changed_at", ">=", APPOINTMENT_TRACKING_STARTED_AT)
+        .execute(),
+    ]) : [[], []];
     const earliestInitiated = cohortLeads.reduce<Date | null>((earliest, lead) => !earliest || lead.first_initiated_at! < earliest ? lead.first_initiated_at! : earliest, null);
     const elapsedDays = allTime ? inclusiveCalendarDays(earliestInitiated ? toSgDate(new Date(earliestInitiated)) : null, today) : window.elapsedDays;
-    const metrics = calculateLeadAnalytics(cohortLeads, appointments, elapsedDays);
+    const metrics = calculateLeadAnalytics(cohortLeads, appointmentEvents, winEvents, elapsedDays);
     return <main className="mx-auto max-w-[1880px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">Monthly lead conversion and sales performance</p></div>
       {toolbar}
@@ -140,7 +151,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         ["Next Action Date", row.next_action_date_text ?? "—"],
         ["Due Status", deriveDueStatus(actionFor(row), row.next_action_date_text, today)],
       ].map(([label, value]) => <div key={label} className="min-w-0 break-words"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1">{label === "Funnel Stage" ? <FunnelStagePill stage={row.funnel_stage}/> : value}</dd></div>)}</dl>
-      <div className="mt-4 grid grid-cols-3 gap-2"><QuickEditLead lead={row} consultants={consultants} trigger="view" fullWidth/><QuickEditLead lead={row} consultants={consultants} fullWidth/><DeleteLeadButton leadId={row.id} leadName={row.name} fullWidth/></div>
+      <div className="mt-4 grid grid-cols-3 gap-2"><QuickEditLead lead={row} consultants={consultants} trigger="view" fullWidth/><QuickEditLead lead={row} consultants={consultants} fullWidth/><ArchiveLeadButton leadId={row.id} leadName={row.name} fullWidth/></div>
     </article>)}</div>
 {rows.length > 0 &&     <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block"><table className="w-full table-fixed text-xs [&_th]:break-words"><colgroup>{[12,6,7,7,9,5,13,8,9,8,6,10].map((width, index) => <col key={index} style={{width: `${width}%`}}/>)}</colgroup><thead><tr className="border-b bg-slate-50/70 text-left text-slate-600">{["Customer Name", "Inbound / Outbound", "Initiated Date", "Last Contact Date", "Funnel Stage", "Lead Status", "Last Contact Outcome", "Action Required", "Action Detail", "Next Action Date", "Due Status", "Actions"].map((label, index) => {
   const key = index === 9 ? "next" : index === 10 ? "due" : index === 2 ? "initiated" : null;

@@ -29,12 +29,14 @@ export function BookAppointmentDialog({
   leadMobile,
   development,
   consultants,
+  onBooked,
 }: {
   leadId: string;
   leadName: string;
   leadMobile: string | null;
   development: string | null;
   consultants: { id: string; full_name: string | null }[];
+  onBooked?: () => void | Promise<void>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -79,6 +81,7 @@ export function BookAppointmentDialog({
         });
         toast.success("Appointment booked");
         setOpen(false);
+        await onBooked?.();
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not book");
@@ -90,7 +93,7 @@ export function BookAppointmentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       {/* The trigger renders its own <button>, styled like every other teal CTA
           in the app — same as nav/mobile-menu.tsx and nav/user-menu.tsx. */}
-      <DialogTrigger className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
+      <DialogTrigger type="button" className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
         Book appointment
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto">

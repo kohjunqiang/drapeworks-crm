@@ -5,6 +5,8 @@
 
 import type { ColumnType } from "kysely";
 
+export type AppointmentEventType = "booked" | "cancelled" | "completed" | "no_show" | "rescheduled";
+
 export type AppointmentStatus = "cancelled" | "completed" | "no_show" | "scheduled";
 
 export type AuthAalLevel = "aal1" | "aal2" | "aal3";
@@ -110,6 +112,18 @@ export type StorageBuckettype = "ANALYTICS" | "STANDARD" | "VECTOR";
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export type UserRole = "admin" | "consultant" | "ops";
+
+export interface AppointmentEvents {
+  appointment_id: string;
+  created_by: string | null;
+  event_type: AppointmentEventType;
+  id: Generated<string>;
+  is_backfilled: Generated<boolean>;
+  lead_id: string;
+  occurred_at: Generated<Timestamp>;
+  previous_scheduled_at: Timestamp | null;
+  scheduled_at: Timestamp | null;
+}
 
 export interface Appointments {
   address: string | null;
@@ -1222,6 +1236,7 @@ export interface Windows {
 }
 
 export interface DB {
+  appointment_events: AppointmentEvents;
   appointments: Appointments;
   "auth.audit_log_entries": AuthAuditLogEntries;
   "auth.custom_oauth_providers": AuthCustomOauthProviders;

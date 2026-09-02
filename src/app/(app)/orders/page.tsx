@@ -10,6 +10,7 @@ import { db } from "@/lib/db/kysely";
 import { orderStaleFlags } from "@/lib/pricing/order-quote";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
+import { requireSession } from "@/lib/auth/require-role";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function OrdersDashboardPage({
     consultant: consultantRaw,
     product: productRaw,
   } = await searchParams;
+  const session = await requireSession();
   const q = (qRaw ?? "").trim();
   const status = isStatus(statusRaw) ? statusRaw : undefined;
   const consultantId =
@@ -203,8 +205,8 @@ export default async function OrdersDashboardPage({
         />
       ) : (
         <>
-          <OrdersTable orders={orders} />
-          <OrdersCards orders={orders} />
+          <OrdersTable orders={orders} canDelete={session.profile.role === "admin"} />
+          <OrdersCards orders={orders} canDelete={session.profile.role === "admin"} />
         </>
       )}
     </main>

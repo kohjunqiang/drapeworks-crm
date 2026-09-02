@@ -6,9 +6,11 @@ import { ProductLineBadge } from "./orders-table";
 
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
+import { DeleteOrderDialog } from "./delete-order-dialog";
 
 type Props = {
   orders: OrderRow[];
+  canDelete?: boolean;
 };
 
 const SG_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -22,15 +24,12 @@ function formatDate(d: Date | string | null): string {
   return SG_DATE.format(new Date(d));
 }
 
-export function OrdersCards({ orders }: Props) {
+export function OrdersCards({ orders, canDelete = false }: Props) {
   return (
     <div className="md:hidden space-y-3">
       {orders.map((o) => (
-        <Link
-          key={o.id}
-          href={`/orders/${o.id}`}
-          className="block bg-white rounded-lg border border-slate-200 p-4 active:bg-slate-50"
-        >
+        <article key={o.id} className="rounded-lg border border-slate-200 bg-white p-4">
+          <Link href={`/orders/${o.id}`} className="block active:bg-slate-50">
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-slate-900 truncate">
@@ -61,7 +60,18 @@ export function OrdersCards({ orders }: Props) {
               {o.consultant_name}
             </div>
           )}
-        </Link>
+          </Link>
+          {canDelete && (
+            <div className="mt-3 flex justify-end border-t border-slate-100 pt-2">
+              <DeleteOrderDialog
+                orderId={o.id}
+                displayId={o.display_id}
+                customerName={o.customer_name}
+                compact
+              />
+            </div>
+          )}
+        </article>
       ))}
       {orders.length === 0 && (
         <div className="text-center py-12 text-sm text-slate-500">

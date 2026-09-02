@@ -935,6 +935,18 @@ export interface OrderStatusEvents {
   status: FulfilmentStatus;
 }
 
+export interface OrderCompletionPhotos {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mime_type: string;
+  order_id: string;
+  original_name: string | null;
+  position: Generated<number>;
+  size_bytes: number;
+  storage_path: string;
+  uploaded_by: string | null;
+}
+
 export interface OrderYearCounters {
   last_seq: Generated<number>;
   year: number;
@@ -1322,6 +1334,7 @@ export interface DB {
   mesh_panels: MeshPanels;
   mesh_system_bands: MeshSystemBands;
   mesh_systems: MeshSystems;
+  order_completion_photos: OrderCompletionPhotos;
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;

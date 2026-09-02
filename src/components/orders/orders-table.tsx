@@ -4,6 +4,7 @@ import type { FulfilmentStatus } from "@/lib/db/schema";
 import { formatSGD } from "@/lib/money";
 
 import { StatusBadge } from "./status-badge";
+import { DeleteOrderDialog } from "./delete-order-dialog";
 
 export type OrderRow = {
   id: string;
@@ -22,6 +23,7 @@ export type OrderRow = {
 
 type Props = {
   orders: OrderRow[];
+  canDelete?: boolean;
 };
 
 // Mesh and curtain orders never mix, so the line is a property of the whole
@@ -46,7 +48,7 @@ function formatDate(d: Date | string | null): string {
   return SG_DATE.format(new Date(d));
 }
 
-export function OrdersTable({ orders }: Props) {
+export function OrdersTable({ orders, canDelete = false }: Props) {
   return (
     <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
       <table className="w-full text-sm">
@@ -59,6 +61,7 @@ export function OrdersTable({ orders }: Props) {
             <th className="text-left px-4 py-3 font-medium">Status</th>
             <th className="text-right px-4 py-3 font-medium">Price</th>
             <th className="text-left px-4 py-3 font-medium">Consultant</th>
+            {canDelete && <th className="text-right px-4 py-3 font-medium">Actions</th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -103,6 +106,16 @@ export function OrdersTable({ orders }: Props) {
               <td className="px-4 py-3 text-slate-600">
                 {o.consultant_name ?? "—"}
               </td>
+              {canDelete && (
+                <td className="px-2 py-3 text-right">
+                  <DeleteOrderDialog
+                    orderId={o.id}
+                    displayId={o.display_id}
+                    customerName={o.customer_name}
+                    compact
+                  />
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

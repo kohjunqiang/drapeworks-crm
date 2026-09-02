@@ -14,6 +14,9 @@ import {
 } from "@/lib/actions/order-customer";
 import { db } from "@/lib/db/kysely";
 import type { DB } from "@/lib/db/schema";
+import { COMPLETION_PHOTO_BUCKET } from "@/lib/db/completion-photos";
+import { fulfilmentCalendarEventId } from "@/lib/calendar/fulfilment-event-id";
+import { deleteEvent, isCalendarConfigured } from "@/lib/calendar/google";
 import {
   loadAddonCatalogue,
   loadWindowAddonIds,
@@ -567,19 +570,13 @@ export async function deleteOrder(input: {
 
   const order = await db
     .selectFrom("orders")
-    .select(["id", "display_id", "current_status"])
+    .select(["id", "display_id"])
     .where("id", "=", input.orderId)
     .executeTakeFirst();
   if (!order) throw new Error("Order not found");
 
   if (input.confirmDisplayId.trim() !== order.display_id) {
     throw new Error(`Type ${order.display_id} exactly to confirm deletion`);
-  }
-
-  if (isLocked(order.current_status)) {
-    throw new Error(
-      "This order is locked — it has been sent to the vendor. Ask an admin to amend the manufacturing measurements instead.",
-    );
   }
 
   // Capture every photo's storage_path before the cascade fires so we can
@@ -591,10 +588,52 @@ export async function deleteOrder(input: {
     .where("rooms.order_id", "=", order.id)
     .execute();
 
-  // Cascades: orders → rooms → windows + room_photos, and orders →
-  // order_status_events. customers.id has on-delete RESTRICT so the customer
-  // row stays (preserving cross-order history).
-  await db.deleteFrom("orders").where("id", "=", order.id).execute();
+  const completionPhotos = await db
+    .selectFrom("order_completion_photos")
+    .select("storage_path")
+    .where("order_id", "=", order.id)
+    .execute();
+  const purchaseOrders = await db
+    .selectFrom("manufacture_pos")
+    .select("storage_path")
+    .where("order_id", "=", order.id)
+    .execute();
+  const arrangement = await db
+    .selectFrom("fulfilment_arrangements")
+    .select(["id", "google_event_id"])
+    .where("order_id", "=", order.id)
+    .executeTakeFirst();
+
+  // A late-stage order may own a live installation booking. Remove the exact
+  // external event before deleting the row that tells us how to find it.
+  if (arrangement) {
+    if (!isCalendarConfigured()) {
+      throw new Error(
+        "This order has an installation booking that may have a Calendar event. Restore Google Calendar access before deleting it.",
+      );
+    }
+    const eventIds = new Set([
+      ...(arrangement.google_event_id ? [arrangement.google_event_id] : []),
+      fulfilmentCalendarEventId(arrangement.id),
+    ]);
+    for (const eventId of eventIds) await deleteEvent(eventId);
+  }
+
+  await db.transaction().execute(async (trx) => {
+    if (arrangement) {
+      await trx
+        .deleteFrom("fulfilment_arrangement_events")
+        .where("arrangement_id", "=", arrangement.id)
+        .execute();
+      await trx
+        .deleteFrom("fulfilment_arrangements")
+        .where("id", "=", arrangement.id)
+        .execute();
+    }
+    // Cascades: orders → rooms/windows/photos, completion photos, generated PO
+    // rows and status events. The customer remains for cross-order history.
+    await trx.deleteFrom("orders").where("id", "=", order.id).execute();
+  });
 
   if (photos.length > 0) {
     const { error } = await adminClient()
@@ -606,6 +645,20 @@ export async function deleteOrder(input: {
         error.message,
       );
     }
+  }
+
+  if (completionPhotos.length > 0) {
+    const { error } = await adminClient()
+      .storage.from(COMPLETION_PHOTO_BUCKET)
+      .remove(completionPhotos.map((photo) => photo.storage_path));
+    if (error) console.error("completion-photo storage sweep failed during deleteOrder:", error.message);
+  }
+
+  if (purchaseOrders.length > 0) {
+    const { error } = await adminClient()
+      .storage.from("manufacture-pos")
+      .remove(purchaseOrders.map((po) => po.storage_path));
+    if (error) console.error("purchase-order storage sweep failed during deleteOrder:", error.message);
   }
 
   revalidatePath("/orders");

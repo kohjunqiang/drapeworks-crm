@@ -13,6 +13,10 @@ import {
 
 import { advanceOrderStatus } from "@/lib/actions/status";
 import type { FulfilmentStatus } from "@/lib/db/schema";
+import {
+  CompletionPhotoUploader,
+  type CompletionPhoto,
+} from "@/components/orders/completion-photo-uploader";
 
 type Props = {
   orderId: string;
@@ -26,6 +30,7 @@ type Props = {
    *  the deposit lands on the measurements review — the thing recording it was
    *  for — instead of returning here and asking for a second click. */
   advanceTo?: string;
+  completionPhotos?: CompletionPhoto[];
 };
 
 export function AdvanceStatusButton({
@@ -35,13 +40,16 @@ export function AdvanceStatusButton({
   nextLabel,
   ctaLabel,
   advanceTo,
+  completionPhotos = [],
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   function submit() {
+    if (photoUploading) return;
     startTransition(async () => {
       try {
         await advanceOrderStatus({
@@ -83,7 +91,13 @@ export function AdvanceStatusButton({
       >
         {pending ? "Saving…" : (ctaLabel ?? "Advance →")}
       </button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && photoUploading) return;
+          setOpen(nextOpen);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
@@ -91,6 +105,21 @@ export function AdvanceStatusButton({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {currentStatus === "fulfilment" && (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-800">Completed photos</p>
+                  <p className="text-xs text-slate-500">
+                    Upload one or more photos of the finished installation.
+                  </p>
+                </div>
+                <CompletionPhotoUploader
+                  orderId={orderId}
+                  photos={completionPhotos}
+                  onUploadingChange={setPhotoUploading}
+                />
+              </div>
+            )}
             <label className="block text-xs font-medium text-slate-600">
               Note (optional)
             </label>
@@ -105,7 +134,7 @@ export function AdvanceStatusButton({
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                disabled={pending}
+                disabled={pending || photoUploading}
                 className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900"
               >
                 Cancel
@@ -113,10 +142,14 @@ export function AdvanceStatusButton({
               <button
                 type="button"
                 onClick={submit}
-                disabled={pending}
+                disabled={pending || photoUploading}
                 className="px-4 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
               >
-                {pending ? "Saving…" : (ctaLabel ?? "Advance")}
+                {photoUploading
+                  ? "Uploading photos…"
+                  : pending
+                    ? "Saving…"
+                    : (ctaLabel ?? "Advance")}
               </button>
             </div>
           </div>

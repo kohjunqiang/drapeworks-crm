@@ -15,9 +15,10 @@ type Props = {
   orderId: string;
   displayId: string;
   customerName: string;
+  compact?: boolean;
 };
 
-export function DeleteOrderDialog({ orderId, displayId, customerName }: Props) {
+export function DeleteOrderDialog({ orderId, displayId, customerName, compact = false }: Props) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [pending, startTransition] = useTransition();
@@ -43,7 +44,9 @@ export function DeleteOrderDialog({ orderId, displayId, customerName }: Props) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="px-3 py-1.5 text-xs sm:text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"
+        className={compact
+          ? "px-2 py-1 text-xs text-red-700 hover:text-red-900"
+          : "px-3 py-1.5 text-xs sm:text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"}
       >
         Delete
       </button>
@@ -57,7 +60,8 @@ export function DeleteOrderDialog({ orderId, displayId, customerName }: Props) {
               This will permanently delete the order for{" "}
               <span className="font-medium">{customerName}</span>, along with
               every room, window, status event, and photo. The customer record
-              stays.
+              stays. Any generated vendor POs and installation Calendar event
+              will also be permanently removed.
             </p>
             <p className="text-xs text-slate-500">
               Type{" "}

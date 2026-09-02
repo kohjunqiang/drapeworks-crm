@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
+import { CompletionPhotoUploader } from "@/components/orders/completion-photo-uploader";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
 import { DeliveryNumbersCard } from "@/components/orders/delivery-numbers-card";
 import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrangement-card";
@@ -27,6 +28,7 @@ import { requireSession } from "@/lib/auth/require-role";
 import { isCalendarConfigured } from "@/lib/calendar/google";
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
+import { signCompletionPhotoUrls } from "@/lib/db/completion-photos";
 import { db } from "@/lib/db/kysely";
 import { loadInstallationSummary } from "@/lib/fulfilment/load-installation-summary";
 import {
@@ -483,6 +485,23 @@ export default async function OrderDetailPage({
     photosByRoom.set(p.room_id, list);
   }
 
+  const completionPhotoRows = await db
+    .selectFrom("order_completion_photos")
+    .select(["id", "storage_path", "original_name"])
+    .where("order_id", "=", order.id)
+    .orderBy("position", "asc")
+    .orderBy("created_at", "asc")
+    .execute();
+  const completionPhotoUrls = await signCompletionPhotoUrls(
+    completionPhotoRows.map((photo) => photo.storage_path),
+  );
+  const completionPhotos = completionPhotoRows.flatMap((photo) => {
+    const signedUrl = completionPhotoUrls.get(photo.storage_path);
+    return signedUrl
+      ? [{ id: photo.id, signedUrl, originalName: photo.original_name }]
+      : [];
+  });
+
   // Auto-calculated quote from the priced series + window add-ons (null until
   // the order's curtains are priced).
   const quote = await computeOrderQuote(order.id);
@@ -596,9 +615,10 @@ export default async function OrderDetailPage({
                   nextLabel={nextLabel}
                   ctaLabel={ctaLabel}
                   advanceTo={advanceTo}
+                  completionPhotos={completionPhotos}
                 />
               )}
-              {session.profile.role === "admin" && !locked && (
+              {session.profile.role === "admin" && (
                 <DeleteOrderDialog
                   orderId={order.id}
                   displayId={order.display_id}
@@ -647,6 +667,22 @@ export default async function OrderDetailPage({
             }
             canRevert={session.profile.role === "admin"}
           />
+
+          {order.current_status === "completed" && (
+            <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
+              <h2 className="mb-1 text-base font-semibold text-slate-900">
+                Completed photos
+              </h2>
+              <p className="mb-4 text-xs text-slate-500">
+                Photos of the finished installation.
+              </p>
+              <CompletionPhotoUploader
+                orderId={order.id}
+                photos={completionPhotos}
+                readOnly={session.profile.role !== "ops" && session.profile.role !== "admin"}
+              />
+            </section>
+          )}
 
           <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6">
             <h2 className="text-base font-semibold text-slate-900 mb-4">

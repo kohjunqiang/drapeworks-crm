@@ -6,6 +6,7 @@ import {
   STATUS_LABELS,
   isLocked,
   leadMilestoneForOrderStatus,
+  leadStateForRevertedOrderStatus,
   nextStatus,
   statusIndex,
 } from "./status-flow";
@@ -53,6 +54,16 @@ describe("linked lead milestones", () => {
   });
   it("does not change leads for fulfilment-only statuses", () => {
     expect(leadMilestoneForOrderStatus("po_ready")).toBeNull();
+  });
+  it("restores Send Quotation when quotation status is reverted", () => {
+    expect(leadStateForRevertedOrderStatus("order_recorded")).toEqual({
+      stage: "Send Quotation", outcome: null,
+    });
+  });
+  it("restores Decision Pending when deposit status is reverted", () => {
+    expect(leadStateForRevertedOrderStatus("quotation_sent")).toEqual({
+      stage: "Decision Pending", outcome: "Quotation Sent",
+    });
   });
 });
 

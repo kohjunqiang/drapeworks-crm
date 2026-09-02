@@ -150,6 +150,60 @@ describe("windowSchema — blind windows", () => {
   });
 });
 
+describe("windowSchema — unequal double draw", () => {
+  it("accepts left and right widths that add up to the total", () => {
+    const parsed = windowSchema.parse({
+      variant: "regular",
+      position: 0,
+      draw: "Double",
+      width_cm: 300,
+      split_left_cm: 120,
+      split_right_cm: 180,
+    });
+    expect(parsed).toMatchObject({ split_left_cm: 120, split_right_cm: 180 });
+  });
+
+  it("keeps an ordinary Double draw valid with no explicit split", () => {
+    expect(
+      windowSchema.safeParse({
+        variant: "regular",
+        position: 0,
+        draw: "Double",
+        width_cm: 300,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    { split_left_cm: 120 },
+    { split_right_cm: 180 },
+    { split_left_cm: 120, split_right_cm: 170 },
+  ])("rejects an incomplete or mismatched split: %j", (split) => {
+    expect(
+      windowSchema.safeParse({
+        variant: "regular",
+        position: 0,
+        draw: "Double",
+        width_cm: 300,
+        ...split,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("does not strand a user when switching from Double to a single draw", () => {
+    expect(
+      windowSchema.safeParse({
+        variant: "regular",
+        position: 0,
+        draw: "Single Left",
+        width_cm: 300,
+        split_left_cm: 120,
+        split_right_cm: 180,
+      }).success,
+    ).toBe(true);
+  });
+});
+
 const APPOINTMENT = "550e8400-e29b-41d4-a716-446655440009";
 
 const MINIMAL_ORDER = {

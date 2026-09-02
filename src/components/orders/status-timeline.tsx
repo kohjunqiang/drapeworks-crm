@@ -120,7 +120,11 @@ export function StatusTimeline({
       {canAddNote && <AddStatusNoteForm orderId={orderId} />}
       {canRevert && !atStart && prevLabel && (
         <div className="mt-3 flex justify-end">
-          <RevertStatusDialog orderId={orderId} prevLabel={prevLabel} />
+          <RevertStatusDialog
+            orderId={orderId}
+            currentStatus={currentStatus}
+            prevLabel={prevLabel}
+          />
         </div>
       )}
     </section>

@@ -115,6 +115,8 @@ export function RoomCard({
             day_curtain_type_id: "",
             night_curtain_type_id: "",
             draw: "Double",
+            split_left_cm: null,
+            split_right_cm: null,
             width_cm: null,
             height_cm: null,
             notes: "",

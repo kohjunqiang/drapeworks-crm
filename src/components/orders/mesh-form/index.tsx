@@ -15,6 +15,7 @@ import {
   formDraftKey,
   useFormDraft,
 } from "@/components/orders/consultation-form/use-form-draft";
+import { asFinalOrder } from "@/components/orders/consultation-form/final-order";
 import { PricingSection } from "@/components/orders/consultation-form/pricing-section";
 import {
   QuickAddRoomBar,
@@ -220,7 +221,7 @@ export function MeshConsultationForm({
   }
 
   const onSubmit = handleSubmit((values) => {
-    const payload = normalise(values);
+    const payload = normalise(asFinalOrder(values));
 
     // An unbuildable panel blocks the save. The server action performs the same
     // check — that is the guarantee — but catching it here names the room and

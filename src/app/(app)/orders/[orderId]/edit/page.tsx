@@ -120,6 +120,8 @@ export default async function EditOrderPage({
             "night_curtain_type_id",
             "blind_type_id",
             "draw",
+            "split_left_cm",
+            "split_right_cm",
             "combo_id",
           ])
           .where("room_id", "in", roomIds)
@@ -364,6 +366,8 @@ export default async function EditOrderPage({
             day_curtain_type_id: w.day_curtain_type_id ?? "",
             night_curtain_type_id: w.night_curtain_type_id ?? "",
             draw: w.draw ?? "Double",
+            split_left_cm: w.split_left_cm ?? null,
+            split_right_cm: w.split_right_cm ?? null,
             width_cm: w.width_cm ?? null,
             height_cm: w.height_cm ?? null,
             notes: w.notes ?? "",

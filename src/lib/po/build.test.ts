@@ -310,6 +310,27 @@ describe("buildPos — the Night sample end to end", () => {
     expect(pos[0].vendor.internalRef).toBe("V005");
   });
 
+  it("prints unequal double-draw leaf widths on a compact detail line", () => {
+    const unequal = line({
+      lineId: "unequal",
+      roomId: "r1",
+      roomType: "Living Room",
+      roomPosition: 0,
+      mfgWidthCm: 335,
+      mfgHeightCm: 222,
+      splitLeftCm: 110,
+      splitRightCm: 225,
+    });
+
+    const { pos, problems } = buildPos(input({ lines: [unequal] }));
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows[0]).toMatchObject({
+      opening: "对开 Double draw",
+      openingDetail: "L 1.10 / R 2.25m",
+    });
+  });
+
   it("fills the curtain-only order details", () => {
     const { pos } = buildPos(input({ lines: nightLines }));
 
@@ -651,6 +672,29 @@ describe("buildPos — labels we do not have", () => {
     expect(problems).toEqual([]);
     expect(pos[0].tables[0].rows[0].type).toBe("窗帘 Night");
     expect(pos[0].tables[0].rows[0].opening).toBe("对开 Double draw");
+  });
+
+  it("prints an unequal double-draw split scaled to the frozen width", () => {
+    const { pos, problems } = buildPos(
+      input({
+        lines: [
+          line({
+            lineId: "unequal",
+            // Measured 120 + 180 = 300. The frozen width is 274, so the
+            // allocation becomes 110 + 164 without changing the total.
+            splitLeftCm: 120,
+            splitRightCm: 180,
+            mfgWidthCm: 274,
+          }),
+        ],
+      }),
+    );
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows[0]).toMatchObject({
+      opening: "对开 Double draw",
+      openingDetail: "L 1.10 / R 1.64m",
+    });
   });
 });
 

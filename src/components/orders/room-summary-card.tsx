@@ -11,6 +11,8 @@ type WindowSummary = {
   notes: string | null;
   side_installation?: boolean;
   draw: string | null;
+  split_left_cm?: number | null;
+  split_right_cm?: number | null;
   /** The add-ons this window carries, by name, in catalogue order. */
   addon_labels?: string[];
   combo_label?: string | null;
@@ -179,7 +181,16 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
                       )}
                     </td>
                   )}
-                  <td className="px-4 py-2">{w.draw ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    {w.draw ?? "—"}
+                    {w.draw === "Double" &&
+                      w.split_left_cm != null &&
+                      w.split_right_cm != null && (
+                        <span className="block text-[11px] text-slate-500">
+                          L {w.split_left_cm} cm · R {w.split_right_cm} cm
+                        </span>
+                      )}
+                  </td>
                   <td className="px-4 py-2 text-slate-600">
                     <div className="flex flex-col gap-1">
                       <span>{w.addon_labels?.join(", ") || "—"}</span>

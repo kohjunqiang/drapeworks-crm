@@ -8,7 +8,11 @@ import { z } from "zod";
 import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { FulfilmentStatus } from "@/lib/db/schema";
-import { STATUS_FLOW, leadMilestoneForOrderStatus } from "@/lib/status-flow";
+import {
+  STATUS_FLOW,
+  leadMilestoneForOrderStatus,
+  leadStateForRevertedOrderStatus,
+} from "@/lib/status-flow";
 
 const advanceSchema = z.object({
   orderId: z.string().uuid(),
@@ -28,11 +32,16 @@ export async function advanceOrderStatus(input: unknown) {
   const linkedLeadId = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
-      .select(["current_status", "appointment_id", "lead_id"])
+      .select(["current_status", "appointment_id", "lead_id", "is_draft"])
       .where("id", "=", parsed.orderId)
       .forUpdate()
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
+    if (order.is_draft) {
+      throw new Error(
+        "Finish the consultation before advancing this order",
+      );
+    }
     if (order.current_status !== parsed.expectedStatus) {
       throw new Error("Order status already changed. Refresh and try again.");
     }
@@ -111,34 +120,40 @@ export async function addStatusNote(input: unknown) {
   const session = await requireSession();
   const parsed = noteSchema.parse(input);
 
-  const order = await db
-    .selectFrom("orders")
-    .select(["current_status", "consultant_id"])
-    .where("id", "=", parsed.orderId)
-    .executeTakeFirst();
-  if (!order) throw new Error("Order not found");
+  await db.transaction().execute(async (trx) => {
+    const order = await trx
+      .selectFrom("orders")
+      .select(["current_status", "consultant_id"])
+      .where("id", "=", parsed.orderId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!order) throw new Error("Order not found");
 
-  const role = session.profile.role;
-  const isOwner = order.consultant_id === session.user.id;
-  if (!(role === "ops" || role === "admin" || (role === "consultant" && isOwner))) {
-    throw new Error("Forbidden");
-  }
+    const role = session.profile.role;
+    const isOwner = order.consultant_id === session.user.id;
+    if (!(role === "ops" || role === "admin" || (role === "consultant" && isOwner))) {
+      throw new Error("Forbidden");
+    }
 
-  await db
-    .insertInto("order_status_events")
-    .values({
+    await trx.insertInto("order_status_events").values({
       order_id: parsed.orderId,
       status: order.current_status,
       note: parsed.note.trim(),
       created_by: session.user.id,
-    })
-    .execute();
+    }).execute();
+  });
 
   revalidatePath(`/orders/${parsed.orderId}`);
 }
 
 const revertSchema = z.object({
   orderId: z.string().uuid(),
+  expectedStatus: z.custom<FulfilmentStatus>(
+    (value) =>
+      typeof value === "string" &&
+      STATUS_FLOW.includes(value as FulfilmentStatus),
+    "Order status invalid",
+  ),
   reason: z.string().min(1, "Reason required").max(2000),
 });
 
@@ -146,49 +161,89 @@ export async function revertOrderStatus(input: unknown) {
   const session = await requireRole(["admin"]);
   const parsed = revertSchema.parse(input);
 
-  const order = await db
-    .selectFrom("orders")
-    .select("current_status")
-    .where("id", "=", parsed.orderId)
-    .executeTakeFirst();
-  if (!order) throw new Error("Order not found");
-
-  const idx = STATUS_FLOW.indexOf(order.current_status);
-  if (idx <= 0) throw new Error("Cannot revert further");
-
-  const prev = STATUS_FLOW[idx - 1];
-
-  // An arrangement at Delivered & Checked can exist after reverting once from
-  // Fulfillment Arrangement. Do not hide it by reverting farther while its
-  // Google event remains active.
-  if (order.current_status === "delivered_checked") {
-    const arrangement = await db
-      .selectFrom("fulfilment_arrangements")
-      .select(["id", "cancelled_at", "google_event_id"])
-      .where("order_id", "=", parsed.orderId)
+  const linkedLeadId = await db.transaction().execute(async (trx) => {
+    const order = await trx
+      .selectFrom("orders")
+      .select(["current_status", "appointment_id", "lead_id"])
+      .where("id", "=", parsed.orderId)
+      .forUpdate()
       .executeTakeFirst();
-    if (arrangement && !arrangement.cancelled_at) {
-      throw new Error(
-        "This order still has an installation booking. Cancel it before reverting farther.",
-      );
+    if (!order) throw new Error("Order not found");
+    if (order.current_status !== parsed.expectedStatus) {
+      throw new Error("Order status already changed. Refresh and try again.");
     }
-    if (arrangement?.cancelled_at && arrangement.google_event_id) {
-      throw new Error(
-        "The cancelled installation is still pending Calendar removal. Retry Calendar sync before reverting farther.",
-      );
-    }
-  }
 
-  await db
-    .insertInto("order_status_events")
-    .values({
+    const idx = STATUS_FLOW.indexOf(order.current_status);
+    if (idx <= 0) throw new Error("Cannot revert further");
+    const prev = STATUS_FLOW[idx - 1];
+
+    // An arrangement at Delivered & Checked can exist after reverting once from
+    // Fulfillment Arrangement. Do not hide it by reverting farther while its
+    // Google event remains active.
+    if (order.current_status === "delivered_checked") {
+      const arrangement = await trx
+        .selectFrom("fulfilment_arrangements")
+        .select(["id", "cancelled_at", "google_event_id"])
+        .where("order_id", "=", parsed.orderId)
+        .executeTakeFirst();
+      if (arrangement && !arrangement.cancelled_at) {
+        throw new Error(
+          "This order still has an installation booking. Cancel it before reverting farther.",
+        );
+      }
+      if (arrangement?.cancelled_at && arrangement.google_event_id) {
+        throw new Error(
+          "The cancelled installation is still pending Calendar removal. Retry Calendar sync before reverting farther.",
+        );
+      }
+    }
+
+    const fallbackLeadId = !order.lead_id && order.appointment_id
+      ? (
+          await trx.selectFrom("appointments").select("lead_id")
+            .where("id", "=", order.appointment_id).executeTakeFirst()
+        )?.lead_id
+      : undefined;
+    const leadId = order.lead_id ?? fallbackLeadId;
+    const linkedLead = leadId
+      ? await trx.selectFrom("leads").select(["id", "funnel_stage"])
+          .where("id", "=", leadId).forUpdate().executeTakeFirst()
+      : undefined;
+
+    await trx.insertInto("order_status_events").values({
       order_id: parsed.orderId,
       status: prev,
       note: `[REVERTED] ${parsed.reason.trim()}`,
       created_by: session.user.id,
-    })
-    .execute();
+    }).execute();
+
+    const leadState = leadStateForRevertedOrderStatus(prev);
+    if (linkedLead && leadState) {
+      const changedAt = new Date();
+      await trx.updateTable("leads").set({
+        funnel_stage: leadState.stage,
+        last_outcome: leadState.outcome,
+        ...(prev === "order_recorded" ? { quotation_sent_at: null } : {}),
+        updated_at: changedAt,
+      }).where("id", "=", linkedLead.id).execute();
+      if (linkedLead.funnel_stage !== leadState.stage) {
+        await trx.insertInto("lead_stage_events").values({
+          lead_id: linkedLead.id,
+          from_stage: linkedLead.funnel_stage,
+          to_stage: leadState.stage,
+          changed_at: changedAt,
+          changed_by: session.user.id,
+          source: "system",
+        }).execute();
+      }
+    }
+    return linkedLead?.id ?? null;
+  });
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath("/orders");
+  if (linkedLeadId) {
+    revalidatePath("/leads");
+    revalidatePath(`/leads/${linkedLeadId}`);
+  }
 }

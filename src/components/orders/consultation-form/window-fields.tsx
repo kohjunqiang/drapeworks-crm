@@ -162,11 +162,19 @@ export function WindowFields({
   addonCatalogue,
   persistedAddonIds,
 }: Props) {
-  const { register, control, setValue, getValues } =
+  const { register, control, setValue, getValues, getFieldState, formState } =
     useFormContext<OrderEditInput>();
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
   const variant = useWatch({ control, name: `${base}.variant` });
   const isBlind = variant === "blind";
+  const splitLeftError = getFieldState(
+    `${base}.split_left_cm`,
+    formState,
+  ).error?.message;
+  const splitRightError = getFieldState(
+    `${base}.split_right_cm`,
+    formState,
+  ).error?.message;
 
   // Switching covering clears the other side's selections. Measurements and
   // notes survive — they describe the OPENING, not what hangs in it.
@@ -181,6 +189,8 @@ export function WindowFields({
     // save for the server to discard.
     setValue(`${base}.addon_ids`, [], { shouldDirty: true });
     if (next === "blind") {
+      setValue(`${base}.split_left_cm`, null, { shouldDirty: true });
+      setValue(`${base}.split_right_cm`, null, { shouldDirty: true });
       if (getValues(`${base}.draw`) === "Double") {
         setValue(`${base}.draw`, undefined, { shouldDirty: true });
       }
@@ -211,6 +221,7 @@ export function WindowFields({
   const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
   const blindId = useWatch({ control, name: `${base}.blind_type_id` });
   const comboId = useWatch({ control, name: `${base}.combo_id` });
+  const draw = useWatch({ control, name: `${base}.draw` });
   const activeCombo = comboId
     ? combos.find((c) => c.id === comboId)
     : undefined;
@@ -376,6 +387,47 @@ export function WindowFields({
           ]}
         />
       </div>
+      {draw === "Double" && (
+        <div className="col-span-2 sm:col-span-6 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2">
+            <p className="text-xs font-medium text-slate-700">
+              Unequal double-draw widths (optional)
+            </p>
+            <p className="text-xs text-slate-500">
+              Leave both blank for an equal split. If used, left + right must
+              equal the total width.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs font-medium text-slate-600">
+              Left width (cm)
+              <input
+                type="number"
+                className={`${INPUT_CLS} mt-1`}
+                {...register(`${base}.split_left_cm`)}
+              />
+              {splitLeftError ? (
+                <span className="mt-1 block text-xs font-normal text-red-600">
+                  {splitLeftError}
+                </span>
+              ) : null}
+            </label>
+            <label className="block text-xs font-medium text-slate-600">
+              Right width (cm)
+              <input
+                type="number"
+                className={`${INPUT_CLS} mt-1`}
+                {...register(`${base}.split_right_cm`)}
+              />
+              {splitRightError ? (
+                <span className="mt-1 block text-xs font-normal text-red-600">
+                  {splitRightError}
+                </span>
+              ) : null}
+            </label>
+          </div>
+        </div>
+      )}
       <AddonCheckboxes
         roomIndex={roomIndex}
         windowIndex={windowIndex}

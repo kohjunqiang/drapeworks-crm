@@ -32,6 +32,8 @@ describe("windowValues — regular window", () => {
       night_curtain_type_id: NIGHT,
       blind_type_id: null,
       draw: "Single Left",
+      split_left_cm: null,
+      split_right_cm: null,
       combo_id: null,
     });
   });
@@ -80,6 +82,8 @@ describe("windowValues — blind window", () => {
       blind_type_id: BLIND,
       // Survives as the control side — the one curtain field a blind keeps.
       draw: "Single Right",
+      split_left_cm: null,
+      split_right_cm: null,
       combo_id: null,
     });
   });
@@ -127,5 +131,48 @@ describe("windowValues — blind window", () => {
       0,
     );
     expect(values.side_installation).toBe(true);
+  });
+});
+
+describe("windowValues — unequal double draw", () => {
+  it("persists both curtain leaf widths for a Double draw", () => {
+    const values = windowValues(
+      {
+        variant: "regular",
+        draw: "Double",
+        width_cm: 300,
+        split_left_cm: 120,
+        split_right_cm: 180,
+      },
+      0,
+    );
+
+    expect(values.split_left_cm).toBe(120);
+    expect(values.split_right_cm).toBe(180);
+  });
+
+  it("drops stale split widths for a single draw or blind", () => {
+    expect(
+      windowValues(
+        {
+          variant: "regular",
+          draw: "Single Left",
+          split_left_cm: 120,
+          split_right_cm: 180,
+        },
+        0,
+      ).split_left_cm,
+    ).toBeNull();
+    expect(
+      windowValues(
+        {
+          variant: "blind",
+          draw: "Single Right",
+          split_left_cm: 120,
+          split_right_cm: 180,
+        },
+        0,
+      ).split_right_cm,
+    ).toBeNull();
   });
 });

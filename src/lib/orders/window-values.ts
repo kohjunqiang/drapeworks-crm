@@ -18,6 +18,8 @@ export type WindowLike = {
   night_curtain_type_id?: string;
   blind_type_id?: string;
   draw?: DrawDirection;
+  split_left_cm?: number | null;
+  split_right_cm?: number | null;
   combo_id?: string;
 };
 
@@ -35,6 +37,8 @@ export type WindowColumnValues = {
   night_curtain_type_id: string | null;
   blind_type_id: string | null;
   draw: DrawDirection | null;
+  split_left_cm: number | null;
+  split_right_cm: number | null;
   combo_id: string | null;
 };
 
@@ -60,6 +64,8 @@ export function windowValues(
       night_curtain_type_id: null,
       blind_type_id: win.blind_type_id ?? null,
       draw: win.draw ?? null,
+      split_left_cm: null,
+      split_right_cm: null,
       combo_id: null,
     };
   }
@@ -70,6 +76,8 @@ export function windowValues(
     night_curtain_type_id: win.night_curtain_type_id ?? null,
     blind_type_id: null,
     draw: win.draw ?? null,
+    split_left_cm: win.draw === "Double" ? (win.split_left_cm ?? null) : null,
+    split_right_cm: win.draw === "Double" ? (win.split_right_cm ?? null) : null,
     combo_id: win.combo_id ?? null,
   };
 }

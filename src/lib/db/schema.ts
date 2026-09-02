@@ -1264,6 +1264,8 @@ export interface Windows {
   position: number;
   room_id: string;
   side_installation: Generated<boolean>;
+  split_left_cm: number | null;
+  split_right_cm: number | null;
   width_cm: number | null;
 }
 

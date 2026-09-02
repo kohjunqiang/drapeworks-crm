@@ -26,7 +26,15 @@ export default async function Page({ params }: { params: Promise<{ leadId: strin
   const names = new Map(profiles.map(profile => [profile.id, profile.full_name ?? "Unnamed"]));
   const derived = deriveLead({ ...lead, next_action_date: lead.next_action_date_text as SgDate | null, move_in_date: lead.move_in_date_text as SgDate | null, quotation_sent_at: lead.quotation_sent_at ? toSgDate(new Date(lead.quotation_sent_at)) : null }, todayInSingapore(), presales);
   const interactions = await db.selectFrom("lead_interactions").leftJoin("profiles", "profiles.id", "lead_interactions.created_by").select(["lead_interactions.id", "occurred_at", "direction", "interaction_type", "note", "profiles.full_name"]).where("lead_id", "=", id).orderBy("occurred_at", "desc").execute();
-  const appointment = await db.selectFrom("appointments").selectAll().where("lead_id", "=", id).orderBy("created_at", "desc").executeTakeFirst();
+  const appointment = await db.selectFrom("appointments")
+    .leftJoin("orders", join => join
+      .onRef("orders.lead_id", "=", "appointments.lead_id")
+      .on("orders.is_draft", "=", true))
+    .selectAll("appointments")
+    .select("orders.id as draft_order_id")
+    .where("appointments.lead_id", "=", id)
+    .orderBy("appointments.created_at", "desc")
+    .executeTakeFirst();
   const consultants = profiles.filter(profile => profile.is_active && (profile.role === "consultant" || profile.role === "admin")).map(profile => ({ id: profile.id, full_name: profile.full_name }));
   const stats = [["Status", lead.lead_status], ["Action", derived.actionRequired], ["Due", derived.dueStatus], ["Readiness", derived.buyingReadiness ?? "—"], ["Owner", derived.currentOwnerId ? names.get(derived.currentOwnerId) ?? "Unknown" : "Unassigned"], ["Follow-ups", String(lead.unanswered_followups)]];
 

@@ -5,7 +5,10 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { resolveOrderCustomer } from "@/lib/actions/order-customer";
+import {
+  completeAppointmentForOrder,
+  resolveOrderCustomer,
+} from "@/lib/actions/order-customer";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { loadActiveMeshSystemBands } from "@/lib/db/mesh-catalogue";
@@ -125,6 +128,15 @@ export async function createMeshOrder(input: unknown): Promise<never> {
       })
       .execute();
 
+    if (!parsed.order.is_draft) {
+      await completeAppointmentForOrder(
+        trx,
+        customer.appointmentId,
+        customer.leadId,
+        session.user.id,
+      );
+    }
+
     return order.id;
   });
 
@@ -156,8 +168,12 @@ export async function updateMeshOrder(
         "consultant_id",
         "product_line",
         "current_status",
+        "is_draft",
+        "appointment_id",
+        "lead_id",
       ])
       .where("id", "=", orderId)
+      .forUpdate()
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
     if (order.product_line !== "mesh") {
@@ -260,6 +276,15 @@ export async function updateMeshOrder(
       ...(await collectOrphanPhotoPaths(trx, orderId, keepRoomIds)),
     );
     await deleteDroppedRooms(trx, orderId, keepRoomIds);
+
+    if (order.is_draft && !parsed.order.is_draft) {
+      await completeAppointmentForOrder(
+        trx,
+        order.appointment_id,
+        order.lead_id,
+        session.user.id,
+      );
+    }
   });
 
   await sweepPhotoStorage(orphanStoragePaths, "updateMeshOrder");

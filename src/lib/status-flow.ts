@@ -58,6 +58,16 @@ export function leadMilestoneForOrderStatus(status: FulfilmentStatus): { stage: 
   return null;
 }
 
+/** The lead state corresponding to an order milestone after an admin revert. */
+export function leadStateForRevertedOrderStatus(
+  status: FulfilmentStatus,
+): { stage: FunnelStage; outcome: LeadOutcome | null } | null {
+  if (status === "order_recorded") return { stage: "Send Quotation", outcome: null };
+  if (status === "quotation_sent") return { stage: "Decision Pending", outcome: "Quotation Sent" };
+  if (status === "deposit_received") return { stage: "Won", outcome: "Customer Confirmed" };
+  return null;
+}
+
 // Once an order has gone to the vendor, its measurements are being cut. Editing
 // the consultation behind that is how a customer ends up with curtains for a
 // different window. The order reference stays editable (it is paperwork, not a

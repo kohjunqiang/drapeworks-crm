@@ -37,7 +37,9 @@ export const appointmentRescheduleSchema = z.object({
 
 export const appointmentStatusSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(["completed", "cancelled", "no_show"]),
+  // Completion is derived from final order creation. The manual terminal
+  // actions are only the two paths where no consultation order should follow.
+  status: z.enum(["cancelled", "no_show"]),
 });
 
 export type AppointmentCreateInput = z.infer<typeof appointmentCreateSchema>;

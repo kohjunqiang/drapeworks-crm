@@ -83,6 +83,7 @@ export default async function OrderDetailPage({
       "orders.consultant_id as consultant_id",
       "orders.product_line as product_line",
       "orders.current_status as current_status",
+      "orders.is_draft as is_draft",
       "orders.property_type as property_type",
       "orders.development as development",
       "orders.site_address as site_address",
@@ -161,6 +162,8 @@ export default async function OrderDetailPage({
             "windows.notes as notes",
             "windows.side_installation as side_installation",
             "windows.draw as draw",
+            "windows.split_left_cm as split_left_cm",
+            "windows.split_right_cm as split_right_cm",
             "combo.name as combo_label",
             "day_ct.label as day_curtain_label",
             "day_ct.photo_path as day_curtain_photo_path",
@@ -360,6 +363,8 @@ export default async function OrderDetailPage({
     notes: w.notes,
     side_installation: w.side_installation,
     draw: w.draw,
+    split_left_cm: w.split_left_cm,
+    split_right_cm: w.split_right_cm,
     addon_labels: addonLabelsByWindow.get(w.id) ?? [],
     combo_label: w.combo_label,
     room_id: w.room_id,
@@ -581,7 +586,7 @@ export default async function OrderDetailPage({
                 </Link>
               )}
               <PrintButton />
-              {isAdvancer && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && order.current_status !== "delivered_checked" && (
+              {isAdvancer && !order.is_draft && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && order.current_status !== "delivered_checked" && (
                 <AdvanceStatusButton
                   orderId={order.id}
                   currentStatus={order.current_status}

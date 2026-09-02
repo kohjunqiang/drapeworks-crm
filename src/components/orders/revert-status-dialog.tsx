@@ -10,13 +10,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { revertOrderStatus } from "@/lib/actions/status";
+import type { FulfilmentStatus } from "@/lib/db/schema";
 
 type Props = {
   orderId: string;
+  currentStatus: FulfilmentStatus;
   prevLabel: string;
 };
 
-export function RevertStatusDialog({ orderId, prevLabel }: Props) {
+export function RevertStatusDialog({ orderId, currentStatus, prevLabel }: Props) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [pending, startTransition] = useTransition();
@@ -29,7 +31,7 @@ export function RevertStatusDialog({ orderId, prevLabel }: Props) {
     }
     startTransition(async () => {
       try {
-        await revertOrderStatus({ orderId, reason: trimmed });
+        await revertOrderStatus({ orderId, expectedStatus: currentStatus, reason: trimmed });
         toast.success(`Reverted to ${prevLabel}`);
         setOpen(false);
         setReason("");

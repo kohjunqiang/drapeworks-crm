@@ -2,14 +2,37 @@ import "server-only";
 
 import { db } from "@/lib/db/kysely";
 
+import { appointmentCalendarEventId } from "./appointment-event-id";
 import { buildConsultationEvent } from "./event";
 import { CALENDAR_NOT_CONFIGURED } from "./messages";
 import {
+  CalendarApiError,
   createEvent,
   deleteEvent,
   isCalendarConfigured,
   patchEvent,
 } from "./google";
+
+export type CalendarSyncResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message.slice(0, 1000) : "Unknown error";
+
+async function createIdempotentEvent(
+  appointmentId: string,
+  event: Parameters<typeof createEvent>[0],
+): Promise<string> {
+  const eventId = appointmentCalendarEventId(appointmentId);
+  try {
+    return await createEvent(event, eventId);
+  } catch (error) {
+    if (!(error instanceof CalendarApiError) || error.status !== 409) throw error;
+    await patchEvent(eventId, event);
+    return eventId;
+  }
+}
 
 /**
  * Pushes an appointment to the shared calendar and records the outcome.
@@ -18,137 +41,129 @@ import {
  * appointment is already committed by the time this runs, and a Google outage
  * must not be able to lose it. Failures are surfaced in the UI with a retry.
  */
-export async function syncAppointment(appointmentId: string): Promise<void> {
-  if (!isCalendarConfigured()) {
-    await db
-      .updateTable("appointments")
-      .set({
-        google_sync_state: "failed",
-        google_sync_error: CALENDAR_NOT_CONFIGURED,
-      })
-      .where("id", "=", appointmentId)
-      .execute();
-    return;
-  }
-
+export async function syncAppointment(
+  appointmentId: string,
+): Promise<CalendarSyncResult> {
+  let observedUpdatedAt: Date | null = null;
   try {
-    const row = await db
-      .selectFrom("appointments")
-      .innerJoin("leads", "leads.id", "appointments.lead_id")
-      .innerJoin("customers", "customers.id", "appointments.customer_id")
-      .select([
-        "appointments.id",
-        "appointments.scheduled_at",
-        "appointments.duration_mins",
-        "appointments.development",
-        "appointments.address",
-        "appointments.notes",
-        "appointments.status",
-        "appointments.google_event_id",
-        "leads.id as lead_id",
-        "leads.lead_ref",
-        "leads.quotation_breakdown",
-        "customers.name as customer_name",
-        "customers.mobile as customer_mobile",
-      ])
-      .where("appointments.id", "=", appointmentId)
-      .executeTakeFirstOrThrow();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const row = await db
+        .selectFrom("appointments")
+        .innerJoin("leads", "leads.id", "appointments.lead_id")
+        .innerJoin("customers", "customers.id", "appointments.customer_id")
+        .select([
+          "appointments.id", "appointments.scheduled_at",
+          "appointments.duration_mins", "appointments.development",
+          "appointments.address", "appointments.notes", "appointments.status",
+          "appointments.google_event_id", "appointments.updated_at",
+          "leads.id as lead_id", "leads.lead_ref", "leads.quotation_breakdown",
+          "customers.name as customer_name", "customers.mobile as customer_mobile",
+        ])
+        .where("appointments.id", "=", appointmentId)
+        .executeTakeFirstOrThrow();
+      observedUpdatedAt = row.updated_at;
 
-    // A cancelled appointment has no business on the calendar. Without this
-    // guard a retry — or any later sync — resurrects the event that cancelling
-    // just deleted.
-    if (row.status === "cancelled" || row.status === "no_show") return;
+      if (row.status === "cancelled" || row.status === "no_show") {
+        if (!isCalendarConfigured()) throw new Error(CALENDAR_NOT_CONFIGURED);
+        const ids = new Set([
+          ...(row.google_event_id ? [row.google_event_id] : []),
+          appointmentCalendarEventId(row.id),
+        ]);
+        for (const eventId of ids) await deleteEvent(eventId);
+        const updated = await db.updateTable("appointments").set({
+          google_event_id: null, google_sync_state: "synced", google_sync_error: null,
+        }).where("id", "=", appointmentId)
+          .where("updated_at", "=", row.updated_at).returning("id").executeTakeFirst();
+        if (updated) return { ok: true };
+        continue;
+      }
 
-    const event = buildConsultationEvent({
-      customerName: row.customer_name,
-      customerMobile: row.customer_mobile,
-      development: row.development,
-      address: row.address,
-      notes: row.notes,
-      quotationBreakdown: row.quotation_breakdown,
-      leadRef: row.lead_ref,
-      leadId: row.lead_id,
-      scheduledAt: new Date(row.scheduled_at),
-      durationMins: row.duration_mins,
-      appUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "",
-    });
+      if (!isCalendarConfigured()) throw new Error(CALENDAR_NOT_CONFIGURED);
+      const event = buildConsultationEvent({
+        customerName: row.customer_name, customerMobile: row.customer_mobile,
+        development: row.development, address: row.address, notes: row.notes,
+        quotationBreakdown: row.quotation_breakdown, leadRef: row.lead_ref,
+        leadId: row.lead_id, scheduledAt: new Date(row.scheduled_at),
+        durationMins: row.duration_mins,
+        appUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "",
+      });
 
-    const eventId = row.google_event_id
-      ? (await patchEvent(row.google_event_id, event), row.google_event_id)
-      : await createEvent(event);
-
-    await db
-      .updateTable("appointments")
-      .set({
-        google_event_id: eventId,
-        google_sync_state: "synced",
-        google_sync_error: null,
-      })
-      .where("id", "=", appointmentId)
-      .execute();
+      let eventId = row.google_event_id;
+      if (eventId) {
+        try {
+          await patchEvent(eventId, event);
+        } catch (error) {
+          if (!(error instanceof CalendarApiError) || ![404, 410].includes(error.status)) throw error;
+          eventId = await createIdempotentEvent(row.id, event);
+        }
+      } else {
+        eventId = await createIdempotentEvent(row.id, event);
+      }
+      const updated = await db.updateTable("appointments").set({
+        google_event_id: eventId, google_sync_state: "synced", google_sync_error: null,
+      }).where("id", "=", appointmentId)
+        .where("updated_at", "=", row.updated_at).returning("id").executeTakeFirst();
+      if (updated) return { ok: true };
+    }
+    throw new Error("Appointment changed repeatedly during Calendar sync");
   } catch (error) {
-    await db
-      .updateTable("appointments")
-      .set({
-        google_sync_state: "failed",
-        google_sync_error:
-          error instanceof Error
-            ? error.message.slice(0, 1000)
-            : "Unknown error",
-      })
-      .where("id", "=", appointmentId)
-      .execute();
+    const message = errorMessage(error);
+    if (!observedUpdatedAt) return { ok: false, error: message };
+    await db.updateTable("appointments").set({
+      google_sync_state: "failed",
+      google_sync_error: message,
+    }).where("id", "=", appointmentId)
+      .where("updated_at", "=", observedUpdatedAt).execute();
+    return { ok: false, error: message };
   }
 }
 
-/** Removes an appointment's event. Also never throws. */
-export async function unsyncAppointment(appointmentId: string): Promise<void> {
-  try {
-    const row = await db
-      .selectFrom("appointments")
-      .select("google_event_id")
-      .where("id", "=", appointmentId)
-      .executeTakeFirst();
+/** Force-removes an appointment's event, regardless of appointment status. */
+export async function unsyncAppointment(
+  appointmentId: string,
+): Promise<CalendarSyncResult> {
+  const row = await db.selectFrom("appointments")
+    .select(["google_event_id", "google_sync_state", "google_sync_error"])
+    .where("id", "=", appointmentId)
+    .executeTakeFirst();
+  if (!row) return { ok: true };
 
-    // Never created, so there is nothing to delete — but the state still has
-    // to be cleared. An appointment whose sync had failed and is then
-    // cancelled would otherwise keep showing "Calendar sync failed — Retry",
-    // and Retry now hits the cancelled-status guard and does nothing. Correct
-    // behaviour, broken signal.
-    if (!row?.google_event_id) {
-      await db
-        .updateTable("appointments")
-        .set({ google_sync_state: "synced", google_sync_error: null })
-        .where("id", "=", appointmentId)
-        .execute();
-      return;
+  // No configured Calendar and no evidence that an event was ever created is
+  // already the desired state. A stored id, however, must be retained for a
+  // later retry instead of being silently discarded by a hard delete.
+  if (!isCalendarConfigured()) {
+    if (!row.google_event_id &&
+        (row.google_sync_state === "synced" ||
+          (row.google_sync_state === "failed" &&
+            row.google_sync_error === CALENDAR_NOT_CONFIGURED))) {
+      return { ok: true };
     }
+    const message = CALENDAR_NOT_CONFIGURED;
+    await db.updateTable("appointments").set({
+      google_sync_state: "failed",
+      google_sync_error: message,
+    }).where("id", "=", appointmentId).execute();
+    return { ok: false, error: message };
+  }
 
-    await deleteEvent(row.google_event_id);
-    await db
-      .updateTable("appointments")
-      .set({
-        google_event_id: null,
-        // 'synced', not 'pending'. The desired end state — no event — has been
-        // reached, so this IS in sync. Marking it pending would read as
-        // "waiting to sync" in the UI and let any later syncAppointment
-        // recreate the event that was just deleted.
-        google_sync_state: "synced",
-        google_sync_error: null,
-      })
-      .where("id", "=", appointmentId)
-      .execute();
+  try {
+    const ids = new Set([
+      ...(row.google_event_id ? [row.google_event_id] : []),
+      appointmentCalendarEventId(appointmentId),
+    ]);
+    for (const eventId of ids) await deleteEvent(eventId);
+    await db.updateTable("appointments").set({
+      google_event_id: null,
+      google_sync_state: "synced",
+      google_sync_error: null,
+    }).where("id", "=", appointmentId).execute();
+    return { ok: true };
   } catch (error) {
-    await db
-      .updateTable("appointments")
-      .set({
-        google_sync_state: "failed",
-        google_sync_error:
-          error instanceof Error
-            ? error.message.slice(0, 1000)
-            : "Unknown error",
-      })
-      .where("id", "=", appointmentId)
-      .execute();
+    const message = errorMessage(error);
+    await db.updateTable("appointments").set({
+      google_sync_state: "failed",
+      google_sync_error: message,
+    }).where("id", "=", appointmentId).execute();
+    return { ok: false, error: message };
   }
 }

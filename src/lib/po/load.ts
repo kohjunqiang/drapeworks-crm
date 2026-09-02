@@ -288,6 +288,8 @@ async function loadLines(
       "windows.id as id",
       "windows.position as position",
       "windows.draw as draw",
+      "windows.split_left_cm as split_left_cm",
+      "windows.split_right_cm as split_right_cm",
       "windows.blind_type_id as blind_type_id",
       "rooms.id as room_id",
       "rooms.label as room_label",
@@ -340,6 +342,8 @@ async function loadLines(
       roomPosition: w.room_position,
       position: w.position,
       openingLabel: opening,
+      splitLeftCm: w.split_left_cm,
+      splitRightCm: w.split_right_cm,
     };
 
     // A window is ONE covering — day/night curtains or a blind, never a mix —

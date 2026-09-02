@@ -8,7 +8,10 @@ import { revalidatePath } from "next/cache";
 import type { Transaction } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
-import { resolveOrderCustomer } from "@/lib/actions/order-customer";
+import {
+  completeAppointmentForOrder,
+  resolveOrderCustomer,
+} from "@/lib/actions/order-customer";
 import { db } from "@/lib/db/kysely";
 import type { DB } from "@/lib/db/schema";
 import {
@@ -262,6 +265,15 @@ export async function createOrder(input: unknown): Promise<never> {
       })
       .execute();
 
+    if (!parsed.order.is_draft) {
+      await completeAppointmentForOrder(
+        trx,
+        customer.appointmentId,
+        customer.leadId,
+        session.user.id,
+      );
+    }
+
     return order.id;
   });
 
@@ -318,8 +330,12 @@ export async function updateOrder(
   await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
-      .select(["id", "customer_id", "consultant_id", "current_status"])
+      .select([
+        "id", "customer_id", "consultant_id", "current_status", "is_draft",
+        "appointment_id", "lead_id",
+      ])
       .where("id", "=", orderId)
+      .forUpdate()
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
 
@@ -468,6 +484,15 @@ export async function updateOrder(
       delRooms = delRooms.where("id", "not in", keepRoomIds);
     }
     await delRooms.execute();
+
+    if (order.is_draft && !parsed.order.is_draft) {
+      await completeAppointmentForOrder(
+        trx,
+        order.appointment_id,
+        order.lead_id,
+        session.user.id,
+      );
+    }
   });
 
   await sweepPhotoStorage(orphanStoragePaths, "updateOrder");

@@ -83,6 +83,9 @@ export type PoLine = {
    * are seeded NULL and wait for the business.
    */
   openingLabel: string | null;
+  /** Optional measured allocation for an off-centre double draw. */
+  splitLeftCm?: number | null;
+  splitRightCm?: number | null;
   mfgWidthCm: number;
   mfgHeightCm: number;
 };
@@ -146,6 +149,8 @@ export type PoRow = {
   heightM: string;
   /** 开法 Opening. */
   opening: string;
+  /** Optional unequal double-draw leaf widths, printed below Opening. */
+  openingDetail?: string;
 };
 
 /**
@@ -352,6 +357,22 @@ type ReadyLine = {
 
 function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
   const { line } = ready;
+  let openingDetail: string | undefined;
+  if (
+    line.kind === "curtain" &&
+    line.splitLeftCm != null &&
+    line.splitRightCm != null
+  ) {
+    // The split is recorded against the measured opening. Scale that ratio to
+    // the frozen manufacturing width so an allowance does not make the two
+    // leaf widths disagree with the total printed beside them.
+    const measuredTotal = line.splitLeftCm + line.splitRightCm;
+    const leftMfgCm = Math.round(
+      (line.mfgWidthCm * line.splitLeftCm) / measuredTotal,
+    );
+    const rightMfgCm = line.mfgWidthCm - leftMfgCm;
+    openingDetail = `L ${cmToM(leftMfgCm)} / R ${cmToM(rightMfgCm)}m`;
+  }
   return {
     room,
     // Catalogue and type labels verbatim — they are the vendor's own language.
@@ -368,6 +389,7 @@ function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
     widthM: cmToM(line.mfgWidthCm),
     heightM: cmToM(line.mfgHeightCm),
     opening: ready.openingLabel,
+    ...(openingDetail ? { openingDetail } : {}),
   };
 }
 

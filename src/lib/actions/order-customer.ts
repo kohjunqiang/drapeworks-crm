@@ -11,6 +11,78 @@ export type ResolvedOrderCustomer = {
   leadId: string | null;
 };
 
+/**
+ * Finishing a non-draft consultation is also the authoritative attendance
+ * signal. Keep the appointment, lead stage, and analytics ledgers in the same
+ * transaction as the order so the journey cannot be left half-finished.
+ */
+export async function completeAppointmentForOrder(
+  trx: Transaction<DB>,
+  appointmentId: string | null,
+  leadId: string | null,
+  userId: string,
+): Promise<void> {
+  if (!leadId) return;
+
+  const occurredAt = new Date();
+  const appointment = appointmentId
+    ? await trx
+        .selectFrom("appointments")
+        .select(["lead_id", "scheduled_at", "status"])
+        .where("id", "=", appointmentId)
+        .where("lead_id", "=", leadId)
+        .forUpdate()
+        .executeTakeFirst()
+    : undefined;
+
+  if (appointmentId && !appointment) {
+    throw new Error("This appointment is no longer available");
+  }
+  if (appointment?.status === "cancelled" || appointment?.status === "no_show") {
+    throw new Error("A cancelled or no-show appointment cannot finish a consultation");
+  }
+
+  if (appointment?.status === "scheduled" && appointmentId) {
+    await trx.updateTable("appointments")
+      .set({ status: "completed", updated_at: occurredAt })
+      .where("id", "=", appointmentId)
+      .where("status", "=", "scheduled")
+      .executeTakeFirstOrThrow();
+    await trx.insertInto("appointment_events").values({
+      appointment_id: appointmentId,
+      lead_id: appointment.lead_id,
+      event_type: "completed",
+      occurred_at: occurredAt,
+      scheduled_at: appointment.scheduled_at,
+      created_by: userId,
+    }).execute();
+  }
+
+  const lead = await trx.selectFrom("leads")
+    .select("funnel_stage")
+    .where("id", "=", leadId)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+
+  await trx.updateTable("leads").set({
+    funnel_stage: "Send Quotation",
+    last_outcome: null,
+    next_action_date: null,
+    updated_at: occurredAt,
+  }).where("id", "=", leadId).execute();
+
+  if (lead.funnel_stage !== "Send Quotation") {
+    await trx.insertInto("lead_stage_events").values({
+      lead_id: leadId,
+      from_stage: lead.funnel_stage,
+      to_stage: "Send Quotation",
+      changed_at: occurredAt,
+      changed_by: userId,
+      source: "system",
+    }).execute();
+  }
+}
+
 type SubmittedCustomer = {
   name: string;
   mobile: string;
@@ -28,11 +100,15 @@ export async function resolveOrderCustomer(
   customer: SubmittedCustomer,
   userId: string,
 ): Promise<ResolvedOrderCustomer> {
-  const appointment = appointmentId
+  // The lead picker carries only leadId. Resolve its one scheduled appointment
+  // here so the order retains the booking/customer link and can complete it.
+  const appointment = appointmentId || leadId
     ? await trx
         .selectFrom("appointments")
         .select(["id", "lead_id", "customer_id", "status"])
-        .where("id", "=", appointmentId)
+        .$if(Boolean(appointmentId), query => query.where("id", "=", appointmentId!))
+        .$if(!appointmentId && Boolean(leadId), query =>
+          query.where("lead_id", "=", leadId!).where("status", "=", "scheduled"))
         .forUpdate()
         .executeTakeFirst()
     : undefined;

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { formDraftKey, useFormDraft } from "./use-form-draft";
+import { asFinalOrder } from "./final-order";
 import {
   createOrder,
   createOrderDraft,
@@ -99,6 +100,8 @@ function makeWindow(roomType: RoomType, position: number) {
     day_curtain_type_id: "",
     night_curtain_type_id: "",
     draw: "Double" as const,
+    split_left_cm: null,
+    split_right_cm: null,
     width_cm: null,
     height_cm: null,
     notes: "",
@@ -240,7 +243,7 @@ export function ConsultationForm({
 
   const onSubmit = handleSubmit((values) => {
     const normalised: OrderEditInput = {
-      ...values,
+      ...asFinalOrder(values),
       rooms: values.rooms.map((room, rIdx) => ({
         ...room,
         position: rIdx,

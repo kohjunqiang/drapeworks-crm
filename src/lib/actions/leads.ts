@@ -29,7 +29,15 @@ export async function getLeadModalData(id: string) {
       .select(["lead_interactions.id", "occurred_at", "interaction_type", "direction", "channel", "note", "profiles.full_name"])
       .where("lead_id", "=", id).orderBy("occurred_at", "desc").orderBy("lead_interactions.id", "desc").execute(),
     db.selectFrom("profiles").select(["id", "full_name", "is_active", "role"]).execute(),
-    db.selectFrom("appointments").selectAll().where("lead_id", "=", id).orderBy("created_at", "desc").executeTakeFirst(),
+    db.selectFrom("appointments")
+      .leftJoin("orders", join => join
+        .onRef("orders.lead_id", "=", "appointments.lead_id")
+        .on("orders.is_draft", "=", true))
+      .selectAll("appointments")
+      .select("orders.id as draft_order_id")
+      .where("appointments.lead_id", "=", id)
+      .orderBy("appointments.created_at", "desc")
+      .executeTakeFirst(),
   ]);
   const date = (value: Date | string | null) => value ? toSgDate(new Date(value)) : null;
   const actionRequired = deriveActionRequired({ ...lead, next_action_date: lead.next_action_date_text }, todayInSingapore());
@@ -221,6 +229,11 @@ export async function archiveLead(input: unknown): Promise<void> {
   await requireRole(["consultant", "admin"]);
   const p = archiveLeadSchema.parse(typeof input === "string" ? { lead_id: input } : input);
   await db.transaction().execute(async trx => {
+    const lead = await trx.selectFrom("leads").select(["id", "is_archived"])
+      .where("id", "=", p.lead_id).forUpdate().executeTakeFirst();
+    if (!lead || lead.is_archived) {
+      throw new Error("This lead is already archived or no longer exists.");
+    }
     const scheduled = await trx.selectFrom("appointments").select("id")
       .where("lead_id", "=", p.lead_id).where("status", "=", "scheduled")
       .executeTakeFirst();
@@ -236,10 +249,49 @@ export async function archiveLead(input: unknown): Promise<void> {
 export async function deleteLead(input: unknown): Promise<void> {
   await requireRole(["admin"]);
   const p = archiveLeadSchema.parse(typeof input === "string" ? { lead_id: input } : input);
-  const appointments = await db.selectFrom("appointments").select("id")
-    .where("lead_id", "=", p.lead_id).execute();
-  await Promise.all(appointments.map(appointment => unsyncAppointment(appointment.id)));
+  // Make the lead unavailable first. Booking takes the same lead-row lock and
+  // checks is_archived, so no appointment can appear after this snapshot while
+  // Calendar cleanup runs outside the transaction.
+  const appointments = await db.transaction().execute(async trx => {
+    const lead = await trx.selectFrom("leads").select("id")
+      .where("id", "=", p.lead_id).forUpdate().executeTakeFirst();
+    if (!lead) throw new Error("This lead no longer exists.");
+    await trx.updateTable("leads").set({
+      is_archived: true,
+      updated_at: new Date(),
+    }).where("id", "=", p.lead_id).execute();
+    return trx.selectFrom("appointments").select("id")
+      .where("lead_id", "=", p.lead_id).orderBy("id").execute();
+  });
+
+  const cleanup = await Promise.all(
+    appointments.map(appointment => unsyncAppointment(appointment.id)),
+  );
+  const failed = cleanup.find(result => !result.ok);
+  if (failed && !failed.ok) {
+    throw new Error(
+      `Lead was archived but not deleted because Calendar cleanup failed: ${failed.error}`,
+    );
+  }
+
   await db.transaction().execute(async trx => {
+    // Keep one lock order across the order/appointment workflow. Appointment
+    // deletion updates linked order foreign keys, so lock orders first, then
+    // appointments, then the lead.
+    await trx.selectFrom("orders").select("id")
+      .where(eb => eb.or([
+        eb("lead_id", "=", p.lead_id),
+        eb("appointment_id", "in",
+          eb.selectFrom("appointments").select("id")
+            .where("lead_id", "=", p.lead_id)),
+      ]))
+      .orderBy("id").forUpdate().execute();
+    await trx.selectFrom("appointments").select("id")
+      .where("lead_id", "=", p.lead_id)
+      .orderBy("id").forUpdate().execute();
+    const lead = await trx.selectFrom("leads").select("id")
+      .where("id", "=", p.lead_id).forUpdate().executeTakeFirst();
+    if (!lead) throw new Error("This lead no longer exists.");
     await trx.deleteFrom("lead_interactions").where("lead_id", "=", p.lead_id).execute();
     await trx.deleteFrom("lead_stage_events").where("lead_id", "=", p.lead_id).execute();
     await sql`delete from lead_import_baselines where lead_id = ${p.lead_id}`.execute(trx);

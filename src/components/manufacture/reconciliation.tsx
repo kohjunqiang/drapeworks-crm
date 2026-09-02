@@ -258,13 +258,10 @@ export function Reconciliation({
               </li>
               <li>
                 Move it to{" "}
-                <span className="font-medium">Sent to Vendor</span>.
+                <span className="font-medium">PO Ready</span> for review.
               </li>
               <li>
-                <span className="font-medium">
-                  Generate the purchase order
-                </span>{" "}
-                for each vendor.
+                Purchase orders are generated separately after confirmation.
               </li>
             </ul>
             <p className="text-xs text-slate-500">
@@ -286,7 +283,7 @@ export function Reconciliation({
                 disabled={pending}
                 className="px-4 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
               >
-                {pending ? "Confirming…" : "Confirm and send to vendor"}
+                {pending ? "Confirming…" : "Confirm measurements"}
               </button>
             </div>
           </div>

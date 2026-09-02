@@ -75,6 +75,10 @@ const regularWindow = baseWindow.extend({
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
   draw: z.enum(DRAW_DIRECTIONS).optional(),
+  // Optional because an ordinary double draw still defaults to an equal split.
+  // Supplying either side opts into an off-centre meeting point.
+  split_left_cm: optionalInt,
+  split_right_cm: optionalInt,
   // Explicitly-picked combo (Phase 10) — fixes this window's sale price.
   combo_id: optionalTypeId,
 });
@@ -99,10 +103,44 @@ const blindWindow = baseWindow.extend({
   draw: z.enum(BLIND_CONTROL_SIDES).optional(),
 });
 
-export const windowSchema = z.discriminatedUnion("variant", [
-  regularWindow,
-  blindWindow,
-]);
+function validateCurtainSplit(
+  win: {
+    variant: "regular" | "blind";
+    draw?: (typeof DRAW_DIRECTIONS)[number];
+    width_cm?: number | null;
+    split_left_cm?: number | null;
+    split_right_cm?: number | null;
+  },
+  ctx: z.RefinementCtx,
+) {
+  if (win.variant !== "regular") return;
+  const left = win.split_left_cm ?? null;
+  const right = win.split_right_cm ?? null;
+  if (left == null && right == null) return;
+
+  // Changing Double to a single draw hides these inputs. Treat any stale form
+  // values as irrelevant; windowValues() clears them before persistence.
+  if (win.draw !== "Double") return;
+  if (left == null || right == null) {
+    ctx.addIssue({
+      code: "custom",
+      path: [left == null ? "split_left_cm" : "split_right_cm"],
+      message: "Enter both the left and right widths",
+    });
+    return;
+  }
+  if (win.width_cm == null || left + right !== win.width_cm) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["split_right_cm"],
+      message: "Left and right widths must add up to the total width",
+    });
+  }
+}
+
+export const windowSchema = z
+  .discriminatedUnion("variant", [regularWindow, blindWindow])
+  .superRefine(validateCurtainSplit);
 
 export const roomSchema = z.object({
   type: z.enum(ROOM_TYPES),
@@ -239,6 +277,8 @@ const draftWindow = baseWindow.extend({
   night_curtain_type_id: optionalTypeId,
   blind_type_id: optionalTypeId,
   draw: z.enum(DRAW_DIRECTIONS).optional(),
+  split_left_cm: optionalInt,
+  split_right_cm: optionalInt,
   combo_id: optionalTypeId,
 });
 
@@ -273,10 +313,9 @@ const optionalUuid = z.string().uuid().optional();
 const regularWindowEdit = regularWindow.extend({ id: optionalUuid });
 const blindWindowEdit = blindWindow.extend({ id: optionalUuid });
 
-export const windowEditSchema = z.discriminatedUnion("variant", [
-  regularWindowEdit,
-  blindWindowEdit,
-]);
+export const windowEditSchema = z
+  .discriminatedUnion("variant", [regularWindowEdit, blindWindowEdit])
+  .superRefine(validateCurtainSplit);
 
 export const roomEditSchema = z.object({
   id: optionalUuid,

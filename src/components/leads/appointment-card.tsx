@@ -27,6 +27,7 @@ export type AppointmentSummary = {
   google_event_id: string | null;
   google_sync_state: GoogleSyncState;
   google_sync_error: string | null;
+  draft_order_id?: string | null;
 };
 
 const SG_DATETIME = new Intl.DateTimeFormat("en-SG", {
@@ -113,12 +114,20 @@ export function AppointmentCard({
             ) : null}
           </div>
 
-          <Link
-            href={`/orders/new?appointmentId=${appointment.id}`}
-            className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm"
-          >
-            Start consultation
-          </Link>
+          {appointment.status === "scheduled" ? (
+            <Link
+              href={
+                appointment.draft_order_id
+                  ? `/orders/${appointment.draft_order_id}/edit`
+                  : `/orders/new?appointmentId=${appointment.id}`
+              }
+              className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm"
+            >
+              {appointment.draft_order_id
+                ? "Continue consultation"
+                : "Start consultation"}
+            </Link>
+          ) : null}
         </div>
 
         {syncFailed ? (
@@ -181,67 +190,59 @@ export function AppointmentCard({
               scheduledAt={appointment.scheduled_at}
               durationMins={appointment.duration_mins}
             />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() =>
-                run(
-                  () =>
-                    setAppointmentStatus({
-                      id: appointment.id,
-                      status: "completed",
-                    }),
-                  "Marked completed",
-                )
-              }
-            >
-              Mark completed
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              onClick={() =>
-                run(
-                  () =>
-                    setAppointmentStatus({
-                      id: appointment.id,
-                      status: "no_show",
-                    }),
-                  "Marked no-show",
-                )
-              }
-            >
-              No-show
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={pending}
-              className="text-red-700 hover:bg-red-50"
-              onClick={() =>
-                run(
-                  () =>
-                    setAppointmentStatus({
-                      id: appointment.id,
-                      status: "cancelled",
-                    }),
-                  "Appointment cancelled",
-                )
-              }
-            >
-              Cancel
-            </Button>
+            {!appointment.draft_order_id ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() =>
+                    run(
+                      () =>
+                        setAppointmentStatus({
+                          id: appointment.id,
+                          status: "no_show",
+                        }),
+                      "Marked no-show",
+                    )
+                  }
+                >
+                  No-show
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pending}
+                  className="text-red-700 hover:bg-red-50"
+                  onClick={() =>
+                    run(
+                      () =>
+                        setAppointmentStatus({
+                          id: appointment.id,
+                          status: "cancelled",
+                        }),
+                      "Appointment cancelled",
+                    )
+                  }
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : null}
           </div>
         ) : (
           <p className="text-xs text-slate-500">
             Status: {STATUS_LABEL[appointment.status]}
           </p>
         )}
+        {appointment.status === "scheduled" && appointment.draft_order_id ? (
+          <p className="text-xs text-slate-500">
+            A consultation draft is in progress. Continue or delete that draft
+            before cancelling this appointment or marking it as a no-show.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

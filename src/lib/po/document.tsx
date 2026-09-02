@@ -113,6 +113,11 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     marginTop: 2,
   },
+  openingDetail: {
+    fontSize: 6.5,
+    color: NAVY,
+    marginTop: 1,
+  },
   noteRow: {
     color: NOTE_RED,
     paddingVertical: 4,
@@ -207,8 +212,8 @@ function Table({ table, notes }: { table: PoTable; notes: string | null }) {
           row.heightM,
           row.opening,
         ];
-        return (
-          <View key={i} style={styles.row} wrap={false}>
+        const orderRow = (
+          <View style={styles.row} wrap={false}>
             {WIDTHS.map((width, c) => (
               <View
                 key={c}
@@ -224,6 +229,13 @@ function Table({ table, notes }: { table: PoTable; notes: string | null }) {
                     <Text>{row.fabric}</Text>
                     <Text style={styles.blackout}>遮光 / BLACKOUT</Text>
                   </>
+                ) : c === 6 && row.openingDetail ? (
+                  <>
+                    <Text>{row.opening}</Text>
+                    <Text style={styles.openingDetail}>
+                      {row.openingDetail}
+                    </Text>
+                  </>
                 ) : (
                   <Text>{cells[c]}</Text>
                 )}
@@ -231,11 +243,23 @@ function Table({ table, notes }: { table: PoTable; notes: string | null }) {
             ))}
           </View>
         );
+        // A note is a cutting instruction for the rows above it. Keep it with
+        // the final row so it can never become an orphan on a mostly empty page.
+        return i === table.rows.length - 1 && notes ? (
+          <View key={i} wrap={false}>
+            {orderRow}
+            <Text style={styles.noteRow}>{notes}</Text>
+          </View>
+        ) : (
+          <View key={i}>{orderRow}</View>
+        );
       })}
 
       {/* The Night sample's 都要绑带 sits under the table in red, because it is
           an instruction about the work in the rows above it. */}
-      {notes ? <Text style={styles.noteRow}>{notes}</Text> : null}
+      {notes && table.rows.length === 0 ? (
+        <Text style={styles.noteRow}>{notes}</Text>
+      ) : null}
     </View>
   );
 }

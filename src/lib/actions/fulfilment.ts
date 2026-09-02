@@ -8,6 +8,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { syncFulfilmentArrangement } from "@/lib/calendar/fulfilment-sync";
 import { db } from "@/lib/db/kysely";
 import {
+  fulfilmentArrangementCancellationSchema,
   fulfilmentArrangementRetrySchema,
   fulfilmentArrangementSchema,
 } from "@/lib/validation/fulfilment";
@@ -57,6 +58,9 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
           address: parsed.address,
           google_sync_state: "pending",
           google_sync_error: null,
+          cancelled_at: null,
+          cancelled_by: null,
+          cancellation_reason: null,
         }),
       )
       .returning("id")
@@ -82,6 +86,71 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
   refresh(parsed.order_id);
 }
 
+export async function cancelFulfilmentArrangement(input: unknown): Promise<void> {
+  const session = await requireRole(["ops", "admin"]);
+  const parsed = fulfilmentArrangementCancellationSchema.parse(input);
+
+  const arrangementId = await db.transaction().execute(async (trx) => {
+    const order = await trx
+      .selectFrom("orders")
+      .select("current_status")
+      .where("id", "=", parsed.order_id)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!order) throw new Error("Order not found");
+    if (!["delivered_checked", "fulfilment"].includes(order.current_status)) {
+      throw new Error(
+        "Installation can only be cancelled before the order is completed",
+      );
+    }
+
+    const arrangement = await trx
+      .selectFrom("fulfilment_arrangements")
+      .select(["id", "cancelled_at"])
+      .where("order_id", "=", parsed.order_id)
+      .executeTakeFirst();
+    if (!arrangement || arrangement.cancelled_at) {
+      throw new Error("There is no active installation booking to cancel");
+    }
+
+    await trx
+      .updateTable("fulfilment_arrangements")
+      .set({
+        cancelled_at: new Date(),
+        cancelled_by: session.user.id,
+        cancellation_reason: parsed.reason,
+        google_sync_state: "pending",
+        google_sync_error: null,
+      })
+      .where("id", "=", arrangement.id)
+      .execute();
+
+    // The booking is the action that entered Fulfillment Arrangement, so its
+    // cancellation returns the order to Delivered & Checked with an audit note.
+    if (order.current_status === "fulfilment") {
+      await trx
+        .insertInto("order_status_events")
+        .values({
+          order_id: parsed.order_id,
+          status: "delivered_checked",
+          note: `[INSTALLATION CANCELLED] ${parsed.reason}`,
+          created_by: session.user.id,
+        })
+        .execute();
+    }
+
+    return arrangement.id;
+  });
+
+  const result = await syncFulfilmentArrangement(arrangementId);
+  refresh(parsed.order_id);
+  if (!result.ok) {
+    throw new Error(
+      "Installation cancelled, but its Calendar event could not be removed. Retry Calendar sync from the order.",
+    );
+  }
+}
+
 export async function retryFulfilmentSync(input: unknown): Promise<void> {
   await requireRole(["ops", "admin"]);
   const parsed = fulfilmentArrangementRetrySchema.parse(input);
@@ -90,6 +159,11 @@ export async function retryFulfilmentSync(input: unknown): Promise<void> {
     .select("id")
     .where("order_id", "=", parsed.order_id)
     .executeTakeFirstOrThrow();
-  await syncFulfilmentArrangement(arrangement.id);
+  const result = await syncFulfilmentArrangement(arrangement.id);
   refresh(parsed.order_id);
+  if (!result.ok) {
+    throw new Error(
+      "Calendar sync failed again. The installation change is still saved.",
+    );
+  }
 }

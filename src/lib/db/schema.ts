@@ -641,6 +641,9 @@ export interface ExtensionsPgStatStatementsInfo {
 
 export interface FulfilmentArrangements {
   address: string;
+  cancellation_reason: string | null;
+  cancelled_at: Timestamp | null;
+  cancelled_by: string | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   duration_mins: Generated<number>;

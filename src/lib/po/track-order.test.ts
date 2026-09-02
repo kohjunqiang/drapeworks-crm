@@ -13,6 +13,7 @@ const line = (over: Partial<TrackOrderLine> = {}): TrackOrderLine => ({
   label: "Living Room — Window 1",
   widthCm: 266,
   kind: "double",
+  sideInstallation: false,
   ...over,
 });
 
@@ -31,6 +32,12 @@ describe("trackOrderLine", () => {
   it("says 单轨 for a single rail, one piece per section", () => {
     expect(trackOrderLine(line({ kind: "single" }))).toBe(
       "2.66米 单轨裁成1.33m 2根配连接器",
+    );
+  });
+
+  it("marks a side-installed track as a cutting and installation instruction", () => {
+    expect(trackOrderLine(line({ sideInstallation: true }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
     );
   });
 

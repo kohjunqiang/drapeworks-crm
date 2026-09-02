@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Check, Copy } from "lucide-react";
+import { CalendarDays, Check, Copy, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -16,7 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
+  cancelFulfilmentArrangement,
   retryFulfilmentSync,
   saveFulfilmentArrangement,
 } from "@/lib/actions/fulfilment";
@@ -30,6 +32,8 @@ type Arrangement = {
   google_event_id: string | null;
   google_sync_state: GoogleSyncState;
   google_sync_error: string | null;
+  cancelled_at: Date | string | null;
+  cancellation_reason: string | null;
 };
 
 type Props = {
@@ -38,6 +42,7 @@ type Props = {
   summaryText: string | null;
   defaultAddress: string;
   canManage: boolean;
+  canRetrySync: boolean;
   calendarConfigured: boolean;
 };
 
@@ -71,13 +76,18 @@ export function FulfilmentArrangementCard({
   summaryText,
   defaultAddress,
   canManage,
+  canRetrySync,
   calendarConfigured,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
-  const initial = arrangement ? sgInputParts(arrangement.scheduled_at) : null;
+  const activeArrangement = arrangement?.cancelled_at ? null : arrangement;
+  const initial = activeArrangement
+    ? sgInputParts(activeArrangement.scheduled_at)
+    : null;
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,11 +101,34 @@ export function FulfilmentArrangementCard({
           duration_mins: data.get("duration_mins"),
           address: data.get("address"),
         });
-        toast.success(arrangement ? "Installation rescheduled" : "Installation booked");
+        toast.success(
+          activeArrangement ? "Installation rescheduled" : "Installation booked",
+        );
         setOpen(false);
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not save booking");
+      }
+    });
+  }
+
+  function cancelBooking(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    start(async () => {
+      try {
+        await cancelFulfilmentArrangement({
+          order_id: orderId,
+          reason: data.get("reason"),
+        });
+        toast.success("Installation cancelled");
+        setCancelOpen(false);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not cancel installation",
+        );
+      } finally {
+        router.refresh();
       }
     });
   }
@@ -128,21 +161,30 @@ export function FulfilmentArrangementCard({
               Fulfillment Arrangement
             </h2>
           </div>
-          {arrangement ? (
+          {activeArrangement ? (
             <>
               <p className="mt-2 text-sm font-medium text-slate-900">
-                {SG_DATETIME.format(new Date(arrangement.scheduled_at))}
+                {SG_DATETIME.format(new Date(activeArrangement.scheduled_at))}
               </p>
               <p className="mt-0.5 text-sm text-slate-500">
-                {arrangement.duration_mins} min · {arrangement.address}
+                {activeArrangement.duration_mins} min · {activeArrangement.address}
               </p>
-              {arrangement.google_sync_state === "synced" &&
-              arrangement.google_event_id ? (
+              {activeArrangement.google_sync_state === "synced" &&
+              activeArrangement.google_event_id ? (
                 <span className="mt-2 inline-flex items-center gap-1 rounded bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700">
                   <Check className="h-3.5 w-3.5" aria-hidden="true" />
                   Synced to shared calendar
                 </span>
               ) : null}
+            </>
+          ) : arrangement?.cancelled_at ? (
+            <>
+              <p className="mt-2 text-sm font-medium text-slate-700">
+                Installation cancelled
+              </p>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {arrangement.cancellation_reason}
+              </p>
             </>
           ) : (
             <p className="mt-2 text-sm text-slate-500">
@@ -152,7 +194,7 @@ export function FulfilmentArrangementCard({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {arrangement && summaryText ? (
+          {activeArrangement && summaryText ? (
             <Button type="button" variant="outline" size="sm" onClick={copyDetails} className="min-h-11 sm:min-h-8">
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? "Copied" : "Copy details"}
@@ -161,12 +203,12 @@ export function FulfilmentArrangementCard({
           {canManage ? (
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger className="inline-flex min-h-11 items-center justify-center rounded bg-teal-600 px-3 text-sm font-medium text-white outline-none hover:bg-teal-700 focus-visible:ring-2 focus-visible:ring-teal-500 sm:min-h-8">
-                {arrangement ? "Reschedule" : "Arrange installation"}
+                {activeArrangement ? "Reschedule" : "Arrange installation"}
               </DialogTrigger>
               <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                   <DialogTitle>
-                    {arrangement ? "Reschedule installation" : "Arrange installation"}
+                    {activeArrangement ? "Reschedule installation" : "Arrange installation"}
                   </DialogTitle>
                   <DialogDescription>
                     Saves the booking here, then syncs it to the shared calendar.
@@ -184,18 +226,57 @@ export function FulfilmentArrangementCard({
                     </div>
                     <div>
                       <Label htmlFor="fulfilment-duration">Duration (minutes)</Label>
-                      <Input id="fulfilment-duration" name="duration_mins" type="number" min={15} max={480} step={15} required defaultValue={arrangement?.duration_mins ?? 60} className="mt-1" />
+                      <Input id="fulfilment-duration" name="duration_mins" type="number" min={15} max={480} step={15} required defaultValue={activeArrangement?.duration_mins ?? 60} className="mt-1" />
                     </div>
                   </div>
                   <div>
                     <Label htmlFor="fulfilment-address">Installation address</Label>
-                    <Input id="fulfilment-address" name="address" required defaultValue={arrangement?.address ?? defaultAddress} className="mt-1" />
+                    <Input id="fulfilment-address" name="address" required defaultValue={activeArrangement?.address ?? defaultAddress} className="mt-1" />
                   </div>
                   <p className="text-xs text-slate-500">Times use Singapore time.</p>
                   <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>Cancel</Button>
                     <Button type="submit" disabled={pending} className="bg-teal-600 text-white hover:bg-teal-700">
-                      {pending ? "Saving…" : arrangement ? "Save new time" : "Book installation"}
+                      {pending ? "Saving…" : activeArrangement ? "Save new time" : "Book installation"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          ) : null}
+          {canManage && activeArrangement ? (
+            <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+              <DialogTrigger className="inline-flex min-h-11 items-center justify-center gap-1 rounded border border-red-300 bg-white px-3 text-sm font-medium text-red-700 outline-none hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-500 sm:min-h-8">
+                <X className="h-4 w-4" aria-hidden="true" />
+                Cancel installation
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Cancel installation</DialogTitle>
+                  <DialogDescription>
+                    This keeps an audit record, removes the shared Calendar event,
+                    and returns the order to Delivered &amp; Checked.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={cancelBooking} className="space-y-4">
+                  <div>
+                    <Label htmlFor="fulfilment-cancellation-reason">
+                      Cancellation reason
+                    </Label>
+                    <Textarea
+                      id="fulfilment-cancellation-reason"
+                      name="reason"
+                      required
+                      maxLength={1000}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <Button type="button" variant="ghost" onClick={() => setCancelOpen(false)} disabled={pending}>
+                      Keep booking
+                    </Button>
+                    <Button type="submit" variant="destructive" disabled={pending}>
+                      {pending ? "Cancelling…" : "Cancel installation"}
                     </Button>
                   </div>
                 </form>
@@ -207,7 +288,8 @@ export function FulfilmentArrangementCard({
 
       {notConfigured ? (
         <p className="mt-3 text-xs text-slate-500">
-          Calendar not configured — the installation is saved here but was not pushed to Google.
+          Calendar not configured — the installation change is saved here but
+          could not be reconciled with Google.
         </p>
       ) : null}
       {syncFailed ? (
@@ -216,7 +298,7 @@ export function FulfilmentArrangementCard({
           <p className="mt-0.5 text-xs text-red-700">
             The installation is saved. {arrangement.google_sync_error}
           </p>
-          {canManage ? (
+          {canRetrySync ? (
             <Button
               type="button"
               size="sm"
@@ -231,6 +313,8 @@ export function FulfilmentArrangementCard({
                     router.refresh();
                   } catch (error) {
                     toast.error(error instanceof Error ? error.message : "Retry failed");
+                  } finally {
+                    router.refresh();
                   }
                 })
               }

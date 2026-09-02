@@ -155,8 +155,15 @@ async function call(
   }
 }
 
-export async function createEvent(event: CalendarEvent): Promise<string> {
-  const created = await call("POST", "", event);
+export async function createEvent(
+  event: CalendarEvent,
+  eventId?: string,
+): Promise<string> {
+  const created = await call(
+    "POST",
+    "",
+    eventId ? { ...event, id: eventId } : event,
+  );
   const id = created.id;
   if (typeof id !== "string") {
     throw new Error("Google Calendar returned no event id");

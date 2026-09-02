@@ -6,7 +6,7 @@ export type InstallationOpening = {
   widthCm: number | null;
   heightCm: number | null;
   draw: string | null;
-  addonLabels: string[];
+  addonLabels: readonly string[];
   sideInstallation: boolean;
   installationNote: string | null;
 };

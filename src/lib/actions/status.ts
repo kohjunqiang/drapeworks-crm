@@ -136,6 +136,27 @@ export async function revertOrderStatus(input: unknown) {
 
   const prev = STATUS_FLOW[idx - 1];
 
+  // An arrangement at Delivered & Checked can exist after reverting once from
+  // Fulfillment Arrangement. Do not hide it by reverting farther while its
+  // Google event remains active.
+  if (order.current_status === "delivered_checked") {
+    const arrangement = await db
+      .selectFrom("fulfilment_arrangements")
+      .select(["id", "cancelled_at", "google_event_id"])
+      .where("order_id", "=", parsed.orderId)
+      .executeTakeFirst();
+    if (arrangement && !arrangement.cancelled_at) {
+      throw new Error(
+        "This order still has an installation booking. Cancel it before reverting farther.",
+      );
+    }
+    if (arrangement?.cancelled_at && arrangement.google_event_id) {
+      throw new Error(
+        "The cancelled installation is still pending Calendar removal. Retry Calendar sync before reverting farther.",
+      );
+    }
+  }
+
   await db
     .insertInto("order_status_events")
     .values({

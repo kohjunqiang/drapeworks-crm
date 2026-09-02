@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { fulfilmentArrangementSchema } from "./fulfilment";
+import {
+  fulfilmentArrangementCancellationSchema,
+  fulfilmentArrangementSchema,
+} from "./fulfilment";
 
 const valid = {
   order_id: "550e8400-e29b-41d4-a716-446655440000",
@@ -33,5 +36,16 @@ describe("fulfilmentArrangementSchema", () => {
     expect(() =>
       fulfilmentArrangementSchema.parse({ ...valid, duration_mins: 10 }),
     ).toThrow();
+  });
+});
+
+describe("fulfilmentArrangementCancellationSchema", () => {
+  it("requires an audited cancellation reason", () => {
+    expect(() =>
+      fulfilmentArrangementCancellationSchema.parse({
+        order_id: valid.order_id,
+        reason: "   ",
+      }),
+    ).toThrow("Cancellation reason is required");
   });
 });

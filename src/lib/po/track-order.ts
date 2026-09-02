@@ -34,6 +34,8 @@ export type TrackOrderLine = {
   widthCm: number;
   /** Double when the window carries both a day and a night curtain. */
   kind: "single" | "double";
+  /** The track is fixed to the side wall rather than installed conventionally. */
+  sideInstallation: boolean;
 };
 
 /**
@@ -109,9 +111,10 @@ function mmToM(mm: number): string {
  */
 export function trackOrderLine(line: TrackOrderLine): string {
   const kindCn = line.kind === "double" ? "双轨" : "单轨";
+  const installation = line.sideInstallation ? " 侧装 Side installation" : "";
   return `${cmToM(line.widthCm)}米 ${kindCn}裁成${mmToM(
     cutLengthMm(line.widthCm),
-  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器`;
+  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${installation}`;
 }
 
 /**

@@ -49,6 +49,7 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
         "windows.day_curtain_type_id as day_curtain_type_id",
         "windows.night_curtain_type_id as night_curtain_type_id",
         "windows.blind_type_id as blind_type_id",
+        "windows.side_installation as side_installation",
         "rooms.label as room_label",
       ])
       .where("rooms.order_id", "=", orderId)
@@ -90,6 +91,7 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       // day only or night only — is one. A toilet window is a blind since
       // Phase 14, so it carries its own headrail and never reaches here.
       kind: curtains >= 2 ? "double" : "single",
+      sideInstallation: w.side_installation,
     });
   }
 

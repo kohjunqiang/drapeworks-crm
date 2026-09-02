@@ -412,11 +412,13 @@ export default async function OrderDetailPage({
             "google_event_id",
             "google_sync_state",
             "google_sync_error",
+            "cancelled_at",
+            "cancellation_reason",
           ])
           .where("order_id", "=", order.id)
           .executeTakeFirst()
       : undefined;
-  const installationSummary = arrangement
+  const installationSummary = arrangement && !arrangement.cancelled_at
     ? (
         await loadInstallationSummary(
           order.id,
@@ -620,6 +622,9 @@ export default async function OrderDetailPage({
               canManage={
                 order.current_status !== "completed" &&
                 (session.profile.role === "ops" || session.profile.role === "admin")
+              }
+              canRetrySync={
+                session.profile.role === "ops" || session.profile.role === "admin"
               }
               calendarConfigured={isCalendarConfigured()}
             />

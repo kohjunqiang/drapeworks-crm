@@ -33,6 +33,15 @@ export const fulfilmentArrangementRetrySchema = z.object({
   order_id: z.string().uuid(),
 });
 
+export const fulfilmentArrangementCancellationSchema = z.object({
+  order_id: z.string().uuid(),
+  reason: z
+    .string()
+    .trim()
+    .min(1, "Cancellation reason is required")
+    .max(1000),
+});
+
 export type FulfilmentArrangementInput = z.infer<
   typeof fulfilmentArrangementSchema
 >;

@@ -97,6 +97,7 @@ function line(over: Partial<PoLine> & Pick<PoLine, "lineId">): PoLine {
     category: "night",
     typeLabel: "窗帘 Night",
     fabricLabel: "清风麻 -2",
+    blackout: false,
     openingLabel: "对开 Double draw",
     mfgWidthCm: 274,
     mfgHeightCm: 255,
@@ -260,6 +261,7 @@ describe("buildPos — the Night sample end to end", () => {
         room: "客厅 LR",
         type: "窗帘 Night",
         fabric: "清风麻 -2",
+        blackout: false,
         derived: "5.48",
         widthM: "2.74",
         heightM: "2.55",
@@ -269,6 +271,7 @@ describe("buildPos — the Night sample end to end", () => {
         room: "主卧 MB",
         type: "窗帘 Night",
         fabric: "清风麻 -2",
+        blackout: false,
         derived: "6.04",
         widthM: "3.02",
         heightM: "2.55",
@@ -278,6 +281,7 @@ describe("buildPos — the Night sample end to end", () => {
         room: "次卧 1 BR1",
         type: "窗帘 Night",
         fabric: "清风麻 -2",
+        blackout: false,
         derived: "5.10",
         widthM: "2.55",
         heightM: "2.56",
@@ -287,6 +291,7 @@ describe("buildPos — the Night sample end to end", () => {
         room: "次卧 2 BR2",
         type: "窗帘 Night",
         fabric: "清风麻 -2",
+        blackout: false,
         derived: "4.98",
         widthM: "2.49",
         heightM: "2.54",
@@ -345,6 +350,7 @@ describe("buildPos — the Blinds sample", () => {
       room: "(name pending) SR",
       type: "卷帘",
       fabric: "1079-13",
+      blackout: false,
       derived: "2.46",
       widthM: "2.05",
       heightM: "1.20",
@@ -750,5 +756,30 @@ describe("buildPos — notes", () => {
     const { pos } = buildPos(input({ lines: [line({ lineId: "a" })] }));
 
     expect(pos[0].notes).toBeNull();
+  });
+});
+
+describe("buildPos — blackout factory instruction", () => {
+  it("keeps blackout attached only to the affected covering row", () => {
+    const { pos, problems } = buildPos(
+      input({
+        lines: [
+          line({ lineId: "plain", roomId: "r1" }),
+          line({
+            lineId: "blackout",
+            roomId: "r2",
+            roomType: "Master Bedroom",
+            roomPosition: 1,
+            blackout: true,
+          }),
+        ],
+      }),
+    );
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows.map((row) => row.blackout)).toEqual([
+      false,
+      true,
+    ]);
   });
 });

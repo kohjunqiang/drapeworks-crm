@@ -108,6 +108,11 @@ const styles = StyleSheet.create({
   },
   firstCell: { borderLeftWidth: 0.75, borderLeftColor: RULE, borderStyle: "solid" },
   numeric: { textAlign: "right" },
+  blackout: {
+    color: NOTE_RED,
+    fontWeight: 700,
+    marginTop: 2,
+  },
   noteRow: {
     color: NOTE_RED,
     paddingVertical: 4,
@@ -214,7 +219,14 @@ function Table({ table, notes }: { table: PoTable; notes: string | null }) {
                   NUMERIC[c] ? styles.numeric : {},
                 ]}
               >
-                <Text>{cells[c]}</Text>
+                {c === 2 && row.blackout ? (
+                  <>
+                    <Text>{row.fabric}</Text>
+                    <Text style={styles.blackout}>遮光 / BLACKOUT</Text>
+                  </>
+                ) : (
+                  <Text>{cells[c]}</Text>
+                )}
               </View>
             ))}
           </View>

@@ -73,6 +73,8 @@ export type PoLine = {
   typeLabel: string | null;
   /** 型号 cell — the catalogue label. Printed verbatim; it is a vendor's code. */
   fabricLabel: string | null;
+  /** Print a prominent per-covering factory instruction in the fabric cell. */
+  blackout: boolean;
   /**
    * 开法 cell — "对开 Double draw", "要罩盒 - with cover". Verbatim.
    *
@@ -134,6 +136,8 @@ export type PoRow = {
   type: string;
   /** 型号 Fabric. */
   fabric: string;
+  /** Whether the fabric cell must call out 遮光 / BLACKOUT. */
+  blackout: boolean;
   /** 面料米数 for curtains, 平方 for blinds — see the table's columnSet. */
   derived: string;
   /** 窗宽 Width (M). */
@@ -356,6 +360,7 @@ function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
     // the caller cannot resolve the catalogue label. It is the last cell in
     // this row that can print empty.
     fabric: ready.fabricLabel,
+    blackout: line.blackout,
     derived:
       line.kind === "curtain"
         ? fabricLengthM(line.mfgWidthCm, fullnessBps)

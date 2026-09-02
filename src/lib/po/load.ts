@@ -14,6 +14,7 @@ import "server-only";
 // order, so an incomplete translation cannot prevent generation.
 
 import { db } from "@/lib/db/kysely";
+import { loadWindowCalcAddons } from "@/lib/db/window-addons";
 import type { RoomType } from "@/lib/db/schema";
 import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 import { customerReference } from "./customer-reference";
@@ -249,7 +250,13 @@ export async function loadPoInput(
 /** What distinguishes one covering on a window from another on the same one. */
 type Covering = Pick<
   PoLine,
-  "lineId" | "vendorId" | "kind" | "category" | "typeLabel" | "fabricLabel"
+  | "lineId"
+  | "vendorId"
+  | "kind"
+  | "category"
+  | "typeLabel"
+  | "fabricLabel"
+  | "blackout"
 >;
 
 /**
@@ -264,8 +271,8 @@ async function loadLines(
   typeLabels: Map<string, string | null>,
   openingLabels: Map<string, string | null>,
 ): Promise<{ lines: PoLine[]; problems: string[] }> {
-  const rows = await db
-    .selectFrom("windows")
+  const [rows, addonsByWindow] = await Promise.all([
+    db.selectFrom("windows")
     .innerJoin("rooms", "rooms.id", "windows.room_id")
     // The FROZEN dimensions, and only those. A window with no row was never
     // confirmed, and recomputing a candidate here would put a number the vendor
@@ -300,13 +307,20 @@ async function loadLines(
     .where("rooms.order_id", "=", orderId)
     .orderBy("rooms.position", "asc")
     .orderBy("windows.position", "asc")
-    .execute();
+      .execute(),
+    // Persisted joins are the order's source of truth. Re-running today's
+    // add-on rules here could change an already-agreed vendor instruction.
+    loadWindowCalcAddons([orderId]),
+  ]);
 
   const lines: PoLine[] = [];
   const problems: string[] = [];
 
   for (const w of rows) {
     const where = locate(w.room_label, w.position);
+    const blackout = (addonsByWindow.get(w.id) ?? []).some(
+      (addon) => addon.key === "blackout",
+    );
 
     // 开法. Missing Chinese wording falls back to the recorded English draw.
     // No draw direction at all remains a real source-data failure.
@@ -346,6 +360,7 @@ async function loadLines(
           w.blind_name ?? "Blind",
         ),
         fabricLabel: w.blind_label,
+        blackout,
       });
     } else {
       if (w.day_label) {
@@ -356,6 +371,10 @@ async function loadLines(
           category: "day",
           typeLabel: procurementLabel(typeLabels.get("day"), "Day"),
           fabricLabel: w.day_label,
+          // A window-level blackout treatment belongs to its night curtain
+          // when one exists. For a day-only curtain, this is the sole covering
+          // and must still carry the factory instruction.
+          blackout: blackout && !w.night_label,
         });
       }
       if (w.night_label) {
@@ -366,6 +385,7 @@ async function loadLines(
           category: "night",
           typeLabel: procurementLabel(typeLabels.get("night"), "Night"),
           fabricLabel: w.night_label,
+          blackout,
         });
       }
     }

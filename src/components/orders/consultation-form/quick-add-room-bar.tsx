@@ -16,8 +16,6 @@ type Template = { label: string; type: RoomType };
 // that stops short. The symptom is silent — a room type a consultant simply
 // cannot reach from the quick-add bar.
 //
-// 'Other' is deliberately not here. It is the escape hatch on the dropdown, not
-// something anyone wants a one-tap button for; leave it out.
 const TEMPLATES: Template[] = [
   { label: "Living Room", type: "Living Room" },
   { label: "Master Bedroom", type: "Master Bedroom" },
@@ -28,6 +26,9 @@ const TEMPLATES: Template[] = [
   { label: "Study Room", type: "Study Room" },
   { label: "Balcony", type: "Balcony" },
   { label: "Service Yard", type: "Service Yard" },
+  // Keeps the stored room type valid while leaving the editable Room Label
+  // available for an uncommon room or window name.
+  { label: "Others", type: "Other" },
 ];
 
 type Props = {

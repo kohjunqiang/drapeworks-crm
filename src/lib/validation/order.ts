@@ -62,6 +62,7 @@ const baseWindow = z.object({
   width_cm: optionalInt,
   height_cm: optionalInt,
   notes: z.string().max(2000).optional(),
+  side_installation: z.boolean().default(false),
   // Which add-ons are ticked. The server re-resolves this against the
   // catalogue before persisting (lib/actions/orders.ts), so a payload cannot
   // attach an out-of-scope, archived or unpriced add-on by asserting it.

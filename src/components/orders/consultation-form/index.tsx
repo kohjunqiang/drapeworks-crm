@@ -85,6 +85,7 @@ function makeWindow(roomType: RoomType, position: number) {
       height_cm: null,
       notes: "",
       addon_ids: [] as string[],
+      side_installation: false,
     };
   }
   return {
@@ -98,6 +99,7 @@ function makeWindow(roomType: RoomType, position: number) {
     notes: "",
     combo_id: "",
     addon_ids: [] as string[],
+    side_installation: false,
   };
 }
 

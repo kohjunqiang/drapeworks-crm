@@ -115,6 +115,7 @@ export default async function EditOrderPage({
             "width_cm",
             "height_cm",
             "notes",
+            "side_installation",
             "day_curtain_type_id",
             "night_curtain_type_id",
             "blind_type_id",
@@ -352,6 +353,7 @@ export default async function EditOrderPage({
               width_cm: w.width_cm ?? null,
               height_cm: w.height_cm ?? null,
               notes: w.notes ?? "",
+              side_installation: w.side_installation,
               addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
             };
           }
@@ -365,6 +367,7 @@ export default async function EditOrderPage({
             width_cm: w.width_cm ?? null,
             height_cm: w.height_cm ?? null,
             notes: w.notes ?? "",
+            side_installation: w.side_installation,
             combo_id: w.combo_id ?? "",
             addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
           };

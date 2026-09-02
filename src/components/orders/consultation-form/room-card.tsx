@@ -107,6 +107,7 @@ export function RoomCard({
             height_cm: null,
             notes: "",
             addon_ids: [],
+            side_installation: false,
           }
         : {
             variant: "regular",
@@ -119,6 +120,7 @@ export function RoomCard({
             notes: "",
             combo_id: "",
             addon_ids: [],
+            side_installation: false,
           },
     );
   }

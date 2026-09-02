@@ -9,6 +9,7 @@ type WindowSummary = {
   installation_width_cm?: number | null;
   installation_height_cm?: number | null;
   notes: string | null;
+  side_installation?: boolean;
   draw: string | null;
   /** The add-ons this window carries, by name, in catalogue order. */
   addon_labels?: string[];
@@ -80,7 +81,9 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
             </th>
           )}
           <th className="text-left px-4 py-2 font-medium">Control side</th>
-          <th className="text-left px-4 py-2 font-medium">Notes</th>
+          <th className="text-left px-4 py-2 font-medium">
+            Installation note
+          </th>
         </tr>
       </thead>
       <tbody className="text-slate-700">
@@ -102,7 +105,11 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
                   ? "Right"
                   : "—"}
             </td>
-            <td className="px-4 py-2 text-slate-500">{w.notes || "—"}</td>
+            <td className="px-4 py-2 text-slate-500">
+              {[w.side_installation ? "Side installation" : null, w.notes]
+                .filter(Boolean)
+                .join(" · ") || "—"}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -143,7 +150,9 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
                 )}
                 <th className="text-left px-4 py-2 font-medium">Draw</th>
                 <th className="text-left px-4 py-2 font-medium">Add-ons</th>
-                <th className="text-left px-4 py-2 font-medium">Notes</th>
+                <th className="text-left px-4 py-2 font-medium">
+                  Installation note
+                </th>
               </tr>
             </thead>
             <tbody className="text-slate-700">
@@ -181,7 +190,11 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-slate-500">{w.notes || "—"}</td>
+                  <td className="px-4 py-2 text-slate-500">
+                    {[w.side_installation ? "Side installation" : null, w.notes]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>

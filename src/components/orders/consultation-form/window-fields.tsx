@@ -293,10 +293,14 @@ export function WindowFields({
           persistedIds={persistedAddonIds}
         />
         <div className="col-span-2 sm:col-span-6">
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Special Notes
+          <label
+            htmlFor={`room-${roomIndex}-window-${windowIndex}-installation-note`}
+            className="block text-xs font-medium text-slate-600 mb-1"
+          >
+            Installation note
           </label>
           <input
+            id={`room-${roomIndex}-window-${windowIndex}-installation-note`}
             type="text"
             placeholder="e.g. inside mount, bracket clearance…"
             className={INPUT_CLS}
@@ -402,10 +406,14 @@ export function WindowFields({
         </div>
       )}
       <div className="col-span-2 sm:col-span-4">
-        <label className="block text-xs font-medium text-slate-600 mb-1">
-          Special Notes
+        <label
+          htmlFor={`room-${roomIndex}-window-${windowIndex}-installation-note`}
+          className="block text-xs font-medium text-slate-600 mb-1"
+        >
+          Installation note
         </label>
         <input
+          id={`room-${roomIndex}-window-${windowIndex}-installation-note`}
           type="text"
           placeholder="e.g. ceiling mount, beam clearance…"
           className={INPUT_CLS}

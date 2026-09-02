@@ -23,7 +23,7 @@ export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
   sent_logistic: "Sent to Logistic Partner",
   shipping_sg: "Shipping to SG",
   delivered_checked: "Delivered & Checked",
-  fulfilment: "Fulfilment Arrangement",
+  fulfilment: "Fulfillment Arrangement",
   completed: "Completed",
 };
 

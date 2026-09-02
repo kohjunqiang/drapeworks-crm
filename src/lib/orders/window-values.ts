@@ -13,6 +13,7 @@ export type WindowLike = {
   width_cm?: number | null;
   height_cm?: number | null;
   notes?: string;
+  side_installation?: boolean;
   day_curtain_type_id?: string;
   night_curtain_type_id?: string;
   blind_type_id?: string;
@@ -29,6 +30,7 @@ export type WindowColumnValues = {
   width_cm: number | null;
   height_cm: number | null;
   notes: string | null;
+  side_installation: boolean;
   day_curtain_type_id: string | null;
   night_curtain_type_id: string | null;
   blind_type_id: string | null;
@@ -45,6 +47,7 @@ export function windowValues(
     width_cm: win.width_cm ?? null,
     height_cm: win.height_cm ?? null,
     notes: win.notes || null,
+    side_installation: win.side_installation ?? false,
   } as const;
 
   // A blind occupies the window INSTEAD of curtains, so every curtain column is

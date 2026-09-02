@@ -28,7 +28,7 @@ export function AddonCheckboxes({
   catalogue,
   persistedIds,
 }: Props) {
-  const { control, setValue } = useFormContext<OrderEditInput>();
+  const { control, register, setValue } = useFormContext<OrderEditInput>();
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
 
   const rawWidth = useWatch({ control, name: `${base}.width_cm` });
@@ -47,9 +47,6 @@ export function AddonCheckboxes({
     catalogue,
   );
 
-  // Nothing to offer → no "Add-ons:" label with nothing under it.
-  if (resolved.length === 0) return null;
-
   function toggle(id: string, on: boolean) {
     const next = on
       ? [...new Set([...selected, id])]
@@ -58,12 +55,15 @@ export function AddonCheckboxes({
   }
 
   return (
-    <div className="col-span-2 sm:col-span-6 flex flex-wrap items-center gap-x-6 gap-y-2 pt-0.5">
-      <span className="text-xs font-medium text-slate-600">Add-ons:</span>
+    <fieldset className="col-span-2 flex flex-wrap items-center gap-x-6 gap-y-1 pt-0.5 sm:col-span-6">
+      <legend className="sr-only">Add-ons</legend>
+      <span aria-hidden="true" className="text-xs font-medium text-slate-600">
+        Add-ons:
+      </span>
       {resolved.map((a) => (
         <label
           key={a.id}
-          className={`flex items-center gap-1.5 text-xs ${
+          className={`flex min-h-11 items-center gap-1.5 text-xs sm:min-h-0 ${
             a.locked ? "text-slate-500" : "text-slate-700"
           }`}
         >
@@ -94,6 +94,14 @@ export function AddonCheckboxes({
           )}
         </label>
       ))}
-    </div>
+      <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
+        <input
+          type="checkbox"
+          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+          {...register(`${base}.side_installation`)}
+        />
+        Side-installation
+      </label>
+    </fieldset>
   );
 }

@@ -28,6 +28,11 @@ export async function advanceOrderStatus(input: unknown) {
   const idx = STATUS_FLOW.indexOf(order.current_status);
   if (idx === -1) throw new Error("Order status invalid");
   if (idx === STATUS_FLOW.length - 1) throw new Error("Already completed");
+  if (order.current_status === "delivered_checked") {
+    throw new Error(
+      "Arrange the installation date before moving to Fulfillment Arrangement",
+    );
+  }
 
   const next = STATUS_FLOW[idx + 1];
 

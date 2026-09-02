@@ -639,6 +639,20 @@ export interface ExtensionsPgStatStatementsInfo {
   stats_reset: Timestamp | null;
 }
 
+export interface FulfilmentArrangements {
+  address: string;
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  duration_mins: Generated<number>;
+  google_event_id: string | null;
+  google_sync_error: string | null;
+  google_sync_state: Generated<GoogleSyncState>;
+  id: Generated<string>;
+  order_id: string;
+  scheduled_at: Timestamp;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface LeadImportBaselines {
   as_of: Timestamp;
   last_contact_at: Timestamp | null;
@@ -1232,6 +1246,7 @@ export interface Windows {
   notes: string | null;
   position: number;
   room_id: string;
+  side_installation: Generated<boolean>;
   width_cm: number | null;
 }
 
@@ -1271,6 +1286,7 @@ export interface DB {
   delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
   "extensions.pg_stat_statements_info": ExtensionsPgStatStatementsInfo;
+  fulfilment_arrangements: FulfilmentArrangements;
   lead_import_baselines: LeadImportBaselines;
   lead_interactions: LeadInteractions;
   lead_legacy_import: LeadLegacyImport;

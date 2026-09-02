@@ -27,6 +27,7 @@ describe("windowValues — regular window", () => {
       width_cm: 120,
       height_cm: 240,
       notes: "beam clearance",
+      side_installation: false,
       day_curtain_type_id: DAY,
       night_curtain_type_id: NIGHT,
       blind_type_id: null,
@@ -73,6 +74,7 @@ describe("windowValues — blind window", () => {
       width_cm: 150,
       height_cm: 200,
       notes: null,
+      side_installation: false,
       day_curtain_type_id: null,
       night_curtain_type_id: null,
       blind_type_id: BLIND,
@@ -117,5 +119,13 @@ describe("windowValues — blind window", () => {
     expect(values.blind_type_id).toBeNull();
     expect(values.draw).toBeNull();
     expect(values.width_cm).toBeNull();
+  });
+
+  it("persists side installation as an operational instruction", () => {
+    const values = windowValues(
+      { variant: "blind", side_installation: true },
+      0,
+    );
+    expect(values.side_installation).toBe(true);
   });
 });

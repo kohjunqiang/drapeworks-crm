@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
 import { DeliveryNumbersCard } from "@/components/orders/delivery-numbers-card";
+import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrangement-card";
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
@@ -23,9 +24,11 @@ import {
   statusIndex,
 } from "@/lib/status-flow";
 import { requireSession } from "@/lib/auth/require-role";
+import { isCalendarConfigured } from "@/lib/calendar/google";
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
 import { db } from "@/lib/db/kysely";
+import { loadInstallationSummary } from "@/lib/fulfilment/load-installation-summary";
 import {
   loadActiveMeshSystemBands,
   loadActiveMeshSystemSpecs,
@@ -82,6 +85,7 @@ export default async function OrderDetailPage({
       "orders.current_status as current_status",
       "orders.property_type as property_type",
       "orders.development as development",
+      "orders.site_address as site_address",
       "orders.unit_type as unit_type",
       "orders.move_in_date as move_in_date",
       "orders.price_quoted_cents as price_quoted_cents",
@@ -155,6 +159,7 @@ export default async function OrderDetailPage({
             "windows.width_cm as width_cm",
             "windows.height_cm as height_cm",
             "windows.notes as notes",
+            "windows.side_installation as side_installation",
             "windows.draw as draw",
             "combo.name as combo_label",
             "day_ct.label as day_curtain_label",
@@ -353,6 +358,7 @@ export default async function OrderDetailPage({
     installation_height_cm:
       installationByLine.get(w.id)?.mfg_height_cm ?? null,
     notes: w.notes,
+    side_installation: w.side_installation,
     draw: w.draw,
     addon_labels: addonLabelsByWindow.get(w.id) ?? [],
     combo_label: w.combo_label,
@@ -394,6 +400,32 @@ export default async function OrderDetailPage({
     .where("order_id", "=", order.id)
     .orderBy("created_at", "desc")
     .execute();
+
+  const arrangement =
+    statusIndex(order.current_status) >= statusIndex("delivered_checked")
+      ? await db
+          .selectFrom("fulfilment_arrangements")
+          .select([
+            "scheduled_at",
+            "duration_mins",
+            "address",
+            "google_event_id",
+            "google_sync_state",
+            "google_sync_error",
+          ])
+          .where("order_id", "=", order.id)
+          .executeTakeFirst()
+      : undefined;
+  const installationSummary = arrangement
+    ? (
+        await loadInstallationSummary(
+          order.id,
+          arrangement.scheduled_at,
+          arrangement.duration_mins,
+          arrangement.address,
+        )
+      ).text
+    : null;
 
   // Once the order is with the vendor the consultation is frozen. The date
   // comes from the EARLIEST sent_to_vendor event: an admin amendment writes a
@@ -547,7 +579,7 @@ export default async function OrderDetailPage({
                 </Link>
               )}
               <PrintButton />
-              {isAdvancer && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && (
+              {isAdvancer && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && order.current_status !== "delivered_checked" && (
                 <AdvanceStatusButton
                   orderId={order.id}
                   atEnd={atEnd}
@@ -578,6 +610,19 @@ export default async function OrderDetailPage({
                 trackOverseas: order.track_overseas_tracking_number ?? "",
                 trackLocal: order.track_local_delivery_number ?? "",
               }} />
+          )}
+          {statusIndex(order.current_status) >= statusIndex("delivered_checked") && (
+            <FulfilmentArrangementCard
+              orderId={order.id}
+              arrangement={arrangement ?? null}
+              summaryText={installationSummary}
+              defaultAddress={order.site_address ?? ""}
+              canManage={
+                order.current_status !== "completed" &&
+                (session.profile.role === "ops" || session.profile.role === "admin")
+              }
+              calendarConfigured={isCalendarConfigured()}
+            />
           )}
           <StatusTimeline
             orderId={order.id}

@@ -6,6 +6,8 @@ export type InstallationOpening = {
   widthCm: number | null;
   heightCm: number | null;
   draw: string | null;
+  splitLeftCm?: number | null;
+  splitRightCm?: number | null;
   addonLabels: readonly string[];
   sideInstallation: boolean;
   installationNote: string | null;
@@ -90,10 +92,16 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
       opening.openingsInRoom > 1
         ? `${opening.roomLabel} - Window ${opening.openingNumber}`
         : opening.roomLabel;
+    const drawDescription =
+      opening.splitLeftCm != null && opening.splitRightCm != null
+        ? `Draw: 2 × Single draw — L ${metres(opening.splitLeftCm)} / R ${metres(opening.splitRightCm)}`
+        : opening.draw
+          ? `Draw: ${opening.draw}`
+          : null;
     return [
       `${room}: ${opening.covering}`,
       `${metres(opening.widthCm)} Width ${metres(opening.heightCm)} Height`,
-      opening.draw ? `Draw: ${opening.draw}` : null,
+      drawDescription,
       opening.addonLabels.length > 0
         ? `Add-ons: ${opening.addonLabels.join(", ")}`
         : null,

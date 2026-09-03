@@ -313,7 +313,7 @@ describe("buildPos — the Night sample end to end", () => {
     expect(pos[0].vendor.internalRef).toBe("V005");
   });
 
-  it("prints unequal double-draw leaf widths on a compact detail line", () => {
+  it("prints a split double draw as two single-draw rows", () => {
     const unequal = line({
       lineId: "unequal",
       roomId: "r1",
@@ -328,10 +328,22 @@ describe("buildPos — the Night sample end to end", () => {
     const { pos, problems } = buildPos(input({ lines: [unequal] }));
 
     expect(problems).toEqual([]);
-    expect(pos[0].tables[0].rows[0]).toMatchObject({
-      opening: "对开 Double draw",
-      openingDetail: "L 1.10m / R 2.25m",
-    });
+    expect(pos[0].tables[0].rows).toMatchObject([
+      {
+        room: "客厅 LR",
+        derived: "2.20",
+        widthM: "1.10",
+        heightM: "2.22",
+        opening: "单开 Single draw",
+      },
+      {
+        room: "客厅 LR",
+        derived: "4.50",
+        widthM: "2.25",
+        heightM: "2.22",
+        opening: "单开 Single draw",
+      },
+    ]);
   });
 
   it("fills the curtain-only order details", () => {
@@ -677,7 +689,7 @@ describe("buildPos — labels we do not have", () => {
     expect(pos[0].tables[0].rows[0].opening).toBe("对开 Double draw");
   });
 
-  it("prints an unequal double-draw split scaled to the frozen width", () => {
+  it("scales a measured split to the frozen width before making two rows", () => {
     const { pos, problems } = buildPos(
       input({
         lines: [
@@ -694,10 +706,10 @@ describe("buildPos — labels we do not have", () => {
     );
 
     expect(problems).toEqual([]);
-    expect(pos[0].tables[0].rows[0]).toMatchObject({
-      opening: "对开 Double draw",
-      openingDetail: "L 1.10m / R 1.64m",
-    });
+    expect(pos[0].tables[0].rows).toMatchObject([
+      { derived: "2.20", widthM: "1.10", opening: "单开 Single draw" },
+      { derived: "3.28", widthM: "1.64", opening: "单开 Single draw" },
+    ]);
   });
 });
 
@@ -822,10 +834,10 @@ describe("buildPos — notes", () => {
     expect(pos[0].notes).toBe("都要绑带");
   });
 
-  it("leaves the note null when there is none", () => {
+  it("always adds the curtain-belt instruction to a Night PO", () => {
     const { pos } = buildPos(input({ lines: [line({ lineId: "a" })] }));
 
-    expect(pos[0].notes).toBeNull();
+    expect(pos[0].notes).toBe("都要绑带");
   });
 
   it("adds the supplier runner-count remark when an S-fold covering is on a Day PO", () => {
@@ -849,7 +861,7 @@ describe("buildPos — notes", () => {
       lines: [line({ lineId: "s-fold-night", sFold: true })],
     }));
 
-    expect(pos[0].notes).toBeNull();
+    expect(pos[0].notes).toBe("都要绑带");
     expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
       "需要蛇形，总数48走珠，单边24走珠",
     );
@@ -897,7 +909,7 @@ describe("buildPos — notes", () => {
       notesByDocument: new Map([[key, `Manual note\n${legacyRemark}`]]),
     }));
 
-    expect(pos[0].notes).toBe("Manual note");
+    expect(pos[0].notes).toBe("Manual note\n都要绑带");
     expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
       "需要蛇形，总数48走珠，单边24走珠",
     );

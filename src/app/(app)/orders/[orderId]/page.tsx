@@ -5,6 +5,7 @@ import { AdvanceStatusButton } from "@/components/orders/advance-status-button";
 import { CompletionPhotoUploader } from "@/components/orders/completion-photo-uploader";
 import { DeleteOrderDialog } from "@/components/orders/delete-order-dialog";
 import { DeliveryNumbersCard } from "@/components/orders/delivery-numbers-card";
+import { EditPaymentDialog } from "@/components/orders/edit-payment-dialog";
 import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrangement-card";
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
@@ -817,9 +818,16 @@ export default async function OrderDetailPage({
           </section>
 
           <section className="bg-white rounded-lg border border-slate-200 p-5">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">
-              Payment
-            </h3>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-900">Payment</h3>
+              {session.profile.role === "admin" && (
+                <EditPaymentDialog
+                  orderId={order.id}
+                  quotedCents={order.price_quoted_cents}
+                  depositCents={order.deposit_cents}
+                />
+              )}
+            </div>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <dt className="text-slate-500">Quoted</dt>

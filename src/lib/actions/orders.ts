@@ -558,6 +558,45 @@ export async function requoteOrder(orderId: string): Promise<void> {
   revalidatePath("/orders");
 }
 
+export async function amendOrderPayment(input: {
+  orderId: string;
+  quotedCents: number;
+  depositCents: number;
+}): Promise<void> {
+  const session = await requireRole(["admin"]);
+  const orderId = typeof input?.orderId === "string" ? input.orderId : "";
+  const quotedCents = Number(input?.quotedCents);
+  const depositCents = Number(input?.depositCents);
+
+  if (!orderId) throw new Error("Invalid order id");
+  for (const [label, cents] of [
+    ["Quoted amount", quotedCents],
+    ["Deposit paid", depositCents],
+  ] as const) {
+    if (!Number.isInteger(cents) || cents < 0 || cents > 100_000_000) {
+      throw new Error(`${label} must be a valid amount`);
+    }
+  }
+  if (depositCents > quotedCents) {
+    throw new Error("Deposit paid cannot be more than the quoted amount");
+  }
+
+  // The app deliberately supports a local-auth bypass, so there may be no
+  // browser JWT. Invoke through the trusted server database connection; the
+  // function independently verifies the supplied actor is an active admin.
+  await sql`
+    select public.amend_order_payment(
+      ${orderId}::uuid,
+      ${quotedCents}::integer,
+      ${depositCents}::integer,
+      ${session.user.id}::uuid
+    )
+  `.execute(db);
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/orders");
+}
+
 export async function deleteOrder(input: {
   orderId: string;
   confirmIdentifier: string;

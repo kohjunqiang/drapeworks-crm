@@ -38,7 +38,14 @@ export async function loadInstallationSummary(
 
   const frozen = await db
     .selectFrom("manufacture_measurements")
-    .select(["window_id", "mesh_panel_id", "mfg_width_cm", "mfg_height_cm"])
+    .select([
+      "window_id",
+      "mesh_panel_id",
+      "mfg_width_cm",
+      "mfg_height_cm",
+      "mfg_split_left_cm",
+      "mfg_split_right_cm",
+    ])
     .where("order_id", "=", orderId)
     .execute();
   const frozenByLine = new Map(
@@ -113,6 +120,8 @@ export async function loadInstallationSummary(
           widthCm: size?.mfg_width_cm ?? window.width_cm,
           heightCm: size?.mfg_height_cm ?? window.height_cm,
           draw: window.draw,
+          splitLeftCm: size?.mfg_split_left_cm,
+          splitRightCm: size?.mfg_split_right_cm,
           addonLabels: addonsByWindow.get(window.id) ?? [],
           sideInstallation: window.side_installation,
           installationNote: window.notes,

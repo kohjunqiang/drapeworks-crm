@@ -46,6 +46,37 @@ describe("buildInstallationSummary", () => {
     expect(text).toMatch(/^13th Sep Sun/);
   });
 
+  it("describes a confirmed double-draw split as two single draws", () => {
+    const text = buildInstallationSummary({
+      scheduledAt: "2026-09-03T02:30:00.000Z",
+      durationMins: 60,
+      address: "Address",
+      customerName: "Customer",
+      customerMobile: null,
+      openings: [
+        {
+          roomLabel: "Living Room",
+          openingNumber: 1,
+          openingsInRoom: 1,
+          covering: "Double",
+          widthCm: 255,
+          heightCm: 288,
+          draw: "Double",
+          splitLeftCm: 137,
+          splitRightCm: 118,
+          addonLabels: [],
+          sideInstallation: false,
+          installationNote: null,
+        },
+      ],
+    });
+
+    expect(text).toContain(
+      "Draw: 2 × Single draw — L 1.37m / R 1.18m",
+    );
+    expect(text).not.toContain("Draw: Double");
+  });
+
   it("numbers multiple windows in one room and tolerates missing measurements", () => {
     const base = {
       roomLabel: "Living Room",

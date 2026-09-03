@@ -154,8 +154,6 @@ export type PoRow = {
   heightM: string;
   /** 开法 Opening. */
   opening: string;
-  /** Optional unequal double-draw leaf widths, printed below Opening. */
-  openingDetail?: string;
   /** Red S-fold supplier instruction, printed in this row's Opening cell. */
   sFoldRemark?: string;
 };
@@ -175,6 +173,8 @@ const LEGACY_SFOLD_REMARKS = new Set([
   "蛇形，待供应商确认走珠数量",
   "蛇形,待供应商确认走珠数量",
 ]);
+const SINGLE_DRAW_OPENING = "单开 Single draw";
+export const NIGHT_CURTAIN_BELT_NOTE = "都要绑带";
 
 /** Remove the former document-level S-fold line while retaining manual notes. */
 export function withoutLegacySFoldRemark(
@@ -416,24 +416,6 @@ export function sFoldRunnerRemark(
 
 function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
   const { line } = ready;
-  let openingDetail: string | undefined;
-  if (
-    line.kind === "curtain" &&
-    line.splitLeftCm != null &&
-    line.splitRightCm != null
-  ) {
-    // The split is recorded against the measured opening. Scale that ratio to
-    // the frozen manufacturing width so an allowance does not make the two
-    // leaf widths disagree with the total printed beside them.
-    const split = scaleDoubleDrawSplit(
-      line.mfgWidthCm,
-      line.splitLeftCm,
-      line.splitRightCm,
-    );
-    if (split) {
-      openingDetail = `L ${cmToM(split.leftCm)}m / R ${cmToM(split.rightCm)}m`;
-    }
-  }
   return {
     room,
     // Catalogue and type labels verbatim — they are the vendor's own language.
@@ -450,9 +432,47 @@ function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
     widthM: cmToM(line.mfgWidthCm),
     heightM: cmToM(line.mfgHeightCm),
     opening: ready.openingLabel,
-    ...(openingDetail ? { openingDetail } : {}),
     ...(line.sFold ? { sFoldRemark: sFoldRunnerRemark(line) } : {}),
   };
+}
+
+/** An off-centre double draw is ordered as two separately sized single draws. */
+function toRows(ready: ReadyLine, room: string, fullnessBps: number): PoRow[] {
+  const { line } = ready;
+  if (line.kind !== "curtain") return [toRow(ready, room, fullnessBps)];
+  const split = scaleDoubleDrawSplit(
+    line.mfgWidthCm,
+    line.splitLeftCm,
+    line.splitRightCm,
+  );
+  if (!split) return [toRow(ready, room, fullnessBps)];
+
+  return [
+    { widthCm: split.leftCm, draw: "Single Left" as const },
+    { widthCm: split.rightCm, draw: "Single Right" as const },
+  ].map(({ widthCm, draw }) => toRow({
+    ...ready,
+    openingLabel: SINGLE_DRAW_OPENING,
+    line: {
+      ...line,
+      draw,
+      mfgWidthCm: widthCm,
+      splitLeftCm: null,
+      splitRightCm: null,
+    },
+  }, room, fullnessBps));
+}
+
+function documentNotes(
+  category: PoCategory,
+  existing: string | null | undefined,
+): string | null {
+  const cleaned = withoutLegacySFoldRemark(existing);
+  if (category !== "night") return cleaned;
+  const lines = cleaned?.split("\n").map((line) => line.trim()) ?? [];
+  return lines.includes(NIGHT_CURTAIN_BELT_NOTE)
+    ? cleaned
+    : [...lines, NIGHT_CURTAIN_BELT_NOTE].filter(Boolean).join("\n");
 }
 
 function deliveryOf(input: PoInput): PoDelivery | null {
@@ -569,8 +589,8 @@ export function buildPos(input: PoInput): {
     const rowsFor = (kind: PoLine["kind"]): PoRow[] =>
       ready
         .filter((r) => r.line.kind === kind)
-        .map((r) =>
-          toRow(
+        .flatMap((r) =>
+          toRows(
             r,
             roomLabel(r.nameCn, r.code, roomIndexes.get(r.line.roomId)!),
             input.fullnessBps,
@@ -588,7 +608,8 @@ export function buildPos(input: PoInput): {
       tables.push({ columnSet: "blind", rows: blindRows });
     }
 
-    const notes = withoutLegacySFoldRemark(
+    const notes = documentNotes(
+      category,
       input.notesByDocument?.get(`${vendorId}:${category}`),
     );
 

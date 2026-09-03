@@ -113,11 +113,6 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     marginTop: 2,
   },
-  openingDetail: {
-    color: NAVY,
-    fontWeight: 700,
-    marginTop: 1,
-  },
   sFoldRemark: {
     color: NOTE_RED,
     fontWeight: 700,
@@ -234,14 +229,9 @@ function Table({ table, notes }: { table: PoTable; notes: string | null }) {
                     <Text>{row.fabric}</Text>
                     <Text style={styles.blackout}>遮光 / BLACKOUT</Text>
                   </>
-                ) : c === 6 && (row.openingDetail || row.sFoldRemark) ? (
+                ) : c === 6 && row.sFoldRemark ? (
                   <>
                     <Text>{row.opening}</Text>
-                    {row.openingDetail ? (
-                      <Text style={styles.openingDetail}>
-                        {row.openingDetail}
-                      </Text>
-                    ) : null}
                     {row.sFoldRemark ? (
                       <Text style={styles.sFoldRemark}>{row.sFoldRemark}</Text>
                     ) : null}

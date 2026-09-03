@@ -31,8 +31,46 @@ describe("draftFor", () => {
       height: "256",
       widthDelta: "-2",
       heightDelta: "-4",
+      splitLeft: "",
+      splitRight: "",
       reason: "",
     });
+  });
+});
+
+describe("double-draw split", () => {
+  const splitLine = line({
+      splitLeftCm: 138,
+      splitRightCm: 119,
+      mfgWidthCm: 255,
+    });
+
+  it("seeds editable PO sides scaled to the manufacturing width", () => {
+    expect(draftFor(splitLine)).toMatchObject({
+      splitLeft: "137",
+      splitRight: "118",
+    });
+  });
+
+  it("accepts an edited split when it adds up to the manufacturing width", () => {
+    const state = evaluateRow(splitLine, {
+      ...draftFor(splitLine),
+      splitLeft: "140",
+      splitRight: "115",
+    });
+    expect(state.errors).toEqual([]);
+    expect(state.splitOverridden).toBe(true);
+    expect(state.overridden).toBe(true);
+  });
+
+  it("blocks confirmation when the edited split does not match the total", () => {
+    const state = evaluateRow(splitLine, {
+      ...draftFor(splitLine),
+      splitLeft: "140",
+    });
+    expect(state.errors).toContain(
+      "The PO split must add up to the 255 cm manufacturing width.",
+    );
   });
 });
 

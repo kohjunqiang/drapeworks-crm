@@ -9,6 +9,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
 import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
 import {
   loadAllowanceBook,
   loadManufactureLines,
@@ -194,11 +195,21 @@ export async function confirmManufactureMeasurements(
         }
 
         const override = overrides.get(line.lineId);
-        const isOverridden =
-          override?.overrideWidthCm != null ||
-          override?.overrideHeightCm != null;
         const mfgWidthCm = override?.overrideWidthCm ?? applied.mfgWidthCm;
         const mfgHeightCm = override?.overrideHeightCm ?? applied.mfgHeightCm;
+        const defaultSplit = scaleDoubleDrawSplit(
+          mfgWidthCm,
+          line.splitLeftCm,
+          line.splitRightCm,
+        );
+        const isSplitOverridden = defaultSplit != null && (
+          override?.mfgSplitLeftCm !== defaultSplit.leftCm ||
+          override?.mfgSplitRightCm !== defaultSplit.rightCm
+        );
+        const isOverridden =
+          override?.overrideWidthCm != null ||
+          override?.overrideHeightCm != null ||
+          isSplitOverridden;
 
         return {
           order_id: parsed.orderId,
@@ -213,6 +224,8 @@ export async function confirmManufactureMeasurements(
           height_delta_cm: mfgHeightCm - applied.sourceHeightCm,
           mfg_width_cm: mfgWidthCm,
           mfg_height_cm: mfgHeightCm,
+          mfg_split_left_cm: override?.mfgSplitLeftCm ?? null,
+          mfg_split_right_cm: override?.mfgSplitRightCm ?? null,
           is_overridden: isOverridden,
           override_reason: isOverridden
             ? (override?.overrideReason?.trim() || null)
@@ -363,6 +376,8 @@ export async function amendManufactureMeasurements(
           "mesh_panel_id",
           "source_width_cm",
           "source_height_cm",
+          "mfg_split_left_cm",
+          "mfg_split_right_cm",
         ])
         .where("order_id", "=", parsed.orderId)
         .execute();
@@ -385,11 +400,18 @@ export async function amendManufactureMeasurements(
         // Deltas are recomputed from the STORED source, never re-snapshotted
         // from the window: source records what the set was originally derived
         // from, and the order is locked so it cannot have moved.
+        const resizedSplit = scaleDoubleDrawSplit(
+          line.mfgWidthCm,
+          row.mfg_split_left_cm,
+          row.mfg_split_right_cm,
+        );
         await trx
           .updateTable("manufacture_measurements")
           .set({
             mfg_width_cm: line.mfgWidthCm,
             mfg_height_cm: line.mfgHeightCm,
+            mfg_split_left_cm: resizedSplit?.leftCm ?? null,
+            mfg_split_right_cm: resizedSplit?.rightCm ?? null,
             width_delta_cm: line.mfgWidthCm - row.source_width_cm,
             height_delta_cm: line.mfgHeightCm - row.source_height_cm,
             is_overridden: true,

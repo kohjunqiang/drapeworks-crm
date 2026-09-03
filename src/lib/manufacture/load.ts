@@ -33,6 +33,9 @@ export type ManufactureLine = {
   description: string | null;
   widthCm: number | null;
   heightCm: number | null;
+  /** Optional measured allocation for an off-centre double draw. */
+  splitLeftCm?: number | null;
+  splitRightCm?: number | null;
 };
 
 // "Series #index · Page — Label", or null when nothing is selected. Same helper
@@ -98,6 +101,8 @@ export async function loadManufactureLines(
       description: joinParts([p.category_name, p.colour_name]),
       widthCm: p.width_cm,
       heightCm: p.height_cm,
+      splitLeftCm: null,
+      splitRightCm: null,
     }));
   }
 
@@ -119,6 +124,8 @@ export async function loadManufactureLines(
       "windows.position as position",
       "windows.width_cm as width_cm",
       "windows.height_cm as height_cm",
+      "windows.split_left_cm as split_left_cm",
+      "windows.split_right_cm as split_right_cm",
       "rooms.label as room_label",
       "rooms.position as room_position",
       "day_ct.label as day_curtain_label",
@@ -177,6 +184,8 @@ export async function loadManufactureLines(
       description,
       widthCm: w.width_cm,
       heightCm: w.height_cm,
+      splitLeftCm: w.split_left_cm,
+      splitRightCm: w.split_right_cm,
     };
   });
 }

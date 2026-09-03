@@ -14,6 +14,8 @@
 // state, the summary and the confirm dialog; keeping the row here means neither
 // file has to be read in full to change the other.
 
+import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
+
 /** A line item with its computed manufacturing candidate, from the server. */
 export type ReconLine = {
   lineId: string;
@@ -27,6 +29,9 @@ export type ReconLine = {
   /** The allowance applied. May be ≤ 0, which is a state a human must resolve. */
   mfgWidthCm: number;
   mfgHeightCm: number;
+  /** Measured left/right allocation for an off-centre double draw. */
+  splitLeftCm?: number | null;
+  splitRightCm?: number | null;
 };
 
 /** What a person has typed into one row. Seeded from the computed candidate. */
@@ -35,6 +40,8 @@ export type RowDraft = {
   height: string;
   widthDelta: string;
   heightDelta: string;
+  splitLeft: string;
+  splitRight: string;
   reason: string;
 };
 
@@ -43,19 +50,29 @@ export type RowState = {
   heightCm: number | null;
   widthOverridden: boolean;
   heightOverridden: boolean;
+  splitOverridden: boolean;
   overridden: boolean;
   /** Recomputed against the source, so the figure shown always reconciles. */
   widthDeltaCm: number | null;
   heightDeltaCm: number | null;
+  splitLeftCm: number | null;
+  splitRightCm: number | null;
   errors: string[];
 };
 
 export function draftFor(line: ReconLine): RowDraft {
+  const split = scaleDoubleDrawSplit(
+    line.mfgWidthCm,
+    line.splitLeftCm,
+    line.splitRightCm,
+  );
   return {
     width: String(line.mfgWidthCm),
     height: String(line.mfgHeightCm),
     widthDelta: String(line.mfgWidthCm - line.sourceWidthCm),
     heightDelta: String(line.mfgHeightCm - line.sourceHeightCm),
+    splitLeft: split ? String(split.leftCm) : "",
+    splitRight: split ? String(split.rightCm) : "",
     reason: "",
   };
 }
@@ -148,13 +165,24 @@ function dimError(
 export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   const widthCm = parseCm(draft.width);
   const heightCm = parseCm(draft.height);
+  const expectsSplit = line.splitLeftCm != null && line.splitRightCm != null;
+  const splitLeftCm = expectsSplit ? parseCm(draft.splitLeft) : null;
+  const splitRightCm = expectsSplit ? parseCm(draft.splitRight) : null;
+  const defaultSplit = scaleDoubleDrawSplit(
+    widthCm ?? line.mfgWidthCm,
+    line.splitLeftCm,
+    line.splitRightCm,
+  );
 
   // "Adjusted" means "differs from what the configured allowance produced",
   // not "was typed in". Retyping 298 over a computed 298 is not an adjustment
   // and must not be flagged — nothing about the order changed.
   const widthOverridden = widthCm != null && widthCm !== line.mfgWidthCm;
   const heightOverridden = heightCm != null && heightCm !== line.mfgHeightCm;
-  const overridden = widthOverridden || heightOverridden;
+  const splitOverridden = expectsSplit && splitLeftCm != null && splitRightCm != null && (
+    splitLeftCm !== defaultSplit?.leftCm || splitRightCm !== defaultSplit?.rightCm
+  );
+  const overridden = widthOverridden || heightOverridden || splitOverridden;
 
   const errors: string[] = [];
   if (widthCm == null) {
@@ -163,15 +191,29 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   if (heightCm == null) {
     errors.push(dimError("height", draft.height, line.mfgHeightCm));
   }
+  if (expectsSplit && (splitLeftCm == null || splitRightCm == null)) {
+    errors.push("Enter positive whole centimetres for both PO split widths.");
+  } else if (
+    expectsSplit &&
+    widthCm != null &&
+    splitLeftCm! + splitRightCm! !== widthCm
+  ) {
+    errors.push(
+      `The PO split must add up to the ${widthCm} cm manufacturing width.`,
+    );
+  }
 
   return {
     widthCm,
     heightCm,
     widthOverridden,
     heightOverridden,
+    splitOverridden,
     overridden,
     widthDeltaCm: widthCm == null ? null : widthCm - line.sourceWidthCm,
     heightDeltaCm: heightCm == null ? null : heightCm - line.sourceHeightCm,
+    splitLeftCm,
+    splitRightCm,
     errors,
   };
 }
@@ -313,6 +355,11 @@ export function ReconciliationRow({
         ? "bg-amber-50/50"
         : "";
   const piece = `${roomLabel} ${line.label}`;
+  const hasSplit = line.splitLeftCm != null && line.splitRightCm != null;
+  const splitTotal = state.splitLeftCm != null && state.splitRightCm != null
+    ? state.splitLeftCm + state.splitRightCm
+    : null;
+  const splitValid = splitTotal != null && splitTotal === state.widthCm;
 
   return (
     <div className={`border-t border-slate-100 px-4 py-3 ${tone}`}>
@@ -349,8 +396,89 @@ export function ReconciliationRow({
           adjusted={state.widthOverridden}
           disabled={disabled}
           onSize={(width) => onChange({ width })}
-          onDelta={(widthDelta) => onChange({ widthDelta })}
-        />
+        onDelta={(widthDelta) => onChange({ widthDelta })}
+      />
+        {hasSplit && (
+          <fieldset className="sm:col-span-3 rounded-md bg-slate-50 px-3 py-3 ring-1 ring-inset ring-slate-200">
+            <legend className="sr-only">Double-draw width split</legend>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <div className="text-xs font-semibold text-slate-700">
+                Double-draw width split
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Left + right must equal the {state.widthCm ?? "—"} cm manufacturing width
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                <div className="text-[11px] font-medium text-slate-500">Measured split</div>
+                <div className="mt-1.5 grid grid-cols-2 gap-3 tabular-nums">
+                  <div>
+                    <div className="text-[11px] text-slate-400">Left</div>
+                    <div className="mt-0.5 text-sm font-semibold text-slate-700">
+                      {line.splitLeftCm} <span className="text-xs font-normal text-slate-400">cm</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-slate-400">Right</div>
+                    <div className="mt-0.5 text-sm font-semibold text-slate-700">
+                      {line.splitRightCm} <span className="text-xs font-normal text-slate-400">cm</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-slate-500">PO split</span>
+                  {splitValid ? (
+                    <span className="text-[11px] font-medium text-emerald-700">
+                      Total {splitTotal} cm ✓
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-rose-700">
+                      Total {splitTotal ?? "—"} cm · needs {state.widthCm ?? "—"} cm
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-3">
+                  <label className="block text-[11px] text-slate-500">
+                    Left
+                    <span className="mt-0.5 flex items-center gap-1">
+                      <input
+                        inputMode="numeric"
+                        aria-label={`${piece} PO left split in cm`}
+                        disabled={disabled}
+                        value={draft.splitLeft}
+                        onChange={(e) => onChange({ splitLeft: e.target.value })}
+                        className={`min-w-0 w-full rounded border px-2 py-1 text-right text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                          state.splitLeftCm == null ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                        }`}
+                      />
+                      <span className="text-xs text-slate-400">cm</span>
+                    </span>
+                  </label>
+                  <label className="block text-[11px] text-slate-500">
+                    Right
+                    <span className="mt-0.5 flex items-center gap-1">
+                      <input
+                        inputMode="numeric"
+                        aria-label={`${piece} PO right split in cm`}
+                        disabled={disabled}
+                        value={draft.splitRight}
+                        onChange={(e) => onChange({ splitRight: e.target.value })}
+                        className={`min-w-0 w-full rounded border px-2 py-1 text-right text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                          state.splitRightCm == null ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
+                        }`}
+                      />
+                      <span className="text-xs text-slate-400">cm</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+        )}
         <AxisRow
           axis="Height"
           lineId={line.lineId}

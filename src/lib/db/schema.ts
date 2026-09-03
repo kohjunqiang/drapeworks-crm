@@ -776,6 +776,8 @@ export interface ManufactureMeasurements {
   is_overridden: Generated<boolean>;
   mesh_panel_id: string | null;
   mfg_height_cm: number;
+  mfg_split_left_cm: number | null;
+  mfg_split_right_cm: number | null;
   mfg_width_cm: number;
   order_id: string;
   override_reason: string | null;

@@ -117,6 +117,8 @@ export function Reconciliation({
         kind: line.kind,
         overrideWidthCm: s.widthOverridden ? s.widthCm : undefined,
         overrideHeightCm: s.heightOverridden ? s.heightCm : undefined,
+        mfgSplitLeftCm: s.splitLeftCm ?? undefined,
+        mfgSplitRightCm: s.splitRightCm ?? undefined,
         overrideReason: s.overridden
           ? (drafts[line.lineId]?.reason.trim() ?? "")
           : undefined,

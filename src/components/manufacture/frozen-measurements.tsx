@@ -17,6 +17,10 @@ export type FrozenLine = {
   heightDeltaCm: number;
   mfgWidthCm: number;
   mfgHeightCm: number;
+  sourceSplitLeftCm: number | null;
+  sourceSplitRightCm: number | null;
+  mfgSplitLeftCm: number | null;
+  mfgSplitRightCm: number | null;
   isOverridden: boolean;
   overrideReason: string | null;
 };
@@ -102,6 +106,18 @@ export function FrozenMeasurements({ rooms }: { rooms: FrozenRoom[] }) {
                   </span>
                 )}
               </div>
+              {line.sourceSplitLeftCm != null &&
+                line.sourceSplitRightCm != null &&
+                line.mfgSplitLeftCm != null &&
+                line.mfgSplitRightCm != null && (
+                  <div className="mb-3 inline-flex flex-wrap items-center gap-x-2 rounded border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-medium text-teal-900 tabular-nums">
+                    <span>Double-draw split</span>
+                    <span>
+                      Measured L {line.sourceSplitLeftCm} cm · R {line.sourceSplitRightCm} cm
+                      {" → "}PO L {line.mfgSplitLeftCm} cm · R {line.mfgSplitRightCm} cm
+                    </span>
+                  </div>
+                )}
               <div className="space-y-1">
                 <Pair
                   label="Width"

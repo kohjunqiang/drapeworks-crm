@@ -27,6 +27,8 @@ import type { ManufactureLine } from "./load";
 export type LineOverride = {
   overrideWidthCm?: number | null;
   overrideHeightCm?: number | null;
+  mfgSplitLeftCm?: number | null;
+  mfgSplitRightCm?: number | null;
   overrideReason?: string | null;
 };
 
@@ -111,6 +113,23 @@ export function checkConfirmPreconditions(
         !isManufacturable(applied) && !overridden
           ? `${locate(line)} works out to ${applied.mfgWidthCm} × ${applied.mfgHeightCm} cm after the allowance, which cannot be manufactured. Change the allowance or the measurement.`
           : `${locate(line)} would be manufactured at ${effectiveWidth} × ${effectiveHeight} cm, which is not a buildable size.`,
+      );
+    }
+
+    const hasMeasuredSplit =
+      line.splitLeftCm != null && line.splitRightCm != null;
+    const hasManufacturingSplit =
+      override?.mfgSplitLeftCm != null && override?.mfgSplitRightCm != null;
+    if (hasMeasuredSplit && !hasManufacturingSplit) {
+      reasons.push(`${locate(line)} needs both left and right PO split widths.`);
+    } else if (!hasMeasuredSplit && hasManufacturingSplit) {
+      reasons.push(`${locate(line)} does not have a measured double-draw split.`);
+    } else if (
+      hasManufacturingSplit &&
+      override.mfgSplitLeftCm! + override.mfgSplitRightCm! !== effectiveWidth
+    ) {
+      reasons.push(
+        `${locate(line)} PO split must add up to its ${effectiveWidth} cm manufacturing width.`,
       );
     }
   }

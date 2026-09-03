@@ -330,7 +330,7 @@ describe("buildPos — the Night sample end to end", () => {
     expect(problems).toEqual([]);
     expect(pos[0].tables[0].rows[0]).toMatchObject({
       opening: "对开 Double draw",
-      openingDetail: "L 1.10 / R 2.25m",
+      openingDetail: "L 1.10m / R 2.25m",
     });
   });
 
@@ -696,7 +696,7 @@ describe("buildPos — labels we do not have", () => {
     expect(problems).toEqual([]);
     expect(pos[0].tables[0].rows[0]).toMatchObject({
       opening: "对开 Double draw",
-      openingDetail: "L 1.10 / R 1.64m",
+      openingDetail: "L 1.10m / R 1.64m",
     });
   });
 });

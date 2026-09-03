@@ -34,8 +34,13 @@ export const manufactureLineSchema = z.object({
   kind: z.enum(["window", "mesh_panel"]),
   overrideWidthCm: z.number().int().positive().nullable().optional(),
   overrideHeightCm: z.number().int().positive().nullable().optional(),
+  mfgSplitLeftCm: z.number().int().positive().nullable().optional(),
+  mfgSplitRightCm: z.number().int().positive().nullable().optional(),
   overrideReason: z.string().trim().max(500).nullable().optional(),
-});
+}).refine(
+  (line) => (line.mfgSplitLeftCm == null) === (line.mfgSplitRightCm == null),
+  { message: "Enter both the left and right PO split" },
+);
 
 export type ManufactureLineInput = z.infer<typeof manufactureLineSchema>;
 

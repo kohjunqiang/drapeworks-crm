@@ -104,6 +104,23 @@ describe("confirmManufactureSchema", () => {
     expect(out.lines[0].lineId).toBe(LINE_ID);
   });
 
+  it("accepts a complete manufacturing split and rejects a partial one", () => {
+    const out = confirmManufactureSchema.parse({
+      orderId: ORDER_ID,
+      lines: [{
+        lineId: LINE_ID,
+        kind: "window",
+        mfgSplitLeftCm: 140,
+        mfgSplitRightCm: 115,
+      }],
+    });
+    expect(out.lines[0].mfgSplitLeftCm).toBe(140);
+    expect(() => confirmManufactureSchema.parse({
+      orderId: ORDER_ID,
+      lines: [{ lineId: LINE_ID, kind: "window", mfgSplitLeftCm: 140 }],
+    })).toThrow(/both the left and right/i);
+  });
+
   it("accepts an override carrying a width, a height and a reason", () => {
     const out = confirmManufactureSchema.parse({
       orderId: ORDER_ID,

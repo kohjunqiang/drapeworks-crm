@@ -40,6 +40,27 @@ describe("checkConfirmPreconditions", () => {
     ).toEqual({ ok: true });
   });
 
+  it("accepts an editable PO split that matches the manufacturing width", () => {
+    expect(checkConfirmPreconditions(
+      [line({ widthCm: 257, splitLeftCm: 138, splitRightCm: 119 })],
+      BOOK,
+      "deposit_received",
+      overrides([["line-1", { mfgSplitLeftCm: 140, mfgSplitRightCm: 115 }]]),
+    )).toEqual({ ok: true });
+  });
+
+  it("refuses a PO split that does not match the manufacturing width", () => {
+    const result = checkConfirmPreconditions(
+      [line({ widthCm: 257, splitLeftCm: 138, splitRightCm: 119 })],
+      BOOK,
+      "deposit_received",
+      overrides([["line-1", { mfgSplitLeftCm: 140, mfgSplitRightCm: 118 }]]),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reasons.join(" ")).toContain("must add up to its 255 cm");
+  });
+
   it("refuses a status other than deposit_received, naming the current one", () => {
     const result = checkConfirmPreconditions(
       [line()],

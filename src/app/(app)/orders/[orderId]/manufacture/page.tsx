@@ -480,6 +480,8 @@ async function EditableView({
       sourceHeightCm: applied.sourceHeightCm,
       mfgWidthCm: applied.mfgWidthCm,
       mfgHeightCm: applied.mfgHeightCm,
+      splitLeftCm: line.splitLeftCm,
+      splitRightCm: line.splitRightCm,
     });
   }
 
@@ -552,6 +554,8 @@ async function FrozenView({
       "height_delta_cm",
       "mfg_width_cm",
       "mfg_height_cm",
+      "mfg_split_left_cm",
+      "mfg_split_right_cm",
       "is_overridden",
       "override_reason",
       "confirmed_at",
@@ -579,6 +583,10 @@ async function FrozenView({
       heightDeltaCm: row.height_delta_cm,
       mfgWidthCm: row.mfg_width_cm,
       mfgHeightCm: row.mfg_height_cm,
+      sourceSplitLeftCm: line.splitLeftCm ?? null,
+      sourceSplitRightCm: line.splitRightCm ?? null,
+      mfgSplitLeftCm: row.mfg_split_left_cm,
+      mfgSplitRightCm: row.mfg_split_right_cm,
       isOverridden: row.is_overridden,
       overrideReason: row.override_reason,
     };

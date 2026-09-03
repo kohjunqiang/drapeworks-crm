@@ -14,6 +14,7 @@
 // Tampines_{Day,Night,Blinds} PO.pdf, which are the only specification it has.
 
 import type { FreightMode, RoomType } from "@/lib/db/schema";
+import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
 
 /** The singleton procurement_settings row, as the document needs it. */
 export type PoSettings = {
@@ -395,12 +396,14 @@ export function sFoldRunnerRemark(
 
   let leftWidthCm = line.mfgWidthCm / 2;
   let rightWidthCm = line.mfgWidthCm / 2;
-  if (line.splitLeftCm != null && line.splitRightCm != null) {
-    const measuredTotal = line.splitLeftCm + line.splitRightCm;
-    leftWidthCm = Math.round(
-      (line.mfgWidthCm * line.splitLeftCm) / measuredTotal,
-    );
-    rightWidthCm = line.mfgWidthCm - leftWidthCm;
+  const split = scaleDoubleDrawSplit(
+    line.mfgWidthCm,
+    line.splitLeftCm,
+    line.splitRightCm,
+  );
+  if (split) {
+    leftWidthCm = split.leftCm;
+    rightWidthCm = split.rightCm;
   }
 
   const leftRunners = runnersForWidth(leftWidthCm);
@@ -422,12 +425,14 @@ function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
     // The split is recorded against the measured opening. Scale that ratio to
     // the frozen manufacturing width so an allowance does not make the two
     // leaf widths disagree with the total printed beside them.
-    const measuredTotal = line.splitLeftCm + line.splitRightCm;
-    const leftMfgCm = Math.round(
-      (line.mfgWidthCm * line.splitLeftCm) / measuredTotal,
+    const split = scaleDoubleDrawSplit(
+      line.mfgWidthCm,
+      line.splitLeftCm,
+      line.splitRightCm,
     );
-    const rightMfgCm = line.mfgWidthCm - leftMfgCm;
-    openingDetail = `L ${cmToM(leftMfgCm)} / R ${cmToM(rightMfgCm)}m`;
+    if (split) {
+      openingDetail = `L ${cmToM(split.leftCm)}m / R ${cmToM(split.rightCm)}m`;
+    }
   }
   return {
     room,

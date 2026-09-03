@@ -114,8 +114,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   openingDetail: {
-    fontSize: 6.5,
     color: NAVY,
+    fontWeight: 700,
     marginTop: 1,
   },
   sFoldRemark: {

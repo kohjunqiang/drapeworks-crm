@@ -116,6 +116,11 @@ export default async function OrdersDashboardPage({
     .selectFrom("orders")
     .innerJoin("customers", "customers.id", "orders.customer_id")
     .leftJoin("profiles", "profiles.id", "orders.consultant_id")
+    .leftJoin("fulfilment_arrangements", (join) =>
+      join
+        .onRef("fulfilment_arrangements.order_id", "=", "orders.id")
+        .on("fulfilment_arrangements.cancelled_at", "is", null),
+    )
     .select([
       "orders.id as id",
       "orders.display_id as display_id",
@@ -123,6 +128,7 @@ export default async function OrdersDashboardPage({
       "orders.current_status as current_status",
       "orders.development as development",
       "orders.move_in_date as move_in_date",
+      "fulfilment_arrangements.scheduled_at as installation_date",
       "orders.price_quoted_cents as price_quoted_cents",
       "orders.created_at as created_at",
       "orders.consultant_id as consultant_id",
@@ -186,6 +192,7 @@ export default async function OrdersDashboardPage({
     development: r.development,
     product_line: r.product_line,
     move_in_date: r.move_in_date,
+    installation_date: r.installation_date,
     current_status: r.current_status,
     price_quoted_cents: r.price_quoted_cents,
     consultant_name:

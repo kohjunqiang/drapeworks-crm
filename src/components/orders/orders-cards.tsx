@@ -60,6 +60,9 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
           <div className="text-xs text-slate-500 mt-2">
             Product: {productLineLabel(o.product_line)}
           </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Installation: {formatDate(o.installation_date)}
+          </div>
           {o.consultant_name && (
             <div className="text-xs text-slate-400 mt-2">
               {o.consultant_name}

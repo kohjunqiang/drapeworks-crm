@@ -14,6 +14,7 @@ export type OrderRow = {
   customer_name: string;
   development: string | null;
   move_in_date: Date | string | null;
+  installation_date: Date | string | null;
   current_status: FulfilmentStatus;
   price_quoted_cents: number;
   consultant_name: string | null;
@@ -102,6 +103,7 @@ export function OrdersTable({
             <th className="text-left px-4 py-3 font-medium">Development</th>
             <th className="text-left px-4 py-3 font-medium">Product</th>
             <th className="text-left px-4 py-3 font-medium">Move-in</th>
+            <th className="text-left px-4 py-3 font-medium">Installation date</th>
             <SortableHeader
               label="Status"
               active={sort === "status"}
@@ -137,6 +139,9 @@ export function OrdersTable({
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {formatDate(o.move_in_date)}
+              </td>
+              <td className="px-4 py-3 text-slate-600">
+                {formatDate(o.installation_date)}
               </td>
               <td className="px-4 py-3">
                 <StatusBadge status={o.current_status} />

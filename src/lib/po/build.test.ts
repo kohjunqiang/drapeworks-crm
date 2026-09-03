@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  blindControlLabel,
   buildPos,
   cmToM,
   fabricLengthM,
@@ -200,6 +201,22 @@ describe("procurementLabel", () => {
   it("falls back to English when the Chinese label is unset or blank", () => {
     expect(procurementLabel(null, "Single Left")).toBe("Single Left");
     expect(procurementLabel("  ", "Night")).toBe("Night");
+  });
+});
+
+describe("blindControlLabel", () => {
+  it("uses blind-specific pulley wording instead of curtain draw wording", () => {
+    expect(blindControlLabel("Single Left", "拉珠在左 Pulley left")).toBe(
+      "拉珠在左 Pulley left",
+    );
+    expect(blindControlLabel("Single Right", "Pulley right")).toBe(
+      "Pulley right",
+    );
+  });
+
+  it("falls back to explicit pulley wording", () => {
+    expect(blindControlLabel("Single Left", null)).toBe("Pulley left");
+    expect(blindControlLabel("Single Right", null)).toBe("Pulley right");
   });
 });
 

@@ -28,9 +28,16 @@ export type AmendLine = {
   sourceHeightCm: number;
   mfgWidthCm: number;
   mfgHeightCm: number;
+  mfgSplitLeftCm: number | null;
+  mfgSplitRightCm: number | null;
 };
 
-type Draft = { width: string; height: string };
+type Draft = {
+  width: string;
+  height: string;
+  splitLeft: string;
+  splitRight: string;
+};
 
 // Whole positive centimetres only, matching amendManufactureLineSchema.
 function parseCm(s: string): number | null {
@@ -61,7 +68,14 @@ export function AmendDialog({
       Object.fromEntries(
         lines.map((l) => [
           l.lineId,
-          { width: String(l.mfgWidthCm), height: String(l.mfgHeightCm) },
+          {
+            width: String(l.mfgWidthCm),
+            height: String(l.mfgHeightCm),
+            splitLeft:
+              l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm),
+            splitRight:
+              l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm),
+          },
         ]),
       ) as Record<string, Draft>,
     [lines],
@@ -73,12 +87,27 @@ export function AmendDialog({
   const changed = lines.filter((l) => {
     const d = drafts[l.lineId];
     return (
-      d.width !== String(l.mfgWidthCm) || d.height !== String(l.mfgHeightCm)
+      d.width !== String(l.mfgWidthCm) ||
+      d.height !== String(l.mfgHeightCm) ||
+      d.splitLeft !==
+        (l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm)) ||
+      d.splitRight !==
+        (l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm))
     );
   });
   const invalid = changed.filter((l) => {
     const d = drafts[l.lineId];
-    return parseCm(d.width) == null || parseCm(d.height) == null;
+    const splitLeft = l.mfgSplitLeftCm == null ? null : parseCm(d.splitLeft);
+    const splitRight = l.mfgSplitRightCm == null ? null : parseCm(d.splitRight);
+    const width = parseCm(d.width);
+    return (
+      width == null ||
+      parseCm(d.height) == null ||
+      (l.mfgSplitLeftCm != null &&
+        (splitLeft == null ||
+          splitRight == null ||
+          splitLeft + splitRight !== width))
+    );
   });
   const canSubmit =
     changed.length > 0 &&
@@ -101,6 +130,12 @@ export function AmendDialog({
       lineId: l.lineId,
       mfgWidthCm: parseCm(drafts[l.lineId].width)!,
       mfgHeightCm: parseCm(drafts[l.lineId].height)!,
+      ...(l.mfgSplitLeftCm != null && l.mfgSplitRightCm != null
+        ? {
+            mfgSplitLeftCm: parseCm(drafts[l.lineId].splitLeft)!,
+            mfgSplitRightCm: parseCm(drafts[l.lineId].splitRight)!,
+          }
+        : {}),
     }));
 
     startTransition(async () => {
@@ -149,9 +184,23 @@ export function AmendDialog({
                 const d = drafts[l.lineId];
                 const w = parseCm(d.width);
                 const h = parseCm(d.height);
+                const splitLeft = parseCm(d.splitLeft);
+                const splitRight = parseCm(d.splitRight);
+                const hasSplit =
+                  l.mfgSplitLeftCm != null && l.mfgSplitRightCm != null;
+                const splitValid =
+                  !hasSplit ||
+                  (splitLeft != null &&
+                    splitRight != null &&
+                    w != null &&
+                    splitLeft + splitRight === w);
                 const moved =
                   d.width !== String(l.mfgWidthCm) ||
-                  d.height !== String(l.mfgHeightCm);
+                  d.height !== String(l.mfgHeightCm) ||
+                  d.splitLeft !==
+                    (l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm)) ||
+                  d.splitRight !==
+                    (l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm));
                 return (
                   <div
                     key={l.lineId}
@@ -224,6 +273,81 @@ export function AmendDialog({
                         </span>
                       )}
                     </div>
+                    {hasSplit && (
+                      <fieldset className="mt-2 rounded-md border border-teal-200 bg-teal-50/70 px-3 py-2">
+                        <legend className="px-1 text-[10px] font-semibold uppercase tracking-wide text-teal-800">
+                          Width split · two single draws
+                        </legend>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <span className="mr-1 text-slate-500">
+                            Current PO L {l.mfgSplitLeftCm} · R{" "}
+                            {l.mfgSplitRightCm} cm
+                          </span>
+                          <span aria-hidden="true" className="text-slate-400">
+                            →
+                          </span>
+                          <label className="flex items-center gap-1">
+                            New L
+                            <input
+                              inputMode="numeric"
+                              aria-label={`${l.label} left single-draw width in cm`}
+                              disabled={pending}
+                              value={d.splitLeft}
+                              onChange={(e) =>
+                                setDrafts((state) => ({
+                                  ...state,
+                                  [l.lineId]: {
+                                    ...state[l.lineId],
+                                    splitLeft: e.target.value,
+                                  },
+                                }))
+                              }
+                              className={`${INPUT} ${
+                                splitLeft == null
+                                  ? "border-rose-400 bg-rose-50"
+                                  : "border-teal-300 bg-white"
+                              }`}
+                            />
+                          </label>
+                          <label className="flex items-center gap-1">
+                            New R
+                            <input
+                              inputMode="numeric"
+                              aria-label={`${l.label} right single-draw width in cm`}
+                              disabled={pending}
+                              value={d.splitRight}
+                              onChange={(e) =>
+                                setDrafts((state) => ({
+                                  ...state,
+                                  [l.lineId]: {
+                                    ...state[l.lineId],
+                                    splitRight: e.target.value,
+                                  },
+                                }))
+                              }
+                              className={`${INPUT} ${
+                                splitRight == null
+                                  ? "border-rose-400 bg-rose-50"
+                                  : "border-teal-300 bg-white"
+                              }`}
+                            />
+                          </label>
+                          <span className="tabular-nums text-slate-500">
+                            Total{" "}
+                            {splitLeft != null && splitRight != null
+                              ? splitLeft + splitRight
+                              : "—"}{" "}
+                            / {w ?? "—"} cm
+                          </span>
+                        </div>
+                        {!splitValid && (
+                          <p className="mt-1.5 text-xs text-rose-700">
+                            Left + right must equal the amended manufacturing
+                            width.
+                          </p>
+                        )}
+                      </fieldset>
+                    )}
                   </div>
                 );
               })}

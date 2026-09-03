@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { allowanceSchema, confirmManufactureSchema } from "./manufacture";
+import {
+  allowanceSchema,
+  amendManufactureSchema,
+  confirmManufactureSchema,
+} from "./manufacture";
 
 const ORDER_ID = "11111111-1111-4111-8111-111111111111";
 const LINE_ID = "22222222-2222-4222-8222-222222222222";
@@ -226,5 +230,48 @@ describe("confirmManufactureSchema", () => {
         lines: [{ lineId: LINE_ID, kind: "door" }],
       }),
     ).toThrow();
+  });
+});
+
+describe("amendManufactureSchema", () => {
+  const base = {
+    orderId: ORDER_ID,
+    reason: "Vendor confirmed the corrected split",
+  };
+
+  it("accepts an amended left/right split that equals the total width", () => {
+    const result = amendManufactureSchema.parse({
+      ...base,
+      lines: [{
+        lineId: LINE_ID,
+        mfgWidthCm: 255,
+        mfgHeightCm: 288,
+        mfgSplitLeftCm: 137,
+        mfgSplitRightCm: 118,
+      }],
+    });
+    expect(result.lines[0].mfgSplitRightCm).toBe(118);
+  });
+
+  it("rejects a partial split or a split that disagrees with total width", () => {
+    expect(() => amendManufactureSchema.parse({
+      ...base,
+      lines: [{
+        lineId: LINE_ID,
+        mfgWidthCm: 255,
+        mfgHeightCm: 288,
+        mfgSplitLeftCm: 137,
+      }],
+    })).toThrow(/both the left and right/i);
+    expect(() => amendManufactureSchema.parse({
+      ...base,
+      lines: [{
+        lineId: LINE_ID,
+        mfgWidthCm: 255,
+        mfgHeightCm: 288,
+        mfgSplitLeftCm: 140,
+        mfgSplitRightCm: 118,
+      }],
+    })).toThrow(/add up/i);
   });
 });

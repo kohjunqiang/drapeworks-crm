@@ -114,6 +114,22 @@ export function procurementLabel(
   return configured || english;
 }
 
+export const BLIND_CONTROL_LABEL_KEYS = {
+  "Single Left": "Blind Pulley Left",
+  "Single Right": "Blind Pulley Right",
+} as const;
+
+/** Blind control sides are factory pulley instructions, not curtain draws. */
+export function blindControlLabel(
+  draw: "Single Left" | "Single Right",
+  configured: string | null | undefined,
+): string {
+  return procurementLabel(
+    configured,
+    draw === "Single Left" ? "Pulley left" : "Pulley right",
+  );
+}
+
 export type PoInput = {
   settings: PoSettings;
   /** orders.order_reference, snapshotted by the caller. */

@@ -69,6 +69,25 @@ export const amendManufactureLineSchema = z.object({
     .number()
     .int("Manufacturing height must be a whole number of centimetres")
     .positive("Manufacturing height must be above zero"),
+  mfgSplitLeftCm: z.number().int().positive().nullable().optional(),
+  mfgSplitRightCm: z.number().int().positive().nullable().optional(),
+}).superRefine((line, context) => {
+  const hasLeft = line.mfgSplitLeftCm != null;
+  const hasRight = line.mfgSplitRightCm != null;
+  if (hasLeft !== hasRight) {
+    context.addIssue({
+      code: "custom",
+      message: "Enter both the left and right PO split",
+    });
+  } else if (
+    hasLeft &&
+    line.mfgSplitLeftCm! + line.mfgSplitRightCm! !== line.mfgWidthCm
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "The PO split must add up to the manufacturing width",
+    });
+  }
 });
 
 // A reason is mandatory, not optional-with-a-default. An amendment changes what

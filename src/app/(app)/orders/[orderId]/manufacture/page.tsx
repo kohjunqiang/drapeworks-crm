@@ -655,6 +655,8 @@ async function FrozenView({
       sourceHeightCm: l.sourceHeightCm,
       mfgWidthCm: l.mfgWidthCm,
       mfgHeightCm: l.mfgHeightCm,
+      mfgSplitLeftCm: l.mfgSplitLeftCm,
+      mfgSplitRightCm: l.mfgSplitRightCm,
     })),
   );
 

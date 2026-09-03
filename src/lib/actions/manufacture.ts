@@ -400,11 +400,25 @@ export async function amendManufactureMeasurements(
         // Deltas are recomputed from the STORED source, never re-snapshotted
         // from the window: source records what the set was originally derived
         // from, and the order is locked so it cannot have moved.
-        const resizedSplit = scaleDoubleDrawSplit(
-          line.mfgWidthCm,
-          row.mfg_split_left_cm,
-          row.mfg_split_right_cm,
-        );
+        const hasStoredSplit =
+          row.mfg_split_left_cm != null && row.mfg_split_right_cm != null;
+        const hasSubmittedSplit =
+          line.mfgSplitLeftCm != null && line.mfgSplitRightCm != null;
+        if (!hasStoredSplit && hasSubmittedSplit) {
+          throw new AuthoredError(
+            "A left/right split can only be amended on a window that already has a confirmed split.",
+          );
+        }
+        const resizedSplit = hasSubmittedSplit
+          ? {
+              leftCm: line.mfgSplitLeftCm!,
+              rightCm: line.mfgSplitRightCm!,
+            }
+          : scaleDoubleDrawSplit(
+              line.mfgWidthCm,
+              row.mfg_split_left_cm,
+              row.mfg_split_right_cm,
+            );
         await trx
           .updateTable("manufacture_measurements")
           .set({

@@ -20,6 +20,8 @@ import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 import { customerReference } from "./customer-reference";
 
 import {
+  BLIND_CONTROL_LABEL_KEYS,
+  blindControlLabel,
   procurementLabel,
   type PoInput,
   type PoLine,
@@ -333,7 +335,12 @@ async function loadLines(
     // 开法. Missing Chinese wording falls back to the recorded English draw.
     // No draw direction at all remains a real source-data failure.
     const opening = w.draw
-      ? procurementLabel(openingLabels.get(w.draw), w.draw)
+      ? w.blind_type_id && w.draw !== "Double"
+        ? blindControlLabel(
+            w.draw,
+            openingLabels.get(BLIND_CONTROL_LABEL_KEYS[w.draw]),
+          )
+        : procurementLabel(openingLabels.get(w.draw), w.draw)
       : null;
     if (!w.draw) {
       problems.push(

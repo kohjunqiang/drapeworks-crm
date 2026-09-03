@@ -53,6 +53,11 @@ const TYPE_KEY_HINTS: Record<PoTypeKey, string> = {
   mesh: "Mesh panels are not on any sample PO yet.",
 };
 
+const BLIND_CONTROL_TITLES: Record<string, string> = {
+  "Blind Pulley Left": "Pulley left",
+  "Blind Pulley Right": "Pulley right",
+};
+
 type RowKind = "room" | "type" | "opening" | "series";
 
 type LabelRow = {
@@ -230,10 +235,22 @@ export function PoLabelsPanel({
 
   const openings: LabelRow[] = useMemo(
     () =>
-      openingLabels.map((r) => ({
+      openingLabels.filter((r) => !(r.draw in BLIND_CONTROL_TITLES)).map((r) => ({
         kind: "opening" as const,
         id: r.draw,
         title: r.draw,
+        cn: r.label_cn,
+      })),
+    [openingLabels],
+  );
+
+  const blindControls: LabelRow[] = useMemo(
+    () =>
+      openingLabels.filter((r) => r.draw in BLIND_CONTROL_TITLES).map((r) => ({
+        kind: "opening" as const,
+        id: r.draw,
+        title: BLIND_CONTROL_TITLES[r.draw],
+        hint: "Printed in the PO Opening column for this blind control side.",
         cn: r.label_cn,
       })),
     [openingLabels],
@@ -252,8 +269,8 @@ export function PoLabelsPanel({
   );
 
   const allRows = useMemo(
-    () => [...rooms, ...types, ...openings, ...series],
-    [rooms, types, openings, series],
+    () => [...rooms, ...types, ...openings, ...blindControls, ...series],
+    [rooms, types, openings, blindControls, series],
   );
 
   // `saved` is what the server holds; `draft` is what the admin has typed. Kept
@@ -375,6 +392,13 @@ export function PoLabelsPanel({
         title="Openings — 开法"
         description="The draw direction as the factory reads it. 对开 Double draw is on every curtain row of both curtain samples; the single draws are not evidenced anywhere."
         rows={openings}
+        draft={draft}
+        onChange={onChange}
+      />
+      <LabelGroup
+        title="Blind pulley — 开法"
+        description="A blind uses its saved control side. These labels print Pulley left or Pulley right in the PO Opening column without changing curtain draw wording."
+        rows={blindControls}
         draft={draft}
         onChange={onChange}
       />

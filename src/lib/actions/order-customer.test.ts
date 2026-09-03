@@ -133,18 +133,25 @@ describe("completeAppointmentForOrder", () => {
 });
 
 describe("resolveOrderCustomer", () => {
-  it("recovers the scheduled appointment when the lead picker sends only leadId", async () => {
+  function fakeResolveTransaction({
+    appointmentCustomerId = "customer-1",
+    leadCustomerId = "customer-1",
+  }: {
+    appointmentCustomerId?: string;
+    leadCustomerId?: string | null;
+  } = {}) {
     const selectedTables: string[] = [];
+    const updatedTables: string[] = [];
     const rows: Record<string, Record<string, unknown> | undefined> = {
       appointments: {
         id: "appointment-1",
         lead_id: "lead-1",
-        customer_id: "customer-1",
+        customer_id: appointmentCustomerId,
         status: "scheduled",
       },
       leads: {
         id: "lead-1",
-        customer_id: "customer-1",
+        customer_id: leadCustomerId,
         funnel_stage: "Attend Appointment",
         is_archived: false,
       },
@@ -195,13 +202,20 @@ describe("resolveOrderCustomer", () => {
         selectedTables.push(table);
         return builder(rows[table]);
       },
-      updateTable() {
+      updateTable(table: string) {
+        updatedTables.push(table);
         return builder({});
       },
       insertInto() {
         return builder({ id: "new-customer" });
       },
     } as unknown as Transaction<DB>;
+
+    return { trx, selectedTables, updatedTables };
+  }
+
+  it("recovers the scheduled appointment when the lead picker sends only leadId", async () => {
+    const { trx, selectedTables } = fakeResolveTransaction();
 
     const result = await resolveOrderCustomer(
       trx,
@@ -213,6 +227,40 @@ describe("resolveOrderCustomer", () => {
 
     expect(selectedTables).toEqual(["appointments", "leads", "orders"]);
     expect(result).toEqual({
+      customerId: "customer-1",
+      appointmentId: "appointment-1",
+      leadId: "lead-1",
+    });
+  });
+
+  it("rejects an appointment linked to a different customer than its lead", async () => {
+    const { trx } = fakeResolveTransaction({
+      appointmentCustomerId: "customer-appointment",
+      leadCustomerId: "customer-lead",
+    });
+
+    await expect(resolveOrderCustomer(
+      trx,
+      undefined,
+      "lead-1",
+      { name: "Kenny", mobile: "91234567" },
+      "user-1",
+    )).rejects.toThrow("belong to different customers");
+  });
+
+  it("repairs a missing legacy lead customer from its locked appointment", async () => {
+    const { trx, updatedTables } = fakeResolveTransaction({ leadCustomerId: null });
+
+    const result = await resolveOrderCustomer(
+      trx,
+      undefined,
+      "lead-1",
+      { name: "Kenny", mobile: "91234567" },
+      "user-1",
+    );
+
+    expect(updatedTables).toEqual(["leads", "customers"]);
+    expect(result).toMatchObject({
       customerId: "customer-1",
       appointmentId: "appointment-1",
       leadId: "lead-1",

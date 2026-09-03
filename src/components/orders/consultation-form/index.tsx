@@ -52,6 +52,7 @@ export type AppointmentPrefill = {
   leadId: string;
   customer: { name: string; mobile: string; email?: string };
   development?: string | null;
+  address?: string | null;
 };
 
 type Props = {
@@ -160,6 +161,7 @@ function withAppointment(
     order: {
       ...base.order,
       development: appointment.development || base.order.development,
+      site_address: appointment.address || base.order.site_address,
     },
   };
 }

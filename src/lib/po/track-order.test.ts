@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   cutLengthMm,
+  overlapTrackOrderLine,
+  overlapTrackOrderText,
   pieceCount,
   sectionCount,
   trackOrderLine,
@@ -13,6 +15,7 @@ const line = (over: Partial<TrackOrderLine> = {}): TrackOrderLine => ({
   label: "Living Room — Window 1",
   widthCm: 266,
   kind: "double",
+  shipmentKind: "standard_tracks",
   sideInstallation: false,
   overlapTracksAttachment: false,
   ...over,
@@ -42,19 +45,25 @@ describe("trackOrderLine", () => {
     );
   });
 
-  it("adds the overlap-track attachment instruction", () => {
+  it("keeps overlap attachments out of the base track order", () => {
     expect(trackOrderLine(line({ overlapTracksAttachment: true }))).toBe(
-      "2.66米 双轨裁成1.33m 4根配连接器 Overlap tracks / attachment",
+      "2.66米 双轨裁成1.33m 4根配连接器",
     );
   });
 
-  it("keeps both operational instructions when both are selected", () => {
+  it("keeps side installation on the base track order", () => {
     expect(
       trackOrderLine(
         line({ sideInstallation: true, overlapTracksAttachment: true }),
       ),
     ).toBe(
-      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation Overlap tracks / attachment",
+      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
+    );
+  });
+
+  it("labels S-fold track orders separately", () => {
+    expect(trackOrderLine(line({ shipmentKind: "s_fold_tracks" }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 S-Fold",
     );
   });
 
@@ -80,6 +89,18 @@ describe("trackOrderLine", () => {
     );
     expect(trackOrderLine(line({ widthCm: 120 }))).toBe(
       "1.20米 双轨裁成1.20m 2根配连接器",
+    );
+  });
+});
+
+describe("overlapTrackOrderText", () => {
+  it("creates a separate attachment order only for selected windows", () => {
+    const selected = line({ overlapTracksAttachment: true });
+    expect(overlapTrackOrderLine(selected)).toBe(
+      "2.66米 双轨 Overlap track / attachment",
+    );
+    expect(overlapTrackOrderText([line(), selected], "加固包装")).toBe(
+      "2.66米 双轨 Overlap track / attachment\n加固包装",
     );
   });
 });

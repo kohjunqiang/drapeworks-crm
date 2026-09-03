@@ -31,6 +31,9 @@ import { signCurtainTypePhotoUrls } from "@/lib/db/curtain-types";
 import { signCompletionPhotoUrls } from "@/lib/db/completion-photos";
 import { db } from "@/lib/db/kysely";
 import { loadInstallationSummary } from "@/lib/fulfilment/load-installation-summary";
+import { canScheduleInstallation } from "@/lib/fulfilment/status";
+import { loadOrderShipmentState } from "@/lib/logistics/load";
+import { requiresLocalDelivery } from "@/lib/logistics/shipments";
 import {
   loadActiveMeshSystemBands,
   loadActiveMeshSystemSpecs,
@@ -43,6 +46,7 @@ import {
 } from "@/lib/orders/mesh-system";
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import { formatSGD } from "@/lib/money";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { panelBillableArea } from "@/lib/pricing/mesh-calculator";
 import {
   computeOrderQuote,
@@ -95,10 +99,6 @@ export default async function OrderDetailPage({
       "orders.deposit_cents as deposit_cents",
       "orders.balance_cents as balance_cents",
       "orders.general_notes as general_notes",
-      "orders.goods_overseas_tracking_number as goods_overseas_tracking_number",
-      "orders.goods_local_delivery_number as goods_local_delivery_number",
-      "orders.track_overseas_tracking_number as track_overseas_tracking_number",
-      "orders.track_local_delivery_number as track_local_delivery_number",
       "orders.created_at as created_at",
       "customers.id as customer_id",
       "customers.name as customer_name",
@@ -111,6 +111,11 @@ export default async function OrderDetailPage({
     .executeTakeFirst();
 
   if (!order) notFound();
+
+  const shipmentState =
+    statusIndex(order.current_status) >= statusIndex("sent_to_vendor")
+      ? await loadOrderShipmentState(db, order.id)
+      : { categories: [], shipments: [] };
 
   const rooms = await db
     .selectFrom("rooms")
@@ -411,7 +416,7 @@ export default async function OrderDetailPage({
     .execute();
 
   const arrangement =
-    statusIndex(order.current_status) >= statusIndex("delivered_checked")
+    canScheduleInstallation(order.current_status)
       ? await db
           .selectFrom("fulfilment_arrangements")
           .select([
@@ -551,7 +556,20 @@ export default async function OrderDetailPage({
               ? "Mark quotation sent"
               : order.current_status === "quotation_sent"
                 ? "Record deposit received"
-              : undefined;
+                : order.current_status === "sent_to_vendor"
+                  ? shipmentState.shipments.length > 0 &&
+                      !shipmentState.shipments.some((shipment) =>
+                        requiresLocalDelivery(shipment.category))
+                    ? "Continue — direct shipments"
+                    : "Send to logistic partner"
+                  : order.current_status === "sent_logistic"
+                    ? "Mark shipping to SG"
+                    : order.current_status === "shipping_sg"
+                      ? "Mark Delivered & Checked"
+                    : order.current_status === "delivered_checked" &&
+                        arrangement && !arrangement.cancelled_at
+                      ? "Confirm installation arrangement"
+                    : undefined;
           // Recording the deposit exists to unblock the measurements review, so
           // go straight there rather than returning to this page and asking for
           // a second click to do the thing the first click was for.
@@ -607,7 +625,14 @@ export default async function OrderDetailPage({
                 </Link>
               )}
               <PrintButton />
-              {isAdvancer && !order.is_draft && order.current_status !== "deposit_received" && order.current_status !== "po_ready" && order.current_status !== "delivered_checked" && (
+              {isAdvancer &&
+                !order.is_draft &&
+                order.current_status !== "deposit_received" &&
+                order.current_status !== "po_ready" &&
+                (order.current_status !== "shipping_sg" ||
+                  shipmentState.shipments.length === 0) &&
+                (order.current_status !== "delivered_checked" ||
+                  Boolean(arrangement && !arrangement.cancelled_at)) && (
                 <AdvanceStatusButton
                   orderId={order.id}
                   currentStatus={order.current_status}
@@ -616,12 +641,17 @@ export default async function OrderDetailPage({
                   ctaLabel={ctaLabel}
                   advanceTo={advanceTo}
                   completionPhotos={completionPhotos}
+                  shipments={shipmentState.shipments}
+                  manifestRecoveryHref={`/orders/${order.id}/manufacture`}
                 />
               )}
               {session.profile.role === "admin" && (
                 <DeleteOrderDialog
                   orderId={order.id}
-                  displayId={order.display_id}
+                  orderIdentifier={primaryOrderIdentifier(
+                    order.order_reference,
+                    order.display_id,
+                  )}
                   customerName={order.customer_name}
                 />
               )}
@@ -633,15 +663,15 @@ export default async function OrderDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
         <div className="lg:col-span-2 space-y-4 order-2 lg:order-1">
           {statusIndex(order.current_status) >= statusIndex("sent_to_vendor") && (
-            <DeliveryNumbersCard orderId={order.id} canEdit={session.profile.role === "ops" || session.profile.role === "admin"}
-              initial={{
-                goodsOverseas: order.goods_overseas_tracking_number ?? "",
-                goodsLocal: order.goods_local_delivery_number ?? "",
-                trackOverseas: order.track_overseas_tracking_number ?? "",
-                trackLocal: order.track_local_delivery_number ?? "",
-              }} />
+            <DeliveryNumbersCard
+              orderId={order.id}
+              currentStatus={order.current_status}
+              canEdit={session.profile.role === "ops" || session.profile.role === "admin"}
+              canReopenArrival={session.profile.role === "admin"}
+              shipments={shipmentState.shipments}
+            />
           )}
-          {statusIndex(order.current_status) >= statusIndex("delivered_checked") && (
+          {canScheduleInstallation(order.current_status) && (
             <FulfilmentArrangementCard
               orderId={order.id}
               arrangement={arrangement ?? null}

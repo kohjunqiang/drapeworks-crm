@@ -1,8 +1,9 @@
 import Link from "next/link";
 
 import { formatSGD } from "@/lib/money";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 
-import { ProductLineBadge } from "./orders-table";
+import { productLineLabel } from "./orders-table";
 
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
@@ -34,10 +35,11 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-slate-900 truncate">
                 {o.customer_name}
-                <ProductLineBadge line={o.product_line} />
               </div>
               <div className="text-xs text-slate-500 mt-0.5">
-                {[o.development, o.display_id].filter(Boolean).join(" · ")}
+                {[o.development, primaryOrderIdentifier(o.order_reference, o.display_id)]
+                  .filter(Boolean)
+                  .join(" · ")}
               </div>
             </div>
             <div className="flex items-center gap-1.5 font-semibold text-slate-900 text-sm">
@@ -55,6 +57,9 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
               Move-in {formatDate(o.move_in_date)}
             </div>
           </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Product: {productLineLabel(o.product_line)}
+          </div>
           {o.consultant_name && (
             <div className="text-xs text-slate-400 mt-2">
               {o.consultant_name}
@@ -65,7 +70,10 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
             <div className="mt-3 flex justify-end border-t border-slate-100 pt-2">
               <DeleteOrderDialog
                 orderId={o.id}
-                displayId={o.display_id}
+                orderIdentifier={primaryOrderIdentifier(
+                  o.order_reference,
+                  o.display_id,
+                )}
                 customerName={o.customer_name}
                 compact
               />

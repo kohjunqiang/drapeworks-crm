@@ -151,6 +151,21 @@ export async function resolveOrderCustomer(
     }
   }
 
+  if (appointment && lead) {
+    if (!lead.customer_id) {
+      // Repair a legacy appointment whose customer link predates the lead's
+      // customer_id. The appointment is already locked and is authoritative.
+      await trx.updateTable("leads")
+        .set({ customer_id: appointment.customer_id, updated_at: new Date() })
+        .where("id", "=", lead.id)
+        .execute();
+    } else if (appointment.customer_id !== lead.customer_id) {
+      throw new Error(
+        "The appointment and selected lead belong to different customers",
+      );
+    }
+  }
+
   const existingCustomerId = appointment?.customer_id ?? lead?.customer_id;
   if (!existingCustomerId) {
     const inserted = await trx

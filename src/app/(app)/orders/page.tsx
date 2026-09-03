@@ -101,6 +101,7 @@ export default async function OrdersDashboardPage({
     .select([
       "orders.id as id",
       "orders.display_id as display_id",
+      "orders.order_reference as order_reference",
       "orders.current_status as current_status",
       "orders.development as development",
       "orders.move_in_date as move_in_date",
@@ -125,6 +126,7 @@ export default async function OrdersDashboardPage({
         eb("customers.mobile", "ilike", like),
         eb("orders.development", "ilike", like),
         eb("orders.display_id", "ilike", like),
+        eb("orders.order_reference", "ilike", like),
       ]),
     );
   }
@@ -141,6 +143,7 @@ export default async function OrdersDashboardPage({
   const orders: OrderRow[] = rows.map((r) => ({
     id: r.id,
     display_id: r.display_id,
+    order_reference: r.order_reference,
     customer_name: r.customer_name,
     development: r.development,
     product_line: r.product_line,

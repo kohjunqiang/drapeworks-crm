@@ -5,7 +5,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 
 import { revalidatePath } from "next/cache";
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 
 import { requireRole } from "@/lib/auth/require-role";
 import {
@@ -16,6 +16,7 @@ import { db } from "@/lib/db/kysely";
 import type { DB } from "@/lib/db/schema";
 import { COMPLETION_PHOTO_BUCKET } from "@/lib/db/completion-photos";
 import { fulfilmentCalendarEventId } from "@/lib/calendar/fulfilment-event-id";
+import { syncFulfilmentArrangement } from "@/lib/calendar/fulfilment-sync";
 import { deleteEvent, isCalendarConfigured } from "@/lib/calendar/google";
 import {
   loadAddonCatalogue,
@@ -33,6 +34,7 @@ import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
 import { makePackageContext, packagePricingSignature, readPackageContext, resolveCurtainPackageQuote, type CurtainPackageContext } from "@/lib/pricing/curtain-package-rules";
 import { toCalcAddons } from "@/lib/orders/window-addons";
 import { isLocked } from "@/lib/status-flow";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   PHOTO_BUCKET,
@@ -558,25 +560,29 @@ export async function requoteOrder(orderId: string): Promise<void> {
 
 export async function deleteOrder(input: {
   orderId: string;
-  confirmDisplayId: string;
+  confirmIdentifier: string;
 }): Promise<never> {
   await requireRole(["admin"]);
   if (
     typeof input?.orderId !== "string" ||
-    typeof input?.confirmDisplayId !== "string"
+    typeof input?.confirmIdentifier !== "string"
   ) {
     throw new Error("Invalid input");
   }
 
   const order = await db
     .selectFrom("orders")
-    .select(["id", "display_id"])
+    .select(["id", "display_id", "order_reference"])
     .where("id", "=", input.orderId)
     .executeTakeFirst();
   if (!order) throw new Error("Order not found");
 
-  if (input.confirmDisplayId.trim() !== order.display_id) {
-    throw new Error(`Type ${order.display_id} exactly to confirm deletion`);
+  const orderIdentifier = primaryOrderIdentifier(
+    order.order_reference,
+    order.display_id,
+  );
+  if (input.confirmIdentifier.trim() !== orderIdentifier) {
+    throw new Error(`Type ${orderIdentifier} exactly to confirm deletion`);
   }
 
   // Capture every photo's storage_path before the cascade fires so we can
@@ -604,36 +610,61 @@ export async function deleteOrder(input: {
     .where("order_id", "=", order.id)
     .executeTakeFirst();
 
-  // A late-stage order may own a live installation booking. Remove the exact
-  // external event before deleting the row that tells us how to find it.
+  // A late-stage order may own a live installation booking. Verify Calendar
+  // access before starting cleanup; the try/catch below also covers a partial
+  // cleanup when both a legacy and deterministic event id exist.
   if (arrangement) {
     if (!isCalendarConfigured()) {
       throw new Error(
         "This order has an installation booking that may have a Calendar event. Restore Google Calendar access before deleting it.",
       );
     }
-    const eventIds = new Set([
-      ...(arrangement.google_event_id ? [arrangement.google_event_id] : []),
-      fulfilmentCalendarEventId(arrangement.id),
-    ]);
-    for (const eventId of eventIds) await deleteEvent(eventId);
   }
 
-  await db.transaction().execute(async (trx) => {
+  try {
     if (arrangement) {
-      await trx
-        .deleteFrom("fulfilment_arrangement_events")
-        .where("arrangement_id", "=", arrangement.id)
-        .execute();
-      await trx
-        .deleteFrom("fulfilment_arrangements")
-        .where("id", "=", arrangement.id)
-        .execute();
+      const eventIds = new Set([
+        ...(arrangement.google_event_id ? [arrangement.google_event_id] : []),
+        fulfilmentCalendarEventId(arrangement.id),
+      ]);
+      for (const eventId of eventIds) await deleteEvent(eventId);
     }
-    // Cascades: orders → rooms/windows/photos, completion photos, generated PO
-    // rows and status events. The customer remains for cross-order history.
-    await trx.deleteFrom("orders").where("id", "=", order.id).execute();
-  });
+
+    await db.transaction().execute(async (trx) => {
+      if (arrangement) {
+        await trx
+          .deleteFrom("fulfilment_arrangement_events")
+          .where("arrangement_id", "=", arrangement.id)
+          .execute();
+        await trx
+          .deleteFrom("fulfilment_arrangements")
+          .where("id", "=", arrangement.id)
+          .execute();
+      }
+      // The database lock still rejects ad-hoc deletion of sent orders. This
+      // transaction-local opt-in is reached only after the admin role check,
+      // typed order-number confirmation and external Calendar cleanup above.
+      await sql`select set_config('app.allow_locked_order_delete', 'on', true)`.execute(trx);
+
+      // Cascades: orders → rooms/windows/photos, completion photos, generated PO
+      // rows and status events. The customer remains for cross-order history.
+      await trx.deleteFrom("orders").where("id", "=", order.id).execute();
+    });
+  } catch (error) {
+    // Google was changed first so a failed database delete must restore the
+    // still-live order's event. The normal sync path recreates a missing event
+    // and records a retryable failure if Google is unavailable.
+    if (arrangement) {
+      const recovery = await syncFulfilmentArrangement(arrangement.id);
+      if (!recovery.ok) {
+        console.error(
+          "installation calendar recovery failed during deleteOrder:",
+          recovery.error,
+        );
+      }
+    }
+    throw error;
+  }
 
   if (photos.length > 0) {
     const { error } = await adminClient()

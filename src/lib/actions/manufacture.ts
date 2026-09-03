@@ -14,6 +14,7 @@ import {
   loadManufactureLines,
 } from "@/lib/manufacture/load";
 import { checkConfirmPreconditions } from "@/lib/manufacture/preconditions";
+import { materializeShipmentManifest } from "@/lib/logistics/load";
 import { STATUS_LABELS } from "@/lib/status-flow";
 import {
   allowanceSchema,
@@ -262,8 +263,9 @@ export async function markOrderSentToVendor(orderId: unknown): Promise<void> {
   try {
     await db.transaction().execute(async (trx) => {
       const order = await trx.selectFrom("orders")
-        .select("current_status")
+        .select(["current_status", "product_line"])
         .where("id", "=", parsedId)
+        .forUpdate()
         .executeTakeFirst();
       if (!order) throw new AuthoredError("Order not found");
       if (order.current_status !== "po_ready") {
@@ -277,9 +279,17 @@ export async function markOrderSentToVendor(orderId: unknown): Promise<void> {
         .where("order_id", "=", parsedId)
         .where("superseded_at", "is", null)
         .execute();
-      if (current.length === 0 || current.some((po) => po.category == null)) {
+      if (order.product_line !== "mesh" &&
+        (current.length === 0 || current.some((po) => po.category == null))) {
         throw new AuthoredError(
           "Generate and review the Day, Night, or Blinds purchase orders before marking this order as sent.",
+        );
+      }
+
+      const shipmentCategories = await materializeShipmentManifest(trx, parsedId);
+      if (shipmentCategories.length === 0) {
+        throw new AuthoredError(
+          "No shipment orders were found. Review the order items before marking it as sent.",
         );
       }
 

@@ -27,11 +27,15 @@ export type TrackOrderLoad = {
    * measurement would be worse — it would put a plausible number in a cutting
    * list that nobody has checked.
    */
-  unmeasured: string[];
+  unmeasured: Array<{
+    label: string;
+    shipmentKind: TrackOrderLine["shipmentKind"];
+    overlapTracksAttachment: boolean;
+  }>;
 };
 
 export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
-  const [rows, settings] = await Promise.all([
+  const [rows, settings, sFoldRows] = await Promise.all([
     db
       .selectFrom("windows")
       .innerJoin("rooms", "rooms.id", "windows.room_id")
@@ -44,6 +48,7 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
         "windows.id",
       )
       .select([
+        "windows.id as window_id",
         "windows.position as position",
         "manufacture_measurements.mfg_width_cm as mfg_width_cm",
         "windows.day_curtain_type_id as day_curtain_type_id",
@@ -62,10 +67,20 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       .select("track_note_cn")
       .where("singleton", "=", true)
       .executeTakeFirst(),
+    db
+      .selectFrom("window_addons")
+      .innerJoin("pricing_addons", "pricing_addons.id", "window_addons.addon_id")
+      .innerJoin("windows", "windows.id", "window_addons.window_id")
+      .innerJoin("rooms", "rooms.id", "windows.room_id")
+      .select("window_addons.window_id")
+      .where("rooms.order_id", "=", orderId)
+      .where("pricing_addons.key", "=", "s_fold")
+      .execute(),
   ]);
+  const sFoldWindowIds = new Set(sFoldRows.map((row) => row.window_id));
 
   const lines: TrackOrderLine[] = [];
-  const unmeasured: string[] = [];
+  const unmeasured: TrackOrderLoad["unmeasured"] = [];
 
   for (const w of rows) {
     // A blind carries its own headrail, so it orders no track. A window with
@@ -81,7 +96,13 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     const label = `${w.room_label} — Window ${w.position + 1}`;
 
     if (w.mfg_width_cm == null || w.mfg_width_cm <= 0) {
-      unmeasured.push(label);
+      unmeasured.push({
+        label,
+        shipmentKind: sFoldWindowIds.has(w.window_id)
+          ? "s_fold_tracks"
+          : "standard_tracks",
+        overlapTracksAttachment: w.overlap_tracks_attachment,
+      });
       continue;
     }
 
@@ -92,6 +113,9 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       // day only or night only — is one. A toilet window is a blind since
       // Phase 14, so it carries its own headrail and never reaches here.
       kind: curtains >= 2 ? "double" : "single",
+      shipmentKind: sFoldWindowIds.has(w.window_id)
+        ? "s_fold_tracks"
+        : "standard_tracks",
       sideInstallation: w.side_installation,
       overlapTracksAttachment: w.overlap_tracks_attachment,
     });

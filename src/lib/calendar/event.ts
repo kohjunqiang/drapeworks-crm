@@ -20,6 +20,13 @@ export type CalendarEvent = {
   end: { dateTime: string; timeZone: string };
 };
 
+export function buildInstallationEventSummary(
+  primaryReference: string,
+  customerName: string,
+): string {
+  return `[Installation] ${primaryReference} — ${customerName}`;
+}
+
 /**
  * The Google Calendar event body for a consultation.
  *
@@ -31,8 +38,8 @@ export function buildConsultationEvent(
   input: ConsultationEventInput,
 ): CalendarEvent {
   const summary = input.development
-    ? `Consultation — ${input.customerName} (${input.development})`
-    : `Consultation — ${input.customerName}`;
+    ? `[Appointment] ${input.customerName} (${input.development})`
+    : `[Appointment] ${input.customerName}`;
 
   const description = [
     input.customerMobile ? `Mobile: ${input.customerMobile}` : null,

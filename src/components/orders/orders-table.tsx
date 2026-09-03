@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { formatSGD } from "@/lib/money";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 
 import { StatusBadge } from "./status-badge";
 import { DeleteOrderDialog } from "./delete-order-dialog";
@@ -9,6 +10,7 @@ import { DeleteOrderDialog } from "./delete-order-dialog";
 export type OrderRow = {
   id: string;
   display_id: string;
+  order_reference: string | null;
   customer_name: string;
   development: string | null;
   move_in_date: Date | string | null;
@@ -26,15 +28,8 @@ type Props = {
   canDelete?: boolean;
 };
 
-// Mesh and curtain orders never mix, so the line is a property of the whole
-// order — worth showing at a glance rather than hunting through line items.
-export function ProductLineBadge({ line }: { line: "curtain" | "mesh" }) {
-  if (line === "curtain") return null;
-  return (
-    <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 text-[10px] font-medium align-middle">
-      Mesh
-    </span>
-  );
+export function productLineLabel(line: "curtain" | "mesh"): string {
+  return line === "mesh" ? "Mesh" : "Curtains & Blinds";
 }
 
 const SG_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -54,9 +49,10 @@ export function OrdersTable({ orders, canDelete = false }: Props) {
       <table className="w-full text-sm">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
           <tr>
-            <th className="text-left px-4 py-3 font-medium">Order #</th>
+            <th className="text-left px-4 py-3 font-medium">Order / PO #</th>
             <th className="text-left px-4 py-3 font-medium">Customer</th>
             <th className="text-left px-4 py-3 font-medium">Development</th>
+            <th className="text-left px-4 py-3 font-medium">Product</th>
             <th className="text-left px-4 py-3 font-medium">Move-in</th>
             <th className="text-left px-4 py-3 font-medium">Status</th>
             <th className="text-right px-4 py-3 font-medium">Price</th>
@@ -72,9 +68,8 @@ export function OrdersTable({ orders, canDelete = false }: Props) {
                   href={`/orders/${o.id}`}
                   className="block hover:text-teal-700"
                 >
-                  {o.display_id}
+                  {primaryOrderIdentifier(o.order_reference, o.display_id)}
                 </Link>
-                <ProductLineBadge line={o.product_line} />
               </td>
               <td className="px-4 py-3 font-medium text-slate-900">
                 <Link href={`/orders/${o.id}`} className="block">
@@ -83,6 +78,9 @@ export function OrdersTable({ orders, canDelete = false }: Props) {
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {o.development ?? "—"}
+              </td>
+              <td className="px-4 py-3 text-slate-600">
+                {productLineLabel(o.product_line)}
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {formatDate(o.move_in_date)}
@@ -110,7 +108,10 @@ export function OrdersTable({ orders, canDelete = false }: Props) {
                 <td className="px-2 py-3 text-right">
                   <DeleteOrderDialog
                     orderId={o.id}
-                    displayId={o.display_id}
+                    orderIdentifier={primaryOrderIdentifier(
+                      o.order_reference,
+                      o.display_id,
+                    )}
                     customerName={o.customer_name}
                     compact
                   />

@@ -3,6 +3,7 @@ import "server-only";
 import { db } from "@/lib/db/kysely";
 import { loadInstallationSummary } from "@/lib/fulfilment/load-installation-summary";
 
+import { buildInstallationEventSummary } from "./event";
 import { fulfilmentCalendarEventId } from "./fulfilment-event-id";
 import { CALENDAR_NOT_CONFIGURED } from "./messages";
 import {
@@ -105,7 +106,10 @@ export async function syncFulfilmentArrangement(
       const start = new Date(arrangement.scheduled_at);
       const end = new Date(start.getTime() + arrangement.duration_mins * 60_000);
       const event = {
-        summary: `Installation — ${summary.customerName} (${summary.displayId})`,
+        summary: buildInstallationEventSummary(
+          summary.primaryReference,
+          summary.customerName,
+        ),
         location: arrangement.address,
         description: [
           summary.text,

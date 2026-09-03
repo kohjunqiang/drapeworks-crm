@@ -6,6 +6,7 @@ import {
   REFERENCE_LENGTH,
   generateOrderReference,
   isGeneratedReference,
+  primaryOrderIdentifier,
 } from "./reference";
 
 // A deterministic source, so the shape is tested rather than the randomness.
@@ -50,6 +51,17 @@ describe("generateOrderReference", () => {
     }
     // 32^8 possibilities: 500 draws colliding would mean the source is broken.
     expect(seen.size).toBe(500);
+  });
+});
+
+describe("primaryOrderIdentifier", () => {
+  it("uses the PO reference before the legacy DW identifier", () => {
+    expect(primaryOrderIdentifier("10044", "DW-2026-0006")).toBe("10044");
+  });
+
+  it("falls back to the DW identifier when no PO reference exists", () => {
+    expect(primaryOrderIdentifier(null, "DW-2026-0006")).toBe("DW-2026-0006");
+    expect(primaryOrderIdentifier("  ", "DW-2026-0006")).toBe("DW-2026-0006");
   });
 });
 

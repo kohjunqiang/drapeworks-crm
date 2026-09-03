@@ -935,6 +935,31 @@ export interface OrderStatusEvents {
   status: FulfilmentStatus;
 }
 
+export interface OrderShipments {
+  arrival_note: string | null;
+  arrived_checked_at: Timestamp | null;
+  arrived_checked_by: string | null;
+  category: "blinds" | "curtains" | "mesh" | "overlap_tracks_attachment" | "s_fold_tracks" | "standard_tracks";
+  created_at: Generated<Timestamp>;
+  legacy_local_delivery_number: string | null;
+  legacy_overseas_freight_number: string | null;
+  local_delivery_number: string | null;
+  order_id: string;
+  overseas_freight_number: string | null;
+  source: Generated<"derived" | "legacy_combined" | "legacy_imported">;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface OrderShipmentEvents {
+  category: OrderShipments["category"];
+  created_at: Generated<Timestamp>;
+  created_by: string | null;
+  event_type: "arrival_recorded" | "arrival_reopened";
+  id: Generated<string>;
+  note: string | null;
+  order_id: string;
+}
+
 export interface OrderCompletionPhotos {
   created_at: Generated<Timestamp>;
   id: Generated<string>;
@@ -1335,6 +1360,8 @@ export interface DB {
   mesh_system_bands: MeshSystemBands;
   mesh_systems: MeshSystems;
   order_completion_photos: OrderCompletionPhotos;
+  order_shipments: OrderShipments;
+  order_shipment_events: OrderShipmentEvents;
   order_status_events: OrderStatusEvents;
   order_year_counters: OrderYearCounters;
   orders: Orders;

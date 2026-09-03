@@ -158,7 +158,7 @@ export function FulfilmentArrangementCard({
           <div className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-teal-600" aria-hidden="true" />
             <h2 className="text-base font-semibold text-slate-900">
-              Fulfillment Arrangement
+              Installation schedule
             </h2>
           </div>
           {activeArrangement ? (
@@ -254,8 +254,9 @@ export function FulfilmentArrangementCard({
                 <DialogHeader>
                   <DialogTitle>Cancel installation</DialogTitle>
                   <DialogDescription>
-                    This keeps an audit record, removes the shared Calendar event,
-                    and returns the order to Delivered &amp; Checked.
+                    This keeps an audit record and removes the shared Calendar
+                    event. If fulfilment has started, the order returns to
+                    Delivered &amp; Checked.
                   </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={cancelBooking} className="space-y-4">

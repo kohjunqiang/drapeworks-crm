@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/require-role";
 import { syncFulfilmentArrangement } from "@/lib/calendar/fulfilment-sync";
 import { db } from "@/lib/db/kysely";
+import { canScheduleInstallation } from "@/lib/fulfilment/status";
 import {
   fulfilmentArrangementCancellationSchema,
   fulfilmentArrangementRetrySchema,
@@ -34,9 +35,9 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
       .forUpdate()
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
-    if (!["delivered_checked", "fulfilment"].includes(order.current_status)) {
+    if (!canScheduleInstallation(order.current_status)) {
       throw new Error(
-        "Installation can only be arranged after delivery has been checked",
+        "Installation can be scheduled after the PO measurements are ready and before the order is completed",
       );
     }
 
@@ -120,9 +121,9 @@ export async function cancelFulfilmentArrangement(input: unknown): Promise<void>
       .forUpdate()
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
-    if (!["delivered_checked", "fulfilment"].includes(order.current_status)) {
+    if (!canScheduleInstallation(order.current_status)) {
       throw new Error(
-        "Installation can only be cancelled before the order is completed",
+        "Installation can only be cancelled after the PO measurements are ready and before the order is completed",
       );
     }
 

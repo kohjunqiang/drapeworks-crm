@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildConsultationEvent } from "./event";
+import {
+  buildConsultationEvent,
+  buildInstallationEventSummary,
+} from "./event";
 
 const base = {
   customerName: "Mindy",
@@ -19,14 +22,14 @@ const base = {
 describe("buildConsultationEvent", () => {
   it("titles the event with customer and development", () => {
     expect(buildConsultationEvent(base).summary).toBe(
-      "Consultation — Mindy (Tembusu Grand)",
+      "[Appointment] Mindy (Tembusu Grand)",
     );
   });
 
   it("omits the parenthetical when there is no development", () => {
     expect(
       buildConsultationEvent({ ...base, development: null }).summary,
-    ).toBe("Consultation — Mindy");
+    ).toBe("[Appointment] Mindy");
   });
 
   it("puts the mobile, lead ref, notes and a deep link in the description", () => {
@@ -67,5 +70,13 @@ describe("buildConsultationEvent", () => {
     expect(event.location).toBeUndefined();
     expect(event.description).not.toContain("Mobile:");
     expect(event.description).toContain("Lead: WA-6596253507");
+  });
+});
+
+describe("buildInstallationEventSummary", () => {
+  it("uses the primary PO reference and the installation prefix", () => {
+    expect(buildInstallationEventSummary("10044", "Yeong Tay")).toBe(
+      "[Installation] 10044 — Yeong Tay",
+    );
   });
 });

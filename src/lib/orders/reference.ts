@@ -39,3 +39,11 @@ export function isGeneratedReference(value: string): boolean {
   if (value.length !== REFERENCE_LENGTH) return false;
   return [...value].every((c) => REFERENCE_ALPHABET.includes(c));
 }
+
+/** The PO/order reference is the business identifier; DW is legacy fallback. */
+export function primaryOrderIdentifier(
+  orderReference: string | null,
+  displayId: string,
+): string {
+  return orderReference?.trim() || displayId;
+}

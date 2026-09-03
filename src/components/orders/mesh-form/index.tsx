@@ -133,7 +133,11 @@ export function MeshConsultationForm({
   const initial = defaultValues ?? (appointment ? {
     ...EMPTY_DEFAULTS,
     customer: { name: appointment.customer.name, mobile: appointment.customer.mobile, email: appointment.customer.email ?? "" },
-    order: { ...EMPTY_DEFAULTS.order, development: appointment.development ?? "" },
+    order: {
+      ...EMPTY_DEFAULTS.order,
+      development: appointment.development ?? "",
+      site_address: appointment.address ?? "",
+    },
   } : EMPTY_DEFAULTS);
 
   const form = useForm<MeshOrderEditInput>({

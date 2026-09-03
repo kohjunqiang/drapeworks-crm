@@ -33,7 +33,10 @@ import { db } from "@/lib/db/kysely";
 import { loadDeliveryVendors, loadOrderPos } from "@/lib/db/procurement";
 import { buildPos } from "@/lib/po/build";
 import { loadPoInput } from "@/lib/po/load";
-import { trackOrderText } from "@/lib/po/track-order";
+import {
+  overlapTrackOrderText,
+  trackOrderText,
+} from "@/lib/po/track-order";
 import { loadTrackOrder } from "@/lib/po/track-order-load";
 import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
 import type { AllowanceLine } from "@/lib/manufacture/allowance";
@@ -42,7 +45,7 @@ import {
   loadManufactureLines,
   type ManufactureLine,
 } from "@/lib/manufacture/load";
-import type { FreightMode, FulfilmentStatus } from "@/lib/db/schema";
+import type { FreightMode, FulfilmentStatus, ProductLine } from "@/lib/db/schema";
 import { isLocked, statusIndex } from "@/lib/status-flow";
 
 export const dynamic = "force-dynamic";
@@ -134,6 +137,7 @@ export default async function ManufacturePage({
       "orders.current_status as current_status",
       "orders.freight_mode as freight_mode",
       "orders.delivery_vendor_id as delivery_vendor_id",
+      "orders.product_line as product_line",
       "customers.name as customer_name",
     ])
     .where("orders.id", "=", orderId)
@@ -257,6 +261,7 @@ type OrderHeader = {
   freight_mode: FreightMode;
   delivery_vendor_id: string | null;
   customer_name: string;
+  product_line: ProductLine;
 };
 
 function Shell({
@@ -290,7 +295,7 @@ function Shell({
           </div>
           <p className="text-sm text-slate-500 mt-1 break-words">
             {order.display_id} — {order.customer_name}
-            {order.order_reference && ` · Ref ${order.order_reference}`}
+            {order.order_reference && ` · PO ${order.order_reference}`}
           </p>
         </div>
         <Link
@@ -498,9 +503,11 @@ async function FrozenView({
     loadPoInput(orderId, new Date()),
     loadTrackOrder(orderId),
   ]);
-  const poProblems = poLoad.input
-    ? buildPos(poLoad.input).problems
-    : poLoad.problems;
+  const poProblems = order.product_line === "mesh"
+    ? []
+    : poLoad.input
+      ? buildPos(poLoad.input).problems
+      : poLoad.problems;
   const pos: PoListItem[] = poRows.map((row) => ({
     id: row.id,
     category: row.category,
@@ -517,7 +524,18 @@ async function FrozenView({
 
   // Built on the server so the page ships the finished text: what is copied is
   // exactly what is on screen, with no second assembly in the browser.
-  const trackOrderLines = trackOrderText(trackOrder.lines, trackOrder.noteCn);
+  const standardTrackOrder = trackOrderText(
+    trackOrder.lines.filter((line) => line.shipmentKind === "standard_tracks"),
+    trackOrder.noteCn,
+  );
+  const sFoldTrackOrder = trackOrderText(
+    trackOrder.lines.filter((line) => line.shipmentKind === "s_fold_tracks"),
+    trackOrder.noteCn,
+  );
+  const overlapTrackOrder = overlapTrackOrderText(
+    trackOrder.lines,
+    trackOrder.noteCn,
+  );
 
   const confirmedAt = stored.reduce<Date | null>((earliest, r) => {
     const at = new Date(r.confirmed_at);
@@ -561,7 +579,7 @@ async function FrozenView({
             <FrozenMeasurements rooms={rooms} />
           </>
         )}
-        action={poProblems.length === 0 ? (
+        action={order.product_line !== "mesh" && poProblems.length === 0 ? (
           <PoGenerationButton
             orderId={orderId}
             hasDocuments={pos.length > 0}
@@ -569,24 +587,58 @@ async function FrozenView({
         ) : undefined}
       />
       <div className="mb-4">
-        <PoList
-          pos={pos}
-          problems={poProblems}
-          hasCurtains={lines.some((line) => line.line === "curtain")}
-          hasBlinds={lines.some((line) => line.line === "blind")}
-        />
+        {order.product_line === "mesh" ? (
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-slate-800">Mesh vendor order</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Review the frozen panel measurements above, then record the manual vendor handoff.
+            </p>
+          </section>
+        ) : (
+          <PoList
+            pos={pos}
+            problems={poProblems}
+            hasCurtains={lines.some((line) => line.line === "curtain")}
+            hasBlinds={lines.some((line) => line.line === "blind")}
+          />
+        )}
       </div>
       {/* Nothing at all on a blinds-only or mesh order: there are no rails to
           order, and an empty card is a thing to wonder about. */}
-      {trackOrderLines && (
-        <div className="mb-4">
-          <TrackOrderCard
-            text={trackOrderLines}
-            unmeasured={trackOrder.unmeasured}
-          />
+      {(standardTrackOrder || sFoldTrackOrder || overlapTrackOrder) && (
+        <div className="mb-4 space-y-3">
+          {standardTrackOrder && (
+            <TrackOrderCard
+              title="Standard track order"
+              text={standardTrackOrder}
+              unmeasured={trackOrder.unmeasured
+                .filter((line) => line.shipmentKind === "standard_tracks")
+                .map((line) => line.label)}
+            />
+          )}
+          {sFoldTrackOrder && (
+            <TrackOrderCard
+              title="S-fold track order"
+              text={sFoldTrackOrder}
+              unmeasured={trackOrder.unmeasured
+                .filter((line) => line.shipmentKind === "s_fold_tracks")
+                .map((line) => line.label)}
+            />
+          )}
+          {overlapTrackOrder && (
+            <TrackOrderCard
+              title="Overlap track / attachment order"
+              text={overlapTrackOrder}
+              unmeasured={trackOrder.unmeasured
+                .filter((line) => line.overlapTracksAttachment)
+                .map((line) => line.label)}
+            />
+          )}
         </div>
       )}
-      {status === "po_ready" && hasCurrentPos && poProblems.length === 0 && (
+      {status === "po_ready" &&
+        (order.product_line === "mesh" || hasCurrentPos) &&
+        poProblems.length === 0 && (
         <div className="mb-4 flex justify-end">
           <SendToVendorButton orderId={orderId} />
         </div>

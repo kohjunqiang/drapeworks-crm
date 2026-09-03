@@ -11,9 +11,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export function TrackOrderCard({
+  title = "Track order",
   text,
   unmeasured,
 }: {
+  title?: string;
   /** The whole block, already built on the server. */
   text: string;
   /** Windows needing a rail that have no width recorded. */
@@ -43,7 +45,7 @@ export function TrackOrderCard({
     <div className="border border-slate-200 rounded overflow-hidden bg-white">
       <div className="bg-slate-50 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-semibold text-slate-800">
-          Track order <span className="text-slate-500">轨道</span>
+          {title} <span className="text-slate-500">轨道</span>
         </span>
         <button
           type="button"

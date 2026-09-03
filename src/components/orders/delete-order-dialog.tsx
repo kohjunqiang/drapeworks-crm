@@ -13,23 +13,23 @@ import { deleteOrder } from "@/lib/actions/orders";
 
 type Props = {
   orderId: string;
-  displayId: string;
+  orderIdentifier: string;
   customerName: string;
   compact?: boolean;
 };
 
-export function DeleteOrderDialog({ orderId, displayId, customerName, compact = false }: Props) {
+export function DeleteOrderDialog({ orderId, orderIdentifier, customerName, compact = false }: Props) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const armed = confirm.trim() === displayId;
+  const armed = confirm.trim() === orderIdentifier;
 
   function submit() {
     if (!armed) return;
     startTransition(async () => {
       try {
-        await deleteOrder({ orderId, confirmDisplayId: confirm.trim() });
+        await deleteOrder({ orderId, confirmIdentifier: confirm.trim() });
         // deleteOrder redirects; this line typically doesn't execute.
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -53,7 +53,7 @@ export function DeleteOrderDialog({ orderId, displayId, customerName, compact = 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete order {displayId}</DialogTitle>
+            <DialogTitle>Delete order {orderIdentifier}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-slate-700">
@@ -66,7 +66,7 @@ export function DeleteOrderDialog({ orderId, displayId, customerName, compact = 
             <p className="text-xs text-slate-500">
               Type{" "}
               <span className="font-mono font-semibold text-slate-700">
-                {displayId}
+                {orderIdentifier}
               </span>{" "}
               to confirm.
             </p>
@@ -74,7 +74,7 @@ export function DeleteOrderDialog({ orderId, displayId, customerName, compact = 
               type="text"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              placeholder={displayId}
+              placeholder={orderIdentifier}
               className="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-red-500 bg-white"
             />
             <div className="flex items-center justify-end gap-2 pt-2">

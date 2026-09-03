@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "@/lib/db/kysely";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 
 import {
   buildInstallationSummary,
@@ -12,13 +13,14 @@ export async function loadInstallationSummary(
   scheduledAt: Date | string,
   durationMins: number,
   address: string,
-): Promise<{ text: string; customerName: string; displayId: string }> {
+): Promise<{ text: string; customerName: string; primaryReference: string }> {
   const order = await db
     .selectFrom("orders")
     .innerJoin("customers", "customers.id", "orders.customer_id")
     .select([
       "orders.id",
       "orders.display_id",
+      "orders.order_reference",
       "orders.product_line",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
@@ -157,6 +159,9 @@ export async function loadInstallationSummary(
       openings,
     }),
     customerName: order.customer_name,
-    displayId: order.display_id,
+    primaryReference: primaryOrderIdentifier(
+      order.order_reference,
+      order.display_id,
+    ),
   };
 }

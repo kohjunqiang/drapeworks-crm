@@ -51,6 +51,7 @@ async function loadAppointmentPrefill(
         "appointments.id as appointment_id",
         "appointments.lead_id",
         "appointments.development as development",
+        "appointments.address as address",
         "customers.name as customer_name",
         "customers.mobile as customer_mobile",
         "customers.email as customer_email",
@@ -74,6 +75,7 @@ async function loadAppointmentPrefill(
           email: booked.customer_email ?? undefined,
         },
         development: booked.development,
+        address: booked.address,
       };
     }
   }
@@ -82,6 +84,9 @@ async function loadAppointmentPrefill(
   const lead = await db.selectFrom("leads")
     .leftJoin("orders", "orders.lead_id", "leads.id")
     .leftJoin("customers", "customers.id", "leads.customer_id")
+    .leftJoin("appointments", (join) => join
+      .onRef("appointments.lead_id", "=", "leads.id")
+      .on("appointments.status", "=", "scheduled"))
     .select([
       "leads.id",
       "leads.name as lead_name",
@@ -90,6 +95,9 @@ async function loadAppointmentPrefill(
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
+      "appointments.id as appointment_id",
+      "appointments.address as appointment_address",
+      "appointments.development as appointment_development",
     ])
     .where("leads.id", "=", leadId)
     .where("leads.is_archived", "=", false)
@@ -99,13 +107,15 @@ async function loadAppointmentPrefill(
   if (!lead) return undefined;
 
   return {
+    id: lead.appointment_id ?? undefined,
     leadId: lead.id,
     customer: {
       name: lead.customer_name ?? lead.lead_name,
       mobile: lead.customer_mobile ?? lead.lead_mobile ?? "",
       email: lead.customer_email ?? undefined,
     },
-    development: lead.development,
+    development: lead.appointment_development ?? lead.development,
+    address: lead.appointment_address,
   };
 }
 

@@ -34,6 +34,8 @@ export type TrackOrderLine = {
   widthCm: number;
   /** Double when the window carries both a day and a night curtain. */
   kind: "single" | "double";
+  /** S-fold rails are ordered and freighted separately from standard rails. */
+  shipmentKind: "standard_tracks" | "s_fold_tracks";
   /** The track is fixed to the side wall rather than installed conventionally. */
   sideInstallation: boolean;
   /** Supply the overlap-track attachment for this opening. */
@@ -114,12 +116,26 @@ function mmToM(mm: number): string {
 export function trackOrderLine(line: TrackOrderLine): string {
   const kindCn = line.kind === "double" ? "双轨" : "单轨";
   const installation = line.sideInstallation ? " 侧装 Side installation" : "";
-  const overlap = line.overlapTracksAttachment
-    ? " Overlap tracks / attachment"
-    : "";
+  const trackType = line.shipmentKind === "s_fold_tracks" ? " S-Fold" : "";
   return `${cmToM(line.widthCm)}米 ${kindCn}裁成${mmToM(
     cutLengthMm(line.widthCm),
-  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${installation}${overlap}`;
+  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${trackType}${installation}`;
+}
+
+export function overlapTrackOrderLine(line: TrackOrderLine): string {
+  const kindCn = line.kind === "double" ? "双轨" : "单轨";
+  return `${cmToM(line.widthCm)}米 ${kindCn} Overlap track / attachment`;
+}
+
+export function overlapTrackOrderText(
+  lines: readonly TrackOrderLine[],
+  noteCn: string | null,
+): string {
+  const overlapLines = lines.filter((line) => line.overlapTracksAttachment);
+  if (overlapLines.length === 0) return "";
+  const body = overlapLines.map(overlapTrackOrderLine);
+  const note = noteCn?.trim();
+  return note ? [...body, note].join("\n") : body.join("\n");
 }
 
 /**

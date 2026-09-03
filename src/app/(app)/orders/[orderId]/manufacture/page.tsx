@@ -192,12 +192,12 @@ function PoDetailsSection({
   order,
   deliveryAddresses,
   measurements,
-  action,
+  collapseMeasurements = false,
 }: {
   order: OrderHeader;
   deliveryAddresses: DeliveryAddress[];
   measurements?: React.ReactNode;
-  action?: React.ReactNode;
+  collapseMeasurements?: boolean;
 }) {
   return (
     <section className="mb-4 rounded-lg border border-slate-200 bg-white overflow-hidden">
@@ -207,11 +207,6 @@ function PoDetailsSection({
           These details are printed on every vendor PDF for this order.
         </p>
       </div>
-      {measurements && (
-        <div className="border-b border-slate-200 p-4">
-          {measurements}
-        </div>
-      )}
       <div className="grid gap-4 p-4 md:grid-cols-2">
         <PoNumberInput
           key={`${order.id}:${order.order_reference}`}
@@ -240,11 +235,111 @@ function PoDetailsSection({
           />
         </div>
       </div>
-      {action && (
-        <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
-          {action}
+      {measurements && (collapseMeasurements ? (
+        <details className="group border-t border-slate-200">
+          <summary className="cursor-pointer list-none bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100">
+            <span className="inline-flex items-center gap-2">
+              <span className="transition-transform group-open:rotate-90">›</span>
+              View finalized installation measurements
+            </span>
+          </summary>
+          <div className="border-t border-slate-200 p-4">{measurements}</div>
+        </details>
+      ) : (
+        <div className="border-t border-slate-200 p-4">{measurements}</div>
+      ))}
+    </section>
+  );
+}
+
+function VendorHandoffCard({
+  orderId,
+  status,
+  productLine,
+  hasCurrentPos,
+  hasDocuments,
+  problems,
+}: {
+  orderId: string;
+  status: FulfilmentStatus;
+  productLine: ProductLine;
+  hasCurrentPos: boolean;
+  hasDocuments: boolean;
+  problems: string[];
+}) {
+  const handoffConfirmed = statusIndex(status) >= statusIndex("sent_to_vendor");
+  const vendorFilesReady = productLine === "mesh" || hasCurrentPos;
+  const steps = [
+    { label: "Measurements finalized", done: true },
+    { label: productLine === "mesh" ? "Manual order reviewed" : "Vendor files ready", done: vendorFilesReady },
+    { label: "Handoff confirmed", done: handoffConfirmed },
+  ];
+
+  return (
+    <section className="mb-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
+        <h2 className="text-base font-semibold text-slate-900">Vendor handoff</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {handoffConfirmed
+            ? "Handoff is confirmed. The files recorded for the vendor are available below."
+            : vendorFilesReady
+              ? "Files are ready. Review or share them below, then confirm the manual handoff."
+              : "Prepare the vendor files, review them, then confirm they were sent."}
+        </p>
+      </div>
+      <ol className="grid gap-px bg-slate-200 sm:grid-cols-3">
+        {steps.map((step, index) => {
+          const current = !step.done && steps.slice(0, index).every((item) => item.done);
+          return (
+            <li key={step.label} className="flex items-center gap-3 bg-white px-4 py-3">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                step.done
+                  ? "bg-emerald-100 text-emerald-700"
+                  : current
+                    ? "bg-orange-100 text-orange-700 ring-2 ring-orange-200"
+                    : "bg-slate-100 text-slate-500"
+              }`}>
+                {step.done ? "✓" : index + 1}
+              </span>
+              <span className={`text-sm ${step.done ? "font-medium text-slate-800" : "text-slate-600"}`}>
+                {step.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <p className="text-xs text-slate-500">
+          {handoffConfirmed
+            ? "Creating a revised PO does not send it; the new revision must be handed off again."
+            : problems.length > 0
+              ? "Resolve the PO issues listed below before continuing."
+              : vendorFilesReady
+                ? "Generating and sending are separate: confirm only after every current file is sent."
+                : "Generation creates the files only—it does not contact the vendor."}
+        </p>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+          {handoffConfirmed && (
+            <span className="rounded bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
+              ✓ Sent to vendor
+            </span>
+          )}
+          {productLine !== "mesh" && vendorFilesReady && (
+            <PoGenerationButton
+              orderId={orderId}
+              hasDocuments={hasDocuments}
+              variant="secondary"
+              label={handoffConfirmed ? "Create revised POs" : "Regenerate POs"}
+            />
+          )}
+          {status === "po_ready" && !vendorFilesReady && problems.length === 0 && (
+            <PoGenerationButton orderId={orderId} hasDocuments={hasDocuments} />
+          )}
+          {status === "po_ready" && vendorFilesReady && (
+            <SendToVendorButton orderId={orderId} />
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }
@@ -557,9 +652,18 @@ async function FrozenView({
 
   return (
     <>
+      <VendorHandoffCard
+        orderId={orderId}
+        status={status}
+        productLine={order.product_line}
+        hasCurrentPos={hasCurrentPos}
+        hasDocuments={pos.length > 0}
+        problems={poProblems}
+      />
       <PoDetailsSection
         order={order}
         deliveryAddresses={deliveryAddresses}
+        collapseMeasurements
         measurements={(
           <>
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -579,12 +683,6 @@ async function FrozenView({
             <FrozenMeasurements rooms={rooms} />
           </>
         )}
-        action={order.product_line !== "mesh" && poProblems.length === 0 ? (
-          <PoGenerationButton
-            orderId={orderId}
-            hasDocuments={pos.length > 0}
-          />
-        ) : undefined}
       />
       <div className="mb-4">
         {order.product_line === "mesh" ? (
@@ -634,13 +732,6 @@ async function FrozenView({
                 .map((line) => line.label)}
             />
           )}
-        </div>
-      )}
-      {status === "po_ready" &&
-        (order.product_line === "mesh" || hasCurrentPos) &&
-        poProblems.length === 0 && (
-        <div className="mb-4 flex justify-end">
-          <SendToVendorButton orderId={orderId} />
         </div>
       )}
     </>

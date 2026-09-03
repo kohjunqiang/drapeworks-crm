@@ -15,6 +15,8 @@ type Props = {
     status?: string;
     consultant?: string;
     product?: string;
+    sort?: string;
+    dir?: string;
   };
   consultants: Consultant[];
 };
@@ -24,13 +26,22 @@ const INPUT_CLS =
 
 function buildHref(
   base: string,
-  next: { q: string; status: string; consultant: string; product: string },
+  next: {
+    q: string;
+    status: string;
+    consultant: string;
+    product: string;
+    sort?: string;
+    dir?: string;
+  },
 ): string {
   const params = new URLSearchParams();
   if (next.q) params.set("q", next.q);
   if (next.status) params.set("status", next.status);
   if (next.consultant) params.set("consultant", next.consultant);
   if (next.product) params.set("product", next.product);
+  if (next.sort) params.set("sort", next.sort);
+  if (next.dir) params.set("dir", next.dir);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
@@ -51,7 +62,14 @@ export function OrdersFilters({ defaults, consultants }: Props) {
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       startTransition(() => {
-        router.push(buildHref(pathname, { q, status, consultant, product }));
+        router.push(buildHref(pathname, {
+          q,
+          status,
+          consultant,
+          product,
+          sort: defaults.sort,
+          dir: defaults.dir,
+        }));
       });
     }, 300);
     return () => {

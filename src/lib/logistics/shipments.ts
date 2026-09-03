@@ -102,9 +102,9 @@ export function validateShipmentNumbersForTransition(
   }
   if (
     mode === "overseas" &&
-    received.some((shipment) => !shipment.overseasFreightNumber?.trim())
+    !received.some((shipment) => shipment.overseasFreightNumber?.trim())
   ) {
-    return "Enter an overseas freight number for every shipment.";
+    return "Enter an overseas freight number for at least one shipment.";
   }
   if (received.some((shipment) => shipment.source === "legacy_combined")) {
     return "Confirm a dedicated number for each imported combined shipment.";

@@ -58,6 +58,12 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
 
     const overseasRequired =
       statusIndex(order.current_status) >= statusIndex("shipping_sg");
+    if (
+      overseasRequired &&
+      !parsed.shipments.some((shipment) => shipment.overseasFreightNumber)
+    ) {
+      throw new Error("Enter an overseas freight number for at least one shipment.");
+    }
     for (const shipment of parsed.shipments) {
       const existing = state.shipments.find(
         (row) => row.category === shipment.category,
@@ -80,9 +86,6 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
       }
       if (requiresLocalDelivery(shipment.category) && !shipment.localDeliveryNumber) {
         throw new Error(`Enter the local delivery number for ${shipment.category}.`);
-      }
-      if (overseasRequired && !shipment.overseasFreightNumber) {
-        throw new Error(`Enter the overseas freight number for ${shipment.category}.`);
       }
       if (!overseasRequired && !requiresLocalDelivery(shipment.category)) {
         continue;

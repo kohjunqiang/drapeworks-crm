@@ -75,6 +75,10 @@ export type PoLine = {
   fabricLabel: string | null;
   /** Print a prominent per-covering factory instruction in the fabric cell. */
   blackout: boolean;
+  /** Whether this curtain uses an S-fold track and needs the supplier remark. */
+  sFold: boolean;
+  /** Raw draw direction, used to calculate runners per curtain side. */
+  draw: "Double" | "Single Left" | "Single Right" | null;
   /**
    * 开法 cell — "对开 Double draw", "要罩盒 - with cover". Verbatim.
    *
@@ -151,6 +155,8 @@ export type PoRow = {
   opening: string;
   /** Optional unequal double-draw leaf widths, printed below Opening. */
   openingDetail?: string;
+  /** Red S-fold supplier instruction, printed in this row's Opening cell. */
+  sFoldRemark?: string;
 };
 
 /**
@@ -163,6 +169,23 @@ export type PoRow = {
  */
 export type PoTable = { columnSet: "curtain" | "blind"; rows: PoRow[] };
 export type PoCategory = "day" | "night" | "blind";
+
+const LEGACY_SFOLD_REMARKS = new Set([
+  "蛇形，待供应商确认走珠数量",
+  "蛇形,待供应商确认走珠数量",
+]);
+
+/** Remove the former document-level S-fold line while retaining manual notes. */
+export function withoutLegacySFoldRemark(
+  notes: string | null | undefined,
+): string | null {
+  const remaining = (notes ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !LEGACY_SFOLD_REMARKS.has(line.trim()))
+    .join("\n")
+    .trim();
+  return remaining || null;
+}
 
 /** 订单资料 — curtain-only; blank on the Blinds sample. */
 export type PoOrderDetails = {
@@ -355,6 +378,39 @@ type ReadyLine = {
   fabricLabel: string;
 };
 
+/** S-fold runners are spaced at 6 cm and supplied in even counts per leaf. */
+function runnersForWidth(widthCm: number): number {
+  return Math.ceil(widthCm / 12) * 2;
+}
+
+export function sFoldRunnerRemark(
+  line: Pick<
+    PoLine,
+    "draw" | "mfgWidthCm" | "splitLeftCm" | "splitRightCm"
+  >,
+): string {
+  if (line.draw !== "Double") {
+    return `需要蛇形，总数${runnersForWidth(line.mfgWidthCm)}走珠`;
+  }
+
+  let leftWidthCm = line.mfgWidthCm / 2;
+  let rightWidthCm = line.mfgWidthCm / 2;
+  if (line.splitLeftCm != null && line.splitRightCm != null) {
+    const measuredTotal = line.splitLeftCm + line.splitRightCm;
+    leftWidthCm = Math.round(
+      (line.mfgWidthCm * line.splitLeftCm) / measuredTotal,
+    );
+    rightWidthCm = line.mfgWidthCm - leftWidthCm;
+  }
+
+  const leftRunners = runnersForWidth(leftWidthCm);
+  const rightRunners = runnersForWidth(rightWidthCm);
+  const totalRunners = leftRunners + rightRunners;
+  return leftRunners === rightRunners
+    ? `需要蛇形，总数${totalRunners}走珠，单边${leftRunners}走珠`
+    : `需要蛇形，总数${totalRunners}走珠，左边${leftRunners}走珠，右边${rightRunners}走珠`;
+}
+
 function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
   const { line } = ready;
   let openingDetail: string | undefined;
@@ -390,6 +446,7 @@ function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
     heightM: cmToM(line.mfgHeightCm),
     opening: ready.openingLabel,
     ...(openingDetail ? { openingDetail } : {}),
+    ...(line.sFold ? { sFoldRemark: sFoldRunnerRemark(line) } : {}),
   };
 }
 
@@ -526,6 +583,10 @@ export function buildPos(input: PoInput): {
       tables.push({ columnSet: "blind", rows: blindRows });
     }
 
+    const notes = withoutLegacySFoldRemark(
+      input.notesByDocument?.get(`${vendorId}:${category}`),
+    );
+
     pos.push({
       category,
       settings: input.settings,
@@ -546,7 +607,7 @@ export function buildPos(input: PoInput): {
             }
           : null,
       tables,
-      notes: input.notesByDocument?.get(`${vendorId}:${category}`) ?? null,
+      notes,
     });
   }
 

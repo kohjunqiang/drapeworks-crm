@@ -45,9 +45,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db);
   await sql`alter table public.orders enable trigger orders_reject_locked_edit`.execute(db);
 
-  // Reconcile converted legacy links with recorded deposits. This follows the
-  // same lead milestone as the normal Deposit Received action and preserves an
-  // audit event for every corrected lead.
+  // Reconcile converted legacy links whose ORDER WORKFLOW records receipt of a
+  // deposit. deposit_cents is only the amount quoted on the consultation form;
+  // it is positive before the customer pays and must never be used as evidence.
   await sql`
     insert into public.lead_stage_events (
       lead_id, from_stage, to_stage, changed_at, changed_by, source
@@ -55,7 +55,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     select l.id, l.funnel_stage, 'Won'::lead_funnel_stage, now(), null, 'system'
       from public.leads l
       join public.orders o on o.lead_id = l.id
-     where o.deposit_cents > 0
+     where o.current_status in (
+       'deposit_received', 'po_ready', 'sent_to_vendor', 'sent_logistic',
+       'shipping_sg', 'delivered_checked', 'fulfilment', 'completed'
+     )
        and l.funnel_stage <> 'Won'
   `.execute(db);
   await sql`
@@ -65,7 +68,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
            updated_at = now()
       from public.orders o
      where o.lead_id = l.id
-       and o.deposit_cents > 0
+       and o.current_status in (
+         'deposit_received', 'po_ready', 'sent_to_vendor', 'sent_logistic',
+         'shipping_sg', 'delivered_checked', 'fulfilment', 'completed'
+       )
        and l.funnel_stage <> 'Won'
   `.execute(db);
 

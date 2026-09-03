@@ -114,12 +114,14 @@ export function AdvanceStatusButton({
         ) {
           nextErrors[`${shipment.category}-local`] = "Local delivery number is required.";
         }
-        if (
-          trackingMode === "overseas" &&
-          !overseasNumbers[shipment.category]?.trim()
-        ) {
-          nextErrors[`${shipment.category}-overseas`] = "Overseas freight number is required.";
-        }
+      }
+      if (
+        trackingMode === "overseas" &&
+        !shipments.some((shipment) =>
+          overseasNumbers[shipment.category]?.trim())
+      ) {
+        nextErrors[`${shipments[0].category}-overseas`] =
+          "Enter a freight number for at least one shipment.";
       }
       const firstError = Object.keys(nextErrors)[0];
       if (firstError) {
@@ -143,7 +145,7 @@ export function AdvanceStatusButton({
                   ? localNumbers[shipment.category].trim()
                   : undefined,
                 overseasFreightNumber: trackingMode === "overseas"
-                  ? overseasNumbers[shipment.category].trim()
+                  ? overseasNumbers[shipment.category].trim() || undefined
                   : undefined,
               }))
             : undefined,
@@ -193,7 +195,7 @@ export function AdvanceStatusButton({
           setOpen(true);
         }}
         disabled={pending || trackingIncomplete || manifestMissing}
-        className="px-3 py-1.5 text-xs sm:text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
+        className="px-3 py-1.5 text-xs sm:text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
       >
         {pending
           ? "Saving…"
@@ -238,12 +240,12 @@ export function AdvanceStatusButton({
                       ? "These track orders are sent directly. No local delivery number is required."
                       : trackingMode === "local"
                       ? "Curtains, Blinds and Mesh go via the logistics partner. Track orders are sent directly."
-                      : "Enter one overseas freight number for every shipment."}
+                      : "Enter the freight number for any shipment leaving now. Add the others later from Edit shipment numbers."}
                   </p>
                 </div>
                 {Object.keys(fieldErrors).length > 0 && (
                   <p role="alert" className="text-xs font-medium text-red-600">
-                    Enter all required shipment numbers.
+                    Enter at least one freight number to mark shipping.
                   </p>
                 )}
                 <div className="space-y-3">
@@ -377,7 +379,7 @@ export function AdvanceStatusButton({
                 type="button"
                 onClick={submit}
                 disabled={pending || photoUploading}
-                className="px-4 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
+                className="px-4 py-1.5 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
               >
                 {photoUploading
                   ? "Uploading photos…"

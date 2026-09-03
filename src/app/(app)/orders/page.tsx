@@ -25,7 +25,16 @@ type SearchParams = {
   status?: string;
   consultant?: string;
   product?: string;
+  sort?: string;
+  dir?: string;
 };
+
+type OrderSort = "identifier" | "status";
+type SortDirection = "asc" | "desc";
+
+function isOrderSort(value: string | undefined): value is OrderSort {
+  return value === "identifier" || value === "status";
+}
 
 export default async function OrdersDashboardPage({
   searchParams,
@@ -37,6 +46,8 @@ export default async function OrdersDashboardPage({
     status: statusRaw,
     consultant: consultantRaw,
     product: productRaw,
+    sort: sortRaw,
+    dir: directionRaw,
   } = await searchParams;
   const session = await requireSession();
   const q = (qRaw ?? "").trim();
@@ -47,6 +58,9 @@ export default async function OrdersDashboardPage({
       : undefined;
   const productLine =
     productRaw === "curtain" || productRaw === "mesh" ? productRaw : undefined;
+  const hasExplicitSort = isOrderSort(sortRaw);
+  const sort: OrderSort = hasExplicitSort ? sortRaw : "identifier";
+  const direction: SortDirection = directionRaw === "desc" ? "desc" : "asc";
 
   // Stat counts.
   const counts = await db
@@ -69,6 +83,10 @@ export default async function OrdersDashboardPage({
           "shipping_sg",
         ])
         .as("awaiting_shipment"),
+      eb.fn
+        .count<number>("id")
+        .filterWhere("current_status", "=", "sent_to_vendor")
+        .as("in_production"),
       eb.fn
         .count<number>("id")
         .filterWhere("current_status", "in", [
@@ -131,6 +149,26 @@ export default async function OrdersDashboardPage({
     );
   }
 
+  if (sort === "identifier") {
+    listQ = listQ.orderBy(
+      sql<string>`coalesce(nullif(orders.order_reference, ''), orders.display_id)`,
+      direction,
+    );
+  } else if (sort === "status") {
+    listQ = listQ.orderBy(sql<number>`case orders.current_status
+      when 'order_recorded' then 0
+      when 'quotation_sent' then 1
+      when 'deposit_received' then 2
+      when 'po_ready' then 3
+      when 'sent_to_vendor' then 4
+      when 'sent_logistic' then 5
+      when 'shipping_sg' then 6
+      when 'delivered_checked' then 7
+      when 'fulfilment' then 8
+      when 'completed' then 9
+      else 10 end`, direction);
+  }
+
   const rows = await listQ
     .orderBy("orders.created_at", "desc")
     .limit(50)
@@ -169,6 +207,20 @@ export default async function OrdersDashboardPage({
     label: r.full_name?.trim() || r.email.split("@")[0],
   }));
 
+  function sortHref(column: OrderSort): string {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (status) params.set("status", status);
+    if (consultantId) params.set("consultant", consultantId);
+    if (productLine) params.set("product", productLine);
+    params.set("sort", column);
+    params.set(
+      "dir",
+      sort === column && direction === "asc" ? "desc" : "asc",
+    );
+    return `/orders?${params.toString()}`;
+  }
+
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
@@ -190,13 +242,23 @@ export default async function OrdersDashboardPage({
 
       <OrdersStats
         active={Number(counts.active)}
+        inProduction={Number(counts.in_production)}
         awaitingShipment={Number(counts.awaiting_shipment)}
         readyForInstallation={Number(counts.ready_for_installation)}
         completedThisMonth={Number(counts.completed_this_month)}
       />
 
       <OrdersFilters
-        defaults={{ q, status, consultant: consultantId, product: productLine }}
+        defaults={{
+          q,
+          status,
+          consultant: consultantId,
+          product: productLine,
+          // Keep the clean /orders URL clean. With no explicit sort params the
+          // server still applies the default Order / PO ascending order.
+          sort: hasExplicitSort ? sort : undefined,
+          dir: hasExplicitSort ? direction : undefined,
+        }}
         consultants={consultants}
       />
 
@@ -208,7 +270,16 @@ export default async function OrdersDashboardPage({
         />
       ) : (
         <>
-          <OrdersTable orders={orders} canDelete={session.profile.role === "admin"} />
+          <OrdersTable
+            orders={orders}
+            canDelete={session.profile.role === "admin"}
+            sort={sort}
+            direction={direction}
+            sortHrefs={{
+              identifier: sortHref("identifier"),
+              status: sortHref("status"),
+            }}
+          />
           <OrdersCards orders={orders} canDelete={session.profile.role === "admin"} />
         </>
       )}

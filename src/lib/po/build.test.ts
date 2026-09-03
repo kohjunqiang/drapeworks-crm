@@ -8,6 +8,7 @@ import {
   fullnessLabel,
   procurementLabel,
   roomLabel,
+  sFoldRunnerRemark,
   sqmM,
   type PoDelivery,
   type PoInput,
@@ -98,6 +99,8 @@ function line(over: Partial<PoLine> & Pick<PoLine, "lineId">): PoLine {
     typeLabel: "窗帘 Night",
     fabricLabel: "清风麻 -2",
     blackout: false,
+    sFold: false,
+    draw: "Double",
     openingLabel: "对开 Double draw",
     mfgWidthCm: 274,
     mfgHeightCm: 255,
@@ -785,6 +788,29 @@ describe("buildPos — a vendor supplying both curtains and blinds", () => {
 });
 
 describe("buildPos — notes", () => {
+  it("matches the 6.04m double-draw S-fold runner example", () => {
+    expect(sFoldRunnerRemark(line({
+      lineId: "example",
+      mfgWidthCm: 604,
+      draw: "Double",
+    }))).toBe("需要蛇形，总数104走珠，单边52走珠");
+  });
+
+  it("calculates single and unequal double-draw runner instructions", () => {
+    expect(sFoldRunnerRemark(line({
+      lineId: "single",
+      mfgWidthCm: 604,
+      draw: "Single Left",
+    }))).toBe("需要蛇形，总数102走珠");
+    expect(sFoldRunnerRemark(line({
+      lineId: "unequal",
+      mfgWidthCm: 335,
+      draw: "Double",
+      splitLeftCm: 110,
+      splitRightCm: 225,
+    }))).toBe("需要蛇形，总数58走珠，左边20走珠，右边38走珠");
+  });
+
   it("attaches the per-vendor note the Night sample carries", () => {
     const { pos } = buildPos(
       input({
@@ -800,6 +826,81 @@ describe("buildPos — notes", () => {
     const { pos } = buildPos(input({ lines: [line({ lineId: "a" })] }));
 
     expect(pos[0].notes).toBeNull();
+  });
+
+  it("adds the supplier runner-count remark when an S-fold covering is on a Day PO", () => {
+    const { pos } = buildPos(input({
+      lines: [line({
+        lineId: "s-fold-day",
+        category: "day",
+        typeLabel: "纱窗 Day",
+        sFold: true,
+      })],
+    }));
+
+    expect(pos[0].notes).toBeNull();
+    expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
+      "需要蛇形，总数48走珠，单边24走珠",
+    );
+  });
+
+  it("adds the supplier runner-count remark when an S-fold covering is on a Night PO", () => {
+    const { pos } = buildPos(input({
+      lines: [line({ lineId: "s-fold-night", sFold: true })],
+    }));
+
+    expect(pos[0].notes).toBeNull();
+    expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
+      "需要蛇形，总数48走珠，单边24走珠",
+    );
+  });
+
+  it("prints the S-fold remark only on the affected row", () => {
+    const { pos } = buildPos(input({
+      lines: [
+        line({ lineId: "plain", roomId: "r1" }),
+        line({ lineId: "s-fold", roomId: "r2", sFold: true }),
+      ],
+    }));
+
+    expect(pos[0].tables[0].rows.map((row) => row.sFoldRemark)).toEqual([
+      undefined,
+      "需要蛇形，总数48走珠，单边24走珠",
+    ]);
+  });
+
+  it("keeps an existing document note separate from the row-level S-fold remark", () => {
+    const key = `${RISING.id}:day`;
+    const { pos } = buildPos(input({
+      lines: [line({
+        lineId: "s-fold-day",
+        category: "day",
+        typeLabel: "纱窗 Day",
+        sFold: true,
+      })],
+      notesByDocument: new Map([[key, "Use white hooks"]]),
+    }));
+
+    expect(pos[0].notes).toBe("Use white hooks");
+    expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
+      "需要蛇形，总数48走珠，单边24走珠",
+    );
+  });
+
+  it.each([
+    "蛇形,待供应商确认走珠数量",
+    "蛇形，待供应商确认走珠数量",
+  ])("removes the former document-level S-fold line: %s", (legacyRemark) => {
+    const key = `${RISING.id}:night`;
+    const { pos } = buildPos(input({
+      lines: [line({ lineId: "s-fold", sFold: true })],
+      notesByDocument: new Map([[key, `Manual note\n${legacyRemark}`]]),
+    }));
+
+    expect(pos[0].notes).toBe("Manual note");
+    expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
+      "需要蛇形，总数48走珠，单边24走珠",
+    );
   });
 });
 

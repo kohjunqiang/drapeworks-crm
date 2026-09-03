@@ -284,9 +284,13 @@ function PoRow({ po }: { po: PoListItem }) {
 export function PoGenerationButton({
   orderId,
   hasDocuments,
+  variant = "primary",
+  label,
 }: {
   orderId: string;
   hasDocuments: boolean;
+  variant?: "primary" | "secondary";
+  label?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -317,13 +321,15 @@ export function PoGenerationButton({
         type="button"
         onClick={() => setOpen(true)}
         disabled={pending}
-        className="px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium whitespace-nowrap"
+        className={variant === "primary"
+          ? "px-3 py-1.5 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium whitespace-nowrap"
+          : "px-3 py-1.5 text-sm border border-slate-300 bg-white hover:bg-slate-50 disabled:bg-slate-100 text-slate-700 rounded font-medium whitespace-nowrap"}
       >
         {pending
           ? "Generating…"
-          : hasDocuments
+          : label ?? (hasDocuments
             ? "Regenerate"
-            : "Generate now"}
+            : "Generate now")}
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -370,7 +376,7 @@ export function PoGenerationButton({
                 type="button"
                 onClick={run}
                 disabled={pending}
-                className="px-4 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white rounded font-medium"
+                className="px-4 py-1.5 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
               >
                 {pending
                   ? "Generating…"

@@ -12,6 +12,10 @@ import { isCalendarConfigured } from "@/lib/calendar/google";
 import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, leadQuickEditSchema, logUpdateSchema, recommendationSchema } from "@/lib/validation/lead";
 
 const nextLeadRef = () => `MN-${Date.now()}-${randomBytes(3).toString("hex")}`;
+const MANUAL_WON_ERROR = "Record the deposit on the linked order. The lead becomes Won automatically at Deposit Received.";
+const rejectManualWon = (before: string | null, after: string | undefined) => {
+  if (after === "Won" && before !== "Won") throw new Error(MANUAL_WON_ERROR);
+};
 const revalidateLead = (id: string) => {
   revalidatePath("/queue"); revalidatePath("/leads");
   revalidatePath(`/leads/${id}`); revalidatePath(`/leads/${id}/edit`);
@@ -55,6 +59,7 @@ export async function getLeadModalData(id: string) {
 export async function createLead(input: unknown): Promise<{ id: string }> {
   const session = await requireRole(["consultant", "admin"]);
   const p = leadCreateSchema.parse(input);
+  rejectManualWon(null, p.funnel_stage);
   const row = await db.insertInto("leads").values({
     lead_ref: nextLeadRef(), name: p.name, mobile: p.mobile ?? null,
     first_initiated_at: new Date(`${p.first_initiated_date}T00:00:00+08:00`),
@@ -78,6 +83,7 @@ export async function logLeadUpdate(input: unknown): Promise<void> {
     const before = await trx.selectFrom("leads")
       .select(["funnel_stage", "last_outcome", "quote_valid_days"])
       .where("id", "=", p.lead_id).forUpdate().executeTakeFirstOrThrow();
+    rejectManualWon(before.funnel_stage, p.funnel_stage);
     const quoteDate = p.quotation_sent_date
       ? new Date(`${p.quotation_sent_date}T00:00:00+08:00`) : undefined;
     const recommendationChanged = before.funnel_stage !== p.funnel_stage ||
@@ -128,8 +134,9 @@ export async function editLeadDetails(input: unknown): Promise<void> {
   await requireRole(["consultant", "admin"]);
   const p = leadDetailsSchema.parse(input);
   const { id, expected_updated_at, owner_id, ...fields } = p;
-  const before = await db.selectFrom("leads").select("move_in_date")
+  const before = await db.selectFrom("leads").select(["move_in_date", "funnel_stage"])
     .where("id", "=", id).executeTakeFirstOrThrow();
+  rejectManualWon(before.funnel_stage, fields.funnel_stage);
   const oldMoveIn = before.move_in_date ? String(before.move_in_date).slice(0, 10) : null;
   const moveInChanged = fields.move_in_date !== undefined && fields.move_in_date !== oldMoveIn;
   const row = await db.updateTable("leads").set({
@@ -148,6 +155,7 @@ export async function quickEditLead(input: unknown): Promise<void> {
   await db.transaction().execute(async (trx) => {
   const before = await trx.selectFrom("leads").select(["funnel_stage", "last_outcome", sql<string | null>`move_in_date::text`.as("move_in_date")])
     .where("id", "=", p.id).forUpdate().executeTakeFirstOrThrow();
+  rejectManualWon(before.funnel_stage, p.funnel_stage);
   const row = await trx.updateTable("leads").set({
     ...(before.funnel_stage !== p.funnel_stage || before.move_in_date !== (p.move_in_date ?? null) || (p.last_outcome !== undefined && before.last_outcome !== p.last_outcome)
       ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
@@ -197,6 +205,7 @@ export async function acceptRecommendation(input: unknown): Promise<void> {
     }, todayInSingapore());
     const recommendation = recommendations.find((item) => item.code === p.code);
     if (!recommendation?.suggestedStage) throw new Error("This recommendation cannot be accepted.");
+    rejectManualWon(lead.funnel_stage, recommendation.suggestedStage);
     if (recommendation.suggestedStage === "Lost" && !p.closure_reason) {
       throw new Error("Select a closure reason before marking this lead Lost.");
     }

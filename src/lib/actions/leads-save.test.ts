@@ -134,4 +134,13 @@ describe("Versioned lead saves", () => {
     await expect(logLeadUpdate({ ...log(), expected_updated_at: undefined })).rejects.toThrow();
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
+
+  it.each([quickEditLead, logLeadUpdate])("refuses a manual transition to Won", async action => {
+    const payload = action === quickEditLead ? edit() : log();
+    await expect(action({ ...payload, funnel_stage: "Won" })).rejects.toThrow(
+      "Record the deposit on the linked order",
+    );
+    expect(mocks.updateTable).not.toHaveBeenCalled();
+    expect(mocks.insertInto).not.toHaveBeenCalled();
+  });
 });

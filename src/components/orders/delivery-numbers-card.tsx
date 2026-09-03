@@ -85,9 +85,6 @@ export function DeliveryNumbersCard({
       ) {
         fields.push({ category: shipment.category, field: "local" });
       }
-      if (overseasReached && !shipment.overseasFreightNumber?.trim()) {
-        fields.push({ category: shipment.category, field: "overseas" });
-      }
       return fields;
     });
     if (missing.length > 0) {
@@ -444,7 +441,7 @@ export function DeliveryNumbersCard({
           )}
           <div className="flex justify-end">
             <Button
-              disabled={arrivalPending || incomplete ||
+              disabled={arrivalPending ||
                 (!hasArrivalChanges && !allDraftArrived)}
               onClick={saveArrivals}
             >

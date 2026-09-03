@@ -26,6 +26,9 @@ export type OrderRow = {
 type Props = {
   orders: OrderRow[];
   canDelete?: boolean;
+  sort?: "identifier" | "status";
+  direction?: "asc" | "desc";
+  sortHrefs?: { identifier: string; status: string };
 };
 
 export function productLineLabel(line: "curtain" | "mesh"): string {
@@ -43,18 +46,68 @@ function formatDate(d: Date | string | null): string {
   return SG_DATE.format(new Date(d));
 }
 
-export function OrdersTable({ orders, canDelete = false }: Props) {
+function SortableHeader({
+  label,
+  active,
+  direction,
+  href,
+}: {
+  label: string;
+  active: boolean;
+  direction: "asc" | "desc";
+  href: string;
+}) {
+  return (
+    <th
+      className="px-4 py-3 text-left font-medium"
+      aria-sort={active
+        ? direction === "asc" ? "ascending" : "descending"
+        : "none"}
+    >
+      <Link
+        href={href}
+        className="inline-flex items-center gap-1.5 rounded-sm hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+      >
+        {label}
+        <span aria-hidden="true" className={active ? "text-teal-700" : "text-slate-400"}>
+          {active ? direction === "asc" ? "↑" : "↓" : "↕"}
+        </span>
+        <span className="sr-only">
+          Sort {active && direction === "asc" ? "descending" : "ascending"}
+        </span>
+      </Link>
+    </th>
+  );
+}
+
+export function OrdersTable({
+  orders,
+  canDelete = false,
+  sort,
+  direction = "asc",
+  sortHrefs = { identifier: "/orders?sort=identifier&dir=asc", status: "/orders?sort=status&dir=asc" },
+}: Props) {
   return (
     <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
           <tr>
-            <th className="text-left px-4 py-3 font-medium">Order / PO #</th>
+            <SortableHeader
+              label="Order / PO #"
+              active={sort === "identifier"}
+              direction={direction}
+              href={sortHrefs.identifier}
+            />
             <th className="text-left px-4 py-3 font-medium">Customer</th>
             <th className="text-left px-4 py-3 font-medium">Development</th>
             <th className="text-left px-4 py-3 font-medium">Product</th>
             <th className="text-left px-4 py-3 font-medium">Move-in</th>
-            <th className="text-left px-4 py-3 font-medium">Status</th>
+            <SortableHeader
+              label="Status"
+              active={sort === "status"}
+              direction={direction}
+              href={sortHrefs.status}
+            />
             <th className="text-right px-4 py-3 font-medium">Price</th>
             <th className="text-left px-4 py-3 font-medium">Consultant</th>
             {canDelete && <th className="text-right px-4 py-3 font-medium">Actions</th>}

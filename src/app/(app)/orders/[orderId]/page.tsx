@@ -535,8 +535,23 @@ export default async function OrderDetailPage({
               .join(" · ")}
             {(order.development || order.unit_type) && " · "}
             {order.move_in_date && `Move-in ${formatDate(order.move_in_date)} · `}
-            Order {order.display_id}
+            {order.order_reference
+              ? `PO ${order.order_reference}`
+              : `Order ${order.display_id}`}
           </div>
+          {locked && (
+            <div
+              title={order.current_status === "po_ready"
+                ? "The manufacturing measurements are finalized. Review the vendor POs before sending the order."
+                : `This order is at "${STATUS_LABELS[order.current_status]}". The consultation cannot be edited once it has gone to the vendor.`}
+              className="mt-2 text-xs text-slate-500"
+            >
+              {order.current_status === "po_ready"
+                ? "🔒 Measurements finalized"
+                : "🔒 Sent to vendor"}
+              {lockedAt && ` on ${formatDate(lockedAt)}`}
+            </div>
+          )}
         </div>
         {(() => {
           const canEdit =
@@ -584,18 +599,6 @@ export default async function OrderDetailPage({
 
           return (
             <div className="flex flex-wrap items-center gap-2">
-              {/* Stands in for Edit and Delete rather than sitting beside a
-                  disabled pair: a greyed-out button invites a click and then
-                  explains nothing. */}
-              {locked && (
-                <span
-                  title={`This order is at "${STATUS_LABELS[order.current_status]}". The consultation cannot be edited once it has gone to the vendor.`}
-                  className="px-2.5 py-1.5 text-xs sm:text-sm rounded border border-slate-300 bg-slate-100 text-slate-600"
-                >
-                  🔒 Locked — sent to the vendor
-                  {lockedAt && ` on ${formatDate(lockedAt)}`}
-                </span>
-              )}
               {canEdit && (
                 <Link
                   href={`/orders/${order.id}/edit`}
@@ -611,12 +614,22 @@ export default async function OrderDetailPage({
                 order.current_status === "deposit_received" && (
                   <Link
                     href={`/orders/${order.id}/manufacture`}
-                    className="px-3 py-1.5 text-xs sm:text-sm border border-teal-600 text-teal-700 rounded hover:bg-teal-50 font-medium"
+                    className="rounded bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 sm:text-sm"
                   >
                     Review manufacturing measurements
                   </Link>
                 )}
-              {isAdvancer && isLocked(order.current_status) && (
+              {isAdvancer && order.current_status === "po_ready" && (
+                <Link
+                  href={`/orders/${order.id}/manufacture`}
+                  className="rounded bg-orange-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-700 sm:text-sm"
+                >
+                  Next: Review &amp; send to vendor →
+                </Link>
+              )}
+              {isAdvancer &&
+                isLocked(order.current_status) &&
+                order.current_status !== "po_ready" && (
                 <Link
                   href={`/orders/${order.id}/manufacture`}
                   className="px-3 py-1.5 text-xs sm:text-sm border border-slate-300 rounded hover:bg-white"
@@ -879,7 +892,7 @@ export default async function OrderDetailPage({
                 );
               })()}
               <div>
-                <dt className="text-xs text-slate-500">Order reference</dt>
+                <dt className="text-xs text-slate-500">PO number</dt>
                 <dd className="mt-0.5">
                   <OrderReferenceField
                     orderId={order.id}

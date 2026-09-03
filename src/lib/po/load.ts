@@ -257,6 +257,7 @@ type Covering = Pick<
   | "typeLabel"
   | "fabricLabel"
   | "blackout"
+  | "sFold"
 >;
 
 /**
@@ -323,6 +324,9 @@ async function loadLines(
     const blackout = (addonsByWindow.get(w.id) ?? []).some(
       (addon) => addon.key === "blackout",
     );
+    const sFold = (addonsByWindow.get(w.id) ?? []).some(
+      (addon) => addon.key === "s_fold",
+    );
 
     // 开法. Missing Chinese wording falls back to the recorded English draw.
     // No draw direction at all remains a real source-data failure.
@@ -341,6 +345,7 @@ async function loadLines(
       roomType: w.room_type,
       roomPosition: w.room_position,
       position: w.position,
+      draw: w.draw,
       openingLabel: opening,
       splitLeftCm: w.split_left_cm,
       splitRightCm: w.split_right_cm,
@@ -365,6 +370,7 @@ async function loadLines(
         ),
         fabricLabel: w.blind_label,
         blackout,
+        sFold: false,
       });
     } else {
       if (w.day_label) {
@@ -379,6 +385,7 @@ async function loadLines(
           // when one exists. For a day-only curtain, this is the sole covering
           // and must still carry the factory instruction.
           blackout: blackout && !w.night_label,
+          sFold,
         });
       }
       if (w.night_label) {
@@ -390,6 +397,7 @@ async function loadLines(
           typeLabel: procurementLabel(typeLabels.get("night"), "Night"),
           fabricLabel: w.night_label,
           blackout,
+          sFold,
         });
       }
     }

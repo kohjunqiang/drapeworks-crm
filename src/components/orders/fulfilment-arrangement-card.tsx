@@ -202,7 +202,7 @@ export function FulfilmentArrangementCard({
           ) : null}
           {canManage ? (
             <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger className="inline-flex min-h-11 items-center justify-center rounded bg-teal-600 px-3 text-sm font-medium text-white outline-none hover:bg-teal-700 focus-visible:ring-2 focus-visible:ring-teal-500 sm:min-h-8">
+              <DialogTrigger className="inline-flex min-h-11 items-center justify-center rounded bg-orange-600 px-3 text-sm font-medium text-white outline-none hover:bg-orange-700 focus-visible:ring-2 focus-visible:ring-orange-500 sm:min-h-8">
                 {activeArrangement ? "Reschedule" : "Arrange installation"}
               </DialogTrigger>
               <DialogContent className="sm:max-w-lg">
@@ -236,7 +236,7 @@ export function FulfilmentArrangementCard({
                   <p className="text-xs text-slate-500">Times use Singapore time.</p>
                   <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>Cancel</Button>
-                    <Button type="submit" disabled={pending} className="bg-teal-600 text-white hover:bg-teal-700">
+                    <Button type="submit" disabled={pending} className="bg-orange-600 text-white hover:bg-orange-700">
                       {pending ? "Saving…" : activeArrangement ? "Save new time" : "Book installation"}
                     </Button>
                   </div>

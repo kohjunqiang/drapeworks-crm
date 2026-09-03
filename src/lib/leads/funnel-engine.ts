@@ -14,7 +14,9 @@ export function deriveActionRequired(lead: Pick<FunnelEngineInput, "funnel_stage
   const stage = lead.funnel_stage, outcome = lead.last_outcome, date = lead.next_action_date;
   if (stage === "Won") return "Won";
   if (stage === "Lost" || stage === "Not Qualified") return "Closed";
-  if (outcome === "Customer Confirmed") return "Won";
+  // Customer intent is not payment. Only the order's Deposit Received action
+  // moves the lead to Won; until then the work is still to collect payment.
+  if (outcome === "Customer Confirmed") return "Push for Deposit";
   if (outcome === "Customer Declined") return "Closed";
   if (outcome === "Awaiting Customer") return date !== null && date <= today ? "Follow-Up" : "Awaiting Customer";
   if (outcome === "Customer Replied") return "Reply Required";
@@ -35,7 +37,6 @@ export function deriveCurrentOwner(lead: FunnelEngineInput, presales: string | n
 export function deriveRecommendations(lead: FunnelEngineInput, today: SgDate): Recommendation[] {
   if (["Won", "Lost", "Not Qualified"].includes(lead.funnel_stage)) return [];
   const out: Recommendation[] = [];
-  if (lead.last_outcome === "Customer Confirmed") out.push({ code: "customer-confirmed", message: "Move this lead to Won", suggestedStage: "Won", clearsOutcome: false });
   if (lead.last_outcome === "Customer Declined") out.push({ code: "customer-declined", message: "Move this lead to Lost", suggestedStage: "Lost", clearsOutcome: false });
   if (lead.last_outcome === "Appointment Booked" && FUNNEL_POSITION[lead.funnel_stage] < 4) out.push({ code: "appointment-booked", message: "Move this lead to Attend Appointment", suggestedStage: "Attend Appointment", clearsOutcome: false });
   if (lead.last_outcome === "Quotation Sent" && lead.funnel_stage === "Send Quotation") out.push({ code: "quotation-sent", message: "Move this lead to Collect Deposit", suggestedStage: "Collect Deposit", clearsOutcome: false });

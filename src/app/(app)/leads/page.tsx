@@ -60,6 +60,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         .$if(cohortIds.length > 0, query => query.where("lead_id", "in", cohortIds))
         .$if(cohortIds.length === 0, query => query.where(sql<boolean>`false`))
         .where("to_stage", "in", ["Attend Appointment", "Won"])
+        .where("counts_as_appointment_conversion", "=", true)
         .where(eb => eb.or([eb("lead_stage_events.source", "=", "user"), eb("lead_stage_events.changed_by", "is not", null)]))
         .where("changed_at", ">=", APPOINTMENT_TRACKING_STARTED_AT)
         .execute(),
@@ -75,6 +76,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         .select(["lead_stage_events.lead_id", "to_stage", "changed_at"])
         .where("leads.is_archived", "=", false)
         .where("to_stage", "in", ["Attend Appointment", "Won"])
+        .where("counts_as_appointment_conversion", "=", true)
         .where(eb => eb.or([eb("lead_stage_events.source", "=", "user"), eb("lead_stage_events.changed_by", "is not", null)]))
         .where("changed_at", ">=", allTime ? APPOINTMENT_TRACKING_STARTED_AT : window.start)
         .$if(!allTime, query => query.where("changed_at", "<", window.end))

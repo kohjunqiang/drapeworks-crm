@@ -752,6 +752,7 @@ export interface Leads {
 export interface LeadStageEvents {
   changed_at: Timestamp;
   changed_by: string | null;
+  counts_as_appointment_conversion: Generated<boolean>;
   created_at: Generated<Timestamp>;
   from_stage: LeadFunnelStage | null;
   id: Generated<string>;

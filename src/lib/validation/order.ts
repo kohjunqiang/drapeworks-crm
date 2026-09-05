@@ -249,7 +249,13 @@ export const optionalLeadId = z.string().uuid().optional();
 
 export const orderCreateSchema = z.object({
   customer: customerSchema,
-  order: orderMetaSchema,
+  order: orderMetaSchema.extend({
+    site_address: z
+      .string()
+      .trim()
+      .min(1, "Installation address is required")
+      .max(500),
+  }),
   rooms: z.array(roomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,

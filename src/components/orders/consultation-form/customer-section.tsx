@@ -187,11 +187,12 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
         </div>
         <div className="sm:col-span-2">
           <label className="block text-xs font-medium text-slate-600 mb-1">
-            Installation Address
+            Installation Address <span className="text-red-500">*</span>
           </label>
           <textarea
             rows={2}
             placeholder="Block, street, unit number and postal code"
+            required
             className={INPUT_CLS}
             {...register("order.site_address")}
           />

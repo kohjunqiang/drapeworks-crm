@@ -53,10 +53,8 @@ export function BookAppointmentDialog({
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    // "" is what an untouched or cleared field submits, and every one of these
-    // is optional — passing the empty string through would store it verbatim
-    // and, for duration, coerce to 0 and trip the min(15) rule instead of
-    // falling back to the schema's default of 90.
+    // Convert optional blank fields to undefined. Duration can then use its
+    // schema default instead of coercing an empty string to zero.
     const opt = (key: string) => String(formData.get(key) ?? "").trim() || undefined;
 
     start(async () => {
@@ -68,7 +66,7 @@ export function BookAppointmentDialog({
           time: formData.get("time"),
           duration_mins: opt("duration_mins"),
           development: opt("development"),
-          address: opt("address"),
+          address: formData.get("address"),
           notes: opt("notes"),
           customer:
             customer.mode === "existing"
@@ -166,12 +164,13 @@ export function BookAppointmentDialog({
 
           <div>
             <Label htmlFor="address" className={LABEL}>
-              Address
+              Installation address <span className="text-red-500">*</span>
             </Label>
             <Input
               id="address"
               name="address"
               placeholder="Block, street, unit"
+              required
               className={FIELD}
             />
           </div>

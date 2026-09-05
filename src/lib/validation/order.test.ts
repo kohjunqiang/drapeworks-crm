@@ -208,7 +208,7 @@ const APPOINTMENT = "550e8400-e29b-41d4-a716-446655440009";
 
 const MINIMAL_ORDER = {
   customer: { name: "Tan Wei Ming", mobile: "9123 4567" },
-  order: {},
+  order: { site_address: "12 Lynwood Grove, Singapore 358172" },
   rooms: [
     {
       type: "Living Room",
@@ -223,6 +223,15 @@ const MINIMAL_ORDER = {
 // appointment's id so the write path can reuse its customer instead of
 // inserting a second row for the same person.
 describe("orderCreateSchema / orderDraftSchema — appointment_id", () => {
+  it("requires the installation address before creating an order", () => {
+    expect(
+      orderCreateSchema.safeParse({
+        ...MINIMAL_ORDER,
+        order: { ...MINIMAL_ORDER.order, site_address: "" },
+      }).success,
+    ).toBe(false);
+  });
+
   it("carries an appointment id through a create", () => {
     const parsed = orderCreateSchema.parse({
       ...MINIMAL_ORDER,

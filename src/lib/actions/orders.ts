@@ -558,6 +558,41 @@ export async function requoteOrder(orderId: string): Promise<void> {
   revalidatePath("/orders");
 }
 
+// Accept the calculator's current result as the new comparison baseline while
+// preserving the price already agreed with the customer. This clears a stale
+// pricing warning without changing the quote, deposit, balance or order status.
+export async function acknowledgeQuoteDrift(orderId: string): Promise<void> {
+  if (typeof orderId !== "string" || orderId.length === 0) {
+    throw new Error("Invalid order id");
+  }
+
+  const session = await requireRole(["consultant", "admin"]);
+
+  const order = await db
+    .selectFrom("orders")
+    .select(["id", "consultant_id"])
+    .where("id", "=", orderId)
+    .executeTakeFirst();
+  if (!order) throw new Error("Order not found");
+
+  const isOwner = order.consultant_id === session.user.id;
+  const isAdmin = session.profile.role === "admin";
+  if (!isOwner && !isAdmin) throw new Error("Forbidden");
+
+  const quote = await computeOrderQuote(orderId);
+  if (!quote) throw new Error("Nothing priced to acknowledge");
+  if (quote.pricingIssues?.length) throw new Error(quote.pricingIssues.join("; "));
+
+  await db
+    .updateTable("orders")
+    .set({ price_calc_at_quote_cents: quote.discountedSaleSgdCents })
+    .where("id", "=", orderId)
+    .execute();
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/orders");
+}
+
 export async function amendOrderPayment(input: {
   orderId: string;
   quotedCents: number;

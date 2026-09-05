@@ -23,7 +23,11 @@ export const appointmentCreateSchema = z.object({
   time: z.string().regex(/^\d{2}:\d{2}$/, "Use HH:MM"),
   duration_mins: z.coerce.number().int().min(15).max(480).default(90),
   development: z.string().trim().max(200).optional(),
-  address: z.string().trim().max(500).optional(),
+  address: z
+    .string()
+    .trim()
+    .min(1, "Installation address is required")
+    .max(500),
   notes: z.string().trim().max(2000).optional(),
   customer: customerRef,
 });

@@ -1,4 +1,5 @@
 import { CostBreakdown } from "@/components/orders/cost-breakdown";
+import { RequoteBanner } from "@/components/orders/requote-banner";
 import { formatSGD } from "@/lib/money";
 import { marginBps as marginOf } from "@/lib/pricing/calculator";
 import type { OrderQuote } from "@/lib/pricing/order-quote";
@@ -8,11 +9,24 @@ const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
 export function QuoteCard({
   quote,
   quotedCents,
+  orderId,
+  depositCents = 0,
+  locked = false,
+  meshAreas,
 }: {
   quote: OrderQuote;
   /** What the customer is actually being charged, when it differs from what the
    *  calculator worked out. */
   quotedCents?: number;
+  orderId?: string;
+  depositCents?: number;
+  locked?: boolean;
+  meshAreas?: Array<{
+    label: string;
+    dimensions: string;
+    measuredSqm: number;
+    billableSqm: number;
+  }>;
 }) {
   // The margin that matters is the one against the price actually quoted. This
   // card used to compute it against the CALCULATED sale, so an order priced by
@@ -20,7 +34,8 @@ export function QuoteCard({
   // "below the floor" while the real margin was comfortably above it. That is
   // the one case where a margin warning has to be right, because someone has
   // deliberately departed from the calculation.
-  const overridden = quotedCents != null && quotedCents !== quote.saleSgdCents;
+  const overridden =
+    quotedCents != null && quotedCents !== quote.discountedSaleSgdCents;
   const realMarginBps = overridden
     ? marginOf(quote.netCostSgdCents, quotedCents)
     : quote.marginBps;
@@ -39,10 +54,10 @@ export function QuoteCard({
     <div className="bg-white rounded-lg border border-slate-200 p-4">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-slate-800">
-          Auto-calculated quote
+          Pricing recommendation
         </h2>
         <span className="text-[10px] uppercase tracking-wide text-slate-400">
-          from pricing
+          internal
         </span>
       </div>
 
@@ -73,39 +88,80 @@ export function QuoteCard({
             </div>
           </>
         )}
-        <div className="flex justify-between">
-          <dt className="text-slate-500">Sale price</dt>
-          <dd className="font-semibold text-slate-900">
-            {formatSGD(quote.discountedSaleSgdCents)}
-          </dd>
-        </div>
+        {overridden ? (
+          <div className="grid grid-cols-2 gap-3 pb-1">
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <dt className="text-xs font-medium text-slate-500">
+                Current agreement
+              </dt>
+              <dd className="mt-1 text-base font-semibold text-slate-900">
+                {formatSGD(quotedCents)}
+              </dd>
+              <dd
+                className={`mt-0.5 text-xs font-medium ${
+                  belowFloor ? "text-red-600" : "text-teal-700"
+                }`}
+              >
+                {pct(realMarginBps)} margin
+              </dd>
+            </div>
+            <div className="rounded-md border border-slate-200 p-3">
+              <dt className="text-xs font-medium text-slate-500">
+                System recommendation
+              </dt>
+              <dd className="mt-1 text-base font-semibold text-slate-900">
+                {formatSGD(quote.discountedSaleSgdCents)}
+              </dd>
+              <dd className="mt-0.5 text-xs text-slate-500">
+                {quote.discountedSaleSgdCents > quotedCents ? "+" : ""}
+                {formatSGD(quote.discountedSaleSgdCents - quotedCents)} ·{" "}
+                {pct(quote.marginBps)} margin
+              </dd>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Agreed customer price</dt>
+            <dd className="font-semibold text-slate-900">
+              {formatSGD(quotedCents ?? quote.discountedSaleSgdCents)}
+            </dd>
+          </div>
+        )}
         <div className="flex justify-between">
           <dt className="text-slate-500">Net cost</dt>
           <dd className="text-slate-700">{formatSGD(quote.netCostSgdCents)}</dd>
         </div>
-        <div className="flex justify-between">
-          <dt className="text-slate-500">Margin</dt>
-          <dd
-            className={
-              belowFloor
-                ? "font-semibold text-red-600"
-                : "font-semibold text-teal-700"
-            }
-          >
-            {pct(realMarginBps)}
-          </dd>
-        </div>
-        {overridden && (
-          <div className="flex justify-between text-xs">
-            <dt className="text-slate-400">
-              against the quoted {formatSGD(quotedCents)}
-            </dt>
-            <dd className="text-slate-400">
-              calculated {pct(quote.marginBps)}
+        {!overridden && (
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Margin</dt>
+            <dd
+              className={
+                belowFloor
+                  ? "font-semibold text-red-600"
+                  : "font-semibold text-teal-700"
+              }
+            >
+              {pct(realMarginBps)}
             </dd>
           </div>
         )}
       </dl>
+
+      {quote.isStale && quotedCents != null &&
+        (locked ? (
+          <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            Current recommendation is {formatSGD(quote.discountedSaleSgdCents)};
+            this order remains locked at the agreed price of{" "}
+            {formatSGD(quotedCents)}.
+          </p>
+        ) : orderId ? (
+          <RequoteBanner
+            orderId={orderId}
+            lockedCents={quotedCents}
+            liveCents={quote.discountedSaleSgdCents}
+            depositCents={depositCents}
+          />
+        ) : null)}
 
       {belowFloor && (
         <p className="mt-2 text-xs text-red-600">
@@ -114,20 +170,50 @@ export function QuoteCard({
         </p>
       )}
 
-      {!quote.packageLines && <div className="mt-3 pt-3 border-t border-slate-100">
-        <div className="flex justify-between text-xs text-slate-500">
-          <span>Groupbuy price</span>
-          <span>
-            {formatSGD(quote.groupbuySgdCents)} · {pct(quote.groupbuyMarginBps)}
-          </span>
-        </div>
-      </div>}
-
       <details className="mt-3">
         <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">
           Cost breakdown
         </summary>
         <div className="mt-2 text-xs">
+          {meshAreas && meshAreas.length > 0 && (
+            <div className="mb-3 rounded-md bg-slate-50 p-2.5">
+              <div className="mb-2 flex items-center justify-between font-semibold text-slate-700">
+                <span>Billable mesh area</span>
+                <span>
+                  {meshAreas
+                    .reduce((total, item) => total + item.billableSqm, 0)
+                    .toFixed(1)}{" "}
+                  m² total
+                </span>
+              </div>
+              <dl className="space-y-1.5">
+                {meshAreas.map((item) => {
+                  const areaAdjusted = item.measuredSqm !== item.billableSqm;
+                  return (
+                    <div
+                      key={`${item.label}-${item.dimensions}`}
+                      className="flex items-start justify-between gap-3"
+                    >
+                      <dt className="min-w-0 text-slate-500">
+                        <span className="block truncate text-slate-700">
+                          {item.label}
+                        </span>
+                        <span>{item.dimensions}</span>
+                      </dt>
+                      <dd className="shrink-0 text-right font-medium text-slate-800">
+                        {item.billableSqm.toFixed(1)} m²
+                        {areaAdjusted && (
+                          <span className="block font-normal text-slate-400">
+                            measured {item.measuredSqm.toFixed(2)} m²
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </div>
+          )}
           {/* COGS room by room, so it's visible which room drives the cost. */}
           <CostBreakdown quote={quote} />
           <dl className="mt-1 space-y-0.5 text-xs text-slate-500">

@@ -83,10 +83,13 @@ async function loadAppointmentPrefill(
   if (!leadId || !UUID_RE.test(leadId)) return undefined;
   const lead = await db.selectFrom("leads")
     .leftJoin("orders", "orders.lead_id", "leads.id")
-    .leftJoin("customers", "customers.id", "leads.customer_id")
-    .leftJoin("appointments", (join) => join
+    .innerJoin("appointments", (join) => join
       .onRef("appointments.lead_id", "=", "leads.id")
       .on("appointments.status", "=", "scheduled"))
+    // The appointment is the source of truth for the booked customer. Older
+    // records may have an appointment customer even when leads.customer_id was
+    // not backfilled, which previously left mobile blank on the order form.
+    .innerJoin("customers", "customers.id", "appointments.customer_id")
     .select([
       "leads.id",
       "leads.name as lead_name",
@@ -129,8 +132,15 @@ export default async function NewConsultationPage({
   const appointment = await loadAppointmentPrefill(appointmentId, leadId);
   const consultationLeads = await db.selectFrom("leads")
     .leftJoin("orders", "orders.lead_id", "leads.id")
+    .innerJoin("appointments", (join) => join
+      .onRef("appointments.lead_id", "=", "leads.id")
+      .on("appointments.status", "=", "scheduled"))
+    .innerJoin("customers", "customers.id", "appointments.customer_id")
     .select([
-      "leads.id as lead_id", "leads.name as lead_name", "leads.mobile", "leads.development",
+      "leads.id as lead_id", "leads.name as lead_name",
+      "customers.mobile as customer_mobile",
+      "appointments.development as appointment_development",
+      "leads.development as lead_development",
     ])
     .where("leads.is_archived", "=", false)
     .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
@@ -140,8 +150,8 @@ export default async function NewConsultationPage({
   const leadOptions: CustomerLeadOption[] = consultationLeads.map(item => ({
     leadId: item.lead_id,
     leadName: item.lead_name,
-    mobile: item.mobile,
-    development: item.development,
+    mobile: item.customer_mobile,
+    development: item.appointment_development ?? item.lead_development,
   }));
   if (appointment?.leadId && !leadOptions.some(item => item.leadId === appointment.leadId)) {
     leadOptions.unshift({

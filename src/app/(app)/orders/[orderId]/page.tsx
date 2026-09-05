@@ -10,7 +10,6 @@ import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrang
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
-import { RequoteBanner } from "@/components/orders/requote-banner";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
 import {
   MeshRoomSummaryCard,
@@ -311,6 +310,35 @@ export default async function OrderDetailPage({
     });
     panelsByRoom.set(p.room_id, list);
   }
+
+  const roomLabels = new Map(rooms.map((room) => [room.id, room.label]));
+  const meshAreaBreakdown =
+    isMesh && meshBook
+      ? meshPanels.flatMap((panel) => {
+          const area = panelBillableArea(
+            {
+              categoryId: panel.category_id,
+              colourId: panel.colour_id,
+              widthCm: panel.width_cm,
+              heightCm: panel.height_cm,
+              draw: panel.draw ?? null,
+            },
+            meshBook,
+          );
+          if (!area || panel.width_cm == null || panel.height_cm == null) {
+            return [];
+          }
+          return [{
+            label: `${roomLabels.get(panel.room_id) ?? "Room"} · Panel ${panel.position + 1}`,
+            dimensions: `${panel.width_cm} × ${panel.height_cm} cm`,
+            measuredSqm: area.actualCm2 / 10_000,
+            // Mesh pricing rounds every panel up to the next 0.1 m², so the
+            // displayed total must use the same per-panel rounding as the
+            // recommendation rather than rounding only after summing.
+            billableSqm: Math.ceil(area.billableCm2 / 1_000) / 10,
+          }];
+        })
+      : undefined;
 
   // Sign every referenced curtain-type hero photo in one batch.
   const curtainPhotoPaths = windows
@@ -819,7 +847,9 @@ export default async function OrderDetailPage({
 
           <section className="bg-white rounded-lg border border-slate-200 p-5">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">Payment</h3>
+              <h3 className="text-sm font-semibold text-slate-900">
+                Customer price &amp; payment
+              </h3>
               {session.profile.role === "admin" && (
                 <EditPaymentDialog
                   orderId={order.id}
@@ -830,7 +860,7 @@ export default async function OrderDetailPage({
             </div>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <dt className="text-slate-500">Quoted</dt>
+                <dt className="text-slate-500">Agreed customer price</dt>
                 <dd className="font-medium text-slate-900">
                   {formatSGD(order.price_quoted_cents)}
                 </dd>
@@ -848,35 +878,16 @@ export default async function OrderDetailPage({
                 </dd>
               </div>
             </dl>
-            {/* The drift is still worth stating on a locked order — someone
-                may need to explain the number to the customer — but re-quoting
-                is an edit, and the goods are already being cut. */}
-            {quote?.isStale &&
-              (locked ? (
-                <p className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                  Pricing has since changed (now calculates to{" "}
-                  <span className="font-semibold">
-                    {formatSGD(quote.discountedSaleSgdCents)}
-                  </span>
-                  ), but this order is locked at{" "}
-                  <span className="font-semibold">
-                    {formatSGD(order.price_quoted_cents)}
-                  </span>
-                  .
-                </p>
-              ) : (
-                <RequoteBanner
-                  orderId={order.id}
-                  lockedCents={order.price_quoted_cents}
-                  liveCents={quote.discountedSaleSgdCents}
-                />
-              ))}
           </section>
 
           {quote && (
             <QuoteCard
               quote={quote}
               quotedCents={order.price_quoted_cents}
+              orderId={order.id}
+              depositCents={order.deposit_cents}
+              locked={locked}
+              meshAreas={meshAreaBreakdown}
             />
           )}
 

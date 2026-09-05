@@ -170,6 +170,18 @@ export function QuoteCard({
         </p>
       )}
 
+      {!quote.packageLines && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <div className="flex justify-between text-xs text-slate-500">
+            <span>Groupbuy price</span>
+            <span>
+              {formatSGD(quote.groupbuySgdCents)} ·{" "}
+              {pct(quote.groupbuyMarginBps)} margin
+            </span>
+          </div>
+        </div>
+      )}
+
       <details className="mt-3">
         <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">
           Cost breakdown

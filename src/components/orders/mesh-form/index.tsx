@@ -94,7 +94,7 @@ const EMPTY_DEFAULTS: MeshOrderEditInput = {
     deposit_cents: 0,
     general_notes: "",
     is_draft: false,
-    freight_mode: "air",
+    freight_mode: "sea",
     channel: "standard",
     extra_install_cents: 0,
     discount_bps: 0,

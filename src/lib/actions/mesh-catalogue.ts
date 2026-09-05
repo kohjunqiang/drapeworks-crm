@@ -33,9 +33,9 @@ export async function upsertMeshCategory(input: unknown) {
     name: parsed.name,
     description: parsed.description || null,
     vendor_id: parsed.vendor_id || null,
-    // Cents per ft². The whole of mesh pricing is these two numbers × area.
-    cost_rmb_cents_per_sqft: money(parsed.cost_rmb_per_sqft),
-    sale_sgd_cents_per_sqft: money(parsed.sale_sgd_per_sqft),
+    // Cents per m². The whole of mesh pricing is these two numbers × area.
+    cost_rmb_cents_per_sqm: money(parsed.cost_rmb_per_sqm),
+    sale_sgd_cents_per_sqm: money(parsed.sale_sgd_per_sqm),
   };
 
   try {

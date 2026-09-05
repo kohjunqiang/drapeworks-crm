@@ -144,7 +144,7 @@ export type MeshInUseIds = {
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)];
 
-// The per-ft² rates + colour surcharges — everything the mesh calculator needs
+// The per-m² rates + colour surcharges — everything the mesh calculator needs
 // and nothing it doesn't. Shared by the single-order quote and the batched
 // staleness sweep.
 //
@@ -155,7 +155,7 @@ export async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     await Promise.all([
     db
       .selectFrom("mesh_categories")
-      .select(["id", "cost_rmb_cents_per_sqft", "sale_sgd_cents_per_sqft"])
+      .select(["id", "cost_rmb_cents_per_sqm", "sale_sgd_cents_per_sqm"])
       .execute(),
     db
       .selectFrom("mesh_colours")
@@ -191,8 +191,8 @@ export async function loadMeshPriceBook(): Promise<MeshPriceBook> {
   const rates: MeshPriceBook["rates"] = {};
   for (const r of categoryRows) {
     rates[r.id] = {
-      costRmbCentsPerSqft: r.cost_rmb_cents_per_sqft,
-      saleSgdCentsPerSqft: r.sale_sgd_cents_per_sqft,
+      costRmbCentsPerSqm: r.cost_rmb_cents_per_sqm,
+      saleSgdCentsPerSqm: r.sale_sgd_cents_per_sqm,
     };
   }
 

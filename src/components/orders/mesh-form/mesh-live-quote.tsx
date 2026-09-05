@@ -26,14 +26,14 @@ function toNum(v: unknown): number | null {
 const REASON_TEXT: Record<string, string> = {
   "no-category": "no category chosen",
   "no-dimensions": "missing width or height",
-  "no-rate": "that category has no S$/ft² rate set",
+  "no-rate": "that category has no S$/m² rate set",
 };
 
 export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
   const { control } = useFormContext<MeshOrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
   const freightMode =
-    useWatch({ control, name: "order.freight_mode" }) ?? "air";
+    useWatch({ control, name: "order.freight_mode" }) ?? "sea";
   const channel = useWatch({ control, name: "order.channel" }) ?? "standard";
   const extraInstallCents =
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;

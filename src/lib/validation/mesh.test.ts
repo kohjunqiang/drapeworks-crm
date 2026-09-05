@@ -140,6 +140,13 @@ describe("meshOrderCreateSchema", () => {
     expect(meshOrderCreateSchema.safeParse(order()).success).toBe(true);
   });
 
+  it("defaults mesh freight to sea without changing the shared curtain default", () => {
+    const input = order();
+    delete (input.order as { freight_mode?: string }).freight_mode;
+    const parsed = meshOrderCreateSchema.parse(input);
+    expect(parsed.order.freight_mode).toBe("sea");
+  });
+
   it("requires at least one room", () => {
     expect(meshOrderCreateSchema.safeParse(order({ rooms: [] })).success).toBe(
       false,

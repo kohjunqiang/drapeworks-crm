@@ -1,14 +1,16 @@
 // Mesh pricing — the product-specific front end for window mesh panels.
 //
 // Where curtains price by width × a per-metre rate, mesh prices BY AREA: the
-// panel's area in square feet × the category's per-ft² rate, plus the colour's
+// panel's billable area in square metres × the category's per-m² rate, plus
+// the colour's
 // flat surcharge. Everything downstream — freight, other cost, GST, RMB→SGD,
 // install, the order discount, margin, groupbuy — is shared with curtains via
 // finaliseQuote.
 //
 // Money is integer cents throughout (RMB cost cents, SGD sale cents), and rates
-// are integer cents per ft² (S$8.00/ft² = 800). Area is integer cm², converted
-// to ft² only inside the one rounding step below.
+// are integer cents per m² (S$80.00/m² = 8000). Area is integer cm². Each
+// panel's billable area is rounded UP to 0.1 m² before applying its rate, matching
+// the supplier-facing mesh calculation.
 //
 // See docs/specs/phase-11-mesh-product-line.md §6.
 
@@ -60,8 +62,8 @@ export type MeshPanel = BreakdownIdentity & {
 };
 
 export type MeshRate = {
-  costRmbCentsPerSqft: number | null; // null = cost not configured (margin unreliable)
-  saleSgdCentsPerSqft: number | null; // null = not yet priced
+  costRmbCentsPerSqm: number | null; // null = cost not configured (margin unreliable)
+  saleSgdCentsPerSqm: number | null; // null = not yet priced
 };
 
 export type MeshColourSurcharge = {
@@ -93,12 +95,8 @@ export type MeshPriceBook = {
 export const minimumKey = (categoryId: string, system: string): string =>
   `${categoryId}:${system.trim().toLowerCase()}`;
 
-// 1 ft = 30.48 cm exactly, so 1 ft² = 929.0304 cm². Held as an integer pair so
-// the conversion is exact integer arithmetic up to a single final rounding —
-// dividing by a float literal would introduce drift the money-in-cents rule
-// exists to prevent.
-const CM2_PER_SQFT_NUMERATOR = 10_000;
-const CM2_PER_SQFT_DENOMINATOR = 9_290_304;
+/** 0.1 m² in cm². Mesh area is always billed up to the next tenth. */
+const BILLABLE_AREA_STEP_CM2 = 1_000;
 
 // ── the two predicates ───────────────────────────────────────────────────
 //
@@ -120,7 +118,7 @@ export function isMeasured(p: MeshPanel): boolean {
 
 /** Governs WARNINGS. Requires a non-null sale rate — a category can be unpriced. */
 export function isPriced(p: MeshPanel, book: MeshPriceBook): boolean {
-  return rateFor(p, book)?.saleSgdCentsPerSqft != null;
+  return rateFor(p, book)?.saleSgdCentsPerSqm != null;
 }
 
 export function panelAreaCm2(p: MeshPanel): number | null {
@@ -135,7 +133,8 @@ export function rateFor(p: MeshPanel, book: MeshPriceBook): MeshRate | null {
 }
 
 /**
- * Area × rate, rounded to the nearest cent ONCE per panel.
+ * Area × rate, with billable area rounded UP to 0.1 m² per panel and money
+ * rounded to the nearest cent once.
  *
  * Rounding per panel rather than on the order total is deliberate: each panel is
  * a line item the customer can see, so the printed lines must sum to the printed
@@ -144,10 +143,11 @@ export function rateFor(p: MeshPanel, book: MeshPriceBook): MeshRate | null {
  * Takes the area it is given. Applying the minimum is `panelBillableArea`'s job,
  * so this stays a pure conversion.
  */
-export function scaleByArea(areaCm2: number, ratePerSqft: number): number {
-  return Math.round(
-    (areaCm2 * ratePerSqft * CM2_PER_SQFT_NUMERATOR) / CM2_PER_SQFT_DENOMINATOR,
-  );
+export function scaleByArea(areaCm2: number, ratePerSqm: number): number {
+  if (areaCm2 <= 0 || ratePerSqm <= 0) return 0;
+  const roundedAreaCm2 =
+    Math.ceil(areaCm2 / BILLABLE_AREA_STEP_CM2) * BILLABLE_AREA_STEP_CM2;
+  return Math.round((roundedAreaCm2 * ratePerSqm) / 10_000);
 }
 
 /** Panels that attract an installation charge. */
@@ -162,7 +162,7 @@ const ZERO: Money = { costRmbCents: 0, saleSgdCents: 0 };
 /**
  * The double-draw surcharge for this panel, or zero.
  *
- * Charged per panel, not per ft²: it is one extra roller-and-handle set
+ * Charged per panel, not per m²: it is one extra roller-and-handle set
  * whatever the panel's size. Keyed on the system the panel resolves to, since
  * heavier systems carry costlier hardware. A single draw, an unresolvable
  * system, or a system with no surcharge configured all contribute nothing.
@@ -279,9 +279,9 @@ export function panelCostBillableArea(
   };
 }
 
-// The category's per-ft² rate scaled by this panel's area, plus the colour's
+// The category's per-m² rate scaled by this panel's rounded billable area, plus
 // flat surcharge and — on a double draw — the system's flat surcharge. Neither
-// surcharge is scaled: both are per-panel charges, not per-ft² ones.
+// surcharge is scaled: both are per-panel charges, not per-m² ones.
 export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
   const rate = rateFor(p, book);
   if (!rate) return ZERO;
@@ -300,11 +300,11 @@ export function panelQuote(p: MeshPanel, book: MeshPriceBook): Money {
 
   return {
     costRmbCents:
-      scaleByArea(costArea, rate.costRmbCentsPerSqft ?? 0) +
+      scaleByArea(costArea, rate.costRmbCentsPerSqm ?? 0) +
       (colour?.costRmbCents ?? 0) +
       double.costRmbCents,
     saleSgdCents:
-      scaleByArea(saleArea, rate.saleSgdCentsPerSqft ?? 0) +
+      scaleByArea(saleArea, rate.saleSgdCentsPerSqm ?? 0) +
       (colour?.saleSgdCents ?? 0) +
       double.saleSgdCents,
   };
@@ -314,7 +314,7 @@ export function computeMeshQuote(
   panels: MeshPanel[],
   book: MeshPriceBook,
   a: MeshCalcAssumptions,
-  freightMode: FreightMode = "air",
+  freightMode: FreightMode = "sea",
   extraInstallSgdCents = 0,
   discountBps = 0,
 ): QuoteResult {
@@ -403,14 +403,14 @@ export function meshQuoteWarnings(
       return;
     }
     const rate = book.rates[p.categoryId];
-    if (rate?.saleSgdCentsPerSqft == null) {
+    if (rate?.saleSgdCentsPerSqm == null) {
       unpricedPanels.push(i);
       reasons.add("no-rate");
       // Fall through: a category with neither rate set is both unpriced and
       // cost-less, but the unpriced notice is the actionable one.
       return;
     }
-    if (rate.costRmbCentsPerSqft == null) {
+    if (rate.costRmbCentsPerSqm == null) {
       missingCostPanels.push(i);
     }
   });

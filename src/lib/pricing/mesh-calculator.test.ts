@@ -40,11 +40,11 @@ const BRONZE = "col-bronze";
 
 const BOOK: MeshPriceBook = {
   rates: {
-    [AIR]: { costRmbCentsPerSqft: 400, saleSgdCentsPerSqft: 800 },
+    [AIR]: { costRmbCentsPerSqm: 4000, saleSgdCentsPerSqm: 8000 },
     // MaxGuard: sale entered, cost still blank — margin unreliable.
-    [MAX]: { costRmbCentsPerSqft: null, saleSgdCentsPerSqft: 1100 },
+    [MAX]: { costRmbCentsPerSqm: null, saleSgdCentsPerSqm: 11000 },
     // Created but never priced.
-    [UNPRICED]: { costRmbCentsPerSqft: null, saleSgdCentsPerSqft: null },
+    [UNPRICED]: { costRmbCentsPerSqm: null, saleSgdCentsPerSqm: null },
   },
   colours: {
     [WHITE]: { costRmbCents: null, saleSgdCents: null },
@@ -71,12 +71,12 @@ const BOOK: MeshPriceBook = {
 // costed panel against the same panel priced from a half-filled category.
 const withCost = (
   categoryId: string,
-  costRmbCentsPerSqft: number,
+  costRmbCentsPerSqm: number,
 ): MeshPriceBook => ({
   ...BOOK,
   rates: {
     ...BOOK.rates,
-    [categoryId]: { ...BOOK.rates[categoryId], costRmbCentsPerSqft },
+    [categoryId]: { ...BOOK.rates[categoryId], costRmbCentsPerSqm },
   },
 });
 
@@ -84,7 +84,7 @@ const panel = (over: Partial<MeshPanel> = {}): MeshPanel => ({
   categoryId: AIR,
   colourId: WHITE,
   widthCm: 100,
-  heightCm: 150, // 15000 cm² = 16.1459 ft²
+  heightCm: 150, // 15000 cm² = 1.5 m²
   draw: "Single Left",
   ...over,
 });
@@ -97,21 +97,18 @@ const BLANK: MeshPanel = {
   draw: null,
 };
 
-// 15000 cm² at S$8.00/ft² → 16.14587 × 800 = 12916.69 → 12917.
-const SALE_15000 = 12917;
-// …and at ¥4.00/ft² → 6458.35 → 6458. Rounded independently of the sale, which
-// is why this is not exactly half of SALE_15000.
-const COST_15000 = 6458;
+// 15000 cm² at S$80.00/m² = S$120.00; at ¥40.00/m² = ¥60.00.
+const SALE_15000 = 12000;
+const COST_15000 = 6000;
 
 describe("scaleByArea", () => {
-  it("converts cm² to ft² and rounds to the nearest cent", () => {
-    // 1 m² is 10.76391 ft²; at S$10.00/ft² that is S$107.64.
-    expect(scaleByArea(10_000, 1000)).toBe(10_764);
+  it("prices square metres directly", () => {
+    expect(scaleByArea(10_000, 10_000)).toBe(10_000);
   });
 
-  it("prices the default panel from its true area, not a band", () => {
-    expect(scaleByArea(15_000, 800)).toBe(SALE_15000);
-    expect(scaleByArea(15_000, 400)).toBe(COST_15000);
+  it("rounds each panel's billable area up to 0.1 m²", () => {
+    expect(scaleByArea(21_472, 19_000)).toBe(41_800); // 2.1472 → 2.2 m²
+    expect(scaleByArea(20_000, 19_000)).toBe(38_000); // exact tenths stay exact
   });
 
   it("is zero for a zero rate", () => {
@@ -169,15 +166,14 @@ describe("panelQuote", () => {
       costRmbCents: COST_15000,
       saleSgdCents: SALE_15000,
     });
-    // Twice the area, but rounded once per panel — 25833, not 2 × 12917.
-    expect(big.saleSgdCents).toBe(25_833);
+    expect(big.saleSgdCents).toBe(24_000);
   });
 
-  it("has no band step — one cm² more is one increment more", () => {
-    const a = panelQuote(panel({ widthCm: 100, heightCm: 200 }), BOOK);
-    const b = panelQuote(panel({ widthCm: 101, heightCm: 200 }), BOOK);
-    expect(b.saleSgdCents).toBeGreaterThan(a.saleSgdCents);
-    expect(b.saleSgdCents - a.saleSgdCents).toBeLessThan(200);
+  it("steps only when the next 0.1 m² billing boundary is crossed", () => {
+    const atBoundary = panelQuote(panel({ widthCm: 100, heightCm: 200 }), BOOK);
+    const overBoundary = panelQuote(panel({ widthCm: 101, heightCm: 200 }), BOOK);
+    expect(atBoundary.saleSgdCents).toBe(16_000);
+    expect(overBoundary.saleSgdCents).toBe(16_800);
   });
 
   it("adds the colour surcharge flat, not scaled by area", () => {
@@ -192,7 +188,7 @@ describe("panelQuote", () => {
       saleSgdCents: SALE_15000 + 3500,
     });
     // The same flat surcharge on a panel of twice the area.
-    expect(big.saleSgdCents).toBe(25_833 + 3500);
+    expect(big.saleSgdCents).toBe(24_000 + 3500);
   });
 
   it("adds the system's double-draw surcharge, flat, on a double only", () => {
@@ -216,8 +212,8 @@ describe("panelQuote", () => {
       panel({ draw: "Double", widthCm: 200, heightCm: 150 }),
       BOOK,
     );
-    // Twice the area, identical surcharge — 25833 is the doubled base.
-    expect(big.saleSgdCents - 25_833).toBe(small.saleSgdCents - SALE_15000);
+    // Twice the area, identical surcharge.
+    expect(big.saleSgdCents - 24_000).toBe(small.saleSgdCents - SALE_15000);
   });
 
   it("charges nothing when the system has no surcharge configured", () => {
@@ -234,7 +230,7 @@ describe("panelQuote", () => {
       panel({ draw: "Double", widthCm: 900, heightCm: 150 }),
       BOOK,
     );
-    expect(q.saleSgdCents).toBe(scaleByArea(900 * 150, 800));
+    expect(q.saleSgdCents).toBe(scaleByArea(900 * 150, 8000));
   });
 
   it("stacks the colour and double surcharges", () => {
@@ -261,8 +257,7 @@ describe("panelQuote", () => {
 
   it("treats a null cost rate as zero COGS but keeps the real sale", () => {
     const q = panelQuote(panel({ categoryId: MAX }), BOOK);
-    // 16.14587 ft² × S$11.00 = 17760.45 → 17760.
-    expect(q).toEqual({ costRmbCents: 0, saleSgdCents: 17_760 });
+    expect(q).toEqual({ costRmbCents: 0, saleSgdCents: 16_500 });
   });
 });
 
@@ -316,8 +311,34 @@ describe("computeMeshQuote — cost breakdown by room", () => {
 });
 
 describe("computeMeshQuote", () => {
+  it("prices the reported four-panel order as 8.2 m² × S$190 = S$1,558", () => {
+    const book: MeshPriceBook = {
+      ...BOOK,
+      rates: {
+        [AIR]: { costRmbCentsPerSqm: 17800, saleSgdCentsPerSqm: 19000 },
+      },
+      doubleSurcharges: {},
+      minimumAreas: { [minimumKey(AIR, "System 55")]: 10_000 },
+    };
+    const dimensions = [
+      [244, 88],
+      [184, 88],
+      [184, 88],
+      [184, 88],
+    ] as const;
+    const panels = dimensions.map(([widthCm, heightCm]) =>
+      panel({ widthCm, heightCm, draw: "Double", colourId: null }),
+    );
+
+    const q = computeMeshQuote(panels, book, ASSUMPTIONS, "sea");
+
+    // 2.1472 m² bills as 2.2; each remaining double panel takes the
+    // two-leaf 2.0 m² minimum: 2.2 + 2 + 2 + 2 = 8.2 m².
+    expect(q.saleSgdCents).toBe(155_800);
+  });
+
   it("charges install per measured panel and bills freight on full panel COGS", () => {
-    const q = computeMeshQuote([panel(), panel()], BOOK, ASSUMPTIONS);
+    const q = computeMeshQuote([panel(), panel()], BOOK, ASSUMPTIONS, "air");
 
     expect(q.cogsRmbCents).toBe(2 * COST_15000);
     expect(q.saleSgdCents).toBe(2 * SALE_15000);
@@ -340,7 +361,7 @@ describe("computeMeshQuote", () => {
   it("applies the order-level discount to the sale", () => {
     const q = computeMeshQuote([panel()], BOOK, ASSUMPTIONS, "air", 0, 1500);
     expect(q.saleSgdCents).toBe(SALE_15000);
-    expect(q.discountedSaleSgdCents).toBe(10_979); // −15%
+    expect(q.discountedSaleSgdCents).toBe(10_200); // −15%
   });
 
   it("uses the flat sea charge when shipping by sea", () => {
@@ -495,11 +516,11 @@ describe("panelBillableArea", () => {
 describe("panelQuote — manufacturing dimensions", () => {
   it("costs less and sells the same", () => {
     const made = panelQuote(
-      panel({ costWidthCm: 98, costHeightCm: 146 }), // 14 308 cm² cut
+      panel({ costWidthCm: 95, costHeightCm: 146 }), // 13 870 cm² → 1.4 m² billed
       BOOK,
     );
     expect(made).toEqual({
-      costRmbCents: scaleByArea(14_308, 400),
+      costRmbCents: scaleByArea(13_870, 4000),
       saleSgdCents: SALE_15000,
     });
     expect(made.costRmbCents).toBeLessThan(COST_15000);
@@ -526,8 +547,8 @@ describe("panelQuote — manufacturing dimensions", () => {
       costHeightCm: 96,
     });
     expect(panelQuote(p, BOOK)).toEqual({
-      costRmbCents: scaleByArea(10_000, 400),
-      saleSgdCents: scaleByArea(10_500, 800),
+      costRmbCents: scaleByArea(10_000, 4000),
+      saleSgdCents: scaleByArea(10_500, 8000),
     });
   });
 
@@ -535,7 +556,7 @@ describe("panelQuote — manufacturing dimensions", () => {
     const over = { colourId: BRONZE, draw: "Double" as const };
     const plain = panelQuote(panel(over), BOOK);
     const made = panelQuote(
-      panel({ ...over, costWidthCm: 98, costHeightCm: 146 }),
+      panel({ ...over, costWidthCm: 95, costHeightCm: 146 }),
       BOOK,
     );
     // Only the area-scaled part moves; both surcharges are unchanged.
@@ -544,7 +565,7 @@ describe("panelQuote — manufacturing dimensions", () => {
       saleSgdCents: SALE_15000 + 3500 + 6000,
     });
     expect(made).toEqual({
-      costRmbCents: scaleByArea(14_308, 400) + 2000 + 4000,
+      costRmbCents: scaleByArea(13_870, 4000) + 2000 + 4000,
       saleSgdCents: SALE_15000 + 3500 + 6000,
     });
   });
@@ -573,8 +594,8 @@ describe("panelQuote — manufacturing dimensions", () => {
       costHeightCm: 146,
     });
     expect(panelQuote(p, banded)).toEqual({
-      costRmbCents: scaleByArea(199 * 146, 400), // unfloored: still System 68
-      saleSgdCents: scaleByArea(201 * 150, 800),
+      costRmbCents: scaleByArea(199 * 146, 4000), // unfloored: still System 68
+      saleSgdCents: scaleByArea(201 * 150, 8000),
     });
   });
 
@@ -583,7 +604,7 @@ describe("panelQuote — manufacturing dimensions", () => {
     // must never zero a dimension — that would zero COGS and report a ~100%
     // margin, a far more dangerous wrong answer than a slightly generous one.
     expect(panelQuote(panel({ costWidthCm: 98 }), BOOK).costRmbCents).toBe(
-      scaleByArea(98 * 150, 400),
+      scaleByArea(98 * 150, 4000),
     );
     expect(
       panelQuote(panel({ costWidthCm: 0, costHeightCm: -4 }), BOOK),
@@ -601,7 +622,7 @@ describe("panelQuote — minimum billable area", () => {
   it("prices a floored panel on the minimum, not the measurement", () => {
     const small = panel({ widthCm: 60, heightCm: 100 }); // 0.6 m² → floored to 1
     const q = panelQuote(small, BOOK);
-    expect(q.saleSgdCents).toBe(scaleByArea(10_000, 800));
+    expect(q.saleSgdCents).toBe(scaleByArea(10_000, 8000));
   });
 
   it("floors COST as well as SALE, so the margin stays honest", () => {
@@ -609,8 +630,8 @@ describe("panelQuote — minimum billable area", () => {
     // under-minimum panel -- flattering, and wrong.
     const small = panel({ widthCm: 60, heightCm: 100 });
     expect(panelQuote(small, BOOK)).toEqual({
-      costRmbCents: scaleByArea(10_000, 400),
-      saleSgdCents: scaleByArea(10_000, 800),
+      costRmbCents: scaleByArea(10_000, 4000),
+      saleSgdCents: scaleByArea(10_000, 8000),
     });
   });
 

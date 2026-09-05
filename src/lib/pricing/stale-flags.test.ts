@@ -29,7 +29,7 @@ const CAT = "cat-airguard";
 
 const MESH_BOOK: MeshPriceBook = {
   rates: {
-    [CAT]: { costRmbCentsPerSqft: 400, saleSgdCentsPerSqft: 800 },
+    [CAT]: { costRmbCentsPerSqm: 4000, saleSgdCentsPerSqm: 8000 },
   },
   colours: {},
   bands: [
@@ -83,8 +83,8 @@ describe("computeStaleFlags — mesh routing", () => {
     // curtain engine finds zero `windows` rows, quotes $0, compares that to a
     // non-null baseline, and flags a re-quote banner that can never clear.
     const panels = new Map([["order-1", [MESH_PANEL]]]);
-    // One 100 × 150 cm panel: 16.14587 ft² × S$8.00/ft², no discount.
-    const baseline = 12917;
+    // One 100 × 150 cm panel: 1.5 m² × S$80.00/m², no discount.
+    const baseline = 12000;
 
     const flags = run(
       [
@@ -103,7 +103,7 @@ describe("computeStaleFlags — mesh routing", () => {
   it("still flags a mesh order when the calculation has genuinely drifted", () => {
     const panels = new Map([["order-1", [MESH_PANEL]]]);
     const flags = run(
-      [order({ product_line: "mesh", price_calc_at_quote_cents: 12000 })],
+      [order({ product_line: "mesh", price_calc_at_quote_cents: 13000 })],
       new Map(),
       panels,
     );
@@ -117,7 +117,7 @@ describe("computeStaleFlags — mesh routing", () => {
         order({
           product_line: "mesh",
           discount_bps: 1500,
-          price_calc_at_quote_cents: 10979, // 12917 − 15%
+          price_calc_at_quote_cents: 10200, // 12000 − 15%
         }),
       ],
       new Map(),
@@ -167,7 +167,7 @@ describe("computeStaleFlags — curtain behaviour is unchanged", () => {
         order({
           id: "m",
           product_line: "mesh",
-          price_calc_at_quote_cents: 12917,
+          price_calc_at_quote_cents: 12000,
         }),
       ],
       windows,

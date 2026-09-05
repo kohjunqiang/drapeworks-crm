@@ -16,8 +16,8 @@ describe("meshCategorySchema", () => {
       category({
         description: "Insect mesh",
         vendor_id: UUID,
-        cost_rmb_per_sqft: "4",
-        sale_sgd_per_sqft: "8.50",
+        cost_rmb_per_sqm: "40",
+        sale_sgd_per_sqm: "85.00",
       }),
     );
     expect(r.success).toBe(true);
@@ -25,7 +25,7 @@ describe("meshCategorySchema", () => {
 
   it("accepts a category with no rates — created before it is priced", () => {
     const r = meshCategorySchema.safeParse(
-      category({ cost_rmb_per_sqft: "", sale_sgd_per_sqft: "" }),
+      category({ cost_rmb_per_sqm: "", sale_sgd_per_sqm: "" }),
     );
     expect(r.success).toBe(true);
   });
@@ -34,21 +34,21 @@ describe("meshCategorySchema", () => {
     // A real state: the calculator reports it via missingCostPanels rather
     // than rejecting it, so the quote is still usable.
     const r = meshCategorySchema.safeParse(
-      category({ cost_rmb_per_sqft: "", sale_sgd_per_sqft: "8" }),
+      category({ cost_rmb_per_sqm: "", sale_sgd_per_sqm: "80" }),
     );
     expect(r.success).toBe(true);
   });
 
   it("rejects a rate with three decimal places", () => {
     const r = meshCategorySchema.safeParse(
-      category({ sale_sgd_per_sqft: "8.505" }),
+      category({ sale_sgd_per_sqm: "85.005" }),
     );
     expect(r.success).toBe(false);
   });
 
   it("rejects a non-numeric rate", () => {
     const r = meshCategorySchema.safeParse(
-      category({ sale_sgd_per_sqft: "eight" }),
+      category({ sale_sgd_per_sqm: "eighty" }),
     );
     expect(r.success).toBe(false);
   });

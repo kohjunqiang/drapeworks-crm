@@ -24,6 +24,12 @@ import {
   optionalLeadId,
 } from "./order";
 
+// Mesh travels by sea unless a consultant explicitly selects air. Keep this
+// override local to mesh so curtain orders retain their established air default.
+const meshOrderMetaSchema = orderMetaSchema.extend({
+  freight_mode: z.enum(["air", "sea"]).default("sea"),
+});
+
 const MESH_DRAWS = [
   "Single Left",
   "Single Right",
@@ -85,7 +91,7 @@ export const meshRoomSchema = z.object({
 
 export const meshOrderCreateSchema = z.object({
   customer: customerSchema,
-  order: orderMetaSchema,
+  order: meshOrderMetaSchema,
   rooms: z.array(meshRoomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
@@ -116,7 +122,7 @@ const meshDraftRoom = z.object({
 
 export const meshOrderDraftSchema = z.object({
   customer: customerDraftSchema,
-  order: orderMetaSchema,
+  order: meshOrderMetaSchema,
   rooms: z.array(meshDraftRoom),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
@@ -142,7 +148,7 @@ export const meshRoomEditSchema = z.object({
 
 export const meshOrderEditSchema = z.object({
   customer: customerSchema,
-  order: orderMetaSchema,
+  order: meshOrderMetaSchema,
   rooms: z.array(meshRoomEditSchema).min(1, "Add at least one room"),
 });
 

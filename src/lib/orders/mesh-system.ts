@@ -10,7 +10,7 @@
 // function serves the consultation form, the server actions and the tests.
 //
 // The system is a FABRICATION SPEC, not a price input. It is printed on the
-// order for the factory; the quote stays area × the category's per-ft² rate.
+// order for the factory; the quote stays area × the category's per-m² rate.
 //
 // See docs/specs/phase-11-mesh-product-line.md §5.9.
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Admin-managed mesh catalogue: categories (which carry the per-ft² rates) and
+// Admin-managed mesh catalogue: categories (which carry the per-m² rates) and
 // colours. Everything here is created through /admin/product/mesh — there is
 // deliberately no seed script, so the app has exactly one answer to "where do
 // mesh categories come from".
@@ -27,11 +27,12 @@ export const meshCategorySchema = z.object({
   // types differ, which React Hook Form's zodResolver can't reconcile. The
   // action normalises "" to null instead.
   vendor_id: z.string().uuid().or(z.literal("")).optional(),
-  // Per-square-foot rates. A panel's price is its area in ft² × these, so the
+  // Per-square-metre rates. A panel's price is its rounded billable area in m²
+  // × these, so the
   // category is where mesh pricing lives — there is no separate price grid.
   // Blank sale = not yet priced; blank cost = margin unreliable.
-  cost_rmb_per_sqft: priceField,
-  sale_sgd_per_sqft: priceField,
+  cost_rmb_per_sqm: priceField,
+  sale_sgd_per_sqm: priceField,
 });
 
 export const meshColourSchema = z.object({

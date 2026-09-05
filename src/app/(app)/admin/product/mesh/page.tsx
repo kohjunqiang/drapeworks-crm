@@ -42,7 +42,7 @@ export async function MeshPricingContent() {
   // Both halves of the sellable gate, so an admin can see exactly what's still
   // missing rather than wondering why Mesh isn't offered on a consultation.
   const hasPricedCategory = categories.some(
-    (c) => c.is_active && c.sale_sgd_cents_per_sqft != null,
+    (c) => c.is_active && c.sale_sgd_cents_per_sqm != null,
   );
   const hasInstallCost = (assumptions?.handyman_mesh_sgd_cents ?? 0) > 0;
   const sellable = hasPricedCategory && hasInstallCost;
@@ -52,7 +52,7 @@ export async function MeshPricingContent() {
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-slate-900">Mesh</h2>
         <p className="text-sm text-slate-500 mt-1">
-          Window mesh categories, their per-square-foot rates, the colour list and
+          Window mesh categories, their per-square-metre rates, the colour list and
           the track-system matrix. Everything the consultation form offers
           comes from here.
         </p>
@@ -66,7 +66,7 @@ export async function MeshPricingContent() {
           <ul className="mt-1.5 space-y-1 list-disc list-inside">
             {!hasPricedCategory && (
               <li>
-                No category has a sale rate. Set S$/ft² on at least one active
+                No category has a sale rate. Set S$/m² on at least one active
                 category below.
               </li>
             )}

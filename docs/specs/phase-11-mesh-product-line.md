@@ -70,9 +70,9 @@ Established during design; these are decisions, not assumptions.
 | Question | Decision |
 |---|---|
 | Can one order contain both curtains and mesh? | **No.** A mesh job never shares a quote with a curtain job. |
-| Pricing basis | **Per square foot** — area × the category's rate, not a flat per-panel price and not per metre. |
+| Pricing basis | **Per square metre** — each panel's billable area rounds up to 0.1 m², then multiplies by the category rate. |
 | What varies the price | **Category** (its rate), **area** and **colour**. Draw does *not* affect price. |
-| Rate structure | **One rate per category**, the same S$/ft² at every size. No volume tiers, no minimum billable area. |
+| Rate structure | **One rate per category**, the same S$/m² at every size, with the configured minimum billable area applied first. |
 | Supply chain | **Same China pipeline as curtains** — RMB cost → freight + other cost + GST → FX → SGD. |
 | Fulfilment | **Same six statuses**, unchanged. |
 | Installation | **A cost, not a customer line item** — reduces margin, never appears on the quote. |
@@ -143,8 +143,8 @@ mesh_categories
   name                     text not null   -- "AirGuard" / "PetGuard" / "MaxGuard"
   description              text
   vendor_id                uuid references vendors(id)
-  cost_rmb_cents_per_sqft  int             -- nullable = cost not configured
-  sale_sgd_cents_per_sqft  int             -- nullable = not yet priced
+  cost_rmb_cents_per_sqm   int             -- nullable = cost not configured
+  sale_sgd_cents_per_sqm   int             -- nullable = not yet priced
   position                 int not null default 0
   is_active                boolean not null default true
   created_by, created_at, updated_at
@@ -165,10 +165,10 @@ mesh_colours
 
 **The category is the price book.** There is no separate price table and no size
 bands: a panel's price is its area × the category's rate, so the rate belongs on
-the thing that varies it. Rates are integer **cents per ft²** — S$8.00/ft² is
-`800` — keeping the money-in-cents rule intact.
+the thing that varies it. Rates are integer **cents per m²** — S$80.00/m² is
+`8000` — keeping the money-in-cents rule intact.
 
-Colour surcharges are **flat per panel**, not per ft². A colour premium is a
+Colour surcharges are **flat per panel**, not per m². A colour premium is a
 per-panel charge; it is not scaled by area even though the base price is.
 
 Category and colour names are stored **verbatim as typed** — no prefix stripping, no
@@ -178,12 +178,12 @@ typo correction — consistent with how the curtain catalogue treats labels.
 
 The original design priced a panel by looking up a flat amount in a
 category × size-band grid, so every panel inside a band cost the same and the
-price stepped at band boundaries. The real commercial model is a per-ft² rate,
-which prices continuously — a 1.6 m² panel and a 1.4 m² panel differ.
+price stepped at band boundaries. The commercial model is a per-m² rate, with
+each panel billed upward in 0.1 m² increments.
 
 That makes `mesh_size_bands` and `mesh_prices` redundant, so migration
-`20260814100000_mesh_rate_per_sqft` drops both and adds the two rate columns
-above. Neither table ever held a row.
+`20260814100000_mesh_rate_per_sqft` originally dropped both and added two rate
+columns. `20260905160000_mesh_rates_per_sqm` corrects their unit and values.
 
 ### 5.5 Line item
 
@@ -363,30 +363,26 @@ end differs.
 
 | | Curtain | Mesh |
 |---|---|---|
-| Front end | width × per-metre rate × style multiplier, + S-fold / slim-track add-ons, + track cost | area in ft² × the category's per-ft² rate, + colour surcharge, + the system's double-draw surcharge (§5.9) |
+| Front end | width × per-metre rate × style multiplier, + S-fold / slim-track add-ons, + track cost | billable area rounded up to 0.1 m² × the category's per-m² rate, + colour surcharge, + the system's double-draw surcharge (§5.9) |
 | Freight base | curtain-only COGS (excludes add-ons and tracks) | full panel COGS |
 | Back half | freight → other cost → GST → FX → install → discount → margin → groupbuy | identical |
 
 ### 6.1 Panel quote
 
 ```
-area_cm2 = width_cm × height_cm
-rate     = mesh_categories[category_id]
-cost     = round(area_cm2 × rate.cost_rmb_cents_per_sqft × 10000 / 9290304)
+area_cm2          = width_cm × height_cm
+billable_cm2      = max(area_cm2, minimum × leaves)
+rounded_area_cm2  = ceil(billable_cm2 / 1000) × 1000
+rate              = mesh_categories[category_id]
+cost     = round(rounded_area_cm2 × rate.cost_rmb_cents_per_sqm / 10000)
              + (colour.surcharge_rmb_cents ?? 0)
-sale     = round(area_cm2 × rate.sale_sgd_cents_per_sqft × 10000 / 9290304)
+sale     = round(rounded_area_cm2 × rate.sale_sgd_cents_per_sqm / 10000)
              + (colour.surcharge_sgd_cents ?? 0)
 ```
 
-1 ft is 30.48 cm exactly, so 1 ft² is 929.0304 cm². The conversion is held as the
-integer pair `10000 / 9290304` rather than a float literal: the numerator stays
-exact integer arithmetic and there is a **single** rounding step, which is what
-the money-in-cents rule is protecting.
-
-**Rounding is once per panel, not once per order.** Each panel is a line item the
-customer can see, so the printed lines must sum to the printed total. A
-consequence worth expecting: doubling a panel's area does not always exactly
-double its price (12917 → 25833, not 25834).
+**Area rounds upward once per panel, not once per order.** A 2.1472 m² panel is
+billed as 2.2 m²; an exact 2.0 m² stays 2.0. Money then rounds to the nearest
+cent, so the visible line items sum to the total.
 
 ### Minimum billable area
 
@@ -398,7 +394,8 @@ billable = max(measured area, minimum × leaves)
 ```
 
 The **area** is floored, not the price — the panel is charged as though it were
-exactly that size, at the category's usual per-ft² rate, with the colour and
+exactly that size, rounded upward to 0.1 m² at the category's usual per-m² rate,
+with the colour and
 double-draw surcharges added on top unchanged.
 
 The floor is stored **per leaf** in `mesh_minimum_areas`, keyed by
@@ -474,7 +471,7 @@ same and must not be collapsed:**
 ```ts
 isMeasured(panel)  = category && width_cm && height_cm      → governs INSTALL (§6.3)
 isPriced(panel)    = isMeasured                             → governs WARNINGS (§6.5)
-                     && category has a NON-NULL sale_sgd_cents_per_sqft
+                     && category has a NON-NULL sale_sgd_cents_per_sqm
 
 meshInstallUnits(panels) = panels.filter(isMeasured).length
 ```
@@ -482,7 +479,7 @@ meshInstallUnits(panels) = panels.filter(isMeasured).length
 Install is `meshInstallUnits(panels) × handymanMeshSgdCents + extraInstallSgdCents` — a
 cost that lowers margin and never appears on the customer quote.
 
-`isPriced` requires a **non-null `sale_sgd_cents_per_sqft`**, not merely the existence of
+`isPriced` requires a **non-null `sale_sgd_cents_per_sqm`**, not merely the existence of
 the category. §5.3 makes both rate columns nullable, and a category is realistically
 created before anyone knows its rate. Treating a category's existence as proof of a price
 would let exactly the silent-zero case §6.5 exists to catch slip through, and it would
@@ -549,7 +546,7 @@ server→client boundary):
 loadMeshCalcConfig(inUseIds?: {
   categoryIds: string[]; colourIds: string[];
 }): Promise<MeshCalcConfig | null>
-  // per-ft² rates keyed by category id, and colours with their
+  // per-m² rates keyed by category id, and colours with their
   // surcharges — all plain objects
 ```
 
@@ -588,7 +585,7 @@ meshQuoteWarnings(panels, priceBook): {
 ```
 
 `no-rate` covers both a category absent from the book and a category present with a
-null `sale_sgd_cents_per_sqft` — with the rate living on the category itself there is
+null `sale_sgd_cents_per_sqm` — with the rate living on the category itself there is
 no longer a structural "missing grid cell" case distinct from an unfilled one, so the
 two reasons the old grid needed have collapsed into one.
 
@@ -597,7 +594,7 @@ is legal (§5.3), so an unset colour is never a warning.
 
 ### A null cost rate is a separate advisory
 
-§5.3 makes `cost_rmb_cents_per_sqft` nullable too, and the realistic workflow produces
+§5.3 makes `cost_rmb_cents_per_sqm` nullable too, and the realistic workflow produces
 half-priced categories: sale rate entered, cost still blank. That panel is **correctly
 priced for the customer**, so it does not belong in `unpricedPanels` — but it contributes
 zero COGS, which means a zero freight base and a margin reading near 100%.
@@ -670,7 +667,7 @@ deep and the mobile menu is tight.
 
 The Mesh card is hidden until **both** of these hold:
 
-1. at least one **active** category has a non-null `sale_sgd_cents_per_sqft`, and
+1. at least one **active** category has a non-null `sale_sgd_cents_per_sqm`, and
 2. `pricing_assumptions.handyman_mesh_sgd_cents > 0`.
 
 The second condition matters as much as the first. That column defaults to `0`, so
@@ -771,7 +768,7 @@ New page `/admin/mesh`, admin-only, following the `/admin/vendors` pattern (serv
 components + shadcn dialogs + server actions in `src/lib/actions/mesh-catalogue.ts`).
 Two sections:
 
-1. **Categories** — name, description, vendor, **cost ¥/ft², sale S$/ft²**, active
+1. **Categories** — name, description, vendor, **cost ¥/m², sale S$/m²**, active
    toggle. This is where mesh pricing lives; there is no separate price screen.
 2. **Colours** — name, RMB and SGD surcharge (flat per panel), active toggle
 
@@ -850,17 +847,16 @@ Plus the split-nulling rule from §9.
   dimensions are missing, prices at zero (§6.1) and is surfaced by the separate
   `meshQuoteWarnings` helper (§6.5). There is no existing unpriced-flagging behaviour
   to copy — curtains deliberately price a missing series at zero and a test asserts it.
-- **Missing cost is a different failure.** A category with `sale_sgd_cents_per_sqft`
-  filled and `cost_rmb_cents_per_sqft` null quotes the customer correctly but reports
+- **Missing cost is a different failure.** A category with `sale_sgd_cents_per_sqm`
+  filled and `cost_rmb_cents_per_sqm` null quotes the customer correctly but reports
   near-100% margin, and is *not* caught by the below-floor guard because it sits above
   the floor. Surfaced separately as `missingCostPanels` (§6.5), never mixed into the
   unpriced warning.
 - **Live quote and server quote must share install logic.** There is a known existing
   gap where the two disagree on curtain install cost for unpriced series. Build the
   mesh install calculation once and call it from both sides from the start.
-- **Rounding is per panel.** `scaleByArea` rounds each panel's cost and sale to the
-  nearest cent independently, so the line items always sum to the total shown. Do not
-  "fix" the resulting off-by-one against a naive area × rate on the order total.
+- **Rounding is per panel.** `scaleByArea` rounds each panel's billable area up to
+  0.1 m², then rounds cost and sale to the nearest cent independently.
 - **Split cleared for single draws — on the server.** `createMeshOrder`,
   `updateMeshOrder` and `saveMeshDraft` write `split_left_cm` and `split_right_cm` as
   `null` whenever `draw` is not `Double`. The form hiding the fields is a convenience,
@@ -881,7 +877,7 @@ Order matters — step 1 is the safety gate.
    still passes (`npx vitest run` — 72 tests / 12 files at time of writing).
 2. Migration + `npm run db:codegen`.
 3. Mesh calculator with unit tests covering the area conversion against a hand
-   calculation (1 m² at S$10/ft² is S$107.64), a category absent from the book, **a
+   calculation (2.1472 m² at S$190/m² bills as 2.2 × 190 = S$418), a category absent from the book, **a
    category with a null sale rate**, null dimensions, and a colour surcharge that stays
    flat across two panel sizes. Plus `meshQuoteWarnings` (§6.5) tests for each of the
    three warning reasons, a test that a null cost rate lands in `missingCostPanels` and
@@ -909,7 +905,7 @@ Order matters — step 1 is the safety gate.
    status timeline is seeded, confirm the orders list shows no false stale banner, edit
    the order, walk all six statuses, print.
 
-There is **no seed script**. The three categories with their per-ft² rates and the
+There is **no seed script**. The three categories with their per-m² rates and the
 colour list are all created through `/admin/mesh`, the same way vendors and series
 pricing are managed today. Mesh is unreachable in the consultation flow until at least
 one category is priced, so no feature flag is needed.
@@ -920,7 +916,7 @@ one category is priced, so no feature flag is needed.
   deferred.
 - Combo bundles spanning curtains and mesh — orders never mix product lines.
 - A mesh photo catalogue.
-- Size-tiered rates (a cheaper S$/ft² on larger panels) and minimum billable areas.
+- Size-tiered rates (a cheaper S$/m² on larger panels).
   The rate lives on the category precisely so this stays a one-column change if the
   pricing ever needs tiers.
 - Mesh-specific promotion tiers — mesh uses the existing tiers.

@@ -803,7 +803,7 @@ export interface ManufacturePos {
 }
 
 export interface MeshCategories {
-  cost_rmb_cents_per_sqft: number | null;
+  cost_rmb_cents_per_sqm: number | null;
   created_at: Generated<Timestamp>;
   created_by: string | null;
   description: string | null;
@@ -811,7 +811,7 @@ export interface MeshCategories {
   is_active: Generated<boolean>;
   name: string;
   position: Generated<number>;
-  sale_sgd_cents_per_sqft: number | null;
+  sale_sgd_cents_per_sqm: number | null;
   updated_at: Generated<Timestamp>;
   vendor_id: string | null;
 }

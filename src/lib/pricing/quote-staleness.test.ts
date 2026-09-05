@@ -73,7 +73,7 @@ const BLIND = { costRmbCents: 4000, saleSgdCents: 7000 };
 const CAT = "cat-airguard";
 
 const MESH_BOOK: MeshPriceBook = {
-  rates: { [CAT]: { costRmbCentsPerSqft: 400, saleSgdCentsPerSqft: 800 } },
+  rates: { [CAT]: { costRmbCentsPerSqm: 4000, saleSgdCentsPerSqm: 8000 } },
   colours: { "col-bronze": { costRmbCents: 2000, saleSgdCents: 3500 } },
   bands: [
     { maxWidthCm: 760, singleSystem: "System 68", doubleSystem: "System 55" },

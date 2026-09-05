@@ -511,6 +511,71 @@ export async function updateOrder(
   redirect(`/orders/${orderId}`);
 }
 
+export async function moveOrderRoom(input: {
+  orderId: string;
+  roomId: string;
+  direction: "up" | "down";
+}): Promise<void> {
+  const orderId = typeof input?.orderId === "string" ? input.orderId : "";
+  const roomId = typeof input?.roomId === "string" ? input.roomId : "";
+  const direction = input?.direction;
+  if (!orderId || !roomId || (direction !== "up" && direction !== "down")) {
+    throw new Error("Invalid room move");
+  }
+
+  const session = await requireRole(["consultant", "admin"]);
+
+  await db.transaction().execute(async (trx) => {
+    // Lock the parent so two quick reorder requests cannot interleave and leave
+    // duplicate or skipped positions.
+    const order = await trx
+      .selectFrom("orders")
+      .select(["id", "consultant_id", "current_status"])
+      .where("id", "=", orderId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!order) throw new Error("Order not found");
+
+    const isOwner = order.consultant_id === session.user.id;
+    const isAdmin = session.profile.role === "admin";
+    if (!isOwner && !isAdmin) throw new Error("Forbidden");
+    if (isLocked(order.current_status)) {
+      throw new Error(
+        "This order is locked — room order cannot change after it has been sent to the vendor.",
+      );
+    }
+
+    const rooms = await trx
+      .selectFrom("rooms")
+      .select("id")
+      .where("order_id", "=", orderId)
+      .orderBy("position", "asc")
+      .orderBy("id", "asc")
+      .execute();
+    const currentIndex = rooms.findIndex((room) => room.id === roomId);
+    if (currentIndex < 0) throw new Error("Room not found");
+
+    const targetIndex = currentIndex + (direction === "up" ? -1 : 1);
+    if (targetIndex < 0 || targetIndex >= rooms.length) return;
+
+    [rooms[currentIndex], rooms[targetIndex]] = [
+      rooms[targetIndex],
+      rooms[currentIndex],
+    ];
+    for (let position = 0; position < rooms.length; position++) {
+      await trx
+        .updateTable("rooms")
+        .set({ position })
+        .where("id", "=", rooms[position].id)
+        .where("order_id", "=", orderId)
+        .execute();
+    }
+  });
+
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath(`/orders/${orderId}/edit`);
+}
+
 // Re-lock an order's quote to the current calculator output. Used when the
 // order-detail staleness banner reports the calc has drifted from the baseline.
 // Overwrites the frozen price + baseline with the live calc; deposit is left

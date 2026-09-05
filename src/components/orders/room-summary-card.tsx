@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { RoomType } from "@/lib/db/schema";
 
 import { PhotoStrip, type PhotoTile } from "./photo-strip";
@@ -34,6 +36,7 @@ type Props = {
   type: RoomType;
   windows: WindowSummary[];
   photos: PhotoTile[];
+  orderControls?: ReactNode;
 };
 
 function dim(a: number | null, b: number | null): string {
@@ -123,7 +126,7 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
   );
 }
 
-export function RoomSummaryCard({ label, windows, photos }: Props) {
+export function RoomSummaryCard({ label, windows, photos, orderControls }: Props) {
   // A room can mix the two — curtains on one window, a blind on the next — so
   // the split is per window, not per room.
   const blindWindows = windows.filter((w) => w.is_blind);
@@ -134,8 +137,9 @@ export function RoomSummaryCard({ label, windows, photos }: Props) {
   );
   return (
     <div className="border border-slate-200 rounded mb-3 overflow-hidden">
-      <div className="bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800 break-words">
-        {label}
+      <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-800">
+        <span className="break-words">{label}</span>
+        {orderControls}
       </div>
       <div className="overflow-x-auto">
         {curtainWindows.length > 0 && (

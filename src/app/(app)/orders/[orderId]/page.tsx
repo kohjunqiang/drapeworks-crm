@@ -10,6 +10,7 @@ import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrang
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
+import { RoomOrderControls } from "@/components/orders/room-order-controls";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
 import {
   MeshRoomSummaryCard,
@@ -477,6 +478,10 @@ export default async function OrderDetailPage({
   // second event at the same status, and "locked on" means when it happened,
   // not when it was last touched.
   const locked = isLocked(order.current_status);
+  const canReorderRooms =
+    !locked &&
+    (session.profile.role === "admin" ||
+      order.consultant_id === session.user.id);
   const lockedAt = locked
     ? (events
         .filter((e) => e.status === "sent_to_vendor")
@@ -770,7 +775,7 @@ export default async function OrderDetailPage({
             {rooms.length === 0 && (
               <p className="text-sm text-slate-500">No rooms recorded.</p>
             )}
-            {rooms.map((r) =>
+            {rooms.map((r, roomIndex) =>
               isMesh ? (
                 <MeshRoomSummaryCard
                   key={r.id}
@@ -778,6 +783,15 @@ export default async function OrderDetailPage({
                   type={r.type}
                   panels={panelsByRoom.get(r.id) ?? []}
                   photos={photosByRoom.get(r.id) ?? []}
+                  orderControls={canReorderRooms ? (
+                    <RoomOrderControls
+                      orderId={order.id}
+                      roomId={r.id}
+                      roomLabel={r.label}
+                      canMoveUp={roomIndex > 0}
+                      canMoveDown={roomIndex < rooms.length - 1}
+                    />
+                  ) : undefined}
                 />
               ) : (
                 <RoomSummaryCard
@@ -786,6 +800,15 @@ export default async function OrderDetailPage({
                   type={r.type}
                   windows={windowsByRoom.get(r.id) ?? []}
                   photos={photosByRoom.get(r.id) ?? []}
+                  orderControls={canReorderRooms ? (
+                    <RoomOrderControls
+                      orderId={order.id}
+                      roomId={r.id}
+                      roomLabel={r.label}
+                      canMoveUp={roomIndex > 0}
+                      canMoveDown={roomIndex < rooms.length - 1}
+                    />
+                  ) : undefined}
                 />
               ),
             )}

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { meshMountSurface } from "@/lib/orders/mesh-panel-values";
 import type { RoomType } from "@/lib/db/schema";
 
@@ -35,6 +37,7 @@ type Props = {
   type: RoomType;
   panels: MeshPanelSummary[];
   photos: PhotoTile[];
+  orderControls?: ReactNode;
 };
 
 const cm = (v: number | null): string => (v == null ? "—" : `${v}`);
@@ -76,7 +79,7 @@ function split(p: MeshPanelSummary): string {
   return `${cm(p.split_left_cm)} + ${cm(p.split_right_cm)}`;
 }
 
-export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
+export function MeshRoomSummaryCard({ label, type, panels, photos, orderControls }: Props) {
   const hasInstallation = panels.some(
     (panel) =>
       panel.installation_width_cm != null ||
@@ -86,7 +89,10 @@ export function MeshRoomSummaryCard({ label, type, panels, photos }: Props) {
     <div className="border border-slate-200 rounded-lg overflow-hidden mb-4">
       <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
         <span className="font-medium text-slate-900 text-sm">{label}</span>
-        <span className="text-xs text-slate-500">{type}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">{type}</span>
+          {orderControls}
+        </div>
       </div>
 
       <div className="overflow-x-auto">

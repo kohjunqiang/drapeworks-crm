@@ -7,6 +7,7 @@ import type { Json, ZohoPendingConnections } from "@/lib/db/schema";
 import { db } from "@/lib/db/kysely";
 
 import { decryptZohoToken, encryptZohoToken } from "./crypto";
+import { resolveZohoRedirectUri } from "./oauth-redirect";
 
 export const ZOHO_BOOKS_SCOPES = [
   "ZohoBooks.settings.READ",
@@ -29,11 +30,6 @@ const ACCOUNTS_TO_API = new Map([
   ["https://accounts.zoho.sa", "https://www.zohoapis.sa"],
 ]);
 const API_DOMAINS = new Set(ACCOUNTS_TO_API.values());
-const CRM_ORIGINS = new Set([
-  "http://localhost:3001",
-  "https://app.drapeworks.sg",
-]);
-const CALLBACK_PATH = "/api/integrations/zoho/callback";
 const LIFECYCLE_LOCK = "drapeworks-zoho-connection";
 
 type ZohoOrganization = {
@@ -89,19 +85,6 @@ function allowedApiDomain(value: string): string {
   const origin = exactOrigin(value);
   if (!API_DOMAINS.has(origin)) throw new Error("Zoho returned an unsupported API data centre");
   return origin;
-}
-
-function redirectUri(origin: string): string {
-  const requestOrigin = exactOrigin(origin);
-  if (!CRM_ORIGINS.has(requestOrigin)) throw new Error("This CRM origin is not authorized for Zoho OAuth");
-  const configured = process.env.ZOHO_OAUTH_REDIRECT_URI?.trim();
-  if (!configured) return `${requestOrigin}${CALLBACK_PATH}`;
-  const url = new URL(configured);
-  if (!CRM_ORIGINS.has(url.origin) || url.pathname !== CALLBACK_PATH || url.search || url.hash) {
-    throw new Error("ZOHO_OAUTH_REDIRECT_URI is not an authorized Zoho callback URL");
-  }
-  if (url.origin !== requestOrigin) throw new Error("The Zoho callback URL does not match this CRM environment");
-  return url.toString();
 }
 
 function hashState(state: string): string {
@@ -309,7 +292,7 @@ export async function createZohoAuthorizationUrl(adminId: string, origin: string
   url.searchParams.set("response_type", "code");
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
-  url.searchParams.set("redirect_uri", redirectUri(origin));
+  url.searchParams.set("redirect_uri", resolveZohoRedirectUri(origin));
   url.searchParams.set("state", state);
   return url.toString();
 }
@@ -336,7 +319,7 @@ export async function completeZohoAuthorization(input: {
 
   const params = new URLSearchParams({
     grant_type: "authorization_code", client_id: required("ZOHO_OAUTH_CLIENT_ID"),
-    client_secret: required("ZOHO_OAUTH_CLIENT_SECRET"), redirect_uri: redirectUri(input.origin), code: input.code,
+    client_secret: required("ZOHO_OAUTH_CLIENT_SECRET"), redirect_uri: resolveZohoRedirectUri(input.origin), code: input.code,
   });
   const tokenResponse = await fetch(`${accountsServer}/oauth/v2/token`, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: params,

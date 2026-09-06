@@ -13,7 +13,7 @@ describe("Workspace applied filters", () => {
     expect(selectedFilters({ stage: "Qualify Lead,Book Appointment" }, [])[0]).toEqual({ key: "stage", label: "Funnel Stage: Qualify Lead, Book Appointment" });
   });
   it("shows the Active Queue exclusion only when no explicit stage selection exists", () => {
-    expect(columnFilterPills({}, [], "work").find(pill => pill.key === "stage")?.value).toBe("All except Lost, Not Qualified");
+    expect(columnFilterPills({}, [], "work").find(pill => pill.key === "stage")?.value).toBe("All except Won, Lost, Not Qualified");
     expect(columnFilterPills({ stage: "Qualify Lead,Book Appointment" }, [], "work").find(pill => pill.key === "stage")?.value).toBe("Qualify Lead, Book Appointment");
   });
   it("shows every date range boundary independently", () => {

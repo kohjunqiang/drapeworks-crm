@@ -1,5 +1,8 @@
 import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_DIRECTIONS, LEAD_OUTCOMES, LEAD_SOURCES, LEAD_STATUSES, PRIMARY_PRODUCTS } from "./funnel-types";
 
+export const ACTIVE_QUEUE_EXCLUDED_STAGES = ["Won", "Lost", "Not Qualified"] as const;
+export const ACTIVE_QUEUE_STAGE_PRESET = `All except ${ACTIVE_QUEUE_EXCLUDED_STAGES.join(", ")}`;
+
 export const ACTION_FILTERS = ["Reply Required", "Follow-Up", "Awaiting Customer", "Resolve Appointment Barrier", "Book Appointment", "Confirm / Attend Appointment", "Send Quotation", "Push for Deposit", "Push for Decision", "Resolve Closing Barrier", "Nurture Lead", "Activate Lead", "Qualify Lead", "Closed", "Won"] as const;
 export const DUE_FILTERS = ["Overdue", "Due Today", "Upcoming", "No Date", "Closed"] as const;
 export const FILTER_SELECTS = [
@@ -59,7 +62,7 @@ export function columnFilterPills(params: Record<string, string | undefined>, ow
     const range = FILTER_DATES.some(field => field.key === key);
     const value = range && matches.length ? `${validFilterDate(params[`${key}_from`]) ? params[`${key}_from`] : "Any"} – ${validFilterDate(params[`${key}_to`]) ? params[`${key}_to`] : "Any"}` : matches.length ? selectedFilterValues(params[key], FILTER_SELECTS.find(field => field.key === key)?.values ?? []).join(", ") : "All";
     const stagePreset = key === "stage" && view === "work" && !matches.length;
-    return { key, label, value: stagePreset ? "All except Lost, Not Qualified" : value, keys: matches.map(item => item.key), preset: stagePreset };
+    return { key, label, value: stagePreset ? ACTIVE_QUEUE_STAGE_PRESET : value, keys: matches.map(item => item.key), preset: stagePreset };
   });
   for (const item of selected.filter(item => !pills.some(pill => pill.keys.includes(item.key)))) {
     const [label, ...value] = item.label.split(": ");

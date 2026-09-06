@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { parseLeadSort, sortLeadRows } from "@/lib/leads/workspace-sort";
 import { LeadFilterToolbar } from "@/components/leads/filter-toolbar";
-import { ACTION_FILTERS, DUE_FILTERS, selectedFilterValues, validFilterDate } from "@/lib/leads/workspace-filters";
+import { ACTION_FILTERS, ACTIVE_QUEUE_EXCLUDED_STAGES, DUE_FILTERS, selectedFilterValues, validFilterDate } from "@/lib/leads/workspace-filters";
 import { deriveActionRequired, deriveDueStatus } from "@/lib/leads/funnel-engine";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 import { sql } from "kysely";
@@ -96,7 +96,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     .leftJoin("profiles as consultant", join => join.onRef("consultant.id", "=", sql<string>`coalesce(leads.assigned_consultant_id, leads.owner_id)`))
     .select(["leads.id", "leads.created_at", "first_initiated_at", "last_contact_at", "inbound_outbound", "lead_ref", "name", "mobile", "development", "funnel_stage", "lead_status", "last_outcome", "contact_channel", "source", "primary_product", "latest_quote_cents", "assigned_consultant_id", "owner_id", "action_detail", "closure_reason", "consultant.full_name as consultant_name", sql<string | null>`next_action_date::text`.as("next_action_date_text"), sql<string | null>`move_in_date::text`.as("move_in_date_text")])
     .where("is_archived", "=", false);
-  if (view === "work") q = q.where("funnel_stage", "not in", ["Lost", "Not Qualified"]);
+  if (view === "work") q = q.where("funnel_stage", "not in", [...ACTIVE_QUEUE_EXCLUDED_STAGES]);
   if (p.owner === "unassigned") q = q.where("assigned_consultant_id", "is", null).where("owner_id", "is", null);
   else if (filterOwners.some(person => person.id === p.owner)) q = q.where(sql<string>`coalesce(leads.assigned_consultant_id, leads.owner_id)`, "=", p.owner!);
   if (p.q?.trim()) q = q.where(eb => eb.or([eb("name", "ilike", `%${p.q}%`), eb("mobile", "ilike", `%${p.q}%`), eb("development", "ilike", `%${p.q}%`), eb("lead_ref", "ilike", `%${p.q}%`)]));
@@ -152,7 +152,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   };
   const sortLabel = sort === "initiated" ? `Initiated: ${sortDirection === "desc" ? "latest" : "earliest"} first` : sort === "next" ? `Next action: ${sortDirection === "asc" ? "earliest" : "latest"} first` : `Due status: ${sortDirection === "asc" ? "most" : "least"} urgent first`;
   return <main className="max-w-[1880px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
-    <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">{view === "work" ? "All leads except Lost and Not Qualified" : "Search and manage every lead"}</p></div>
+    <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">{view === "work" ? "Open leads requiring follow-up" : "Search and manage every lead"}</p></div>
     {toolbar}
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">{[{label:"Matching leads",value:String(total)},{label:"Active",value:String(activeCount)},{label:"Unresponsive",value:String(unresponsiveCount)},{label:"Closed",value:String(closedCount)},{label:"Active Pipeline Value",value:new Intl.NumberFormat("en-SG",{style:"currency",currency:"SGD",maximumFractionDigits:0}).format(pipelineCents / 100)}].map(stat=><div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-medium uppercase tracking-wide text-slate-500">{stat.label}</div><div className="mt-1 text-xl font-semibold text-slate-900">{stat.value}</div></div>)}</div>
     <LeadFilterToolbar key={JSON.stringify(p)} params={p} view={view} pageSize={pageSize} owners={filterOwners}/>

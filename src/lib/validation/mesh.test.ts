@@ -140,6 +140,19 @@ describe("meshOrderCreateSchema", () => {
     expect(meshOrderCreateSchema.safeParse(order()).success).toBe(true);
   });
 
+  it("carries a valid template room id used to copy photos", () => {
+    const input = order();
+    input.rooms[0] = { ...input.rooms[0], template_room_id: UUID } as typeof input.rooms[0];
+    const parsed = meshOrderCreateSchema.parse(input);
+    expect(parsed.rooms[0].template_room_id).toBe(UUID);
+  });
+
+  it("rejects a malformed template room id", () => {
+    const input = order();
+    input.rooms[0] = { ...input.rooms[0], template_room_id: "not-a-uuid" } as typeof input.rooms[0];
+    expect(meshOrderCreateSchema.safeParse(input).success).toBe(false);
+  });
+
   it("defaults mesh freight to sea without changing the shared curtain default", () => {
     const input = order();
     delete (input.order as { freight_mode?: string }).freight_mode;

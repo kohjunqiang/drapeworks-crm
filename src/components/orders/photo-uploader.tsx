@@ -194,6 +194,27 @@ export function PhotoUploader({ roomId, photos }: Props) {
   );
 }
 
+/** Photos inherited from a previous order; displayed without delete controls. */
+export function ReadOnlyPhotoGallery({ photos }: { photos: UploaderPhoto[] }) {
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+      {photos.map((photo) => (
+        <div
+          key={photo.id}
+          className="aspect-square overflow-hidden rounded border border-slate-200 bg-slate-100"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={photo.signedUrl}
+            alt={photo.originalName ?? "Room photo"}
+            className="h-full w-full object-cover"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 type PendingProps = {
   photos: PendingUploaderPhoto[];
   disabled?: boolean;

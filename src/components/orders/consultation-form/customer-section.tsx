@@ -1,12 +1,14 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { useFormContext } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
+import { setConsultationCustomer } from "@/lib/actions/consultation-selection";
 
 import type { ConsultationShellShape } from "./form-shapes";
+import { clearCreateFormDrafts } from "./use-form-draft";
 
 export type CustomerLeadOption = {
   leadId: string;
@@ -43,7 +45,6 @@ export function CustomerSection({
   selectedLeadId,
   selectedCustomerId,
 }: Props) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const {
     control,
@@ -55,25 +56,40 @@ export function CustomerSection({
   // currently eligible. Keep the picker visible in that empty state so it
   // does not look as though lead selection has disappeared from the form.
   const choosingCustomer = leadOptions !== undefined;
-  const selectedOption = selectedLeadId
-    ? `lead:${selectedLeadId}`
-    : selectedCustomerId
-      ? `customer:${selectedCustomerId}`
-      : "brand-new";
+  const loadedLabel = selectedLeadId
+    ? leadOptions?.find((option) => option.leadId === selectedLeadId)?.leadName
+    : customerOptions.find((option) => option.customerId === selectedCustomerId)
+        ?.customerName;
+  // Keep a neutral loaded-state option selected. The actual customer remains
+  // available below it, so choosing the same person again is a real value
+  // change and reliably reloads their latest order template.
+  const selectedOption = selectedLeadId || selectedCustomerId
+    ? "loaded-customer"
+    : "brand-new";
+  const product = searchParams.get("product") === "mesh" ? "mesh" : "curtain";
+
+  function confirmReset(): boolean {
+    return !isDirty || window.confirm("Changing customer will reset this consultation. Continue?");
+  }
 
   function selectCustomer(value: string) {
-    if (
-      isDirty &&
-      !window.confirm("Changing customer will reset this consultation. Continue?")
-    ) return;
+    if (!confirmReset()) return;
 
+    clearCreateFormDrafts(product);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("appointmentId");
     params.delete("leadId");
     params.delete("customerId");
     if (value.startsWith("lead:")) params.set("leadId", value.slice(5));
-    if (value.startsWith("customer:")) params.set("customerId", value.slice(9));
-    startCustomerChange(() => router.push(`/orders/new?${params.toString()}`));
+    const customerId = value.startsWith("customer:") ? value.slice(9) : null;
+    startCustomerChange(async () => {
+      await setConsultationCustomer({ product, customerId });
+      const query = params.toString();
+      const target = query ? `/orders/new?${query}` : "/orders/new";
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (current === target) window.location.reload();
+      else window.location.assign(target);
+    });
   }
 
   return (
@@ -100,6 +116,11 @@ export function CustomerSection({
                 aria-describedby="customer-picker-hint"
                 className={`${INPUT_CLS} min-h-11 disabled:cursor-wait disabled:bg-slate-50`}
               >
+                {(selectedLeadId || selectedCustomerId) && (
+                  <option value="loaded-customer" disabled>
+                    {loadedLabel ? `${loadedLabel} — loaded` : "Customer loaded"}
+                  </option>
+                )}
                 {leadOptions.length > 0 && (
                   <optgroup label="Appointment leads">
                     {leadOptions.map((option) => (
@@ -128,7 +149,7 @@ export function CustomerSection({
                 <option value="brand-new">Brand new customer</option>
               </select>
               <p id="customer-picker-hint" className="mt-1 text-xs text-slate-500">
-                Choose a booked lead, reuse a customer from a recorded order, or add a new customer.
+                Choose a booked lead, reuse a customer from a recorded order, or add a new customer. Choosing the loaded customer again refreshes their latest saved order.
               </p>
               <div className="mt-2">
                 <label htmlFor="customer-name" className="block text-xs font-medium text-slate-600 mb-1">

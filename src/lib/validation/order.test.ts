@@ -223,6 +223,22 @@ const MINIMAL_ORDER = {
 // appointment's id so the write path can reuse its customer instead of
 // inserting a second row for the same person.
 describe("orderCreateSchema / orderDraftSchema — appointment_id", () => {
+  it("carries a valid template room id used to copy photos", () => {
+    const parsed = orderCreateSchema.parse({
+      ...MINIMAL_ORDER,
+      rooms: [{ ...MINIMAL_ORDER.rooms[0], template_room_id: UUID }],
+    });
+    expect(parsed.rooms[0].template_room_id).toBe(UUID);
+  });
+
+  it("rejects a malformed template room id", () => {
+    const parsed = orderCreateSchema.safeParse({
+      ...MINIMAL_ORDER,
+      rooms: [{ ...MINIMAL_ORDER.rooms[0], template_room_id: "not-a-uuid" }],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
   it("requires the installation address before creating an order", () => {
     expect(
       orderCreateSchema.safeParse({

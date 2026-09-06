@@ -37,6 +37,7 @@ import { isLocked } from "@/lib/status-flow";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { adminClient } from "@/lib/supabase/admin";
 import {
+  cloneTemplateRoomPhotos,
   PHOTO_BUCKET,
   stampQuoteBaseline,
   sweepPhotoStorage,
@@ -181,7 +182,10 @@ export async function createOrder(input: unknown): Promise<never> {
   // catalogue, so one order cannot be half-quoted under an edit made mid-save.
   const addonCatalogue = await loadAddonCatalogue();
 
-  const orderId = await db.transaction().execute(async (trx) => {
+  const copiedPhotoPaths: string[] = [];
+  let orderId: string;
+  try {
+    orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
       trx,
       parsed.appointment_id,
@@ -259,6 +263,18 @@ export async function createOrder(input: unknown): Promise<never> {
         // No persisted state on a create — the payload cannot claim any.
         await writeWindowAddons(trx, insertedWin.id, win, addonCatalogue, []);
       }
+
+      if (room.template_room_id) {
+        await cloneTemplateRoomPhotos(trx, {
+          sourceRoomId: room.template_room_id,
+          targetRoomId: insertedRoom.id,
+          targetOrderId: order.id,
+          customerId: customer.customerId,
+          productLine: "curtain",
+          uploadedBy: session.user.id,
+          copiedPaths: copiedPhotoPaths,
+        });
+      }
     }
 
     await trx
@@ -280,8 +296,12 @@ export async function createOrder(input: unknown): Promise<never> {
       );
     }
 
-    return order.id;
-  });
+      return order.id;
+    });
+  } catch (error) {
+    await sweepPhotoStorage(copiedPhotoPaths, "createOrder template rollback");
+    throw error;
+  }
 
   await stampQuoteBaseline(orderId);
 
@@ -864,7 +884,10 @@ export async function createOrderDraft(input: unknown): Promise<never> {
   const packageSnapshot = await resolveCurtainPackage(parsed.order);
   const addonCatalogue = await loadAddonCatalogue();
 
-  const orderId = await db.transaction().execute(async (trx) => {
+  const copiedPhotoPaths: string[] = [];
+  let orderId: string;
+  try {
+    orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
       trx,
       parsed.appointment_id,
@@ -945,6 +968,18 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         // charge — so they resolve like any other write path.
         await writeWindowAddons(trx, insertedWin.id, shaped, addonCatalogue, []);
       }
+
+      if (room.template_room_id) {
+        await cloneTemplateRoomPhotos(trx, {
+          sourceRoomId: room.template_room_id,
+          targetRoomId: insertedRoom.id,
+          targetOrderId: order.id,
+          customerId: customer.customerId,
+          productLine: "curtain",
+          uploadedBy: session.user.id,
+          copiedPaths: copiedPhotoPaths,
+        });
+      }
     }
 
     await trx
@@ -957,8 +992,12 @@ export async function createOrderDraft(input: unknown): Promise<never> {
       })
       .execute();
 
-    return order.id;
-  });
+      return order.id;
+    });
+  } catch (error) {
+    await sweepPhotoStorage(copiedPhotoPaths, "createOrderDraft template rollback");
+    throw error;
+  }
 
   await stampQuoteBaseline(orderId);
 

@@ -21,6 +21,12 @@ import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
 import { db } from "@/lib/db/kysely";
 import { loadCalcConfig, loadMeshCalcConfig } from "@/lib/pricing/order-quote";
 import { ATTEND_APPOINTMENT_STAGE } from "@/lib/leads/funnel-types";
+import {
+  loadCurtainOrderTemplate,
+  loadMeshOrderTemplate,
+} from "@/lib/orders/order-template";
+import { consultationCustomerCookie } from "@/lib/orders/consultation-selection";
+import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +36,6 @@ type SearchParams = {
   product?: string;
   appointmentId?: string;
   leadId?: string;
-  customerId?: string;
 };
 
 const UUID_RE =
@@ -61,6 +66,7 @@ async function loadAppointmentPrefill(
         "appointments.lead_id",
         "appointments.development as development",
         "appointments.address as address",
+        "customers.id as customer_id",
         "customers.name as customer_name",
         "customers.mobile as customer_mobile",
         "customers.email as customer_email",
@@ -78,6 +84,7 @@ async function loadAppointmentPrefill(
       return {
         id: booked.appointment_id,
         leadId: booked.lead_id,
+        customerId: booked.customer_id,
         customer: {
           name: booked.customer_name,
           mobile: booked.customer_mobile,
@@ -104,6 +111,7 @@ async function loadAppointmentPrefill(
         "leads.name as lead_name",
         "leads.mobile as lead_mobile",
         "leads.development",
+        "customers.id as customer_id",
         "customers.name as customer_name",
         "customers.mobile as customer_mobile",
         "customers.email as customer_email",
@@ -121,6 +129,7 @@ async function loadAppointmentPrefill(
       return {
         id: lead.appointment_id ?? undefined,
         leadId: lead.id,
+        customerId: lead.customer_id,
         customer: {
           name: lead.customer_name ?? lead.lead_name,
           mobile: lead.customer_mobile ?? lead.lead_mobile ?? "",
@@ -167,8 +176,16 @@ export default async function NewConsultationPage({
   searchParams: Promise<SearchParams>;
 }) {
   const session = await requireRole(["consultant", "admin"]);
-  const { product, appointmentId, leadId, customerId } = await searchParams;
-  const appointment = await loadAppointmentPrefill(appointmentId, leadId, customerId);
+  const { product, appointmentId, leadId } = await searchParams;
+  const cookieStore = await cookies();
+  const sessionCustomerId = product === "mesh" || product === "curtain"
+    ? cookieStore.get(consultationCustomerCookie(product))?.value
+    : undefined;
+  const appointment = await loadAppointmentPrefill(
+    appointmentId,
+    leadId,
+    appointmentId || leadId ? undefined : sessionCustomerId,
+  );
   const consultationLeads = await db.selectFrom("leads")
     .leftJoin("orders", "orders.lead_id", "leads.id")
     .innerJoin("appointments", (join) => join
@@ -319,26 +336,75 @@ async function CurtainConsultation({
   leadOptions: CustomerLeadOption[];
   customerOptions: ExistingCustomerOption[];
 }) {
-  const [curtainTypes, calcConfig, promotions, combos, curtainPackages] = await Promise.all([
-    loadActiveCurtainTypeOptions(),
-    loadCalcConfig(),
-    loadActivePromotions(),
-    loadActiveCombos(),
-    loadCurtainPackages(),
-  ]);
+  const [curtainTypes, calcConfig, promotions, combos, curtainPackages, template] =
+    await Promise.all([
+      loadActiveCurtainTypeOptions(),
+      loadCalcConfig(),
+      loadActivePromotions(),
+      loadActiveCombos(),
+      loadCurtainPackages(),
+      appointment?.customerId
+        ? loadCurtainOrderTemplate(appointment.customerId)
+        : undefined,
+    ]);
+  const activeTypeIds = new Set(curtainTypes.map((item) => item.id));
+  const activeComboIds = new Set(combos.map((item) => item.id));
+  const activeAddonIds = new Set(
+    (calcConfig?.addonCatalogue ?? [])
+      .filter((item) => item.isActive)
+      .map((item) => item.id),
+  );
+  const templateDefaults = template ? {
+    ...template.defaults,
+    rooms: template.defaults.rooms.map((room) => ({
+      ...room,
+      windows: room.windows.map((window) => window.variant === "blind"
+        ? {
+            ...window,
+            blind_type_id: activeTypeIds.has(window.blind_type_id ?? "")
+              ? window.blind_type_id
+              : "",
+            addon_ids: window.addon_ids.filter((id) => activeAddonIds.has(id)),
+          }
+        : {
+            ...window,
+            day_curtain_type_id: activeTypeIds.has(window.day_curtain_type_id ?? "")
+              ? window.day_curtain_type_id
+              : "",
+            night_curtain_type_id: activeTypeIds.has(window.night_curtain_type_id ?? "")
+              ? window.night_curtain_type_id
+              : "",
+            combo_id: activeComboIds.has(window.combo_id ?? "")
+              ? window.combo_id
+              : "",
+            addon_ids: window.addon_ids.filter((id) => activeAddonIds.has(id)),
+          }),
+    })),
+  } : undefined;
 
   return (
-    <ConsultationForm
-      mode="create"
-      curtainTypes={curtainTypes}
-      calcConfig={calcConfig}
-      promotions={promotions}
-      combos={combos}
-      curtainPackages={curtainPackages.filter((item) => item.isActive)}
-      appointment={appointment}
-      leadOptions={leadOptions}
-      customerOptions={customerOptions}
-    />
+    <>
+      {appointment?.customerId && (
+        <TemplateNotice
+          sourceDisplayId={template?.sourceDisplayId}
+          productLabel="curtain or blind"
+        />
+      )}
+      <ConsultationForm
+        key={appointment?.id ?? appointment?.leadId ?? appointment?.customerId ?? "brand-new"}
+        mode="create"
+        curtainTypes={curtainTypes}
+        calcConfig={calcConfig}
+        promotions={promotions}
+        combos={combos}
+        curtainPackages={curtainPackages.filter((item) => item.isActive)}
+        appointment={appointment}
+        leadOptions={leadOptions}
+        customerOptions={customerOptions}
+        defaultValues={templateDefaults}
+        roomPhotos={template?.roomPhotos}
+      />
+    </>
   );
 }
 
@@ -351,15 +417,17 @@ async function MeshConsultation({
   leadOptions: CustomerLeadOption[];
   customerOptions: ExistingCustomerOption[];
 }) {
-  // No in-use ids to union: a new order references nothing yet, so this is the
-  // active catalogue only.
-  const [meshConfig, promotions, systemBands, systemSpecs] =
+  const templatePromise = appointment?.customerId
+    ? loadMeshOrderTemplate(appointment.customerId)
+    : undefined;
+  const [template, promotions, systemBands, systemSpecs] =
     await Promise.all([
-      loadMeshCalcConfig(),
+      templatePromise,
       loadActivePromotions(),
       loadActiveMeshSystemBands(),
       loadActiveMeshSystemSpecs(),
     ]);
+  const meshConfig = await loadMeshCalcConfig();
 
   if (!meshConfig) {
     return (
@@ -369,16 +437,65 @@ async function MeshConsultation({
     );
   }
 
+  const activeCategoryIds = new Set(
+    meshConfig.categories.filter((item) => item.selectable).map((item) => item.id),
+  );
+  const activeColourIds = new Set(
+    meshConfig.colours.filter((item) => item.selectable).map((item) => item.id),
+  );
+  const templateDefaults = template ? {
+    ...template.defaults,
+    rooms: template.defaults.rooms.map((room) => ({
+      ...room,
+      panels: room.panels.map((panel) => ({
+        ...panel,
+        category_id: activeCategoryIds.has(panel.category_id ?? "")
+          ? panel.category_id
+          : "",
+        colour_id: activeColourIds.has(panel.colour_id ?? "")
+          ? panel.colour_id
+          : "",
+      })),
+    })),
+  } : undefined;
+
   return (
-    <MeshConsultationForm
-      mode="create"
-      meshConfig={meshConfig}
-      systemBands={systemBands}
-      systemSpecs={systemSpecs}
-      promotions={promotions}
-      appointment={appointment}
-      leadOptions={leadOptions}
-      customerOptions={customerOptions}
-    />
+    <>
+      {appointment?.customerId && (
+        <TemplateNotice
+          sourceDisplayId={template?.sourceDisplayId}
+          productLabel="mesh"
+        />
+      )}
+      <MeshConsultationForm
+        key={appointment?.id ?? appointment?.leadId ?? appointment?.customerId ?? "brand-new"}
+        mode="create"
+        meshConfig={meshConfig}
+        systemBands={systemBands}
+        systemSpecs={systemSpecs}
+        promotions={promotions}
+        appointment={appointment}
+        leadOptions={leadOptions}
+        customerOptions={customerOptions}
+        defaultValues={templateDefaults}
+        roomPhotos={template?.roomPhotos}
+      />
+    </>
+  );
+}
+
+function TemplateNotice({
+  sourceDisplayId,
+  productLabel,
+}: {
+  sourceDisplayId?: string;
+  productLabel: string;
+}) {
+  return (
+    <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+      {sourceDisplayId
+        ? `Rooms and measurements copied from ${sourceDisplayId}. Review the options, adjust what changed, and save to create a separate order.`
+        : `Customer details loaded. No previous ${productLabel} order was found, so add the new measurements below.`}
+    </div>
   );
 }

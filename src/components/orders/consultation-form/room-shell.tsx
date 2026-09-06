@@ -6,6 +6,7 @@ import { useFormContext } from "react-hook-form";
 import {
   PendingPhotoUploader,
   PhotoUploader,
+  ReadOnlyPhotoGallery,
   type PendingUploaderPhoto,
   type UploaderPhoto,
 } from "@/components/orders/photo-uploader";
@@ -150,6 +151,16 @@ export function RoomShell({
               automatically.
             </div>
           )}
+        </div>
+      ) : (photos?.length ?? 0) > 0 ? (
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-slate-600">
+              Reference photos for this room
+            </span>
+            <span className="text-slate-400">Copied with new order</span>
+          </div>
+          <ReadOnlyPhotoGallery photos={photos ?? []} />
         </div>
       ) : (
         <PhotoPlaceholder />

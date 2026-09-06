@@ -299,7 +299,12 @@ export function ConsultationForm({
             ...normalised,
             appointment_id: appointment?.id,
             lead_id: appointment?.leadId,
-            customer_id: appointment?.customerId,
+            // A returning appointment lead carries customerId only so the page
+            // can find a measurement template. The lead remains the source of
+            // truth for the new order's customer relationship.
+            customer_id: appointment?.leadId
+              ? undefined
+              : appointment?.customerId,
           });
         }
       } catch (e) {
@@ -325,7 +330,7 @@ export function ConsultationForm({
       // saving it as a draft must not fork a second customer either.
       appointment_id: appointment?.id,
       lead_id: appointment?.leadId,
-      customer_id: appointment?.customerId,
+      customer_id: appointment?.leadId ? undefined : appointment?.customerId,
       rooms: (values.rooms ?? []).map((room, rIdx) => ({
         ...room,
         position: rIdx,
@@ -364,7 +369,9 @@ export function ConsultationForm({
           leadOptions={mode === "create" ? leadOptions : undefined}
           customerOptions={mode === "create" ? customerOptions : undefined}
           selectedLeadId={appointment?.leadId}
-          selectedCustomerId={appointment?.customerId}
+          selectedCustomerId={
+            appointment?.leadId ? undefined : appointment?.customerId
+          }
         />
         <PricingSection promotions={promotions} curtainPackages={curtainPackages} savedPackageSnapshot={savedPackageSnapshot} />
 
@@ -403,6 +410,9 @@ export function ConsultationForm({
               const formRoom = getValues(`rooms.${rIdx}`);
               const persistedRoomId =
                 mode === "edit" ? formRoom?.id : undefined;
+              const photoRoomId =
+                persistedRoomId ??
+                (mode === "create" ? formRoom?.template_room_id : undefined);
               return (
                 <RoomCard
                   key={room.id}
@@ -426,8 +436,8 @@ export function ConsultationForm({
                     pendingPhotos.remove(room.id, photoId)
                   }
                   photos={
-                    persistedRoomId
-                      ? (roomPhotos?.[persistedRoomId] ?? [])
+                    photoRoomId
+                      ? (roomPhotos?.[photoRoomId] ?? [])
                       : undefined
                   }
                 />

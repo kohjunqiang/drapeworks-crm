@@ -17,6 +17,7 @@ import { meshSystemProblems } from "@/lib/orders/mesh-system";
 import { isLocked } from "@/lib/status-flow";
 import {
   SEQ_PLACEHOLDERS,
+  cloneTemplateRoomPhotos,
   collectOrphanPhotoPaths,
   deleteDroppedRooms,
   orderMetaColumns,
@@ -75,7 +76,10 @@ export async function createMeshOrder(input: unknown): Promise<never> {
   const parsed: MeshOrderCreateInput = meshOrderCreateSchema.parse(input);
   await assertBuildable(parsed.rooms);
 
-  const orderId = await db.transaction().execute(async (trx) => {
+  const copiedPhotoPaths: string[] = [];
+  let orderId: string;
+  try {
+    orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
       trx,
       parsed.appointment_id,
@@ -121,6 +125,18 @@ export async function createMeshOrder(input: unknown): Promise<never> {
           })
           .execute();
       }
+
+      if (room.template_room_id) {
+        await cloneTemplateRoomPhotos(trx, {
+          sourceRoomId: room.template_room_id,
+          targetRoomId: insertedRoom.id,
+          targetOrderId: order.id,
+          customerId: customer.customerId,
+          productLine: "mesh",
+          uploadedBy: session.user.id,
+          copiedPaths: copiedPhotoPaths,
+        });
+      }
     }
 
     // Seeds the status timeline. Without it the order detail page shows an
@@ -144,8 +160,12 @@ export async function createMeshOrder(input: unknown): Promise<never> {
       );
     }
 
-    return order.id;
-  });
+      return order.id;
+    });
+  } catch (error) {
+    await sweepPhotoStorage(copiedPhotoPaths, "createMeshOrder template rollback");
+    throw error;
+  }
 
   await stampQuoteBaseline(orderId);
 
@@ -314,7 +334,10 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: MeshOrderDraftInput = meshOrderDraftSchema.parse(input);
 
-  const orderId = await db.transaction().execute(async (trx) => {
+  const copiedPhotoPaths: string[] = [];
+  let orderId: string;
+  try {
+    orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
       trx,
       parsed.appointment_id,
@@ -360,6 +383,18 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
           })
           .execute();
       }
+
+      if (room.template_room_id) {
+        await cloneTemplateRoomPhotos(trx, {
+          sourceRoomId: room.template_room_id,
+          targetRoomId: insertedRoom.id,
+          targetOrderId: order.id,
+          customerId: customer.customerId,
+          productLine: "mesh",
+          uploadedBy: session.user.id,
+          copiedPaths: copiedPhotoPaths,
+        });
+      }
     }
 
     await trx
@@ -372,8 +407,12 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
       })
       .execute();
 
-    return order.id;
-  });
+      return order.id;
+    });
+  } catch (error) {
+    await sweepPhotoStorage(copiedPhotoPaths, "createMeshOrderDraft template rollback");
+    throw error;
+  }
 
   await stampQuoteBaseline(orderId);
 

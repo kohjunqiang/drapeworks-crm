@@ -144,6 +144,7 @@ export const windowSchema = z
   .superRefine(validateCurtainSplit);
 
 export const roomSchema = z.object({
+  template_room_id: z.string().uuid().optional(),
   type: z.enum(ROOM_TYPES),
   label: z.string().min(1, "Required").max(200),
   position: z.number().int().min(0),
@@ -293,6 +294,7 @@ const draftWindow = baseWindow.extend({
 });
 
 const draftRoom = z.object({
+  template_room_id: z.string().uuid().optional(),
   type: z.enum(ROOM_TYPES),
   label: z.string().min(1).max(200),
   position: z.number().int().min(0),
@@ -330,6 +332,7 @@ export const windowEditSchema = z
 
 export const roomEditSchema = z.object({
   id: optionalUuid,
+  template_room_id: optionalUuid,
   type: z.enum(ROOM_TYPES),
   label: z.string().min(1, "Required").max(200),
   position: z.number().int().min(0),

@@ -288,7 +288,7 @@ export function MeshConsultationForm({
         ...payload,
         appointment_id: appointment?.id,
         lead_id: appointment?.leadId,
-        customer_id: appointment?.customerId,
+        customer_id: appointment?.leadId ? undefined : appointment?.customerId,
       });
     }, "Save failed");
   });
@@ -301,7 +301,7 @@ export function MeshConsultationForm({
         ...normalise(getValues()),
         appointment_id: appointment?.id,
         lead_id: appointment?.leadId,
-        customer_id: appointment?.customerId,
+        customer_id: appointment?.leadId ? undefined : appointment?.customerId,
       }),
       "Draft save failed",
     );
@@ -319,7 +319,9 @@ export function MeshConsultationForm({
           leadOptions={mode === "create" ? leadOptions : undefined}
           customerOptions={mode === "create" ? customerOptions : undefined}
           selectedLeadId={appointment?.leadId}
-          selectedCustomerId={appointment?.customerId}
+          selectedCustomerId={
+            appointment?.leadId ? undefined : appointment?.customerId
+          }
         />
         <PricingSection promotions={promotions} />
 
@@ -347,6 +349,9 @@ export function MeshConsultationForm({
               const formRoom = getValues(`rooms.${rIdx}`);
               const persistedRoomId =
                 mode === "edit" ? formRoom?.id : undefined;
+              const photoRoomId =
+                persistedRoomId ??
+                (mode === "create" ? formRoom?.template_room_id : undefined);
               return (
                 <MeshRoomCard
                   key={room.id}
@@ -371,8 +376,8 @@ export function MeshConsultationForm({
                     pendingPhotos.remove(room.id, photoId)
                   }
                   photos={
-                    persistedRoomId
-                      ? (roomPhotos?.[persistedRoomId] ?? [])
+                    photoRoomId
+                      ? (roomPhotos?.[photoRoomId] ?? [])
                       : undefined
                   }
                 />

@@ -84,6 +84,7 @@ export const meshPanelSchema = z.object({
 });
 
 export const meshRoomSchema = z.object({
+  template_room_id: z.string().uuid().optional(),
   type: z.enum(ROOM_TYPE_VALUES),
   label: z.string().min(1, "Required").max(200),
   position: z.number().int().min(0),
@@ -116,6 +117,7 @@ const customerDraftSchema = z.object({
 });
 
 const meshDraftRoom = z.object({
+  template_room_id: z.string().uuid().optional(),
   type: z.enum(ROOM_TYPE_VALUES),
   label: z.string().min(1).max(200),
   position: z.number().int().min(0),
@@ -143,6 +145,7 @@ export const meshPanelEditSchema = meshPanelSchema.extend({ id: optionalUuid });
 
 export const meshRoomEditSchema = z.object({
   id: optionalUuid,
+  template_room_id: optionalUuid,
   type: z.enum(ROOM_TYPE_VALUES),
   label: z.string().min(1, "Required").max(200),
   position: z.number().int().min(0),

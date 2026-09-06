@@ -67,6 +67,24 @@ export function formDraftKey(
   return `${PREFIX}v${FORMAT_VERSION}:${product}:${mode}:${orderId ?? "new"}`;
 }
 
+/**
+ * Drop create-form recovery snapshots when the consultant deliberately changes
+ * customer. That action is already confirmed as a reset in the picker; keeping
+ * an older per-customer snapshot would otherwise override the freshly loaded
+ * order template when that customer is selected again.
+ */
+export function clearCreateFormDrafts(product: "curtain" | "mesh"): void {
+  const createPrefix = `${PREFIX}v${FORMAT_VERSION}:${product}:create:`;
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith(createPrefix)) sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* storage unavailable — navigation can still continue */
+  }
+}
+
 export function useFormDraft<T extends FieldValues>(
   form: UseFormReturn<T>,
   key: string,

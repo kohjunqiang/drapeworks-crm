@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 // Write-path obligations shared by every order-creating/updating action,
 // whatever the product line. Deliberately NOT a "use server" module — those may
 // only export async functions, and some of these are plain mappers.
@@ -16,7 +18,7 @@ import "server-only";
 import type { Kysely, Transaction } from "kysely";
 
 import { db } from "@/lib/db/kysely";
-import type { DB } from "@/lib/db/schema";
+import type { DB, ProductLine } from "@/lib/db/schema";
 import { computeOrderQuote } from "@/lib/pricing/order-quote";
 import { adminClient } from "@/lib/supabase/admin";
 
@@ -90,6 +92,71 @@ export const SEQ_PLACEHOLDERS = {
   seq_num: 0,
   display_id: "",
 } as const;
+
+/**
+ * Duplicate one template room's photos into a newly inserted room.
+ *
+ * Storage paths are copied, never shared: deleting either order must not break
+ * the other order's photos. The source room is constrained to the same
+ * customer and product line so a crafted payload cannot copy arbitrary files.
+ */
+export async function cloneTemplateRoomPhotos(
+  trx: Transaction<DB>,
+  input: {
+    sourceRoomId: string;
+    targetRoomId: string;
+    targetOrderId: string;
+    customerId: string;
+    productLine: ProductLine;
+    uploadedBy: string;
+    copiedPaths: string[];
+  },
+): Promise<void> {
+  const sourceRoom = await trx
+    .selectFrom("rooms")
+    .innerJoin("orders", "orders.id", "rooms.order_id")
+    .select("rooms.id")
+    .where("rooms.id", "=", input.sourceRoomId)
+    .where("orders.customer_id", "=", input.customerId)
+    .where("orders.product_line", "=", input.productLine)
+    .executeTakeFirst();
+  if (!sourceRoom) throw new Error("The template room is no longer available");
+
+  const photos = await trx
+    .selectFrom("room_photos")
+    .select([
+      "storage_path",
+      "mime_type",
+      "size_bytes",
+      "original_name",
+      "position",
+    ])
+    .where("room_id", "=", input.sourceRoomId)
+    .orderBy("position", "asc")
+    .orderBy("created_at", "asc")
+    .execute();
+  const storage = adminClient().storage.from(PHOTO_BUCKET);
+
+  for (const photo of photos) {
+    const extension = /\.[a-z0-9]+$/i.exec(photo.storage_path)?.[0] ?? "";
+    const targetPath = `orders/${input.targetOrderId}/rooms/${input.targetRoomId}/${randomUUID()}${extension}`;
+    const { error } = await storage.copy(photo.storage_path, targetPath);
+    if (error) {
+      console.error("template room-photo copy failed:", error.message);
+      throw new Error("Could not copy the previous room photos");
+    }
+    input.copiedPaths.push(targetPath);
+    await trx.insertInto("room_photos").values({
+      room_id: input.targetRoomId,
+      storage_path: targetPath,
+      mime_type: photo.mime_type,
+      size_bytes: photo.size_bytes,
+      original_name: photo.original_name,
+      uploaded_by: input.uploadedBy,
+      position: photo.position,
+    }).execute();
+  }
+}
 
 // Every room_photo storage_path about to be cascade-deleted when rooms outside
 // `keepRoomIds` are removed. Captured BEFORE the delete, swept AFTER the commit,

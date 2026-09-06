@@ -103,6 +103,8 @@ export type PricingCalcMethod = "by_sqm" | "by_width";
 
 export type ProductLine = "curtain" | "mesh";
 
+export type QuotationStatus = "conflict" | "local_draft" | "sending" | "sent" | "superseded" | "sync_failed" | "syncing" | "zoho_draft";
+
 export type PropertyType = "Commercial" | "Condo" | "HDB" | "Landed";
 
 export type RoomType = "Balcony" | "Bedroom" | "Common Toilet" | "Kitchen" | "Living Room" | "Master Bedroom" | "Master Toilet" | "Other" | "Service Yard" | "Study Room";
@@ -114,6 +116,8 @@ export type StorageBuckettype = "ANALYTICS" | "STANDARD" | "VECTOR";
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export type UserRole = "admin" | "consultant" | "ops";
+
+export type ZohoConnectionStatus = "connected" | "disconnected" | "disconnecting" | "error" | "partial" | "pending_organization" | "reconnect_required";
 
 export interface AppointmentEvents {
   appointment_id: string;
@@ -929,6 +933,133 @@ export interface Orders {
   updated_at: Generated<Timestamp>;
 }
 
+export interface CustomerZohoLinks {
+  confirmed_at: Generated<Timestamp>;
+  confirmed_by: string;
+  customer_id: string;
+  updated_at: Generated<Timestamp>;
+  zoho_contact_id: string;
+}
+
+export interface ZohoConnectionEvents {
+  actor_id: string | null;
+  created_at: Generated<Timestamp>;
+  details: Generated<Json>;
+  environment: string;
+  event_type: string;
+  id: string;
+}
+
+export interface ZohoConnections {
+  access_token_ciphertext: string | null;
+  access_token_expires_at: Timestamp | null;
+  access_token_nonce: string | null;
+  access_token_tag: string | null;
+  accounts_server: string;
+  api_domain: string;
+  candidate_organizations: Generated<Json>;
+  connected_at: Generated<Timestamp>;
+  connected_by: string;
+  country_code: string | null;
+  created_at: Generated<Timestamp>;
+  currency_code: string | null;
+  environment: string;
+  estimate_crm_key_api_name: string | null;
+  estimate_crm_key_id: string | null;
+  estimate_template_id: string | null;
+  id: string;
+  key_version: Generated<number>;
+  last_error: string | null;
+  last_verified_at: Timestamp | null;
+  organization_id: string | null;
+  organization_name: string | null;
+  refresh_token_ciphertext: string | null;
+  refresh_token_nonce: string | null;
+  refresh_token_tag: string | null;
+  requested_scopes: string[];
+  status: ZohoConnectionStatus;
+  token_version: Generated<number>;
+  updated_at: Generated<Timestamp>;
+  verified_capabilities: Generated<Json>;
+}
+
+export interface ZohoOauthStates {
+  accounts_server: string;
+  created_at: Generated<Timestamp>;
+  environment: string;
+  expires_at: Timestamp;
+  initiated_by: string;
+  return_path: string;
+  state_hash: string;
+  used_at: Timestamp | null;
+}
+
+export interface ZohoPendingConnections {
+  access_token_ciphertext: string;
+  access_token_expires_at: Timestamp;
+  access_token_nonce: string;
+  access_token_tag: string;
+  accounts_server: string;
+  api_domain: string;
+  candidate_organizations: Json;
+  created_at: Generated<Timestamp>;
+  claimed_at: Timestamp | null;
+  environment: string;
+  expires_at: Timestamp;
+  id: string;
+  initiated_by: string;
+  refresh_token_ciphertext: string;
+  refresh_token_nonce: string;
+  refresh_token_tag: string;
+  requested_scopes: string[];
+  status: Generated<string>;
+}
+
+export interface OrderQuotations {
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  crm_quote_key: string;
+  customer_message: Generated<string>;
+  expiry_date: Timestamp;
+  id: string;
+  invoice_created_at: Timestamp | null;
+  invoice_claimed_at: Timestamp | null;
+  invoice_claim_token: string | null;
+  invoice_sync_error: string | null;
+  invoice_sync_state: Generated<string>;
+  invoice_uncertain_at: Timestamp | null;
+  issue_date: Timestamp;
+  lines: Generated<Json>;
+  notes: string | null;
+  order_id: string;
+  pdf_sha256: string | null;
+  pdf_storage_path: string | null;
+  quoted_total_cents: number;
+  revision: number;
+  sent_at: Timestamp | null;
+  sent_by: string | null;
+  sent_channel: string | null;
+  sent_note: string | null;
+  status: Generated<QuotationStatus>;
+  superseded_at: Timestamp | null;
+  superseded_by: string | null;
+  sync_error: string | null;
+  sync_claim_token: string | null;
+  sync_claimed_at: Timestamp | null;
+  synced_at: Timestamp | null;
+  synced_payload_hash: string | null;
+  terms: string | null;
+  updated_at: Generated<Timestamp>;
+  updated_by: string;
+  zoho_contact_id: string | null;
+  zoho_estimate_id: string | null;
+  zoho_estimate_number: string | null;
+  zoho_invoice_id: string | null;
+  zoho_invoice_number: string | null;
+  zoho_last_modified_time: string | null;
+  zoho_status: string | null;
+}
+
 export interface OrderStatusEvents {
   created_at: Generated<Timestamp>;
   created_by: string | null;
@@ -1342,6 +1473,7 @@ export interface DB {
   curtain_pricing_adjustments: CurtainPricingAdjustments;
   curtain_series: CurtainSeries;
   curtain_types: CurtainTypes;
+  customer_zoho_links: CustomerZohoLinks;
   customers: Customers;
   delivery_vendors: DeliveryVendors;
   "extensions.pg_stat_statements": ExtensionsPgStatStatements;
@@ -1363,6 +1495,7 @@ export interface DB {
   mesh_system_bands: MeshSystemBands;
   mesh_systems: MeshSystems;
   order_completion_photos: OrderCompletionPhotos;
+  order_quotations: OrderQuotations;
   order_shipments: OrderShipments;
   order_shipment_events: OrderShipmentEvents;
   order_status_events: OrderStatusEvents;
@@ -1396,4 +1529,8 @@ export interface DB {
   vendors: Vendors;
   window_addons: WindowAddons;
   windows: Windows;
+  zoho_connection_events: ZohoConnectionEvents;
+  zoho_connections: ZohoConnections;
+  zoho_oauth_states: ZohoOauthStates;
+  zoho_pending_connections: ZohoPendingConnections;
 }

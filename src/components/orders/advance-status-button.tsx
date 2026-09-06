@@ -29,12 +29,9 @@ type Props = {
   currentStatus: FulfilmentStatus;
   atEnd: boolean;
   nextLabel?: string;
-  /** Overrides the generic "Advance →" wording. Used at order_recorded, where
-   *  the action is specifically "the deposit has arrived". */
+  /** Overrides the generic "Advance →" wording for workflow-specific actions. */
   ctaLabel?: string;
-  /** Where to go after a successful advance. Set at order_recorded so recording
-   *  the deposit lands on the measurements review — the thing recording it was
-   *  for — instead of returning here and asking for a second click. */
+  /** Where to go after a successful advance. */
   advanceTo?: string;
   completionPhotos?: CompletionPhoto[];
   shipments?: ShipmentValues[];
@@ -166,6 +163,7 @@ export function AdvanceStatusButton({
   if (atEnd) {
     return (
       <button
+        id="advance-order-status"
         type="button"
         disabled
         className="px-3 py-1.5 text-xs sm:text-sm bg-slate-300 text-white rounded font-medium cursor-not-allowed"
@@ -225,6 +223,12 @@ export function AdvanceStatusButton({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {currentStatus === "quotation_sent" && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="font-medium">This creates the full invoice in Zoho Books.</p>
+                <p className="mt-1 text-xs">It marks the deposit as received in the CRM, but it does not record a payment in Zoho Books.</p>
+              </div>
+            )}
             {trackingMode && shipments.length > 0 && (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div>

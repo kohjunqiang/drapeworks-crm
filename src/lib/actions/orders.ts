@@ -748,6 +748,14 @@ export async function deleteOrder(input: {
     .select("storage_path")
     .where("order_id", "=", order.id)
     .execute();
+  const customerQuotations = await db
+    .selectFrom("order_quotations")
+    .select(["pdf_storage_path", "zoho_estimate_id", "zoho_invoice_id", "invoice_sync_state"])
+    .where("order_id", "=", order.id)
+    .execute();
+  if (customerQuotations.some((quote) => quote.zoho_estimate_id || quote.zoho_invoice_id || ["pending", "uncertain"].includes(quote.invoice_sync_state))) {
+    throw new Error("This order is linked to a Zoho quotation or invoice and cannot be deleted from the CRM. Preserve the financial audit trail.");
+  }
   const arrangement = await db
     .selectFrom("fulfilment_arrangements")
     .select(["id", "google_event_id"])
@@ -834,6 +842,12 @@ export async function deleteOrder(input: {
       .storage.from("manufacture-pos")
       .remove(purchaseOrders.map((po) => po.storage_path));
     if (error) console.error("purchase-order storage sweep failed during deleteOrder:", error.message);
+  }
+
+  const quotationPaths = customerQuotations.flatMap((quote) => quote.pdf_storage_path ? [quote.pdf_storage_path] : []);
+  if (quotationPaths.length > 0) {
+    const { error } = await adminClient().storage.from("customer-quotations").remove(quotationPaths);
+    if (error) console.error("customer-quotation storage sweep failed during deleteOrder:", error.message);
   }
 
   revalidatePath("/orders");

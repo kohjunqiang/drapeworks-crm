@@ -10,6 +10,7 @@ import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrang
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
+import { QuotationWorkspace } from "@/components/orders/quotation-workspace";
 import { RoomOrderControls } from "@/components/orders/room-order-controls";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
 import {
@@ -53,6 +54,9 @@ import {
   computeOrderQuote,
   loadMeshPriceBook,
 } from "@/lib/pricing/order-quote";
+import { isZohoBooksConfigured } from "@/lib/zoho/books";
+import type { QuotationLineInput } from "@/lib/validation/quotation";
+import { quotationDateOnly } from "@/lib/quotations/model";
 
 export const dynamic = "force-dynamic";
 
@@ -112,6 +116,12 @@ export default async function OrderDetailPage({
     .executeTakeFirst();
 
   if (!order) notFound();
+
+  const [currentQuotation, quotationHistory, zohoCustomerLink] = await Promise.all([
+    db.selectFrom("order_quotations").selectAll().where("order_id", "=", order.id).where("superseded_at", "is", null).executeTakeFirst(),
+    db.selectFrom("order_quotations").select(["id", "revision", "zoho_estimate_number", "sent_at", "superseded_at", "quoted_total_cents", "pdf_storage_path"]).where("order_id", "=", order.id).where("superseded_at", "is not", null).orderBy("revision", "desc").execute(),
+    db.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id", "=", order.customer_id).executeTakeFirst(),
+  ]);
 
   const shipmentState =
     statusIndex(order.current_status) >= statusIndex("sent_to_vendor")
@@ -604,7 +614,7 @@ export default async function OrderDetailPage({
             order.current_status === "order_recorded"
               ? "Mark quotation sent"
               : order.current_status === "quotation_sent"
-                ? "Record deposit received"
+                ? "Create full Zoho invoice & mark deposit received in CRM"
                 : order.current_status === "sent_to_vendor"
                   ? shipmentState.shipments.length > 0 &&
                       !shipmentState.shipments.some((shipment) =>
@@ -674,6 +684,7 @@ export default async function OrderDetailPage({
               <PrintButton />
               {isAdvancer &&
                 !order.is_draft &&
+                order.current_status !== "order_recorded" &&
                 order.current_status !== "deposit_received" &&
                 order.current_status !== "po_ready" &&
                 (order.current_status !== "shipping_sg" ||
@@ -708,7 +719,50 @@ export default async function OrderDetailPage({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
-        <div className="lg:col-span-2 space-y-4 order-2 lg:order-1">
+        <div className="lg:col-span-2 space-y-4 order-1">
+          {!order.is_draft && (
+            <QuotationWorkspace
+              key={currentQuotation ? `${currentQuotation.id}:${new Date(currentQuotation.updated_at).toISOString()}` : "new"}
+              orderId={order.id}
+              displayId={order.order_reference || order.display_id}
+              customerName={order.customer_name}
+              productLine={order.product_line}
+              quotedCents={order.price_quoted_cents}
+              quote={currentQuotation ? {
+                id: currentQuotation.id,
+                revision: currentQuotation.revision,
+                status: currentQuotation.status,
+                issueDate: quotationDateOnly(currentQuotation.issue_date),
+                expiryDate: quotationDateOnly(currentQuotation.expiry_date),
+                lines: currentQuotation.lines as unknown as QuotationLineInput[],
+                totalCents: currentQuotation.quoted_total_cents,
+                customerMessage: currentQuotation.customer_message,
+                notes: currentQuotation.notes ?? "",
+                terms: currentQuotation.terms ?? "",
+                estimateNumber: currentQuotation.zoho_estimate_number,
+                invoiceNumber: currentQuotation.zoho_invoice_number,
+                invoiceSyncState: currentQuotation.invoice_sync_state,
+                invoiceSyncError: currentQuotation.invoice_sync_error,
+                hasZohoEstimate: Boolean(currentQuotation.zoho_estimate_id),
+                updatedAt: new Date(currentQuotation.updated_at).toISOString(),
+                syncError: currentQuotation.sync_error,
+                hasPdf: Boolean(currentQuotation.pdf_storage_path),
+                sentAt: currentQuotation.sent_at ? new Date(currentQuotation.sent_at).toISOString() : null,
+              } : null}
+              history={quotationHistory.map((item) => ({
+                id: item.id,
+                revision: item.revision,
+                estimateNumber: item.zoho_estimate_number,
+                sentAt: item.sent_at ? new Date(item.sent_at).toISOString() : null,
+                supersededAt: item.superseded_at ? new Date(item.superseded_at).toISOString() : null,
+                totalCents: item.quoted_total_cents,
+                hasPdf: Boolean(item.pdf_storage_path),
+              }))}
+              linkedContactId={zohoCustomerLink?.zoho_contact_id ?? null}
+              canManage={(order.current_status === "order_recorded" || order.current_status === "quotation_sent") && (session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id))}
+              configured={await isZohoBooksConfigured()}
+            />
+          )}
           {statusIndex(order.current_status) >= statusIndex("sent_to_vendor") && (
             <DeliveryNumbersCard
               orderId={order.id}
@@ -826,7 +880,7 @@ export default async function OrderDetailPage({
           )}
         </div>
 
-        <div className="space-y-4 order-1 lg:order-2">
+        <div className="space-y-4 order-2">
           <section className="bg-white rounded-lg border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-900 mb-3">
               Customer

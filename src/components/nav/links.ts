@@ -53,6 +53,12 @@ export const NAV_LINKS: NavLink[] = [
     roles: ["admin"],
     match: (p) => p.startsWith("/admin/procurement"),
   },
+  {
+    href: "/admin/integrations/zoho",
+    label: "Integrations",
+    roles: ["admin"],
+    match: (p) => p.startsWith("/admin/integrations"),
+  },
 ];
 
 export function linksForRole(role: Role): NavLink[] {

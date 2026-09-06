@@ -9,6 +9,7 @@ import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
+import { ensureZohoInvoiceForOrder } from "@/lib/actions/quotations";
 import {
   requiresLocalDelivery,
   SHIPMENT_CATEGORIES,
@@ -41,6 +42,18 @@ export async function advanceOrderStatus(input: unknown) {
   const session = await requireRole(["ops", "admin"]);
   const parsed = advanceSchema.parse(input);
 
+  if (parsed.expectedStatus === "order_recorded") {
+    throw new Error("Create, preview, and confirm the official quotation from the quotation workspace.");
+  }
+
+  // Creating the invoice is an external side effect, so it must not happen
+  // while a Postgres row lock is held. The helper reconciles an invoice already
+  // linked by Zoho before creating one, making a retry safe if the later local
+  // status transaction loses a race or fails.
+  if (parsed.expectedStatus === "quotation_sent") {
+    await ensureZohoInvoiceForOrder(parsed.orderId);
+  }
+
   const linkedLeadId = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
@@ -56,6 +69,12 @@ export async function advanceOrderStatus(input: unknown) {
     }
     if (order.current_status !== parsed.expectedStatus) {
       throw new Error("Order status already changed. Refresh and try again.");
+    }
+    if (parsed.expectedStatus === "quotation_sent") {
+      const quotation = await trx.selectFrom("order_quotations").select(["status", "zoho_invoice_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+      if (quotation && (quotation.status !== "sent" || !quotation.zoho_invoice_id)) {
+        throw new Error("The current sent quotation must own the Zoho invoice before the deposit can be recorded");
+      }
     }
 
     const idx = STATUS_FLOW.indexOf(order.current_status);
@@ -278,6 +297,12 @@ export async function revertOrderStatus(input: unknown) {
     if (!order) throw new Error("Order not found");
     if (order.current_status !== parsed.expectedStatus) {
       throw new Error("Order status already changed. Refresh and try again.");
+    }
+    if (order.current_status === "quotation_sent") {
+      const quotation = await trx.selectFrom("order_quotations").select(["invoice_sync_state", "zoho_invoice_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+      if (quotation && (["pending", "uncertain"].includes(quotation.invoice_sync_state) || quotation.zoho_invoice_id)) {
+        throw new Error("This order has a pending or created Zoho invoice and cannot be reverted from Quotation Sent");
+      }
     }
 
     const idx = STATUS_FLOW.indexOf(order.current_status);

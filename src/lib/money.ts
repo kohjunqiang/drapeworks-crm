@@ -10,13 +10,21 @@ export function centsToDisplay(cents: number | null | undefined): string {
   return (n / 100).toFixed(2);
 }
 
-const SGD = new Intl.NumberFormat("en-SG", {
+const SGD_WHOLE = new Intl.NumberFormat("en-SG", {
   style: "currency",
   currency: "SGD",
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
 });
 
+const SGD_CENTS = new Intl.NumberFormat("en-SG", {
+  style: "currency",
+  currency: "SGD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export function formatSGD(cents: number | null | undefined): string {
-  return SGD.format(Math.round((cents ?? 0) / 100));
+  const value = cents ?? 0;
+  return (value % 100 === 0 ? SGD_WHOLE : SGD_CENTS).format(value / 100);
 }

@@ -27,6 +27,7 @@ type SearchParams = {
   product?: string;
   sort?: string;
   dir?: string;
+  zohoAttention?: string;
 };
 
 type OrderSort = "identifier" | "status";
@@ -48,6 +49,7 @@ export default async function OrdersDashboardPage({
     product: productRaw,
     sort: sortRaw,
     dir: directionRaw,
+    zohoAttention: zohoAttentionRaw,
   } = await searchParams;
   const session = await requireSession();
   const q = (qRaw ?? "").trim();
@@ -61,6 +63,7 @@ export default async function OrdersDashboardPage({
   const hasExplicitSort = isOrderSort(sortRaw);
   const sort: OrderSort = hasExplicitSort ? sortRaw : "identifier";
   const direction: SortDirection = directionRaw === "desc" ? "desc" : "asc";
+  const zohoAttention = zohoAttentionRaw === "1";
 
   // Stat counts.
   const counts = await db
@@ -141,6 +144,13 @@ export default async function OrdersDashboardPage({
   if (status) listQ = listQ.where("orders.current_status", "=", status);
   if (productLine) listQ = listQ.where("orders.product_line", "=", productLine);
   if (consultantId) listQ = listQ.where("orders.consultant_id", "=", consultantId);
+  if (zohoAttention) {
+    listQ = listQ.where(sql<boolean>`exists (
+      select 1 from public.order_quotations oq
+      where oq.order_id = orders.id and oq.superseded_at is null
+        and (oq.status in ('syncing','sending','sync_failed','conflict') or oq.invoice_sync_state in ('pending','failed','uncertain'))
+    )`);
+  }
 
   if (q) {
     const like = `%${q.replace(/[%_]/g, "")}%`;
@@ -220,6 +230,7 @@ export default async function OrdersDashboardPage({
     if (status) params.set("status", status);
     if (consultantId) params.set("consultant", consultantId);
     if (productLine) params.set("product", productLine);
+    if (zohoAttention) params.set("zohoAttention", "1");
     params.set("sort", column);
     params.set(
       "dir",
@@ -247,6 +258,13 @@ export default async function OrdersDashboardPage({
         </Link>
       </div>
 
+      {zohoAttention && (
+        <div className="mb-5 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+          <span>Showing orders with interrupted or failed Zoho quotation/invoice work.</span>
+          <Link href="/orders" className="font-medium underline">Clear Zoho attention filter</Link>
+        </div>
+      )}
+
       <OrdersStats
         active={Number(counts.active)}
         inProduction={Number(counts.in_production)}
@@ -269,7 +287,7 @@ export default async function OrdersDashboardPage({
         consultants={consultants}
       />
 
-      {orders.length === 0 && !q && !status && !consultantId && !productLine ? (
+      {orders.length === 0 && !q && !status && !consultantId && !productLine && !zohoAttention ? (
         <EmptyState
           title="No orders yet"
           description="Create your first consultation to start tracking measurements, fabrics, and fulfilment."

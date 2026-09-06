@@ -50,3 +50,4 @@ resource/*
 # numbers; it is read by scripts/import-leads.ts from the working tree and
 # must never enter git history.
 *.xlsx
+/zoho.json

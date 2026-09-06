@@ -18,3 +18,7 @@ export function resolveZohoRedirectUri(origin: string): string {
   if (!CRM_ORIGINS.has(requestOrigin)) throw new Error("This CRM origin is not authorized for Zoho OAuth");
   return `${requestOrigin}${CALLBACK_PATH}`;
 }
+
+export function resolveZohoAppOrigin(origin: string): string {
+  return new URL(resolveZohoRedirectUri(origin)).origin;
+}

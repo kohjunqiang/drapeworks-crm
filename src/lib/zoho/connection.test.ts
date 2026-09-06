@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveZohoRedirectUri } from "./oauth-redirect";
+import { resolveZohoAppOrigin, resolveZohoRedirectUri } from "./oauth-redirect";
 
 const originalRedirectUri = process.env.ZOHO_OAUTH_REDIRECT_URI;
 
@@ -15,6 +15,8 @@ describe("resolveZohoRedirectUri", () => {
 
     expect(resolveZohoRedirectUri("http://drapeworks-crm.railway.internal"))
       .toBe("https://app.drapeworks.sg/api/integrations/zoho/callback");
+    expect(resolveZohoAppOrigin("https://0.0.0.0:8080"))
+      .toBe("https://app.drapeworks.sg");
   });
 
   it("rejects a configured callback outside the approved CRM origins", () => {

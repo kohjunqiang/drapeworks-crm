@@ -246,6 +246,7 @@ export const orderMetaSchema = z.object({
 // the same person.
 export const optionalAppointmentId = z.string().uuid().optional();
 export const optionalLeadId = z.string().uuid().optional();
+export const optionalCustomerId = z.string().uuid().optional();
 
 export const orderCreateSchema = z.object({
   customer: customerSchema,
@@ -259,6 +260,7 @@ export const orderCreateSchema = z.object({
   rooms: z.array(roomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
+  customer_id: optionalCustomerId,
 });
 
 // Draft variant: relaxed validation so consultants can persist a half-finished
@@ -306,6 +308,7 @@ export const orderDraftSchema = z.object({
   // the same reason the full save does.
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
+  customer_id: optionalCustomerId,
 });
 
 export type OrderDraftInput = z.infer<typeof orderDraftSchema>;

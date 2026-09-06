@@ -155,6 +155,7 @@ describe("resolveOrderCustomer", () => {
         funnel_stage: "Attend Appointment",
         is_archived: false,
       },
+      customers: { id: "customer-1" },
       orders: undefined,
     };
 
@@ -231,6 +232,43 @@ describe("resolveOrderCustomer", () => {
       appointmentId: "appointment-1",
       leadId: "lead-1",
     });
+  });
+
+  it("reuses a selected customer without attaching the new order to an old lead", async () => {
+    const { trx, selectedTables, updatedTables } = fakeResolveTransaction();
+
+    const result = await resolveOrderCustomer(
+      trx,
+      undefined,
+      undefined,
+      { name: "Kenny", mobile: "91234567" },
+      "user-1",
+      "customer-1",
+    );
+
+    expect(selectedTables).toEqual(["customers"]);
+    expect(updatedTables).toEqual(["customers"]);
+    expect(result).toEqual({
+      customerId: "customer-1",
+      appointmentId: null,
+      leadId: null,
+    });
+  });
+
+  it("rejects an ambiguous lead and existing-customer selection", async () => {
+    const { trx, selectedTables, updatedTables } = fakeResolveTransaction();
+
+    await expect(resolveOrderCustomer(
+      trx,
+      undefined,
+      "lead-1",
+      { name: "Kenny", mobile: "91234567" },
+      "user-1",
+      "customer-1",
+    )).rejects.toThrow("either an appointment lead or an existing customer");
+
+    expect(selectedTables).toEqual([]);
+    expect(updatedTables).toEqual([]);
   });
 
   it("rejects an appointment linked to a different customer than its lead", async () => {

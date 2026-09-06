@@ -279,3 +279,17 @@ describe("orderCreateSchema / orderDraftSchema — lead_id", () => {
     expect(parsed.lead_id).toBe(APPOINTMENT);
   });
 });
+
+describe("orderCreateSchema / orderDraftSchema — customer_id", () => {
+  it("accepts an existing customer id for a repeat quote", () => {
+    const customerId = crypto.randomUUID();
+    expect(orderCreateSchema.parse({ ...MINIMAL_ORDER, customer_id: customerId }).customer_id)
+      .toBe(customerId);
+    expect(orderDraftSchema.parse({
+      customer: { name: "Tan Wei Ming" },
+      order: {},
+      rooms: [],
+      customer_id: customerId,
+    }).customer_id).toBe(customerId);
+  });
+});

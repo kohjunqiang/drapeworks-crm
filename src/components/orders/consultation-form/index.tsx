@@ -31,6 +31,7 @@ import type { CurtainPackageRow } from "@/lib/db/product-pricing-settings";
 import {
   CustomerSection,
   type CustomerLeadOption,
+  type ExistingCustomerOption,
 } from "./customer-section";
 import { LiveQuote } from "./live-quote";
 import { PricingSection } from "./pricing-section";
@@ -50,7 +51,8 @@ type Mode = "create" | "edit";
  */
 export type AppointmentPrefill = {
   id?: string;
-  leadId: string;
+  leadId?: string;
+  customerId?: string;
   customer: { name: string; mobile: string; email?: string };
   development?: string | null;
   address?: string | null;
@@ -73,6 +75,8 @@ type Props = {
   appointment?: AppointmentPrefill;
   /** Eligible Attend Appointment leads shown in the Customer Name selector. */
   leadOptions?: CustomerLeadOption[];
+  /** Customers with an existing order who can be reused for another quote. */
+  customerOptions?: ExistingCustomerOption[];
   roomPhotos?: Record<string, UploaderPhoto[]>;
   /**
    * windowId → the add-on ids that window had on load. Fixed for the life of
@@ -179,6 +183,7 @@ export function ConsultationForm({
   defaultValues,
   appointment,
   leadOptions,
+  customerOptions,
   roomPhotos,
   persistedAddonIdsByWindow = {},
 }: Props) {
@@ -220,7 +225,7 @@ export function ConsultationForm({
     formDraftKey(
       "curtain",
       mode,
-      orderId ?? appointment?.id ?? appointment?.leadId,
+      orderId ?? appointment?.id ?? appointment?.leadId ?? appointment?.customerId,
     ),
   );
   const pendingPhotos = usePendingRoomPhotos();
@@ -292,6 +297,7 @@ export function ConsultationForm({
             ...normalised,
             appointment_id: appointment?.id,
             lead_id: appointment?.leadId,
+            customer_id: appointment?.customerId,
           });
         }
       } catch (e) {
@@ -317,6 +323,7 @@ export function ConsultationForm({
       // saving it as a draft must not fork a second customer either.
       appointment_id: appointment?.id,
       lead_id: appointment?.leadId,
+      customer_id: appointment?.customerId,
       rooms: (values.rooms ?? []).map((room, rIdx) => ({
         ...room,
         position: rIdx,
@@ -353,7 +360,9 @@ export function ConsultationForm({
       <form onSubmit={onSubmit} inert={pending} aria-busy={pending}>
         <CustomerSection
           leadOptions={mode === "create" ? leadOptions : undefined}
+          customerOptions={mode === "create" ? customerOptions : undefined}
           selectedLeadId={appointment?.leadId}
+          selectedCustomerId={appointment?.customerId}
         />
         <PricingSection promotions={promotions} curtainPackages={curtainPackages} savedPackageSnapshot={savedPackageSnapshot} />
 

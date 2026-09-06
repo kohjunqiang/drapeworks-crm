@@ -188,6 +188,7 @@ export async function createOrder(input: unknown): Promise<never> {
       parsed.lead_id,
       parsed.customer,
       session.user.id,
+      parsed.customer_id,
     );
 
     const order = await trx
@@ -856,6 +857,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
       parsed.lead_id,
       parsed.customer,
       session.user.id,
+      parsed.customer_id,
     );
 
     const order = await trx

@@ -76,7 +76,14 @@ export async function createMeshOrder(input: unknown): Promise<never> {
   await assertBuildable(parsed.rooms);
 
   const orderId = await db.transaction().execute(async (trx) => {
-    const customer = await resolveOrderCustomer(trx, parsed.appointment_id, parsed.lead_id, parsed.customer, session.user.id);
+    const customer = await resolveOrderCustomer(
+      trx,
+      parsed.appointment_id,
+      parsed.lead_id,
+      parsed.customer,
+      session.user.id,
+      parsed.customer_id,
+    );
 
     const order = await trx
       .insertInto("orders")
@@ -308,7 +315,14 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
   const parsed: MeshOrderDraftInput = meshOrderDraftSchema.parse(input);
 
   const orderId = await db.transaction().execute(async (trx) => {
-    const customer = await resolveOrderCustomer(trx, parsed.appointment_id, parsed.lead_id, parsed.customer, session.user.id);
+    const customer = await resolveOrderCustomer(
+      trx,
+      parsed.appointment_id,
+      parsed.lead_id,
+      parsed.customer,
+      session.user.id,
+      parsed.customer_id,
+    );
 
     const order = await trx
       .insertInto("orders")

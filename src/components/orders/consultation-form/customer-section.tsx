@@ -15,10 +15,19 @@ export type CustomerLeadOption = {
   development: string | null;
 };
 
+export type ExistingCustomerOption = {
+  customerId: string;
+  customerName: string;
+  mobile: string | null;
+  development: string | null;
+};
+
 type Props = {
   /** Present only on a new consultation. Edit mode keeps the normal name input. */
   leadOptions?: CustomerLeadOption[];
+  customerOptions?: ExistingCustomerOption[];
   selectedLeadId?: string;
+  selectedCustomerId?: string;
 };
 
 const INPUT_CLS =
@@ -28,7 +37,12 @@ const INPUT_CLS =
 // schema, so it can be dropped into the curtain or the mesh form without
 // claiming to know what the line items are. register/errors come from context
 // for the same reason — props typed to one schema wouldn't accept the other.
-export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
+export function CustomerSection({
+  leadOptions,
+  customerOptions = [],
+  selectedLeadId,
+  selectedCustomerId,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const {
@@ -41,6 +55,11 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
   // currently eligible. Keep the picker visible in that empty state so it
   // does not look as though lead selection has disappeared from the form.
   const choosingCustomer = leadOptions !== undefined;
+  const selectedOption = selectedLeadId
+    ? `lead:${selectedLeadId}`
+    : selectedCustomerId
+      ? `customer:${selectedCustomerId}`
+      : "brand-new";
 
   function selectCustomer(value: string) {
     if (
@@ -50,8 +69,10 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete("appointmentId");
-    if (value === "brand-new") params.delete("leadId");
-    else params.set("leadId", value);
+    params.delete("leadId");
+    params.delete("customerId");
+    if (value.startsWith("lead:")) params.set("leadId", value.slice(5));
+    if (value.startsWith("customer:")) params.set("customerId", value.slice(9));
     startCustomerChange(() => router.push(`/orders/new?${params.toString()}`));
   }
 
@@ -73,33 +94,47 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
             <>
               <select
                 id="consultation-customer"
-                value={selectedLeadId ?? "brand-new"}
+                value={selectedOption}
                 onChange={(event) => selectCustomer(event.target.value)}
                 disabled={isChangingCustomer}
                 aria-describedby="customer-picker-hint"
                 className={`${INPUT_CLS} min-h-11 disabled:cursor-wait disabled:bg-slate-50`}
               >
-                {leadOptions.map((option) => (
-                  <option key={option.leadId} value={option.leadId}>
-                    {[option.leadName, option.mobile, option.development]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </option>
-                ))}
-                <option value="brand-new">
-                  {leadOptions.length > 0
-                    ? "Brand new customer"
-                    : "Brand new customer — no appointment leads available"}
-                </option>
+                {leadOptions.length > 0 && (
+                  <optgroup label="Appointment leads">
+                    {leadOptions.map((option) => (
+                      <option key={option.leadId} value={`lead:${option.leadId}`}>
+                        {[option.leadName, option.mobile, option.development]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {customerOptions.length > 0 && (
+                  <optgroup label="Existing customers">
+                    {customerOptions.map((option) => (
+                      <option
+                        key={option.customerId}
+                        value={`customer:${option.customerId}`}
+                      >
+                        {[option.customerName, option.mobile, option.development]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <option value="brand-new">Brand new customer</option>
               </select>
               <p id="customer-picker-hint" className="mt-1 text-xs text-slate-500">
-                {leadOptions.length > 0
-                  ? "Choose a booked lead at Attend Appointment, or add a new customer."
-                  : "No booked leads are currently ready at Attend Appointment. You can add a new customer instead."}
+                Choose a booked lead, reuse a customer from a recorded order, or add a new customer.
               </p>
               <div className="mt-2">
                 <label htmlFor="customer-name" className="block text-xs font-medium text-slate-600 mb-1">
-                  {selectedLeadId ? "Customer name" : "New customer name"}
+                  {selectedLeadId || selectedCustomerId
+                    ? "Customer name"
+                    : "New customer name"}
                 </label>
                 <input
                   id="customer-name"

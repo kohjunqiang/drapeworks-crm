@@ -99,7 +99,12 @@ export async function resolveOrderCustomer(
   leadId: string | undefined,
   customer: SubmittedCustomer,
   userId: string,
+  selectedCustomerId?: string,
 ): Promise<ResolvedOrderCustomer> {
+  if (selectedCustomerId && (appointmentId || leadId)) {
+    throw new Error("Choose either an appointment lead or an existing customer");
+  }
+
   // The lead picker carries only leadId. Resolve its one scheduled appointment
   // here so the order retains the booking/customer link and can complete it.
   const appointment = appointmentId || leadId
@@ -166,7 +171,28 @@ export async function resolveOrderCustomer(
     }
   }
 
-  const existingCustomerId = appointment?.customer_id ?? lead?.customer_id;
+  const journeyCustomerId = appointment?.customer_id ?? lead?.customer_id;
+  if (
+    selectedCustomerId &&
+    journeyCustomerId &&
+    selectedCustomerId !== journeyCustomerId
+  ) {
+    throw new Error("The selected customer does not match this appointment");
+  }
+
+  const selectedCustomer = selectedCustomerId && !journeyCustomerId
+    ? await trx
+        .selectFrom("customers")
+        .select("id")
+        .where("id", "=", selectedCustomerId)
+        .forUpdate()
+        .executeTakeFirst()
+    : undefined;
+  if (selectedCustomerId && !journeyCustomerId && !selectedCustomer) {
+    throw new Error("This customer is no longer available");
+  }
+
+  const existingCustomerId = journeyCustomerId ?? selectedCustomer?.id;
   if (!existingCustomerId) {
     const inserted = await trx
       .insertInto("customers")

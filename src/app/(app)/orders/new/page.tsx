@@ -2,7 +2,10 @@ import {
   ConsultationForm,
   type AppointmentPrefill,
 } from "@/components/orders/consultation-form";
-import type { CustomerLeadOption } from "@/components/orders/consultation-form/customer-section";
+import type {
+  CustomerLeadOption,
+  ExistingCustomerOption,
+} from "@/components/orders/consultation-form/customer-section";
 import { MeshConsultationForm } from "@/components/orders/mesh-form";
 import { ProductLineChooser } from "@/components/orders/product-line-chooser";
 import { requireRole } from "@/lib/auth/require-role";
@@ -23,7 +26,12 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "New Consultation — Drapeworks CRM" };
 
-type SearchParams = { product?: string; appointmentId?: string; leadId?: string };
+type SearchParams = {
+  product?: string;
+  appointmentId?: string;
+  leadId?: string;
+  customerId?: string;
+};
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -42,6 +50,7 @@ const UUID_RE =
 async function loadAppointmentPrefill(
   appointmentId: string | undefined,
   leadId: string | undefined,
+  customerId: string | undefined,
 ): Promise<AppointmentPrefill | undefined> {
   if (appointmentId && UUID_RE.test(appointmentId)) {
     const booked = await db
@@ -80,45 +89,75 @@ async function loadAppointmentPrefill(
     }
   }
 
-  if (!leadId || !UUID_RE.test(leadId)) return undefined;
-  const lead = await db.selectFrom("leads")
-    .leftJoin("orders", "orders.lead_id", "leads.id")
-    .innerJoin("appointments", (join) => join
-      .onRef("appointments.lead_id", "=", "leads.id")
-      .on("appointments.status", "=", "scheduled"))
-    // The appointment is the source of truth for the booked customer. Older
-    // records may have an appointment customer even when leads.customer_id was
-    // not backfilled, which previously left mobile blank on the order form.
-    .innerJoin("customers", "customers.id", "appointments.customer_id")
+  if (leadId && UUID_RE.test(leadId)) {
+    const lead = await db.selectFrom("leads")
+      .leftJoin("orders", "orders.lead_id", "leads.id")
+      .innerJoin("appointments", (join) => join
+        .onRef("appointments.lead_id", "=", "leads.id")
+        .on("appointments.status", "=", "scheduled"))
+      // The appointment is the source of truth for the booked customer. Older
+      // records may have an appointment customer even when leads.customer_id was
+      // not backfilled, which previously left mobile blank on the order form.
+      .innerJoin("customers", "customers.id", "appointments.customer_id")
+      .select([
+        "leads.id",
+        "leads.name as lead_name",
+        "leads.mobile as lead_mobile",
+        "leads.development",
+        "customers.name as customer_name",
+        "customers.mobile as customer_mobile",
+        "customers.email as customer_email",
+        "appointments.id as appointment_id",
+        "appointments.address as appointment_address",
+        "appointments.development as appointment_development",
+      ])
+      .where("leads.id", "=", leadId)
+      .where("leads.is_archived", "=", false)
+      .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
+      .where("orders.id", "is", null)
+      .executeTakeFirst();
+
+    if (lead) {
+      return {
+        id: lead.appointment_id ?? undefined,
+        leadId: lead.id,
+        customer: {
+          name: lead.customer_name ?? lead.lead_name,
+          mobile: lead.customer_mobile ?? lead.lead_mobile ?? "",
+          email: lead.customer_email ?? undefined,
+        },
+        development: lead.appointment_development ?? lead.development,
+        address: lead.appointment_address,
+      };
+    }
+  }
+
+  if (!customerId || !UUID_RE.test(customerId)) return undefined;
+  const existingCustomer = await db
+    .selectFrom("customers")
+    .innerJoin("orders", "orders.customer_id", "customers.id")
     .select([
-      "leads.id",
-      "leads.name as lead_name",
-      "leads.mobile as lead_mobile",
-      "leads.development",
-      "customers.name as customer_name",
-      "customers.mobile as customer_mobile",
-      "customers.email as customer_email",
-      "appointments.id as appointment_id",
-      "appointments.address as appointment_address",
-      "appointments.development as appointment_development",
+      "customers.id",
+      "customers.name",
+      "customers.mobile",
+      "customers.email",
+      "orders.development",
+      "orders.site_address",
     ])
-    .where("leads.id", "=", leadId)
-    .where("leads.is_archived", "=", false)
-    .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
-    .where("orders.id", "is", null)
+    .where("customers.id", "=", customerId)
+    .orderBy("orders.updated_at", "desc")
     .executeTakeFirst();
-  if (!lead) return undefined;
+  if (!existingCustomer) return undefined;
 
   return {
-    id: lead.appointment_id ?? undefined,
-    leadId: lead.id,
+    customerId: existingCustomer.id,
     customer: {
-      name: lead.customer_name ?? lead.lead_name,
-      mobile: lead.customer_mobile ?? lead.lead_mobile ?? "",
-      email: lead.customer_email ?? undefined,
+      name: existingCustomer.name,
+      mobile: existingCustomer.mobile,
+      email: existingCustomer.email ?? undefined,
     },
-    development: lead.appointment_development ?? lead.development,
-    address: lead.appointment_address,
+    development: existingCustomer.development,
+    address: existingCustomer.site_address,
   };
 }
 
@@ -128,8 +167,8 @@ export default async function NewConsultationPage({
   searchParams: Promise<SearchParams>;
 }) {
   const session = await requireRole(["consultant", "admin"]);
-  const { product, appointmentId, leadId } = await searchParams;
-  const appointment = await loadAppointmentPrefill(appointmentId, leadId);
+  const { product, appointmentId, leadId, customerId } = await searchParams;
+  const appointment = await loadAppointmentPrefill(appointmentId, leadId, customerId);
   const consultationLeads = await db.selectFrom("leads")
     .leftJoin("orders", "orders.lead_id", "leads.id")
     .innerJoin("appointments", (join) => join
@@ -138,6 +177,7 @@ export default async function NewConsultationPage({
     .innerJoin("customers", "customers.id", "appointments.customer_id")
     .select([
       "leads.id as lead_id", "leads.name as lead_name",
+      "customers.id as customer_id",
       "customers.mobile as customer_mobile",
       "appointments.development as appointment_development",
       "leads.development as lead_development",
@@ -153,6 +193,29 @@ export default async function NewConsultationPage({
     mobile: item.customer_mobile,
     development: item.appointment_development ?? item.lead_development,
   }));
+  const leadCustomerIds = new Set(consultationLeads.map(item => item.customer_id));
+  const repeatCustomers = await db
+    .selectFrom("customers")
+    .innerJoin("orders", "orders.customer_id", "customers.id")
+    .select([
+      "customers.id as customer_id",
+      "customers.name as customer_name",
+      "customers.mobile as customer_mobile",
+      "orders.development",
+    ])
+    .distinctOn("customers.id")
+    .orderBy("customers.id")
+    .orderBy("orders.updated_at", "desc")
+    .execute();
+  const customerOptions: ExistingCustomerOption[] = repeatCustomers
+    .filter(item => !leadCustomerIds.has(item.customer_id))
+    .map(item => ({
+      customerId: item.customer_id,
+      customerName: item.customer_name,
+      mobile: item.customer_mobile,
+      development: item.development,
+    }))
+    .sort((a, b) => a.customerName.localeCompare(b.customerName));
   if (appointment?.leadId && !leadOptions.some(item => item.leadId === appointment.leadId)) {
     leadOptions.unshift({
       leadId: appointment.leadId,
@@ -229,16 +292,18 @@ export default async function NewConsultationPage({
       )}
       {chosen === "curtain" && (
         <CurtainConsultation
-          key={appointment?.id ?? appointment?.leadId ?? "brand-new"}
+          key={appointment?.id ?? appointment?.leadId ?? appointment?.customerId ?? "brand-new"}
           appointment={appointment}
           leadOptions={leadOptions}
+          customerOptions={customerOptions}
         />
       )}
       {chosen === "mesh" && (
         <MeshConsultation
-          key={appointment?.id ?? appointment?.leadId ?? "brand-new"}
+          key={appointment?.id ?? appointment?.leadId ?? appointment?.customerId ?? "brand-new"}
           appointment={appointment}
           leadOptions={leadOptions}
+          customerOptions={customerOptions}
         />
       )}
     </main>
@@ -248,9 +313,11 @@ export default async function NewConsultationPage({
 async function CurtainConsultation({
   appointment,
   leadOptions,
+  customerOptions,
 }: {
   appointment?: AppointmentPrefill;
   leadOptions: CustomerLeadOption[];
+  customerOptions: ExistingCustomerOption[];
 }) {
   const [curtainTypes, calcConfig, promotions, combos, curtainPackages] = await Promise.all([
     loadActiveCurtainTypeOptions(),
@@ -270,6 +337,7 @@ async function CurtainConsultation({
       curtainPackages={curtainPackages.filter((item) => item.isActive)}
       appointment={appointment}
       leadOptions={leadOptions}
+      customerOptions={customerOptions}
     />
   );
 }
@@ -277,9 +345,11 @@ async function CurtainConsultation({
 async function MeshConsultation({
   appointment,
   leadOptions,
+  customerOptions,
 }: {
   appointment?: AppointmentPrefill;
   leadOptions: CustomerLeadOption[];
+  customerOptions: ExistingCustomerOption[];
 }) {
   // No in-use ids to union: a new order references nothing yet, so this is the
   // active catalogue only.
@@ -308,6 +378,7 @@ async function MeshConsultation({
       promotions={promotions}
       appointment={appointment}
       leadOptions={leadOptions}
+      customerOptions={customerOptions}
     />
   );
 }

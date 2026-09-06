@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   CustomerSection,
   type CustomerLeadOption,
+  type ExistingCustomerOption,
 } from "@/components/orders/consultation-form/customer-section";
 import type { AppointmentPrefill } from "@/components/orders/consultation-form";
 import {
@@ -64,6 +65,7 @@ type Props = {
   roomPhotos?: Record<string, UploaderPhoto[]>;
   appointment?: AppointmentPrefill;
   leadOptions?: CustomerLeadOption[];
+  customerOptions?: ExistingCustomerOption[];
 };
 
 function makePanel(position: number) {
@@ -125,6 +127,7 @@ export function MeshConsultationForm({
   roomPhotos,
   appointment,
   leadOptions,
+  customerOptions,
 }: Props) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -166,7 +169,7 @@ export function MeshConsultationForm({
     formDraftKey(
       "mesh",
       mode,
-      orderId ?? appointment?.id ?? appointment?.leadId,
+      orderId ?? appointment?.id ?? appointment?.leadId ?? appointment?.customerId,
     ),
   );
   const pendingPhotos = usePendingRoomPhotos();
@@ -279,7 +282,12 @@ export function MeshConsultationForm({
         }
         return;
       }
-      return createMeshOrder({ ...payload, appointment_id: appointment?.id, lead_id: appointment?.leadId });
+      return createMeshOrder({
+        ...payload,
+        appointment_id: appointment?.id,
+        lead_id: appointment?.leadId,
+        customer_id: appointment?.customerId,
+      });
     }, "Save failed");
   });
 
@@ -287,7 +295,12 @@ export function MeshConsultationForm({
     // Raw current values — skip the strict resolver so partial input is
     // allowed. The draft action does its own relaxed validation.
     runAction(
-      () => createMeshOrderDraft({ ...normalise(getValues()), appointment_id: appointment?.id, lead_id: appointment?.leadId }),
+      () => createMeshOrderDraft({
+        ...normalise(getValues()),
+        appointment_id: appointment?.id,
+        lead_id: appointment?.leadId,
+        customer_id: appointment?.customerId,
+      }),
       "Draft save failed",
     );
   }
@@ -302,7 +315,9 @@ export function MeshConsultationForm({
       <form onSubmit={onSubmit} inert={pending} aria-busy={pending}>
         <CustomerSection
           leadOptions={mode === "create" ? leadOptions : undefined}
+          customerOptions={mode === "create" ? customerOptions : undefined}
           selectedLeadId={appointment?.leadId}
+          selectedCustomerId={appointment?.customerId}
         />
         <PricingSection promotions={promotions} />
 

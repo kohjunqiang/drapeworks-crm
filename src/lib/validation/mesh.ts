@@ -21,6 +21,7 @@ import {
   optionalTypeId,
   orderMetaSchema,
   optionalAppointmentId,
+  optionalCustomerId,
   optionalLeadId,
 } from "./order";
 
@@ -95,6 +96,7 @@ export const meshOrderCreateSchema = z.object({
   rooms: z.array(meshRoomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
+  customer_id: optionalCustomerId,
 });
 
 // Draft variant — mirrors orderDraftSchema: only the customer name is
@@ -126,6 +128,7 @@ export const meshOrderDraftSchema = z.object({
   rooms: z.array(meshDraftRoom),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
+  customer_id: optionalCustomerId,
 });
 
 // Edit variants — rooms and panels carry an optional id so the action can

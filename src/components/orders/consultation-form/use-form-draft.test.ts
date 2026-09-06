@@ -5,7 +5,7 @@ import { formDraftKey, mergeFormDraft } from "./use-form-draft";
 describe("formDraftKey", () => {
   it("uses the current recovery format instead of restoring legacy drafts", () => {
     expect(formDraftKey("curtain", "edit", "order-1")).toBe(
-      "drapeworks:form-draft:v2:curtain:edit:order-1",
+      "drapeworks:form-draft:v3:curtain:edit:order-1",
     );
   });
 });

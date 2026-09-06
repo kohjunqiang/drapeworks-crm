@@ -270,7 +270,7 @@ export function ConsultationForm({
           const result = await updateOrder(
             orderId,
             normalised,
-            pendingPhotos.hasPending,
+            true,
           );
           if (pendingPhotos.hasPending) {
             result.roomIds.forEach((roomId, index) => {
@@ -286,10 +286,12 @@ export function ConsultationForm({
               );
               return;
             }
-            clearDraft();
-            toast.success("Order and photos saved");
-            router.push(`/orders/${orderId}`);
           }
+          clearDraft();
+          toast.success(
+            pendingPhotos.hasPending ? "Order and photos saved" : "Order saved",
+          );
+          router.push(`/orders/${orderId}`);
         } else {
           // appointment_id travels beside the form values rather than inside
           // them: it is where this consultation came from, not an input.

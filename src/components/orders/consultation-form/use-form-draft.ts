@@ -20,10 +20,10 @@ import type { FieldValues, UseFormReturn } from "react-hook-form";
 // that no one else can see.
 
 const PREFIX = "drapeworks:form-draft:";
-// Version 2 invalidates drafts written by the old shallow-merge restore. Those
-// drafts may already contain a synthetic blank site_address and cannot be
-// distinguished from a field the consultant intentionally cleared.
-const FORMAT_VERSION = 2;
+// Version 3 invalidates edit drafts that survived a successful server redirect.
+// Those stale snapshots can contain an old blank site_address and must not win
+// over the current order values loaded from the database.
+const FORMAT_VERSION = 3;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

@@ -263,7 +263,7 @@ export function MeshConsultationForm({
         const result = await updateMeshOrder(
           orderId,
           payload,
-          pendingPhotos.hasPending,
+          true,
         );
         if (pendingPhotos.hasPending) {
           result.roomIds.forEach((roomId, index) => {
@@ -276,10 +276,12 @@ export function MeshConsultationForm({
             );
             return;
           }
-          clearDraft();
-          toast.success("Order and photos saved");
-          router.push(`/orders/${orderId}`);
         }
+        clearDraft();
+        toast.success(
+          pendingPhotos.hasPending ? "Order and photos saved" : "Order saved",
+        );
+        router.push(`/orders/${orderId}`);
         return;
       }
       return createMeshOrder({

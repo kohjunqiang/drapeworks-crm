@@ -49,6 +49,7 @@ export async function stampQuoteBaseline(orderId: string): Promise<void> {
 export type OrderMetaLike = {
   property_type?: "HDB" | "Condo" | "Landed" | "Commercial";
   development?: string;
+  site_address?: string;
   unit_type?: string;
   move_in_date?: string;
   price_quoted_cents: number;
@@ -66,6 +67,7 @@ export function orderMetaColumns(meta: OrderMetaLike) {
   return {
     property_type: meta.property_type ?? null,
     development: meta.development ?? null,
+    site_address: meta.site_address?.trim() || null,
     unit_type: meta.unit_type ?? null,
     move_in_date: meta.move_in_date ? meta.move_in_date : null,
     price_quoted_cents: meta.price_quoted_cents,

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { formDraftKey, useFormDraft } from "./use-form-draft";
+import { usePendingRoomPhotos } from "./use-pending-room-photos";
 import { asFinalOrder } from "./final-order";
 import {
   createOrder,
@@ -205,6 +206,7 @@ export function ConsultationForm({
     control,
     handleSubmit,
     getValues,
+    setValue,
     formState: { errors },
   } = form;
 
@@ -221,6 +223,7 @@ export function ConsultationForm({
       orderId ?? appointment?.id ?? appointment?.leadId,
     ),
   );
+  const pendingPhotos = usePendingRoomPhotos();
 
   const {
     fields: rooms,
@@ -258,7 +261,30 @@ export function ConsultationForm({
       try {
         if (mode === "edit") {
           if (!orderId) throw new Error("Missing order id for edit");
-          await updateOrder(orderId, normalised);
+          const roomKeys = rooms.map((room) => room.id);
+          const result = await updateOrder(
+            orderId,
+            normalised,
+            pendingPhotos.hasPending,
+          );
+          if (pendingPhotos.hasPending) {
+            result.roomIds.forEach((roomId, index) => {
+              setValue(`rooms.${index}.id`, roomId, { shouldDirty: false });
+            });
+            const failures = await pendingPhotos.upload(
+              roomKeys,
+              result.roomIds,
+            );
+            if (failures > 0) {
+              toast.error(
+                `Order saved, but ${failures} ${failures === 1 ? "photo" : "photos"} failed to upload. Save changes to retry.`,
+              );
+              return;
+            }
+            clearDraft();
+            toast.success("Order and photos saved");
+            router.push(`/orders/${orderId}`);
+          }
         } else {
           // appointment_id travels beside the form values rather than inside
           // them: it is where this consultation came from, not an input.
@@ -324,7 +350,7 @@ export function ConsultationForm({
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={onSubmit}>
+      <form onSubmit={onSubmit} inert={pending} aria-busy={pending}>
         <CustomerSection
           leadOptions={mode === "create" ? leadOptions : undefined}
           selectedLeadId={appointment?.leadId}
@@ -370,13 +396,24 @@ export function ConsultationForm({
                 <RoomCard
                   key={room.id}
                   roomIndex={rIdx}
-                  onRemove={() => removeRoom(rIdx)}
+                  onRemove={() => {
+                    pendingPhotos.discardRoom(room.id);
+                    removeRoom(rIdx);
+                  }}
                   curtainTypes={curtainTypes}
                   combos={combos}
                   addonCatalogue={calcConfig?.addonCatalogue ?? []}
                   persistedAddonIdsByWindow={persistedAddonIdsByWindow}
                   mode={mode}
                   roomId={persistedRoomId}
+                  pendingPhotos={pendingPhotos.byRoom[room.id] ?? []}
+                  photosDisabled={pending}
+                  onAddPendingPhotos={(files) =>
+                    pendingPhotos.add(room.id, files)
+                  }
+                  onRemovePendingPhoto={(photoId) =>
+                    pendingPhotos.remove(room.id, photoId)
+                  }
                   photos={
                     persistedRoomId
                       ? (roomPhotos?.[persistedRoomId] ?? [])
@@ -435,10 +472,14 @@ export function ConsultationForm({
           >
             {pending
               ? mode === "edit"
-                ? "Saving…"
+                ? pendingPhotos.hasPending
+                  ? "Saving & uploading…"
+                  : "Saving…"
                 : "Creating…"
               : mode === "edit"
-                ? "Save changes"
+                ? pendingPhotos.hasPending
+                  ? "Save changes & upload photos"
+                  : "Save changes"
                 : "Create order"}
           </button>
         </div>

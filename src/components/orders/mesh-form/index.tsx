@@ -15,6 +15,7 @@ import {
   formDraftKey,
   useFormDraft,
 } from "@/components/orders/consultation-form/use-form-draft";
+import { usePendingRoomPhotos } from "@/components/orders/consultation-form/use-pending-room-photos";
 import { asFinalOrder } from "@/components/orders/consultation-form/final-order";
 import { PricingSection } from "@/components/orders/consultation-form/pricing-section";
 import {
@@ -154,6 +155,7 @@ export function MeshConsultationForm({
     control,
     handleSubmit,
     getValues,
+    setValue,
     formState: { errors },
   } = form;
 
@@ -167,6 +169,7 @@ export function MeshConsultationForm({
       orderId ?? appointment?.id ?? appointment?.leadId,
     ),
   );
+  const pendingPhotos = usePendingRoomPhotos();
 
   const {
     fields: rooms,
@@ -250,10 +253,31 @@ export function MeshConsultationForm({
       return;
     }
 
-    runAction(() => {
+    runAction(async () => {
       if (mode === "edit") {
         if (!orderId) throw new Error("Missing order id for edit");
-        return updateMeshOrder(orderId, payload);
+        const roomKeys = rooms.map((room) => room.id);
+        const result = await updateMeshOrder(
+          orderId,
+          payload,
+          pendingPhotos.hasPending,
+        );
+        if (pendingPhotos.hasPending) {
+          result.roomIds.forEach((roomId, index) => {
+            setValue(`rooms.${index}.id`, roomId, { shouldDirty: false });
+          });
+          const failures = await pendingPhotos.upload(roomKeys, result.roomIds);
+          if (failures > 0) {
+            toast.error(
+              `Order saved, but ${failures} ${failures === 1 ? "photo" : "photos"} failed to upload. Save changes to retry.`,
+            );
+            return;
+          }
+          clearDraft();
+          toast.success("Order and photos saved");
+          router.push(`/orders/${orderId}`);
+        }
+        return;
       }
       return createMeshOrder({ ...payload, appointment_id: appointment?.id, lead_id: appointment?.leadId });
     }, "Save failed");
@@ -275,7 +299,7 @@ export function MeshConsultationForm({
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={onSubmit}>
+      <form onSubmit={onSubmit} inert={pending} aria-busy={pending}>
         <CustomerSection
           leadOptions={mode === "create" ? leadOptions : undefined}
           selectedLeadId={appointment?.leadId}
@@ -310,7 +334,10 @@ export function MeshConsultationForm({
                 <MeshRoomCard
                   key={room.id}
                   roomIndex={rIdx}
-                  onRemove={() => removeRoom(rIdx)}
+                  onRemove={() => {
+                    pendingPhotos.discardRoom(room.id);
+                    removeRoom(rIdx);
+                  }}
                   categories={meshConfig.categories}
                   colours={meshConfig.colours}
                   systemBands={systemBands}
@@ -318,6 +345,14 @@ export function MeshConsultationForm({
                   priceBook={meshConfig.book}
                   mode={mode}
                   roomId={persistedRoomId}
+                  pendingPhotos={pendingPhotos.byRoom[room.id] ?? []}
+                  photosDisabled={pending}
+                  onAddPendingPhotos={(files) =>
+                    pendingPhotos.add(room.id, files)
+                  }
+                  onRemovePendingPhoto={(photoId) =>
+                    pendingPhotos.remove(room.id, photoId)
+                  }
                   photos={
                     persistedRoomId
                       ? (roomPhotos?.[persistedRoomId] ?? [])
@@ -376,10 +411,14 @@ export function MeshConsultationForm({
           >
             {pending
               ? mode === "edit"
-                ? "Saving…"
+                ? pendingPhotos.hasPending
+                  ? "Saving & uploading…"
+                  : "Saving…"
                 : "Creating…"
               : mode === "edit"
-                ? "Save changes"
+                ? pendingPhotos.hasPending
+                  ? "Save changes & upload photos"
+                  : "Save changes"
                 : "Create mesh order"}
           </button>
         </div>

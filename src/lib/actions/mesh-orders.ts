@@ -148,7 +148,8 @@ export async function createMeshOrder(input: unknown): Promise<never> {
 export async function updateMeshOrder(
   orderId: string,
   input: unknown,
-): Promise<never> {
+  returnRoomIds = false,
+): Promise<{ roomIds: string[] }> {
   if (typeof orderId !== "string" || orderId.length === 0) {
     throw new Error("Invalid order id");
   }
@@ -159,7 +160,7 @@ export async function updateMeshOrder(
 
   const orphanStoragePaths: string[] = [];
 
-  await db.transaction().execute(async (trx) => {
+  const roomIds = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
       .select([
@@ -285,6 +286,8 @@ export async function updateMeshOrder(
         session.user.id,
       );
     }
+
+    return keepRoomIds;
   });
 
   await sweepPhotoStorage(orphanStoragePaths, "updateMeshOrder");
@@ -294,7 +297,8 @@ export async function updateMeshOrder(
   revalidatePath(`/orders/${orderId}/edit`);
   revalidatePath("/orders");
 
-  redirect(`/orders/${orderId}`);
+  if (returnRoomIds !== true) redirect(`/orders/${orderId}`);
+  return { roomIds };
 }
 
 // Saves a partially-filled mesh consultation. Only customer.name is required;

@@ -17,6 +17,12 @@ export type UploaderPhoto = {
   originalName: string | null;
 };
 
+export type PendingUploaderPhoto = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
 type Props = {
   roomId: string;
   photos: UploaderPhoto[];
@@ -28,6 +34,76 @@ function isHeic(file: File): boolean {
   return lower.endsWith(".heic") || lower.endsWith(".heif");
 }
 
+/** Upload and persist one room photo after its room has a database id. */
+export async function uploadRoomPhotoFile(
+  roomId: string,
+  file: File,
+): Promise<void> {
+  let toUpload: File = file;
+
+  if (isHeic(file)) {
+    const { default: heic2any } = await import("heic2any");
+    const converted = await heic2any({
+      blob: file,
+      toType: "image/jpeg",
+      quality: 0.85,
+    });
+    const blob = Array.isArray(converted) ? converted[0] : converted;
+    toUpload = new File(
+      [blob],
+      file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+      { type: "image/jpeg" },
+    );
+  }
+
+  const { default: imageCompression } =
+    await import("browser-image-compression");
+  const compressed = await imageCompression(toUpload, {
+    maxSizeMB: 2,
+    maxWidthOrHeight: 1600,
+    useWebWorker: true,
+  });
+
+  const compressedFile =
+    compressed instanceof File
+      ? compressed
+      : new File([compressed], toUpload.name, { type: toUpload.type });
+
+  const { path, signedUrl } = await requestRoomPhotoUpload({
+    roomId,
+    mime: compressedFile.type || "image/jpeg",
+    sizeBytes: compressedFile.size,
+    originalName: file.name,
+  });
+
+  const putRes = await fetch(signedUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": compressedFile.type || "application/octet-stream",
+      "x-upsert": "false",
+    },
+    body: compressedFile,
+  });
+  if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`);
+
+  try {
+    await confirmRoomPhotoUpload({
+      roomId,
+      path,
+      mime: compressedFile.type || "image/jpeg",
+      sizeBytes: compressedFile.size,
+      originalName: file.name,
+    });
+  } catch (confirmErr) {
+    try {
+      await cleanupOrphanUpload({ roomId, path });
+    } catch {
+      // Best effort: the server logs storage cleanup failures.
+    }
+    throw confirmErr;
+  }
+}
+
 export function PhotoUploader({ roomId, photos }: Props) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -37,77 +113,9 @@ export function PhotoUploader({ roomId, photos }: Props) {
   async function handleFile(file: File) {
     setUploading(true);
     try {
-      let toUpload: File = file;
+      await uploadRoomPhotoFile(roomId, file);
 
-      if (isHeic(file)) {
-        const { default: heic2any } = await import("heic2any");
-        const converted = await heic2any({
-          blob: file,
-          toType: "image/jpeg",
-          quality: 0.85,
-        });
-        const blob = Array.isArray(converted) ? converted[0] : converted;
-        toUpload = new File(
-          [blob],
-          file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-          { type: "image/jpeg" },
-        );
-      }
-
-      const { default: imageCompression } =
-        await import("browser-image-compression");
-      const compressed = await imageCompression(toUpload, {
-        maxSizeMB: 2,
-        maxWidthOrHeight: 1600,
-        useWebWorker: true,
-      });
-
-      // Ensure we have a File (compression returns Blob).
-      const compressedFile =
-        compressed instanceof File
-          ? compressed
-          : new File([compressed], toUpload.name, { type: toUpload.type });
-
-      const { path, signedUrl } = await requestRoomPhotoUpload({
-        roomId,
-        mime: compressedFile.type || "image/jpeg",
-        sizeBytes: compressedFile.size,
-        originalName: file.name,
-      });
-
-      const putRes = await fetch(signedUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": compressedFile.type || "application/octet-stream",
-          "x-upsert": "false",
-        },
-        body: compressedFile,
-      });
-      if (!putRes.ok) {
-        // PUT itself failed → no orphan to sweep.
-        throw new Error(`Upload failed (${putRes.status})`);
-      }
-
-      try {
-        await confirmRoomPhotoUpload({
-          roomId,
-          path,
-          mime: compressedFile.type || "image/jpeg",
-          sizeBytes: compressedFile.size,
-          originalName: file.name,
-        });
-      } catch (confirmErr) {
-        // PUT succeeded but the DB row never landed. Remove the orphan
-        // before bubbling the error up.
-        try {
-          await cleanupOrphanUpload({ roomId, path });
-        } catch {
-          // ignore — server logs the failure
-        }
-        throw confirmErr;
-      }
-
-      toast.success("Photo uploaded");
+      toast.success("Photo saved automatically");
       router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -127,7 +135,7 @@ export function PhotoUploader({ roomId, photos }: Props) {
     startTransition(async () => {
       try {
         await deleteRoomPhoto(photoId);
-        toast.success("Photo deleted");
+        toast.success("Photo deleted automatically");
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Delete failed");
@@ -178,6 +186,78 @@ export function PhotoUploader({ roomId, photos }: Props) {
       <input
         ref={fileInput}
         type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+        className="hidden"
+        onChange={handlePicked}
+      />
+    </div>
+  );
+}
+
+type PendingProps = {
+  photos: PendingUploaderPhoto[];
+  disabled?: boolean;
+  onAdd: (files: File[]) => void;
+  onRemove: (photoId: string) => void;
+};
+
+/** Local previews for a new room; the parent uploads them after order save. */
+export function PendingPhotoUploader({
+  photos,
+  disabled = false,
+  onAdd,
+  onRemove,
+}: PendingProps) {
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  function handlePicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length > 0) onAdd(files);
+  }
+
+  return (
+    <div>
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+        {photos.map((photo) => (
+          <div
+            key={photo.id}
+            className="relative aspect-square overflow-hidden rounded border border-slate-200 bg-slate-100"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo.previewUrl}
+              alt={photo.file.name}
+              className="h-full w-full object-cover"
+            />
+            <button
+              type="button"
+              onClick={() => onRemove(photo.id)}
+              disabled={disabled}
+              aria-label={`Remove ${photo.file.name}`}
+              className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-sm leading-none text-slate-600 shadow hover:text-red-600 disabled:opacity-50"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          disabled={disabled}
+          className="aspect-square rounded border-2 border-dashed border-slate-300 text-slate-400 transition-colors hover:border-teal-500 hover:text-teal-600 disabled:opacity-50"
+        >
+          <span className="block text-2xl leading-none">+</span>
+          <span className="mt-1 block text-[10px]">Add photos</span>
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Ready to upload when you save changes.
+      </p>
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
         accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
         className="hidden"
         onChange={handlePicked}

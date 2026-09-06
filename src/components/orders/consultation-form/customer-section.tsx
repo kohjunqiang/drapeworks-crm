@@ -37,7 +37,10 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
     formState: { errors, isDirty },
   } = useFormContext<ConsultationShellShape>();
   const [isChangingCustomer, startCustomerChange] = useTransition();
-  const choosingCustomer = leadOptions !== undefined && leadOptions.length > 0;
+  // New consultations always receive this prop, even when no booked lead is
+  // currently eligible. Keep the picker visible in that empty state so it
+  // does not look as though lead selection has disappeared from the form.
+  const choosingCustomer = leadOptions !== undefined;
 
   function selectCustomer(value: string) {
     if (
@@ -63,7 +66,8 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
             htmlFor={choosingCustomer ? "consultation-customer" : "customer-name"}
             className="block text-xs font-medium text-slate-600 mb-1"
           >
-            Customer Name <span className="text-red-500">*</span>
+            {choosingCustomer ? "Customer / Lead" : "Customer Name"}{" "}
+            <span className="text-red-500">*</span>
           </label>
           {choosingCustomer ? (
             <>
@@ -82,10 +86,16 @@ export function CustomerSection({ leadOptions, selectedLeadId }: Props) {
                       .join(" · ")}
                   </option>
                 ))}
-                <option value="brand-new">Brand new customer</option>
+                <option value="brand-new">
+                  {leadOptions.length > 0
+                    ? "Brand new customer"
+                    : "Brand new customer — no appointment leads available"}
+                </option>
               </select>
               <p id="customer-picker-hint" className="mt-1 text-xs text-slate-500">
-                Choose an appointment lead or add a new customer.
+                {leadOptions.length > 0
+                  ? "Choose a booked lead at Attend Appointment, or add a new customer."
+                  : "No booked leads are currently ready at Attend Appointment. You can add a new customer instead."}
               </p>
               <div className="mt-2">
                 <label htmlFor="customer-name" className="block text-xs font-medium text-slate-600 mb-1">

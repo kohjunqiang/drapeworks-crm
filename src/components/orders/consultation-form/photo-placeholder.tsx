@@ -5,7 +5,8 @@ export function PhotoPlaceholder() {
         Reference photos for this room
       </div>
       <div className="border-2 border-dashed border-slate-300 rounded p-6 text-center text-xs text-slate-500">
-        Save the order to add photos to this room.
+        Create the order first so this room exists. After that, photos save
+        automatically.
       </div>
     </div>
   );

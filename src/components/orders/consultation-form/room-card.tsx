@@ -3,7 +3,10 @@
 import { useEffect } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 
-import type { UploaderPhoto } from "@/components/orders/photo-uploader";
+import type {
+  PendingUploaderPhoto,
+  UploaderPhoto,
+} from "@/components/orders/photo-uploader";
 import type { AddonRule } from "@/lib/orders/window-addons";
 import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
 
@@ -31,6 +34,10 @@ type Props = {
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
+  pendingPhotos?: PendingUploaderPhoto[];
+  photosDisabled?: boolean;
+  onAddPendingPhotos?: (files: File[]) => void;
+  onRemovePendingPhoto?: (photoId: string) => void;
 };
 
 export function RoomCard({
@@ -43,6 +50,10 @@ export function RoomCard({
   mode,
   roomId,
   photos,
+  pendingPhotos,
+  photosDisabled,
+  onAddPendingPhotos,
+  onRemovePendingPhoto,
 }: Props) {
   const { control, setValue, getValues } = useFormContext<OrderEditInput>();
 
@@ -135,6 +146,10 @@ export function RoomCard({
       mode={mode}
       roomId={roomId}
       photos={photos}
+      pendingPhotos={pendingPhotos}
+      photosDisabled={photosDisabled}
+      onAddPendingPhotos={onAddPendingPhotos}
+      onRemovePendingPhoto={onRemovePendingPhoto}
     >
       {fields.map((field, wIdx) => (
         <LineItemRow

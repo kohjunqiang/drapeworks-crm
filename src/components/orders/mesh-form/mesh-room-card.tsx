@@ -2,7 +2,10 @@
 
 import { useFieldArray, useFormContext } from "react-hook-form";
 
-import type { UploaderPhoto } from "@/components/orders/photo-uploader";
+import type {
+  PendingUploaderPhoto,
+  UploaderPhoto,
+} from "@/components/orders/photo-uploader";
 import {
   LineItemRow,
   RoomShell,
@@ -34,6 +37,10 @@ type Props = {
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
+  pendingPhotos?: PendingUploaderPhoto[];
+  photosDisabled?: boolean;
+  onAddPendingPhotos?: (files: File[]) => void;
+  onRemovePendingPhoto?: (photoId: string) => void;
 };
 
 export function MeshRoomCard({
@@ -47,6 +54,10 @@ export function MeshRoomCard({
   mode,
   roomId,
   photos,
+  pendingPhotos,
+  photosDisabled,
+  onAddPendingPhotos,
+  onRemovePendingPhoto,
 }: Props) {
   const { control } = useFormContext<MeshOrderEditInput>();
 
@@ -79,6 +90,10 @@ export function MeshRoomCard({
       mode={mode}
       roomId={roomId}
       photos={photos}
+      pendingPhotos={pendingPhotos}
+      photosDisabled={photosDisabled}
+      onAddPendingPhotos={onAddPendingPhotos}
+      onRemovePendingPhoto={onRemovePendingPhoto}
       labelPlaceholder="e.g. Bedroom 1 (window facing corridor)"
     >
       {fields.map((field, pIdx) => (

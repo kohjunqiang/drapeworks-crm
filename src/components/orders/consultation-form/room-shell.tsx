@@ -4,7 +4,9 @@ import type { ReactNode } from "react";
 import { useFormContext } from "react-hook-form";
 
 import {
+  PendingPhotoUploader,
   PhotoUploader,
+  type PendingUploaderPhoto,
   type UploaderPhoto,
 } from "@/components/orders/photo-uploader";
 import { FormSelect } from "@/components/ui/app-select";
@@ -42,6 +44,10 @@ type Props = {
   mode: "create" | "edit";
   roomId?: string;
   photos?: UploaderPhoto[];
+  pendingPhotos?: PendingUploaderPhoto[];
+  photosDisabled?: boolean;
+  onAddPendingPhotos?: (files: File[]) => void;
+  onRemovePendingPhoto?: (photoId: string) => void;
   labelPlaceholder?: string;
   children: ReactNode;
 };
@@ -52,6 +58,10 @@ export function RoomShell({
   mode,
   roomId,
   photos,
+  pendingPhotos = [],
+  photosDisabled = false,
+  onAddPendingPhotos,
+  onRemovePendingPhoto,
   labelPlaceholder = "e.g. Bedroom 1 (Nearest from Living)",
   children,
 }: Props) {
@@ -96,16 +106,50 @@ export function RoomShell({
 
       {mode === "edit" && roomId ? (
         <div className="mt-4 pt-3 border-t border-slate-200">
-          <div className="text-xs font-medium text-slate-600 mb-2">
-            Reference photos for this room
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-slate-600">
+              Reference photos for this room
+            </span>
+            <span className="text-slate-400">Saved automatically</span>
           </div>
           <PhotoUploader roomId={roomId} photos={photos ?? []} />
+          {pendingPhotos.length > 0 &&
+            onAddPendingPhotos &&
+            onRemovePendingPhoto && (
+              <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="mb-2 text-xs text-amber-800">
+                  These photos did not upload. Save changes to retry.
+                </p>
+                <PendingPhotoUploader
+                  photos={pendingPhotos}
+                  disabled={photosDisabled}
+                  onAdd={onAddPendingPhotos}
+                  onRemove={onRemovePendingPhoto}
+                />
+              </div>
+            )}
         </div>
       ) : mode === "edit" ? (
         <div className="mt-4 pt-3 border-t border-slate-200">
-          <div className="border-2 border-dashed border-slate-300 rounded p-4 text-center text-xs text-slate-500">
-            Save the order to add photos to this room.
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-slate-600">
+              Reference photos for this room
+            </span>
+            <span className="text-slate-400">Uploads with order</span>
           </div>
+          {onAddPendingPhotos && onRemovePendingPhoto ? (
+            <PendingPhotoUploader
+              photos={pendingPhotos}
+              disabled={photosDisabled}
+              onAdd={onAddPendingPhotos}
+              onRemove={onRemovePendingPhoto}
+            />
+          ) : (
+            <div className="rounded border-2 border-dashed border-slate-300 p-4 text-center text-xs text-slate-500">
+              Save changes once to create this room. After that, photos save
+              automatically.
+            </div>
+          )}
         </div>
       ) : (
         <PhotoPlaceholder />

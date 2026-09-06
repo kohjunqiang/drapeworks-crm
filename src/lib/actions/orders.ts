@@ -290,7 +290,8 @@ export async function createOrder(input: unknown): Promise<never> {
 export async function updateOrder(
   orderId: string,
   input: unknown,
-): Promise<never> {
+  returnRoomIds = false,
+): Promise<{ roomIds: string[] }> {
   if (typeof orderId !== "string" || orderId.length === 0) {
     throw new Error("Invalid order id");
   }
@@ -332,7 +333,7 @@ export async function updateOrder(
   const orphanStoragePaths: string[] = [];
   await validateCurtainPackageRooms(packageSnapshot, parsed.rooms, persistedByWindow);
 
-  await db.transaction().execute(async (trx) => {
+  const roomIds = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
       .select([
@@ -498,6 +499,8 @@ export async function updateOrder(
         session.user.id,
       );
     }
+
+    return keepRoomIds;
   });
 
   await sweepPhotoStorage(orphanStoragePaths, "updateOrder");
@@ -508,7 +511,8 @@ export async function updateOrder(
   revalidatePath(`/orders/${orderId}/edit`);
   revalidatePath("/orders");
 
-  redirect(`/orders/${orderId}`);
+  if (returnRoomIds !== true) redirect(`/orders/${orderId}`);
+  return { roomIds };
 }
 
 export async function moveOrderRoom(input: {

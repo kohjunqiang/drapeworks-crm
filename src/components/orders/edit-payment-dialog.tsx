@@ -11,11 +11,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { amendOrderPayment } from "@/lib/actions/orders";
+import { halfDepositCents } from "@/lib/orders/payment-defaults";
 
 type Props = {
   orderId: string;
-  quotedCents: number;
-  depositCents: number;
+  defaultQuotedCents: number;
 };
 
 function dollars(cents: number): string {
@@ -29,12 +29,14 @@ function cents(value: string): number | null {
 
 export function EditPaymentDialog({
   orderId,
-  quotedCents,
-  depositCents,
+  defaultQuotedCents,
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [quoted, setQuoted] = useState(dollars(quotedCents));
-  const [deposit, setDeposit] = useState(dollars(depositCents));
+  const [quoted, setQuoted] = useState(dollars(defaultQuotedCents));
+  const [deposit, setDeposit] = useState(
+    dollars(halfDepositCents(defaultQuotedCents)),
+  );
+  const [depositEdited, setDepositEdited] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const parsedQuoted = cents(quoted);
@@ -45,9 +47,17 @@ export function EditPaymentDialog({
     parsedDeposit <= parsedQuoted;
 
   function show() {
-    setQuoted(dollars(quotedCents));
-    setDeposit(dollars(depositCents));
+    setQuoted(dollars(defaultQuotedCents));
+    setDeposit(dollars(halfDepositCents(defaultQuotedCents)));
+    setDepositEdited(false);
     setOpen(true);
+  }
+
+  function changeQuoted(value: string) {
+    setQuoted(value);
+    if (depositEdited) return;
+    const amount = cents(value);
+    setDeposit(amount == null ? "" : dollars(halfDepositCents(amount)));
   }
 
   function save() {
@@ -94,7 +104,7 @@ export function EditPaymentDialog({
                 type="text"
                 inputMode="decimal"
                 value={quoted}
-                onChange={(event) => setQuoted(event.target.value)}
+                onChange={(event) => changeQuoted(event.target.value)}
                 className="mt-1 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
               />
             </label>
@@ -104,7 +114,10 @@ export function EditPaymentDialog({
                 type="text"
                 inputMode="decimal"
                 value={deposit}
-                onChange={(event) => setDeposit(event.target.value)}
+                onChange={(event) => {
+                  setDepositEdited(true);
+                  setDeposit(event.target.value);
+                }}
                 className="mt-1 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-teal-500"
               />
             </label>

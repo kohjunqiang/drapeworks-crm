@@ -930,8 +930,9 @@ export default async function OrderDetailPage({
               {session.profile.role === "admin" && (
                 <EditPaymentDialog
                   orderId={order.id}
-                  quotedCents={order.price_quoted_cents}
-                  depositCents={order.deposit_cents}
+                  defaultQuotedCents={
+                    quote?.groupbuySgdCents ?? order.price_quoted_cents
+                  }
                 />
               )}
             </div>

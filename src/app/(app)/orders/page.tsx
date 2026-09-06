@@ -11,6 +11,12 @@ import { orderStaleFlags } from "@/lib/pricing/order-quote";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/require-role";
+import {
+  ACTIVE_ORDER_STATUSES,
+  AWAITING_SHIPMENT_STATUSES,
+  IN_PRODUCTION_STATUSES,
+  READY_FOR_INSTALLATION_STATUSES,
+} from "@/lib/orders/dashboard-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -72,32 +78,22 @@ export default async function OrdersDashboardPage({
       eb.fn.countAll<number>().as("total"),
       eb.fn
         .count<number>("id")
-        .filterWhere("current_status", "not in", [
-          "order_recorded",
-          "completed",
-        ])
+        .filterWhere("current_status", "in", [...ACTIVE_ORDER_STATUSES])
         .as("active"),
       eb.fn
         .count<number>("id")
-        // Manufactured or in transit. order_recorded and deposit_received are
-        // deliberately excluded: an order with no deposit is not awaiting
-        // shipment, which is what the pre-Phase-13 flow got wrong. Both remain
-        // in the status filter, but order_recorded is not yet an active order.
-        .filterWhere("current_status", "in", [
-          "sent_to_vendor",
-          "sent_logistic",
-          "shipping_sg",
-        ])
+        // Already handed to logistics or currently in transit. Production is
+        // a separate card, so sent_to_vendor must not overlap this count.
+        .filterWhere("current_status", "in", [...AWAITING_SHIPMENT_STATUSES])
         .as("awaiting_shipment"),
       eb.fn
         .count<number>("id")
-        .filterWhere("current_status", "=", "sent_to_vendor")
+        .filterWhere("current_status", "in", [...IN_PRODUCTION_STATUSES])
         .as("in_production"),
       eb.fn
         .count<number>("id")
         .filterWhere("current_status", "in", [
-          "delivered_checked",
-          "fulfilment",
+          ...READY_FOR_INSTALLATION_STATUSES,
         ])
         .as("ready_for_installation"),
       eb.fn

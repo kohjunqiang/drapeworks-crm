@@ -36,7 +36,14 @@ type Props = {
   completionPhotos?: CompletionPhoto[];
   shipments?: ShipmentValues[];
   manifestRecoveryHref?: string;
+  invoiceTotalCents?: number;
+  depositCents?: number;
 };
+
+const formatMoney = (cents: number) => new Intl.NumberFormat("en-SG", {
+  style: "currency",
+  currency: "SGD",
+}).format(cents / 100);
 
 export function AdvanceStatusButton({
   orderId,
@@ -48,6 +55,8 @@ export function AdvanceStatusButton({
   completionPhotos = [],
   shipments = [],
   manifestRecoveryHref,
+  invoiceTotalCents = 0,
+  depositCents = 0,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -87,6 +96,7 @@ export function AdvanceStatusButton({
     ])),
   );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
 
   function resetShipmentNumbers() {
     setLocalNumbers(Object.fromEntries(shipments.map((shipment) => [
@@ -102,6 +112,7 @@ export function AdvanceStatusButton({
 
   function submit() {
     if (photoUploading) return;
+    setActionError(null);
     if (trackingMode) {
       const nextErrors: Record<string, string> = {};
       for (const shipment of shipments) {
@@ -155,7 +166,10 @@ export function AdvanceStatusButton({
         setFieldErrors({});
         if (advanceTo) router.push(advanceTo);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Advance failed");
+        const message = e instanceof Error ? e.message : "Advance failed";
+        setActionError(message);
+        toast.error(message);
+        router.refresh();
       }
     });
   }
@@ -190,6 +204,7 @@ export function AdvanceStatusButton({
         type="button"
         onClick={() => {
           resetShipmentNumbers();
+          setActionError(null);
           setOpen(true);
         }}
         disabled={pending || trackingIncomplete || manifestMissing}
@@ -217,18 +232,28 @@ export function AdvanceStatusButton({
                 ? "Continue direct shipments"
                 : trackingMode === "local"
                   ? "Send to logistic partner"
-                : trackingMode === "overseas"
+              : trackingMode === "overseas"
                   ? "Mark as shipping to SG"
+                  : currentStatus === "quotation_sent"
+                    ? "Confirm deposit received"
                   : (ctaLabel ?? (nextLabel ? `Advance to ${nextLabel}` : "Advance status"))}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {currentStatus === "quotation_sent" && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-                <p className="font-medium">This creates the full invoice in Zoho Books.</p>
-                <p className="mt-1 text-xs">It marks the deposit as received in the CRM, but it does not record a payment in Zoho Books.</p>
+              <div className="space-y-3">
+                <p className="text-sm text-slate-600">Zoho Books will create the full invoice and apply the deposit as a customer payment before this order advances.</p>
+                <dl className="divide-y rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm">
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">Deposit received</dt><dd className="font-semibold text-slate-900">{formatMoney(depositCents)}</dd></div>
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">Full invoice total</dt><dd className="font-semibold text-slate-900">{formatMoney(invoiceTotalCents)}</dd></div>
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">Balance remaining</dt><dd className="font-semibold text-slate-900">{formatMoney(Math.max(invoiceTotalCents - depositCents, 0))}</dd></div>
+                </dl>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
+                  Payment method: PayNow · Deposit account: Drapeworks – MariBank. The invoice will retain the balance shown above.
+                </div>
               </div>
             )}
+            {actionError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{actionError}</p>}
             {trackingMode && shipments.length > 0 && (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div>
@@ -395,6 +420,8 @@ export function AdvanceStatusButton({
                         ? "Save numbers & mark sent"
                       : trackingMode === "overseas"
                         ? "Save numbers & mark shipping"
+                        : currentStatus === "quotation_sent"
+                          ? "Create invoice & record deposit"
                         : (ctaLabel ?? "Advance")}
               </button>
             </div>

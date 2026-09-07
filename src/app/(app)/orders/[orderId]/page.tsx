@@ -614,7 +614,7 @@ export default async function OrderDetailPage({
             order.current_status === "order_recorded"
               ? "Mark quotation sent"
               : order.current_status === "quotation_sent"
-                ? "Create full Zoho invoice & mark deposit received in CRM"
+                ? "Create invoice & record deposit"
                 : order.current_status === "sent_to_vendor"
                   ? shipmentState.shipments.length > 0 &&
                       !shipmentState.shipments.some((shipment) =>
@@ -701,6 +701,8 @@ export default async function OrderDetailPage({
                   completionPhotos={completionPhotos}
                   shipments={shipmentState.shipments}
                   manifestRecoveryHref={`/orders/${order.id}/manufacture`}
+                  invoiceTotalCents={order.price_quoted_cents}
+                  depositCents={order.deposit_cents}
                 />
               )}
               {session.profile.role === "admin" && (
@@ -728,6 +730,7 @@ export default async function OrderDetailPage({
               customerName={order.customer_name}
               productLine={order.product_line}
               quotedCents={order.price_quoted_cents}
+              depositCents={order.deposit_cents}
               quote={currentQuotation ? {
                 id: currentQuotation.id,
                 revision: currentQuotation.revision,
@@ -743,6 +746,9 @@ export default async function OrderDetailPage({
                 invoiceNumber: currentQuotation.zoho_invoice_number,
                 invoiceSyncState: currentQuotation.invoice_sync_state,
                 invoiceSyncError: currentQuotation.invoice_sync_error,
+                paymentNumber: currentQuotation.zoho_payment_number,
+                paymentSyncState: currentQuotation.payment_sync_state,
+                paymentSyncError: currentQuotation.payment_sync_error,
                 hasZohoEstimate: Boolean(currentQuotation.zoho_estimate_id),
                 updatedAt: new Date(currentQuotation.updated_at).toISOString(),
                 syncError: currentQuotation.sync_error,
@@ -760,6 +766,7 @@ export default async function OrderDetailPage({
               }))}
               linkedContactId={zohoCustomerLink?.zoho_contact_id ?? null}
               canManage={(order.current_status === "order_recorded" || order.current_status === "quotation_sent") && (session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id))}
+              canRepairDeposit={order.current_status === "deposit_received" && (session.profile.role === "admin" || session.profile.role === "ops")}
               configured={await isZohoBooksConfigured()}
             />
           )}

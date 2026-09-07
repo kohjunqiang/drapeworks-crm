@@ -34,8 +34,13 @@ import {
   markZohoEstimateSent,
   syncZohoEstimate,
   convertZohoEstimateToInvoice,
+  createZohoCustomerPayment,
+  assertZohoCustomerPaymentsReady,
+  getZohoCustomerPayment,
+  getZohoDepositPaymentConfig,
+  listZohoCustomerPayments,
 } from "@/lib/zoho/books";
-import { quotePayloadHash } from "@/lib/quotations/hash";
+import { matchesStoredZohoEstimate, quotePayloadHash } from "@/lib/quotations/hash";
 import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 
 const BUCKET = "customer-quotations";
@@ -499,17 +504,133 @@ async function findConvertedInvoiceId(estimateId: string): Promise<string | null
   return null;
 }
 
+async function findDepositPayment(input: {
+  customerId: string;
+  invoiceId: string;
+  invoiceNumber: string | null;
+  amountCents: number;
+  referenceNumber: string;
+  accountId: string;
+}): Promise<{ payment_id: string; payment_number?: string } | null> {
+  const summaries = await listZohoCustomerPayments(input.customerId);
+  const candidates = summaries.filter((payment) =>
+    payment.reference_number === input.referenceNumber
+    || (Boolean(input.invoiceNumber) && payment.invoice_number === input.invoiceNumber)
+    || payment.invoices?.some((invoice) => invoice.invoice_id === input.invoiceId));
+  const applied = [];
+  for (const summary of candidates) {
+    const payment = await getZohoCustomerPayment(summary.payment_id);
+    if (payment.invoices?.some((invoice) => invoice.invoice_id === input.invoiceId)) applied.push(payment);
+  }
+  if (applied.length === 0) return null;
+  if (applied.length > 1) throw new Error("Multiple Zoho payments are applied to this invoice; reconcile them in Zoho Books before continuing");
+  const payment = applied[0];
+  const invoice = payment.invoices?.find((candidate) => candidate.invoice_id === input.invoiceId);
+  const paymentMatches = payment.customer_id === input.customerId
+    && Math.round(Number(payment.amount) * 100) === input.amountCents
+    && Math.round(Number(invoice?.amount_applied) * 100) === input.amountCents
+    && payment.payment_mode?.toLowerCase() === "paynow"
+    && (!payment.account_id || payment.account_id === input.accountId);
+  if (!paymentMatches) throw new Error("The Zoho invoice already has a payment that does not match the CRM deposit, PayNow mode, or MariBank account");
+  return { payment_id: payment.payment_id, payment_number: payment.payment_number };
+}
+
+async function ensureZohoDepositPaymentForQuote(input: {
+  quotationId: string;
+  displayId: string;
+  customerId: string;
+  invoiceId: string;
+  invoiceNumber: string | null;
+  depositCents: number;
+}) {
+  if (input.depositCents <= 0) throw new Error("A positive deposit is required before recording a Zoho payment");
+  const config = getZohoDepositPaymentConfig();
+  const referenceNumber = `CRM-${input.displayId}-DEPOSIT`;
+  const claimToken = randomUUID();
+  const operation = await db.transaction().execute(async (trx) => {
+    const quote = await trx.selectFrom("order_quotations").selectAll().where("id", "=", input.quotationId).forUpdate().executeTakeFirstOrThrow();
+    if (quote.zoho_payment_id && quote.payment_sync_state === "created") return { quote, claimed: false, reconcileOnly: false };
+    const staleBefore = new Date(Date.now() - 2 * 60_000);
+    const reconcileOnly = quote.payment_sync_state === "uncertain" || quote.payment_sync_state === "pending";
+    const claim = await trx.updateTable("order_quotations").set({
+      payment_sync_state: "pending", payment_claimed_at: new Date(), payment_claim_token: claimToken,
+      payment_sync_error: null, payment_uncertain_at: reconcileOnly ? (quote.payment_uncertain_at ?? quote.payment_claimed_at ?? new Date()) : null,
+    }).where("id", "=", quote.id)
+      .where((eb) => eb.or([eb("payment_sync_state", "in", ["not_started", "failed", "uncertain"]), eb("payment_claimed_at", "<", staleBefore)]))
+      .returning("id").executeTakeFirst();
+    if (!claim) throw new Error("The Zoho deposit payment is already being recorded. Wait a moment and try again.");
+    return { quote, claimed: true, reconcileOnly };
+  });
+  if (!operation.claimed) return;
+
+  let paymentUncertain = false;
+  try {
+    let payment = await findDepositPayment({
+      customerId: input.customerId, invoiceId: input.invoiceId, invoiceNumber: input.invoiceNumber,
+      amountCents: input.depositCents, referenceNumber, accountId: config.accountId,
+    });
+    if (!payment && operation.reconcileOnly) {
+      const uncertainSince = operation.quote.payment_uncertain_at ?? operation.quote.payment_claimed_at ?? new Date();
+      if (new Date(uncertainSince).getTime() > Date.now() - 5 * 60_000) {
+        paymentUncertain = true;
+        throw new Error("Zoho payment creation is still uncertain. Wait five minutes, then check again; no second payment will be created meanwhile.");
+      }
+    }
+    if (!payment) {
+      paymentUncertain = true;
+      const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      try {
+        payment = await createZohoCustomerPayment({
+          customerId: input.customerId, invoiceId: input.invoiceId, amountCents: input.depositCents,
+          date, referenceNumber, accountId: config.accountId, paymentMode: config.paymentMode,
+        });
+      } catch (error) {
+        for (let attempt = 0; attempt < 3 && !payment; attempt += 1) {
+          if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+          payment = await findDepositPayment({
+            customerId: input.customerId, invoiceId: input.invoiceId, invoiceNumber: input.invoiceNumber,
+            amountCents: input.depositCents, referenceNumber, accountId: config.accountId,
+          });
+        }
+        if (!payment) {
+          const reason = error instanceof Error ? error.message : "Zoho did not confirm the payment";
+          throw new Error(`Zoho may have recorded the deposit payment but its response was lost (${reason}). Wait five minutes, then check again; payment creation is locked meanwhile.`);
+        }
+      }
+    }
+    const verified = await getZohoCustomerPayment(payment.payment_id);
+    const applied = verified.invoices?.find((invoice) => invoice.invoice_id === input.invoiceId);
+    if (verified.customer_id !== input.customerId || verified.payment_mode?.toLowerCase() !== "paynow" || Math.round(Number(verified.amount) * 100) !== input.depositCents || Math.round(Number(applied?.amount_applied) * 100) !== input.depositCents || (verified.account_id && verified.account_id !== config.accountId)) {
+      throw new Error("Zoho returned a deposit payment that does not match the CRM order");
+    }
+    const finalized = await db.updateTable("order_quotations").set({
+      zoho_payment_id: verified.payment_id, zoho_payment_number: verified.payment_number ?? null,
+      payment_created_at: new Date(), payment_sync_state: "created", payment_claim_token: null,
+      payment_claimed_at: null, payment_uncertain_at: null, payment_sync_error: null,
+    }).where("id", "=", input.quotationId).where("payment_sync_state", "=", "pending").where("payment_claim_token", "=", claimToken).returning("id").executeTakeFirst();
+    if (!finalized) throw new Error("The deposit was recorded in Zoho but its CRM claim changed; reconcile before continuing");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Zoho deposit payment failed";
+    await db.updateTable("order_quotations").set({
+      payment_sync_state: paymentUncertain ? "uncertain" : "failed", payment_claim_token: null, payment_claimed_at: null,
+      payment_uncertain_at: paymentUncertain ? (operation.quote.payment_uncertain_at ?? new Date()) : null, payment_sync_error: message,
+    }).where("id", "=", input.quotationId).where("payment_sync_state", "=", "pending").where("payment_claim_token", "=", claimToken).execute();
+    throw error;
+  }
+}
+
 export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> {
   await requireRole(["ops", "admin"]);
   const invoiceClaimToken = randomUUID();
   const operation = await db.transaction().execute(async (trx) => {
-    const order = await trx.selectFrom("orders").select(["current_status", "display_id", "order_reference", "consultant_id"]).where("id", "=", orderId).forUpdate().executeTakeFirst();
-    if (!order || order.current_status !== "quotation_sent") throw new Error("The order must be at Quotation Sent before creating its Zoho invoice");
-    const profile = order.consultant_id ? await trx.selectFrom("profiles").select("full_name").where("id", "=", order.consultant_id).executeTakeFirst() : null;
+    const order = await trx.selectFrom("orders").select(["current_status", "deposit_cents", "display_id"]).where("id", "=", orderId).forUpdate().executeTakeFirst();
+    if (!order || !["quotation_sent", "deposit_received"].includes(order.current_status)) {
+      throw new Error("The order must be at Quotation Sent or Deposit Received before reconciling its Zoho invoice and payment");
+    }
     const quote = await trx.selectFrom("order_quotations").selectAll().where("order_id", "=", orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
     if (!quote) throw new Error("Create and send the official Zoho quotation before recording the deposit");
     if (quote.status !== "sent" || !quote.zoho_estimate_id) throw new Error("The official Zoho quotation must be sent before recording the deposit");
-    if (quote.zoho_invoice_id && quote.invoice_sync_state === "created") return { order: { ...order, consultant_name: profile?.full_name ?? null }, quote, claimed: false, reconcileOnly: false };
+    if (quote.zoho_invoice_id && quote.invoice_sync_state === "created") return { quote, order, claimed: false, reconcileOnly: false };
     const staleBefore = new Date(Date.now() - 2 * 60_000);
     const reconcileOnly = quote.invoice_sync_state === "uncertain" || quote.invoice_sync_state === "pending";
     const claim = await trx.updateTable("order_quotations").set({
@@ -520,25 +641,40 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
       .where((eb) => eb.or([eb("invoice_sync_state", "in", ["not_started", "failed", "uncertain"]), eb("invoice_claimed_at", "<", staleBefore)]))
       .returning("id").executeTakeFirst();
     if (!claim) throw new Error("The Zoho invoice is already being created. Wait a moment and try again.");
-    return { order: { ...order, consultant_name: profile?.full_name ?? null }, quote, claimed: true, reconcileOnly };
+    return { quote, order, claimed: true, reconcileOnly };
   });
-  const { order, quote, claimed, reconcileOnly } = operation;
+  const { quote, order, claimed, reconcileOnly } = operation;
   let conversionUncertain = false;
+  let invoiceFinalized = !claimed;
   try {
     const estimateId = quote.zoho_estimate_id;
     if (!estimateId) throw new Error("The official Zoho quotation is missing its Estimate ID");
     const remote = await getZohoEstimate(estimateId);
-    const binding = await getZohoBooksBinding();
     if (!quote.zoho_contact_id) throw new Error("The sent quotation has no confirmed Zoho customer");
-    const desired = toZohoEstimatePayload({
-      contactId: quote.zoho_contact_id, referenceNumber: order.order_reference || order.display_id,
-      issueDate: quotationDateOnly(quote.issue_date), expiryDate: quotationDateOnly(quote.expiry_date), lines: linesOf(quote),
-      notes: quote.notes ?? "", terms: quote.terms ?? "", salespersonName: order.consultant_name,
-      templateId: binding.estimateTemplateId,
-    });
-    if (await crmKeyOf(remote) !== quote.crm_quote_key || !["sent", "accepted", "invoiced"].includes(remote.status) || remote.currency_code !== "SGD" || Math.round(Number(remote.total) * 100) !== quote.quoted_total_cents || quotePayloadHash(comparableEstimate(remote as unknown as Record<string, unknown>)) !== quotePayloadHash(comparableEstimate(desired))) {
+    if (order.deposit_cents <= 0 || order.deposit_cents > quote.quoted_total_cents) {
+      throw new Error("The CRM deposit must be greater than zero and no more than the quotation total");
+    }
+    const remoteKey = await crmKeyOf(remote);
+    const remoteSnapshotHash = quotePayloadHash(comparableEstimate(remote as unknown as Record<string, unknown>));
+    if (!matchesStoredZohoEstimate({
+      remoteKey,
+      expectedKey: quote.crm_quote_key,
+      remoteCustomerId: remote.customer_id,
+      expectedCustomerId: quote.zoho_contact_id,
+      remoteCurrency: remote.currency_code,
+      remoteTotalCents: Math.round(Number(remote.total) * 100),
+      expectedTotalCents: quote.quoted_total_cents,
+      remoteStatus: remote.status,
+      remoteSnapshotHash,
+      storedSnapshotHash: quote.synced_payload_hash,
+    })) {
       throw new Error("The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice");
     }
+    // Fail before converting the quotation if the payment destination or the
+    // newly-required OAuth permission is missing. This avoids leaving a new
+    // invoice behind when the second half of the operation cannot start.
+    await assertZohoCustomerPaymentsReady();
+    await listZohoCustomerPayments(quote.zoho_contact_id);
     const existingInvoiceId = quote.zoho_invoice_id ?? remote.invoice_ids?.[0];
     if (quote.zoho_invoice_id && Array.isArray(remote.invoice_ids) && !remote.invoice_ids.includes(quote.zoho_invoice_id)) throw new Error("The stored Zoho invoice is no longer linked to this quotation");
     let created: { invoice_id: string; invoice_number?: string };
@@ -581,12 +717,20 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
     const linkedInvoiceId = await findConvertedInvoiceId(estimateId);
     const usableInvoiceStatuses = new Set(["draft", "sent", "overdue", "paid", "partially_paid"]);
     if (!invoice.status || !usableInvoiceStatuses.has(invoice.status) || linkedInvoiceId !== invoice.invoice_id || invoice.customer_id !== quote.zoho_contact_id || invoice.currency_code !== "SGD" || Math.round(Number(invoice.total) * 100) !== quote.quoted_total_cents) throw new Error("The Zoho invoice is void, unusable, or does not match the sent quotation; reconcile it before recording the deposit");
-    if (!claimed) return;
-    const finalized = await db.updateTable("order_quotations").set({ zoho_invoice_id: invoice.invoice_id, zoho_invoice_number: invoice.invoice_number ?? null, invoice_created_at: new Date(), invoice_sync_state: "created", invoice_claim_token: null, invoice_claimed_at: null, invoice_uncertain_at: null, invoice_sync_error: null, zoho_status: "invoiced" }).where("id", "=", quote.id).where("invoice_claim_token", "=", invoiceClaimToken).returning("id").executeTakeFirst();
-    if (!finalized) throw new Error("The invoice was created in Zoho but its CRM claim changed; reconcile before recording the deposit");
+    if (claimed) {
+      const finalized = await db.updateTable("order_quotations").set({ zoho_invoice_id: invoice.invoice_id, zoho_invoice_number: invoice.invoice_number ?? null, invoice_created_at: new Date(), invoice_sync_state: "created", invoice_claim_token: null, invoice_claimed_at: null, invoice_uncertain_at: null, invoice_sync_error: null, zoho_status: "invoiced" }).where("id", "=", quote.id).where("invoice_claim_token", "=", invoiceClaimToken).returning("id").executeTakeFirst();
+      if (!finalized) throw new Error("The invoice was created in Zoho but its CRM claim changed; reconcile before recording the deposit");
+      invoiceFinalized = true;
+    }
+    await ensureZohoDepositPaymentForQuote({
+      quotationId: quote.id, displayId: order.display_id, customerId: quote.zoho_contact_id,
+      invoiceId: invoice.invoice_id, invoiceNumber: invoice.invoice_number ?? quote.zoho_invoice_number,
+      depositCents: order.deposit_cents,
+    });
+    revalidatePath(`/orders/${orderId}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Zoho invoice creation failed";
-    if (claimed) await db.updateTable("order_quotations").set({
+    if (claimed && !invoiceFinalized) await db.updateTable("order_quotations").set({
       invoice_sync_state: conversionUncertain ? "uncertain" : "failed", invoice_claim_token: null, invoice_claimed_at: null,
       invoice_uncertain_at: conversionUncertain ? (quote.invoice_uncertain_at ?? new Date()) : null, invoice_sync_error: message,
     }).where("id", "=", quote.id).where("invoice_sync_state", "=", "pending").where("invoice_claim_token", "=", invoiceClaimToken).execute();

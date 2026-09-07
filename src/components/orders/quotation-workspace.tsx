@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Download, ExternalLink, Plus, RefreshCw, Share2, Trash2 } from "lucide-react";
+import { Copy, Download, ExternalLink, FileText, Plus, RefreshCw, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -15,6 +15,7 @@ import {
   getZohoQuotationOptions,
   recoverStaleQuotationClaim,
   reconcileUncertainQuotation,
+  ensureZohoInvoiceForOrder,
   saveQuotation,
   searchZohoCustomers,
   syncQuotation,
@@ -31,13 +32,15 @@ type Quote = {
   id: string; revision: number; status: string; issueDate: string; expiryDate: string;
   lines: QuotationLineInput[]; totalCents: number; customerMessage: string; notes: string; terms: string;
   estimateNumber: string | null; invoiceNumber: string | null; updatedAt: string; syncError: string | null;
-  invoiceSyncState: string; invoiceSyncError: string | null; hasZohoEstimate: boolean; hasPdf: boolean; sentAt: string | null;
+  invoiceSyncState: string; invoiceSyncError: string | null; paymentNumber: string | null;
+  paymentSyncState: string; paymentSyncError: string | null; hasZohoEstimate: boolean; hasPdf: boolean; sentAt: string | null;
 };
 
 type Props = {
   orderId: string; displayId: string; customerName: string; productLine: "curtain" | "mesh"; quotedCents: number;
+  depositCents: number;
   quote: Quote | null; history: Array<{ id: string; revision: number; estimateNumber: string | null; sentAt: string | null; supersededAt: string | null; totalCents: number; hasPdf: boolean }>;
-  linkedContactId: string | null; canManage: boolean; configured: boolean;
+  linkedContactId: string | null; canManage: boolean; canRepairDeposit: boolean; configured: boolean;
 };
 
 type Options = Awaited<ReturnType<typeof getZohoQuotationOptions>>;
@@ -75,11 +78,12 @@ export function QuotationWorkspace(props: Props) {
       [props.displayId, ...(props.quote.estimateNumber ? [props.quote.estimateNumber] : [])],
     );
   });
-  const [preview, setPreview] = useState<{ url: string; fileName: string } | null>(null);
+  const [preview, setPreview] = useState<{ url: string; fileName: string; kind: "quotation" | "invoice" } | null>(null);
   const [sendOpen, setSendOpen] = useState(false);
   const [channel, setChannel] = useState("WhatsApp");
   const [sendNote, setSendNote] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [paymentRepairOpen, setPaymentRepairOpen] = useState(false);
   const [importNumber, setImportNumber] = useState("");
   const [importChannel, setImportChannel] = useState("WhatsApp");
   const [matchingOpen, setMatchingOpen] = useState(!props.linkedContactId);
@@ -115,8 +119,38 @@ export function QuotationWorkspace(props: Props) {
       const result = await getQuotationPdfUrl(quotationId, download);
       if (download) {
         const link = document.createElement("a"); link.href = result.url; link.download = result.fileName; link.click();
-      } else setPreview(result);
+      } else setPreview({ ...result, kind: "quotation" });
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not open quotation"); }
+  }
+
+  function openInvoicePdf() {
+    if (!props.quote?.invoiceNumber) return;
+    setPreview({
+      url: `/api/orders/${props.orderId}/invoice/pdf`,
+      fileName: `${props.quote.invoiceNumber}.pdf`,
+      kind: "invoice",
+    });
+  }
+
+  function downloadInvoicePdf() {
+    if (!props.quote?.invoiceNumber) return;
+    const link = document.createElement("a");
+    link.href = `/api/orders/${props.orderId}/invoice/pdf?download=1`;
+    link.download = `${props.quote.invoiceNumber}.pdf`;
+    link.click();
+  }
+
+  async function shareInvoicePdf() {
+    if (!props.quote?.invoiceNumber) return;
+    try {
+      const url = `/api/orders/${props.orderId}/invoice/pdf`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(await response.text() || "Could not load invoice");
+      const fileName = `${props.quote.invoiceNumber}.pdf`;
+      const file = new File([await response.blob()], fileName, { type: "application/pdf" });
+      if (!navigator.share || !navigator.canShare?.({ files: [file] })) throw new Error("Sharing files is not supported on this device");
+      await navigator.share({ files: [file], title: fileName });
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not share invoice"); }
   }
 
   async function sharePdf() {
@@ -184,15 +218,46 @@ export function QuotationWorkspace(props: Props) {
         {props.canManage && sent && <Button className="h-11" onClick={() => run(() => createQuotationRevision(props.quote!.id), "Revision created")}>Create revised quotation</Button>}
       </div>
 
-      {props.quote?.invoiceNumber && <p className="mt-3 text-sm text-emerald-700">Zoho invoice {props.quote.invoiceNumber} was created when the deposit was recorded.</p>}
+      {props.quote?.invoiceNumber && <div className="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 ring-1 ring-emerald-200"><FileText className="size-4" /></span>
+          <div className="min-w-0"><p className="text-sm font-medium text-emerald-950">Invoice {props.quote.invoiceNumber}</p><p className="text-xs text-emerald-800">{props.quote.paymentSyncState === "created" ? `PayNow deposit recorded${props.quote.paymentNumber ? ` · Payment ${props.quote.paymentNumber}` : ""}.` : "Full invoice created in Zoho Books; deposit payment is not yet confirmed."}</p></div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button className="h-9" variant="outline" onClick={openInvoicePdf}><ExternalLink /> Preview invoice</Button>
+          <Button aria-label="Download official invoice" className="h-9 w-9" variant="outline" onClick={downloadInvoicePdf}><Download /></Button>
+          <Button aria-label="Share official invoice" className="h-9 w-9" variant="outline" onClick={shareInvoicePdf}><Share2 /></Button>
+        </div>
+      </div>}
       {props.quote?.invoiceSyncState === "pending" && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Zoho invoice creation is still pending. Wait a moment, then use the deposit action above to check and continue.</p>}
       {props.quote?.invoiceSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have created the invoice</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The conversion response was interrupted."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a></div>}
       {props.quote?.invoiceSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho invoice needs attention</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The last invoice attempt could not be confirmed."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry or reconcile with the deposit action above</a></div>}
+      {props.quote?.paymentSyncState === "pending" && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">The Zoho deposit payment is still pending. Wait a moment, then use the deposit action above to check and continue.</p>}
+      {props.quote?.paymentSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have recorded the deposit</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The payment response was interrupted."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a></div>}
+      {props.quote?.paymentSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho deposit payment needs attention</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The invoice exists, but the matching deposit payment was not confirmed."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry the deposit action above</a></div>}
+      {props.canRepairDeposit && props.quote?.invoiceNumber && props.quote.paymentSyncState !== "created" && <div className="mt-3 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium text-amber-950">Deposit payment is missing in Zoho</p><p className="text-xs text-amber-800">Record {money(props.depositCents)} by PayNow to Drapeworks – MariBank against invoice {props.quote.invoiceNumber}.</p></div><Button className="h-9 shrink-0" disabled={pending} onClick={() => setPaymentRepairOpen(true)}>Record payment in Zoho</Button></div>}
       {props.history.length > 0 && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium text-slate-700">Earlier versions ({props.history.length})</summary><ul className="mt-2 space-y-2 text-slate-500">{props.history.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2"><span>Version {item.revision} · {item.estimateNumber ?? "local"} · {money(item.totalCents)} · superseded {item.supersededAt ? new Date(item.supersededAt).toLocaleString("en-SG") : "—"}</span>{item.hasPdf && <span className="flex gap-1"><Button size="sm" variant="outline" onClick={() => openPdf(false, item.id)}>Preview</Button><Button size="sm" variant="outline" onClick={() => openPdf(true, item.id)}>Download</Button></span>}</li>)}</ul></details>}
 
       <Dialog open={sendOpen} onOpenChange={setSendOpen}><DialogContent><DialogHeader><DialogTitle>Confirm quotation sent</DialogTitle><DialogDescription>This records that you sent the already-reviewed PDF. It does not send a message from Zoho.</DialogDescription></DialogHeader><label className="text-sm font-medium">Channel<select className="mt-1 h-11 w-full rounded-md border px-3" value={channel} onChange={(e) => setChannel(e.target.value)}><option>WhatsApp</option><option>Telegram</option><option>Email</option><option>In person</option><option>Other</option></select></label><label className="text-sm font-medium">Note (optional)<Textarea className="mt-1" value={sendNote} onChange={(e) => setSendNote(e.target.value)} /></label><DialogFooter><Button className="h-11" disabled={pending} onClick={() => run(async () => { await confirmQuotationSent({ quotationId: props.quote!.id, channel, note: sendNote }); setSendOpen(false); }, "Quotation marked as sent")}>I have sent this quotation</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={importOpen} onOpenChange={setImportOpen}><DialogContent><DialogHeader><DialogTitle>Use existing Zoho quotation</DialogTitle><DialogDescription>The Zoho quotation will replace this local draft, its official PDF will be stored, and the order will move to Quotation Sent. The customer and currency must match.</DialogDescription></DialogHeader><label className="text-sm font-medium">Zoho quote number<Input className="mt-1 h-11" placeholder="QT-000001" value={importNumber} onChange={(e) => setImportNumber(e.target.value)} /></label><label className="text-sm font-medium">Sent via<select className="mt-1 h-11 w-full rounded-md border px-3" value={importChannel} onChange={(e) => setImportChannel(e.target.value)}><option>WhatsApp</option><option>Telegram</option><option>Email</option><option>In person</option><option>Other</option></select></label><DialogFooter><Button className="h-11" disabled={pending || !importNumber.trim()} onClick={() => run(async () => { const result = await importExistingZohoQuotation({ quotationId: props.quote!.id, estimateNumber: importNumber, channel: importChannel, note: "Imported existing Zoho quotation" }); if (!result.ok) throw new Error(result.error); setImportOpen(false); }, "Existing Zoho quotation imported and marked sent")}>Import and mark sent</Button></DialogFooter></DialogContent></Dialog>
-      <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}><DialogContent className="h-[90dvh] max-w-4xl"><DialogHeader><DialogTitle>{preview?.fileName}</DialogTitle><DialogDescription>Official Zoho quotation—the same stored PDF used for download and share.</DialogDescription></DialogHeader>{preview && <iframe title="Official quotation preview" src={preview.url} className="min-h-0 w-full flex-1 rounded border" />}<DialogFooter><Button variant="outline" onClick={() => preview && window.open(preview.url, "_blank", "noopener,noreferrer")}>Open in new tab</Button><Button onClick={() => { if (!preview) return; const link = document.createElement("a"); link.href = preview.url; link.download = preview.fileName; link.click(); }}>Download</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={paymentRepairOpen} onOpenChange={setPaymentRepairOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Record deposit in Zoho Books?</DialogTitle><DialogDescription>This repairs an order already marked Deposit Received. It will not create a second invoice.</DialogDescription></DialogHeader><dl className="divide-y rounded-lg border bg-slate-50 px-3 text-sm"><div className="flex justify-between py-2"><dt>Invoice</dt><dd className="font-semibold">{props.quote?.invoiceNumber}</dd></div><div className="flex justify-between py-2"><dt>PayNow payment</dt><dd className="font-semibold">{money(props.depositCents)}</dd></div><div className="flex justify-between py-2"><dt>Deposit account</dt><dd className="font-semibold">Drapeworks – MariBank</dd></div><div className="flex justify-between py-2"><dt>Balance after payment</dt><dd className="font-semibold">{money(Math.max((props.quote?.totalCents ?? 0) - props.depositCents, 0))}</dd></div></dl><DialogFooter><Button variant="outline" onClick={() => setPaymentRepairOpen(false)}>Cancel</Button><Button disabled={pending} onClick={() => run(async () => { await ensureZohoInvoiceForOrder(props.orderId); setPaymentRepairOpen(false); }, "Zoho deposit payment recorded")}>Record {money(props.depositCents)} payment</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}>
+        <DialogContent className="h-[94dvh] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,90rem)]">
+          <DialogHeader className="border-b px-5 py-4 pr-14">
+            <DialogTitle>Official {preview?.kind}</DialogTitle>
+            <DialogDescription>
+              {preview?.fileName} · PDF generated by Zoho Books.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 bg-slate-100 p-2 sm:p-4">
+            {preview && <iframe title={`Official ${preview.kind} preview`} src={preview.url} className="h-full w-full rounded-lg border border-slate-300 bg-white shadow-sm" />}
+          </div>
+          <DialogFooter className="mx-0 mb-0 rounded-none px-5 py-3">
+            <Button variant="outline" onClick={() => preview && window.open(preview.url, "_blank", "noopener,noreferrer")}><ExternalLink /> Open full screen</Button>
+            <Button onClick={() => { if (!preview) return; const link = document.createElement("a"); link.href = preview.kind === "invoice" ? `${preview.url}?download=1` : preview.url; link.download = preview.fileName; link.click(); }}><Download /> Download PDF</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

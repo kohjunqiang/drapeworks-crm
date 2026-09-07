@@ -46,7 +46,7 @@ export async function advanceOrderStatus(input: unknown) {
     throw new Error("Create, preview, and confirm the official quotation from the quotation workspace.");
   }
 
-  // Creating the invoice is an external side effect, so it must not happen
+  // Creating the invoice and applying its deposit are external side effects, so they must not happen
   // while a Postgres row lock is held. The helper reconciles an invoice already
   // linked by Zoho before creating one, making a retry safe if the later local
   // status transaction loses a race or fails.
@@ -71,9 +71,9 @@ export async function advanceOrderStatus(input: unknown) {
       throw new Error("Order status already changed. Refresh and try again.");
     }
     if (parsed.expectedStatus === "quotation_sent") {
-      const quotation = await trx.selectFrom("order_quotations").select(["status", "zoho_invoice_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
-      if (quotation && (quotation.status !== "sent" || !quotation.zoho_invoice_id)) {
-        throw new Error("The current sent quotation must own the Zoho invoice before the deposit can be recorded");
+      const quotation = await trx.selectFrom("order_quotations").select(["status", "zoho_invoice_id", "zoho_payment_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+      if (quotation && (quotation.status !== "sent" || !quotation.zoho_invoice_id || !quotation.zoho_payment_id)) {
+        throw new Error("The current sent quotation must own the Zoho invoice and matching deposit payment before the deposit can be recorded");
       }
     }
 
@@ -302,6 +302,12 @@ export async function revertOrderStatus(input: unknown) {
       const quotation = await trx.selectFrom("order_quotations").select(["invoice_sync_state", "zoho_invoice_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
       if (quotation && (["pending", "uncertain"].includes(quotation.invoice_sync_state) || quotation.zoho_invoice_id)) {
         throw new Error("This order has a pending or created Zoho invoice and cannot be reverted from Quotation Sent");
+      }
+    }
+    if (order.current_status === "deposit_received") {
+      const quotation = await trx.selectFrom("order_quotations").select(["payment_sync_state", "zoho_payment_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+      if (quotation && (["pending", "uncertain"].includes(quotation.payment_sync_state) || quotation.zoho_payment_id)) {
+        throw new Error("This order has a pending or recorded Zoho deposit payment and cannot be reverted from Deposit Received");
       }
     }
 

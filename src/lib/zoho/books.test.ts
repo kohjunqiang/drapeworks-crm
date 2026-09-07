@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("./connection", () => ({
-  getZohoAccessContext: vi.fn(async () => ({ accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3", crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template" })),
+  getZohoAccessContext: vi.fn(async () => ({ accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3", crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template", requestedScopes: ["ZohoBooks.customerpayments.READ", "ZohoBooks.customerpayments.CREATE"] })),
   getZohoConnectionSummary: vi.fn(async () => ({ connection: { status: "connected", estimate_crm_key_api_name: "cf_crm_quote_key", estimate_crm_key_id: "field", estimate_template_id: "template", verified_capabilities: { crmKeyUnique: false } } })),
 }));
 
@@ -15,6 +15,7 @@ beforeEach(() => {
   process.env.ZOHO_ESTIMATE_CRM_KEY_API_NAME = "cf_crm_quote_key";
   process.env.ZOHO_ESTIMATE_CRM_KEY_ID = "field";
   process.env.ZOHO_ESTIMATE_TEMPLATE_ID = "template";
+  process.env.ZOHO_PAYMENT_ACCOUNT_ID = "8639631000000122011";
 });
 
 describe("Zoho Books transport safety", () => {
@@ -112,6 +113,53 @@ describe("Zoho Books transport safety", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("records a PayNow deposit against one invoice and the configured bank account", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, payment: { payment_id: "payment-1", payment_number: "91" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoCustomerPayment } = await import("./books");
+
+    await expect(createZohoCustomerPayment({
+      customerId: "customer-1", invoiceId: "invoice-1", amountCents: 75000,
+      date: "2026-09-07", referenceNumber: "CRM-DW-2026-0025-DEPOSIT",
+      accountId: "8639631000000122011", paymentMode: "PayNow",
+    })).resolves.toMatchObject({ payment_id: "payment-1" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      customer_id: "customer-1", payment_mode: "PayNow", amount: 750,
+      account_id: "8639631000000122011",
+      invoices: [{ invoice_id: "invoice-1", amount_applied: 750 }],
+    });
+  });
+
+  it("blocks the workflow before invoice creation when payment write consent is missing", async () => {
+    const connection = await import("./connection");
+    vi.mocked(connection.getZohoAccessContext).mockResolvedValueOnce({
+      accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3",
+      crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template",
+      connectionId: "connection", tokenVersion: 1, requestedScopes: ["ZohoBooks.customerpayments.READ"],
+    });
+    vi.stubGlobal("fetch", vi.fn());
+    const { assertZohoCustomerPaymentsReady } = await import("./books");
+
+    await expect(assertZohoCustomerPaymentsReady()).rejects.toThrow("reconnected");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("never retries a non-idempotent customer payment POST", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 1, message: "uncertain" }, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoCustomerPayment } = await import("./books");
+
+    await expect(createZohoCustomerPayment({
+      customerId: "customer-1", invoiceId: "invoice-1", amountCents: 75000,
+      date: "2026-09-07", referenceNumber: "CRM-DW-2026-0025-DEPOSIT",
+      accountId: "8639631000000122011", paymentMode: "PayNow",
+    })).rejects.toThrow("uncertain");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries a safe GET after a transient Zoho response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ code: 1070, message: "busy" }))
@@ -128,5 +176,23 @@ describe("Zoho Books transport safety", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { getZohoEstimatePdf } = await import("./books");
     await expect(getZohoEstimatePdf("estimate")).rejects.toThrow("invalid quotation PDF");
+  });
+
+  it("downloads an invoice as a validated PDF", async () => {
+    const pdf = `%PDF-${"x".repeat(120)}`;
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(pdf, { status: 200, headers: { "content-type": "application/pdf" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getZohoInvoicePdf } = await import("./books");
+
+    await expect(getZohoInvoicePdf("invoice-1")).resolves.toEqual(new TextEncoder().encode(pdf));
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/invoices/invoice-1");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("accept=pdf");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ headers: expect.objectContaining({ Accept: "application/pdf" }) });
+  });
+
+  it("rejects an invoice response that is not a PDF", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response("<html>login</html>", { status: 200, headers: { "content-type": "text/html" } })));
+    const { getZohoInvoicePdf } = await import("./books");
+    await expect(getZohoInvoicePdf("invoice-1")).rejects.toThrow("invalid invoice PDF");
   });
 });

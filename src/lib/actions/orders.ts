@@ -770,11 +770,11 @@ export async function deleteOrder(input: {
     .execute();
   const customerQuotations = await db
     .selectFrom("order_quotations")
-    .select(["pdf_storage_path", "zoho_estimate_id", "zoho_invoice_id", "invoice_sync_state"])
+    .select(["pdf_storage_path", "zoho_estimate_id", "zoho_invoice_id", "invoice_sync_state", "zoho_payment_id", "payment_sync_state"])
     .where("order_id", "=", order.id)
     .execute();
-  if (customerQuotations.some((quote) => quote.zoho_estimate_id || quote.zoho_invoice_id || ["pending", "uncertain"].includes(quote.invoice_sync_state))) {
-    throw new Error("This order is linked to a Zoho quotation or invoice and cannot be deleted from the CRM. Preserve the financial audit trail.");
+  if (customerQuotations.some((quote) => quote.zoho_estimate_id || quote.zoho_invoice_id || quote.zoho_payment_id || ["pending", "uncertain"].includes(quote.invoice_sync_state) || ["pending", "uncertain"].includes(quote.payment_sync_state))) {
+    throw new Error("This order is linked to a Zoho quotation, invoice, or payment and cannot be deleted from the CRM. Preserve the financial audit trail.");
   }
   const arrangement = await db
     .selectFrom("fulfilment_arrangements")

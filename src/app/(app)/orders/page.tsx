@@ -147,7 +147,9 @@ export default async function OrdersDashboardPage({
     listQ = listQ.where(sql<boolean>`exists (
       select 1 from public.order_quotations oq
       where oq.order_id = orders.id and oq.superseded_at is null
-        and (oq.status in ('syncing','sending','sync_failed','conflict') or oq.invoice_sync_state in ('pending','failed','uncertain'))
+        and (oq.status in ('syncing','sending','sync_failed','conflict')
+          or oq.invoice_sync_state in ('pending','failed','uncertain')
+          or oq.payment_sync_state in ('pending','failed','uncertain'))
     )`);
   }
 

@@ -18,6 +18,8 @@ export const ZOHO_BOOKS_SCOPES = [
   "ZohoBooks.estimates.UPDATE",
   "ZohoBooks.invoices.READ",
   "ZohoBooks.invoices.CREATE",
+  "ZohoBooks.customerpayments.READ",
+  "ZohoBooks.customerpayments.CREATE",
 ] as const;
 
 const ACCOUNTS_TO_API = new Map([
@@ -45,6 +47,7 @@ type Capabilities = {
   contactsRead: boolean;
   estimatesRead: boolean;
   invoicesRead: boolean;
+  customerPaymentsRead: boolean;
   crmKeyFieldVerified: boolean;
   crmKeyUnique: boolean;
   templateVerified: boolean;
@@ -127,8 +130,8 @@ async function probeCapabilities(apiDomain: string, accessToken: string, organiz
     url.searchParams.set("per_page", "1");
     try { await zohoJson(url, accessToken); return true; } catch { return false; }
   };
-  const [contactsRead, estimatesRead, invoicesRead] = await Promise.all([
-    probe("/contacts"), probe("/estimates"), probe("/invoices"),
+  const [contactsRead, estimatesRead, invoicesRead, customerPaymentsRead] = await Promise.all([
+    probe("/contacts"), probe("/estimates"), probe("/invoices"), probe("/customerpayments"),
   ]);
   let crmKeyFieldVerified = false;
   let crmKeyUnique = false;
@@ -156,7 +159,7 @@ async function probeCapabilities(apiDomain: string, accessToken: string, organiz
     // Missing or inaccessible organization-specific configuration keeps the
     // connection partial and financial actions disabled.
   }
-  return { organizationsRead: true, contactsRead, estimatesRead, invoicesRead, crmKeyFieldVerified, crmKeyUnique, templateVerified };
+  return { organizationsRead: true, contactsRead, estimatesRead, invoicesRead, customerPaymentsRead, crmKeyFieldVerified, crmKeyUnique, templateVerified };
 }
 
 async function revokeRefreshToken(accountsServer: string, refreshToken: string): Promise<boolean> {
@@ -187,7 +190,7 @@ async function activateConnection(input: {
   pendingId?: string;
 }): Promise<"connected" | "partial"> {
   const env = environment();
-  const status: "connected" | "partial" = input.capabilities.contactsRead && input.capabilities.estimatesRead && input.capabilities.invoicesRead && input.capabilities.crmKeyFieldVerified && input.capabilities.templateVerified
+  const status: "connected" | "partial" = input.capabilities.contactsRead && input.capabilities.estimatesRead && input.capabilities.invoicesRead && input.capabilities.customerPaymentsRead && input.capabilities.crmKeyFieldVerified && input.capabilities.templateVerified
     ? "connected" : "partial";
   const refresh = encryptZohoToken(input.refreshToken, aad(env));
   const access = encryptZohoToken(input.accessToken, aad(env));
@@ -416,10 +419,10 @@ export async function getZohoConnectionSummary() {
     db.selectFrom("order_quotations").select(({ fn }) => fn.count<string>("zoho_estimate_id").as("count")).executeTakeFirstOrThrow(),
     db.selectFrom("order_quotations").select(({ fn }) => fn.count<string>("zoho_invoice_id").as("count")).executeTakeFirstOrThrow(),
     db.selectFrom("order_quotations").select(({ fn }) => fn.countAll<string>().as("count"))
-      .where((eb) => eb.or([eb("status", "in", ["syncing", "sending"]), eb("invoice_sync_state", "in", ["pending", "uncertain"])]))
+      .where((eb) => eb.or([eb("status", "in", ["syncing", "sending"]), eb("invoice_sync_state", "in", ["pending", "uncertain"]), eb("payment_sync_state", "in", ["pending", "uncertain"])]))
       .executeTakeFirstOrThrow(),
     db.selectFrom("order_quotations").select(({ fn }) => fn.countAll<string>().as("count"))
-      .where((eb) => eb.or([eb("status", "in", ["sync_failed", "conflict"]), eb("invoice_sync_state", "in", ["failed", "uncertain"])]))
+      .where((eb) => eb.or([eb("status", "in", ["sync_failed", "conflict"]), eb("invoice_sync_state", "in", ["failed", "uncertain"]), eb("payment_sync_state", "in", ["failed", "uncertain"])]))
       .executeTakeFirstOrThrow(),
   ]);
   return {
@@ -440,6 +443,7 @@ export type ZohoAccessContext = {
   crmKeyApiName: string | null;
   crmKeyFieldId: string | null;
   estimateTemplateId: string | null;
+  requestedScopes: string[];
 };
 
 export async function getZohoAccessContext(forceRefresh = false, allowPartial = false): Promise<ZohoAccessContext> {
@@ -456,7 +460,7 @@ export async function getZohoAccessContext(forceRefresh = false, allowPartial = 
       connectionId: row.id, tokenVersion,
       accessToken, organizationId: row.organization_id!, apiBaseUrl: `${row.api_domain}/books/v3`,
       crmKeyApiName: row.estimate_crm_key_api_name, crmKeyFieldId: row.estimate_crm_key_id,
-      estimateTemplateId: row.estimate_template_id,
+      estimateTemplateId: row.estimate_template_id, requestedScopes: row.requested_scopes,
     });
     const stillValid = new Date(row.access_token_expires_at).getTime() > Date.now() + 60_000;
     let accessToken = decryptZohoToken({ ciphertext: row.access_token_ciphertext, nonce: row.access_token_nonce, tag: row.access_token_tag }, aad(env));
@@ -500,7 +504,7 @@ export async function verifyZohoConnection(actorId: string): Promise<"connected"
     throw new Error("The connected Zoho organization is no longer available");
   }
   const capabilities = await probeCapabilities(new URL(context.apiBaseUrl).origin, context.accessToken, context.organizationId);
-  const status = capabilities.contactsRead && capabilities.estimatesRead && capabilities.invoicesRead && capabilities.crmKeyFieldVerified && capabilities.templateVerified ? "connected" : "partial";
+  const status = capabilities.contactsRead && capabilities.estimatesRead && capabilities.invoicesRead && capabilities.customerPaymentsRead && capabilities.crmKeyFieldVerified && capabilities.templateVerified ? "connected" : "partial";
   const updated = await db.transaction().execute(async (trx) => {
     await sql`select pg_advisory_xact_lock(hashtext(${LIFECYCLE_LOCK}))`.execute(trx);
     return trx.updateTable("zoho_connections").set({
@@ -579,9 +583,9 @@ export async function disconnectZohoConnection(actorId: string): Promise<void> {
     const connection = await trx.selectFrom("zoho_connections").selectAll().where("environment", "=", env).forUpdate().executeTakeFirst();
     await trx.selectFrom("zoho_pending_connections").select("id").where("environment", "=", env).forUpdate().execute();
     const active = await trx.selectFrom("order_quotations").select(({ fn }) => fn.countAll<string>().as("count"))
-      .where((eb) => eb.or([eb("status", "in", ["syncing", "sending"]), eb("invoice_sync_state", "in", ["pending", "uncertain"])]))
+      .where((eb) => eb.or([eb("status", "in", ["syncing", "sending"]), eb("invoice_sync_state", "in", ["pending", "uncertain"]), eb("payment_sync_state", "in", ["pending", "uncertain"])]))
       .executeTakeFirstOrThrow();
-    if (Number(active.count) > 0) throw new Error("Wait for active Zoho quotation or invoice operations to finish before disconnecting");
+    if (Number(active.count) > 0) throw new Error("Wait for active Zoho quotation, invoice, or payment operations to finish before disconnecting");
     const pending = await trx.deleteFrom("zoho_pending_connections").where("environment", "=", env).returningAll().execute();
     await trx.deleteFrom("zoho_oauth_states").where("environment", "=", env).execute();
     if (connection && connection.status !== "disconnected") {

@@ -42,6 +42,38 @@ export type ZohoEstimate = {
   custom_fields?: Array<{ customfield_id?: string; api_name?: string; value?: unknown; label?: string }>;
 };
 
+export type ZohoCustomerPayment = {
+  payment_id: string;
+  payment_number?: string;
+  customer_id?: string;
+  payment_mode?: string;
+  amount?: number;
+  date?: string;
+  reference_number?: string;
+  account_id?: string;
+  invoice_number?: string;
+  invoices?: Array<{ invoice_id?: string; invoice_number?: string; amount_applied?: number; balance_amount?: number }>;
+};
+
+function requirePaymentScope(context: Awaited<ReturnType<typeof getZohoAccessContext>>, scope: string) {
+  if (!context.requestedScopes.includes(scope)) {
+    throw new Error("Zoho Books must be reconnected by an admin to authorize customer payments");
+  }
+}
+
+export function getZohoDepositPaymentConfig() {
+  const accountId = process.env.ZOHO_PAYMENT_ACCOUNT_ID?.trim();
+  if (!accountId || !/^\d+$/.test(accountId)) throw new Error("ZOHO_PAYMENT_ACCOUNT_ID is not configured");
+  return { accountId, paymentMode: "PayNow" };
+}
+
+export async function assertZohoCustomerPaymentsReady(): Promise<void> {
+  const context = await getZohoAccessContext();
+  requirePaymentScope(context, "ZohoBooks.customerpayments.READ");
+  requirePaymentScope(context, "ZohoBooks.customerpayments.CREATE");
+  getZohoDepositPaymentConfig();
+}
+
 export async function getZohoBooksBinding() {
   const context = await getZohoAccessContext();
   if (!context.crmKeyApiName || !context.crmKeyFieldId || !context.estimateTemplateId) {
@@ -263,4 +295,79 @@ export async function getZohoInvoice(id: string): Promise<{ invoice_id: string; 
   const json = await request<ZohoEnvelope & { invoice?: { invoice_id: string; invoice_number?: string; invoiced_estimate_id?: string; customer_id?: string; currency_code?: string; total?: number; status?: string } }>(`/invoices/${encodeURIComponent(id)}`);
   if (!json.invoice) throw new Error("Zoho invoice not found");
   return json.invoice;
+}
+
+export async function listZohoCustomerPayments(customerId: string): Promise<ZohoCustomerPayment[]> {
+  const context = await getZohoAccessContext();
+  requirePaymentScope(context, "ZohoBooks.customerpayments.READ");
+  const payments: ZohoCustomerPayment[] = [];
+  let page = 1;
+  let hasMore = true;
+  while (hasMore && page <= 20) {
+    const query = new URLSearchParams({ customer_id: customerId, page: String(page), per_page: "200" });
+    const json = await request<ZohoEnvelope & { customer_payments?: ZohoCustomerPayment[]; page_context?: { has_more_page?: boolean } }>(`/customerpayments?${query}`);
+    payments.push(...(json.customer_payments ?? []));
+    hasMore = Boolean(json.page_context?.has_more_page);
+    page += 1;
+  }
+  if (hasMore) throw new Error("Zoho customer payment lookup exceeded the safe page limit");
+  return payments;
+}
+
+export async function getZohoCustomerPayment(id: string): Promise<ZohoCustomerPayment> {
+  const context = await getZohoAccessContext();
+  requirePaymentScope(context, "ZohoBooks.customerpayments.READ");
+  const json = await request<ZohoEnvelope & { payment?: ZohoCustomerPayment }>(`/customerpayments/${encodeURIComponent(id)}`);
+  if (!json.payment) throw new Error("Zoho customer payment not found");
+  return json.payment;
+}
+
+export async function createZohoCustomerPayment(input: {
+  customerId: string;
+  invoiceId: string;
+  amountCents: number;
+  date: string;
+  referenceNumber: string;
+  accountId: string;
+  paymentMode: string;
+}): Promise<ZohoCustomerPayment> {
+  const context = await getZohoAccessContext();
+  requirePaymentScope(context, "ZohoBooks.customerpayments.CREATE");
+  const amount = input.amountCents / 100;
+  const json = await request<ZohoEnvelope & { payment?: ZohoCustomerPayment }>("/customerpayments", {
+    method: "POST",
+    body: JSON.stringify({
+      customer_id: input.customerId,
+      payment_mode: input.paymentMode,
+      amount,
+      date: input.date,
+      reference_number: input.referenceNumber,
+      description: `Deposit received for ${input.referenceNumber}`,
+      account_id: input.accountId,
+      invoices: [{ invoice_id: input.invoiceId, amount_applied: amount }],
+    }),
+  });
+  if (!json.payment?.payment_id) throw new Error("Zoho Books did not return the customer payment it created");
+  return json.payment;
+}
+
+export async function getZohoInvoicePdf(id: string): Promise<Uint8Array> {
+  const context = await getZohoAccessContext();
+  const url = new URL(`${context.apiBaseUrl}/invoices/${encodeURIComponent(id)}`);
+  url.searchParams.set("organization_id", context.organizationId);
+  url.searchParams.set("accept", "pdf");
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Zoho-oauthtoken ${context.accessToken}`,
+      Accept: "application/pdf",
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Could not download the Zoho invoice PDF (${response.status})`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const type = response.headers.get("content-type")?.toLowerCase() ?? "";
+  const magic = new TextDecoder().decode(bytes.slice(0, 5));
+  if (!type.includes("application/pdf") || bytes.length < 100 || magic !== "%PDF-") throw new Error("Zoho returned an invalid invoice PDF");
+  return bytes;
 }

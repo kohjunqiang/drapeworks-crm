@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultCustomerMessage, isGeneratedCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "./model";
-import { quotePayloadHash } from "./hash";
+import { matchesStoredZohoEstimate, quotePayloadHash } from "./hash";
 
 describe("quotation model", () => {
   it("formats database date values for HTML date inputs", () => {
@@ -37,5 +37,39 @@ describe("quotation model", () => {
 
     expect(isGeneratedCustomerMessage(preZoho, input, ["DW-1", "QT-100"])).toBe(true);
     expect(isGeneratedCustomerMessage("A deliberately custom message", input, ["DW-1", "QT-100"])).toBe(false);
+  });
+});
+
+describe("matchesStoredZohoEstimate", () => {
+  const matching = {
+    remoteKey: null,
+    expectedKey: "crm-key",
+    remoteCustomerId: "customer",
+    expectedCustomerId: "customer",
+    remoteCurrency: "SGD",
+    remoteTotalCents: 150_000,
+    expectedTotalCents: 150_000,
+    remoteStatus: "sent",
+    remoteSnapshotHash: "snapshot",
+    storedSnapshotHash: "snapshot",
+  };
+
+  it("accepts an imported Zoho quotation without a CRM key when its snapshot matches", () => {
+    expect(matchesStoredZohoEstimate(matching)).toBe(true);
+  });
+
+  it("rejects a conflicting CRM key", () => {
+    expect(matchesStoredZohoEstimate({ ...matching, remoteKey: "another-key" })).toBe(false);
+  });
+
+  it.each([
+    { remoteCustomerId: "another-customer" },
+    { remoteCurrency: "USD" },
+    { remoteTotalCents: 149_999 },
+    { remoteStatus: "draft" },
+    { remoteSnapshotHash: "changed" },
+    { storedSnapshotHash: null },
+  ])("rejects a changed or incomplete estimate: %o", (change) => {
+    expect(matchesStoredZohoEstimate({ ...matching, ...change })).toBe(false);
   });
 });

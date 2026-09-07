@@ -32,13 +32,14 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
   const candidates = pending && Array.isArray(pending.candidate_organizations)
     ? pending.candidate_organizations as unknown as Array<{ organization_id?: string; name?: string; currency_code?: string; country_code?: string }> : [];
   const caps = connection?.verified_capabilities ?? {};
+  const paymentAccountConfigured = /^\d+$/.test(process.env.ZOHO_PAYMENT_ACCOUNT_ID?.trim() ?? "");
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
       <div className="mb-6">
         <p className="text-sm font-medium text-teal-700">Admin · Integrations</p>
         <h1 className="mt-1 text-2xl font-bold text-slate-900">Zoho Books</h1>
-        <p className="mt-1 text-sm text-slate-600">Connect the accounting organization used for official customer quotations and deposit invoices.</p>
+        <p className="mt-1 text-sm text-slate-600">Connect the accounting organization used for official quotations, full invoices, and deposit payments.</p>
       </div>
       {result && RESULT_MESSAGES[result] && <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">{RESULT_MESSAGES[result]}</div>}
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -54,8 +55,9 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
           {summary.appConfigured ? <Link href="/api/integrations/zoho/connect" className={buttonVariants()}>{connectLabel}</Link> : <span aria-disabled="true" className={cn(buttonVariants(), "cursor-not-allowed opacity-50")}>{connectLabel}</span>}
         </div>
 
-        {!summary.appConfigured && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">The deployment OAuth application is not configured. Add the server application client ID, secret, encryption key and callback URL first.</p>}
-        {connection?.status === "partial" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Quotation and invoice actions are disabled. An admin must reconnect Zoho Books after checking the required permissions, CRM Quote Key field, and quotation template.</p>}
+        {!summary.appConfigured && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">The deployment OAuth application is incomplete. Add the server application client ID and secret, encryption key, callback URL, and quotation field/template IDs.</p>}
+        {summary.appConfigured && !paymentAccountConfigured && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Deposit payments are disabled until ZOHO_PAYMENT_ACCOUNT_ID is configured for the Drapeworks – MariBank account.</p>}
+        {connection?.status === "partial" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Quotation, invoice, and payment actions are disabled. An admin must reconnect Zoho Books after checking the required permissions, CRM Quote Key field, quotation template, and payment account.</p>}
 
         {pending && candidates.length > 0 && (
           <div className="mt-5 border-t border-slate-200 pt-5">
@@ -71,9 +73,10 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
               <li>{capability(caps, "contactsRead") ? "✓" : "–"} Read customers</li>
               <li>{capability(caps, "estimatesRead") ? "✓" : "–"} Read quotations and PDFs</li>
               <li>{capability(caps, "invoicesRead") ? "✓" : "–"} Read invoices</li>
+              <li>{capability(caps, "customerPaymentsRead") ? "✓" : "–"} Read and reconcile customer payments</li>
               <li>{capability(caps, "crmKeyFieldVerified") ? "✓" : "–"} CRM Quote Key field verified</li>
               <li>{capability(caps, "templateVerified") ? "✓" : "–"} Quotation template verified</li>
-              <li>OAuth consent: create customers, create/update quotations, create invoices</li>
+              <li>OAuth consent: create customers, quotations, invoices and customer payments</li>
             </ul>
             {connection.last_verified_at && <p className="mt-3 text-xs text-slate-500">Last verified {new Date(connection.last_verified_at).toLocaleString("en-SG", { timeZone: "Asia/Singapore" })}</p>}
             {connection.last_error && <p className="mt-2 text-sm text-red-700">{connection.last_error}</p>}
@@ -91,7 +94,7 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
         </div>
         <div className="mt-5"><ZohoConnectionActions connected={connected} pendingSetup={Boolean(pending)} canTest={Boolean(connection && ["connected", "partial"].includes(connection.status))} /></div>
       </section>
-      <p className="mt-4 text-xs text-slate-500">Disconnecting the CRM never deletes quotations, invoices or customers from Zoho Books. Existing official PDFs remain available in the CRM.</p>
+      <p className="mt-4 text-xs text-slate-500">Disconnecting the CRM never deletes quotations, invoices, payments, or customers from Zoho Books. Existing official PDFs remain available in the CRM.</p>
     </main>
   );
 }

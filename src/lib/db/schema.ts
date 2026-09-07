@@ -1028,6 +1028,12 @@ export interface OrderQuotations {
   invoice_sync_error: string | null;
   invoice_sync_state: Generated<string>;
   invoice_uncertain_at: Timestamp | null;
+  payment_claimed_at: Timestamp | null;
+  payment_claim_token: string | null;
+  payment_created_at: Timestamp | null;
+  payment_sync_error: string | null;
+  payment_sync_state: Generated<string>;
+  payment_uncertain_at: Timestamp | null;
   issue_date: Timestamp;
   lines: Generated<Json>;
   notes: string | null;
@@ -1057,6 +1063,8 @@ export interface OrderQuotations {
   zoho_invoice_id: string | null;
   zoho_invoice_number: string | null;
   zoho_last_modified_time: string | null;
+  zoho_payment_id: string | null;
+  zoho_payment_number: string | null;
   zoho_status: string | null;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { CostBreakdown } from "@/components/orders/cost-breakdown";
@@ -23,6 +23,7 @@ import type { OrderEditInput } from "@/lib/validation/order";
 
 import { useCollapseOnScroll } from "./use-collapse-on-scroll";
 import { useQuoteAutofill } from "./use-quote-autofill";
+import { LiveQuoteRecommendation } from "./live-quote-recommendation";
 
 import type { CurtainTypeOption } from "./window-fields";
 
@@ -41,6 +42,7 @@ export function LiveQuote({
   curtainPackages,
   savedPackageSnapshot,
   persistedAddonIdsByWindow = {},
+  showRecommendation = false,
 }: {
   curtainTypes: CurtainTypeOption[];
   config: CalcConfig;
@@ -48,6 +50,7 @@ export function LiveQuote({
   curtainPackages: CurtainPackageRow[];
   savedPackageSnapshot?: SavedPackageSnapshot;
   persistedAddonIdsByWindow?: Record<string, string[]>;
+  showRecommendation?: boolean;
 }) {
   const { control, setValue } = useFormContext<OrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
@@ -166,6 +169,16 @@ export function LiveQuote({
   ]);
 
   const hasMeasurements = quote.saleSgdCents > 0;
+  const [initialRecommendationCents] = useState<number | null>(() =>
+    showRecommendation && quote.discountedSaleSgdCents > 0
+      ? quote.discountedSaleSgdCents
+      : null,
+  );
+  const [initialGroupbuyCents] = useState<number | null>(() =>
+    showRecommendation && quote.groupbuySgdCents > 0
+      ? quote.groupbuySgdCents
+      : null,
+  );
   const netCostSgdCents = quote.netCostSgdCents;
   // Margin tracks the price you'll actually charge (the editable Price quoted),
   // falling back to the calculated suggestion — the discounted sale — until it's
@@ -173,13 +186,8 @@ export function LiveQuote({
   const salePrice =
     quotedCents > 0 ? quotedCents : quote.discountedSaleSgdCents;
   const shownMarginBps = marginBps(netCostSgdCents, salePrice);
-  const groupbuyCents = Math.max(
-    Math.round(
-      (salePrice * (10000 - config.assumptions.groupbuyDiscountBps)) / 10000,
-    ),
-    quote.minimumOrderSgdCents,
-  );
-  const groupbuyMarginBps = marginBps(netCostSgdCents, groupbuyCents);
+  const groupbuyCents = quote.groupbuySgdCents;
+  const groupbuyMarginBps = quote.groupbuyMarginBps;
   // The active margin floor depends on the sales channel.
   const floorBps =
     channel === "carousell"
@@ -235,6 +243,16 @@ export function LiveQuote({
           </span>
         )}
       </div>
+      {showRecommendation && hasMeasurements && (
+        <LiveQuoteRecommendation
+          currentCents={quotedCents}
+          recommendedCents={quote.discountedSaleSgdCents}
+          groupbuyCents={quote.groupbuySgdCents}
+          netCostCents={netCostSgdCents}
+          baselineCents={initialRecommendationCents}
+          baselineGroupbuyCents={initialGroupbuyCents}
+        />
+      )}
       {belowFloor && (
         <p className="mt-1.5 text-xs text-red-600">
           ⚠ Below the {pct(floorBps)}{" "}

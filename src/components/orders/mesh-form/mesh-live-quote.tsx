@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { CostBreakdown } from "@/components/orders/cost-breakdown";
 import { useCollapseOnScroll } from "@/components/orders/consultation-form/use-collapse-on-scroll";
 import { useQuoteAutofill } from "@/components/orders/consultation-form/use-quote-autofill";
+import { LiveQuoteRecommendation } from "@/components/orders/consultation-form/live-quote-recommendation";
 import { formatSGD } from "@/lib/money";
+import { marginBps } from "@/lib/pricing/calculator";
 import {
   computeMeshQuote,
   meshQuoteWarnings,
@@ -29,7 +31,13 @@ const REASON_TEXT: Record<string, string> = {
   "no-rate": "that category has no S$/m² rate set",
 };
 
-export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
+export function MeshLiveQuote({
+  config,
+  showRecommendation = false,
+}: {
+  config: MeshCalcConfig;
+  showRecommendation?: boolean;
+}) {
   const { control } = useFormContext<MeshOrderEditInput>();
   const rooms = useWatch({ control, name: "rooms" });
   const freightMode =
@@ -38,6 +46,8 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
   const extraInstallCents =
     useWatch({ control, name: "order.extra_install_cents" }) ?? 0;
   const discountBps = useWatch({ control, name: "order.discount_bps" }) ?? 0;
+  const quotedCents =
+    useWatch({ control, name: "order.price_quoted_cents" }) ?? 0;
 
   // Category names for the cost breakdown — the price book is keyed by id and
   // carries no names, so the panel brings its own label to pricing.
@@ -91,11 +101,24 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
   const breakdownRef = useCollapseOnScroll();
 
   const hasPriced = quote.saleSgdCents > 0;
+  const [initialRecommendationCents] = useState<number | null>(() =>
+    showRecommendation && quote.discountedSaleSgdCents > 0
+      ? quote.discountedSaleSgdCents
+      : null,
+  );
+  const [initialGroupbuyCents] = useState<number | null>(() =>
+    showRecommendation && quote.groupbuySgdCents > 0
+      ? quote.groupbuySgdCents
+      : null,
+  );
+  const salePrice =
+    quotedCents > 0 ? quotedCents : quote.discountedSaleSgdCents;
+  const shownMarginBps = marginBps(quote.netCostSgdCents, salePrice);
   const floorBps =
     channel === "carousell"
       ? config.minMarginCarousellBps
       : config.minMarginBps;
-  const belowFloor = hasPriced && quote.marginBps < floorBps;
+  const belowFloor = hasPriced && shownMarginBps < floorBps;
 
   return (
     <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">
@@ -110,7 +133,7 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
             <div className="flex items-baseline gap-1.5">
               <span className="text-slate-500 text-xs">Quoted</span>
               <span className="font-semibold text-slate-900">
-                {formatSGD(quote.discountedSaleSgdCents)}
+                {formatSGD(salePrice)}
               </span>
             </div>
             <div className="flex items-baseline gap-1.5">
@@ -128,7 +151,7 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
                     : "font-bold text-teal-700"
                 }
               >
-                {pct(quote.marginBps)}
+                {pct(shownMarginBps)}
               </span>
             </div>
           </div>
@@ -138,6 +161,17 @@ export function MeshLiveQuote({ config }: { config: MeshCalcConfig }) {
           </span>
         )}
       </div>
+
+      {showRecommendation && hasPriced && (
+        <LiveQuoteRecommendation
+          currentCents={quotedCents}
+          recommendedCents={quote.discountedSaleSgdCents}
+          groupbuyCents={quote.groupbuySgdCents}
+          netCostCents={quote.netCostSgdCents}
+          baselineCents={initialRecommendationCents}
+          baselineGroupbuyCents={initialGroupbuyCents}
+        />
+      )}
 
       {belowFloor && (
         <p className="mt-1.5 text-xs text-red-600">

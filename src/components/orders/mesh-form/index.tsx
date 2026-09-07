@@ -325,7 +325,10 @@ export function MeshConsultationForm({
         />
         <PricingSection promotions={promotions} />
 
-        <MeshLiveQuote config={meshConfig} />
+        <MeshLiveQuote
+          config={meshConfig}
+          showRecommendation={mode === "edit"}
+        />
 
         <section className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 mb-4">
           <div className="flex items-center justify-between mb-4 gap-2">

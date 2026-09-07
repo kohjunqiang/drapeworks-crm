@@ -1,19 +1,47 @@
+import Link from "next/link";
+
 type Props = {
   active: number;
   inProduction: number;
   awaitingShipment: number;
   readyForInstallation: number;
   completedThisMonth: number;
+  completedHref: string;
 };
 
-function Card({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="bg-white rounded-lg border border-slate-200 p-3 sm:p-4">
+function Card({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: number;
+  href?: string;
+}) {
+  const className =
+    "bg-white rounded-lg border border-slate-200 p-3 sm:p-4";
+  const content = (
+    <>
       <div className="text-xs sm:text-sm text-slate-500">{label}</div>
       <div className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">
         {value}
       </div>
-    </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className={`${className} transition-colors hover:border-teal-400 hover:bg-teal-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500`}
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <div className={className}>{content}</div>
   );
 }
 
@@ -23,6 +51,7 @@ export function OrdersStats({
   awaitingShipment,
   readyForInstallation,
   completedThisMonth,
+  completedHref,
 }: Props) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4 mb-6">
@@ -30,7 +59,11 @@ export function OrdersStats({
       <Card label="In production" value={inProduction} />
       <Card label="Awaiting shipment" value={awaitingShipment} />
       <Card label="Ready for installation" value={readyForInstallation} />
-      <Card label="Completed this month" value={completedThisMonth} />
+      <Card
+        label="Completed this month"
+        value={completedThisMonth}
+        href={completedHref}
+      />
     </div>
   );
 }

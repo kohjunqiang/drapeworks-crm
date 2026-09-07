@@ -18,3 +18,10 @@ export const ACTIVE_ORDER_STATUSES = [
   ...AWAITING_SHIPMENT_STATUSES,
   ...READY_FOR_INSTALLATION_STATUSES,
 ] as const satisfies readonly FulfilmentStatus[];
+
+/** What the unfiltered Orders page shows: pipeline entry plus active work. */
+export const DEFAULT_ORDER_LIST_STATUSES = [
+  "order_recorded",
+  "quotation_sent",
+  ...ACTIVE_ORDER_STATUSES,
+] as const satisfies readonly FulfilmentStatus[];

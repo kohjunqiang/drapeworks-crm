@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACTIVE_ORDER_STATUSES,
   AWAITING_SHIPMENT_STATUSES,
+  DEFAULT_ORDER_LIST_STATUSES,
   IN_PRODUCTION_STATUSES,
   READY_FOR_INSTALLATION_STATUSES,
 } from "./dashboard-stats";
@@ -24,5 +25,16 @@ describe("order dashboard status buckets", () => {
     expect(ACTIVE_ORDER_STATUSES).not.toContain("deposit_received");
     expect(ACTIVE_ORDER_STATUSES).not.toContain("po_ready");
     expect(ACTIVE_ORDER_STATUSES).not.toContain("completed");
+  });
+
+  it("limits the default list to recorded, quoted, and active orders", () => {
+    expect(DEFAULT_ORDER_LIST_STATUSES).toEqual([
+      "order_recorded",
+      "quotation_sent",
+      ...ACTIVE_ORDER_STATUSES,
+    ]);
+    expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("deposit_received");
+    expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("po_ready");
+    expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("completed");
   });
 });

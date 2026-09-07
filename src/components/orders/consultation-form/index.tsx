@@ -383,6 +383,7 @@ export function ConsultationForm({
             curtainPackages={curtainPackages}
             savedPackageSnapshot={savedPackageSnapshot}
             persistedAddonIdsByWindow={persistedAddonIdsByWindow}
+            showRecommendation={mode === "edit"}
           />
         )}
 

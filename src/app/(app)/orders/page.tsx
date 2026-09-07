@@ -14,6 +14,7 @@ import { requireSession } from "@/lib/auth/require-role";
 import {
   ACTIVE_ORDER_STATUSES,
   AWAITING_SHIPMENT_STATUSES,
+  DEFAULT_ORDER_LIST_STATUSES,
   IN_PRODUCTION_STATUSES,
   READY_FOR_INSTALLATION_STATUSES,
 } from "@/lib/orders/dashboard-stats";
@@ -140,7 +141,13 @@ export default async function OrdersDashboardPage({
       "profiles.email as consultant_email",
     ]);
 
-  if (status) listQ = listQ.where("orders.current_status", "=", status);
+  if (status) {
+    listQ = listQ.where("orders.current_status", "=", status);
+  } else {
+    listQ = listQ.where("orders.current_status", "in", [
+      ...DEFAULT_ORDER_LIST_STATUSES,
+    ]);
+  }
   if (productLine) listQ = listQ.where("orders.product_line", "=", productLine);
   if (consultantId) listQ = listQ.where("orders.consultant_id", "=", consultantId);
   if (zohoAttention) {
@@ -240,6 +247,19 @@ export default async function OrdersDashboardPage({
     return `/orders?${params.toString()}`;
   }
 
+  function completedHref(): string {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    params.set("status", "completed");
+    if (consultantId) params.set("consultant", consultantId);
+    if (productLine) params.set("product", productLine);
+    if (hasExplicitSort) {
+      params.set("sort", sort);
+      params.set("dir", direction);
+    }
+    return `/orders?${params.toString()}`;
+  }
+
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
@@ -272,9 +292,11 @@ export default async function OrdersDashboardPage({
         awaitingShipment={Number(counts.awaiting_shipment)}
         readyForInstallation={Number(counts.ready_for_installation)}
         completedThisMonth={Number(counts.completed_this_month)}
+        completedHref={completedHref()}
       />
 
       <OrdersFilters
+        key={JSON.stringify({ q, status, consultantId, productLine, sort, direction })}
         defaults={{
           q,
           status,
@@ -290,8 +312,8 @@ export default async function OrdersDashboardPage({
 
       {orders.length === 0 && !q && !status && !consultantId && !productLine && !zohoAttention ? (
         <EmptyState
-          title="No orders yet"
-          description="Create your first consultation to start tracking measurements, fabrics, and fulfilment."
+          title="No current orders"
+          description="Current orders will appear here. Use the status filter to view completed or earlier workflow stages."
           cta={{ href: "/orders/new", label: "+ New Consultation" }}
         />
       ) : (

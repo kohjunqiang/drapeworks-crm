@@ -91,7 +91,7 @@ export function OrdersFilters({ defaults, consultants }: Props) {
         <AppSelect
           value={status}
           onChange={setStatus}
-          noneLabel="All statuses"
+          noneLabel="Current orders"
           triggerClassName="w-full sm:w-44"
           options={STATUS_FLOW.map((s: FulfilmentStatus) => ({
             value: s,

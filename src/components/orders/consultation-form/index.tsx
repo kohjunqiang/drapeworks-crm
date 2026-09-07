@@ -355,6 +355,9 @@ export function ConsultationForm({
   }
 
   function handleCancel() {
+    // Cancel means abandon this local edit. Keeping the recovery snapshot would
+    // restore changes the user explicitly discarded the next time they edit.
+    clearDraft();
     if (mode === "edit" && orderId) {
       router.push(`/orders/${orderId}`);
     } else {

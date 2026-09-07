@@ -34,7 +34,6 @@ import {
   markZohoEstimateSent,
   syncZohoEstimate,
   convertZohoEstimateToInvoice,
-  setZohoEstimateCrmQuoteKey,
 } from "@/lib/zoho/books";
 import { quotePayloadHash } from "@/lib/quotations/hash";
 import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
@@ -400,7 +399,7 @@ async function importExistingZohoQuotationInternal(input: unknown) {
 
   const matches = await findZohoEstimateByNumber(parsed.estimateNumber);
   if (matches.length !== 1) throw new Error(matches.length === 0 ? "That Zoho quotation was not found" : "Multiple Zoho quotations matched that number");
-  let remote = await getZohoEstimate(matches[0].estimate_id);
+  const remote = await getZohoEstimate(matches[0].estimate_id);
   if (remote.customer_id !== link.zoho_contact_id) throw new Error("The Zoho quotation belongs to a different customer");
   if (remote.currency_code !== "SGD") throw new Error("Only SGD quotations can be imported");
   if (remote.status !== "draft" && remote.status !== "sent") throw new Error(`Zoho quotation is already ${remote.status}`);
@@ -419,14 +418,8 @@ async function importExistingZohoQuotationInternal(input: unknown) {
   })));
   const alreadyLinked = await db.selectFrom("order_quotations").select("order_id").where("zoho_estimate_id", "=", remote.estimate_id).executeTakeFirst();
   if (alreadyLinked) throw new Error("That Zoho quotation is already linked to another CRM order");
-  const binding = await getZohoBooksBinding();
   const remoteKey = await crmKeyOf(remote);
   if (remoteKey && remoteKey !== row.crm_quote_key) throw new Error("That Zoho quotation is linked to a different CRM quotation");
-  if (!remoteKey) {
-    await setZohoEstimateCrmQuoteKey(remote.estimate_id, binding.crmKeyApiName, row.crm_quote_key);
-    remote = await getZohoEstimate(remote.estimate_id);
-    if (await crmKeyOf(remote) !== row.crm_quote_key) throw new Error("Zoho did not save the CRM Quote Key");
-  }
   const pdf = await storePdf({ ...row, zoho_estimate_id: remote.estimate_id });
   const imported = await db.updateTable("order_quotations").set({
     status: "zoho_draft",

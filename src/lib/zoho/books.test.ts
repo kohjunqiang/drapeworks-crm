@@ -87,20 +87,6 @@ describe("Zoho Books transport safety", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("estimate_number=QT-677806");
   });
 
-  it("sets only the CRM Quote Key on an existing estimate", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const { setZohoEstimateCrmQuoteKey } = await import("./books");
-
-    await setZohoEstimateCrmQuoteKey("estimate", "cf_crm_quote_key", "crm-key");
-
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/estimate/estimate/customfields");
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      method: "PUT",
-      body: JSON.stringify({ cf_crm_quote_key: "crm-key" }),
-    });
-  });
-
   it("reconciles an uncertain create response by CRM Quote Key without posting twice", async () => {
     const recovered = {
       estimate_id: "recovered", estimate_number: "Q-1", status: "draft", total: 100,

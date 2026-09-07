@@ -73,6 +73,34 @@ describe("Zoho Books transport safety", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "PUT" });
   });
 
+  it("finds an existing estimate by its exact quotation number", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, estimates: [
+      { estimate_id: "match", estimate_number: "QT-677806", status: "draft", total: 1500 },
+      { estimate_id: "other", estimate_number: "QT-677806-A", status: "draft", total: 1500 },
+    ] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { findZohoEstimateByNumber } = await import("./books");
+
+    await expect(findZohoEstimateByNumber("QT-677806")).resolves.toEqual([
+      expect.objectContaining({ estimate_id: "match" }),
+    ]);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("estimate_number=QT-677806");
+  });
+
+  it("sets only the CRM Quote Key on an existing estimate", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { setZohoEstimateCrmQuoteKey } = await import("./books");
+
+    await setZohoEstimateCrmQuoteKey("estimate", "field", "crm-key");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/estimate/estimate/customfields");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: "PUT",
+      body: JSON.stringify([{ customfield_id: "field", value: "crm-key" }]),
+    });
+  });
+
   it("reconciles an uncertain create response by CRM Quote Key without posting twice", async () => {
     const recovered = {
       estimate_id: "recovered", estimate_number: "Q-1", status: "draft", total: 100,

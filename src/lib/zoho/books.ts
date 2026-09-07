@@ -115,6 +115,12 @@ export async function listZohoContacts(searchText: string): Promise<ZohoContact[
   return json.contacts ?? [];
 }
 
+export async function findZohoEstimateByNumber(estimateNumber: string): Promise<ZohoEstimate[]> {
+  const query = new URLSearchParams({ estimate_number: estimateNumber.trim(), per_page: "200" });
+  const json = await request<ZohoEnvelope & { estimates?: ZohoEstimate[] }>(`/estimates?${query}`);
+  return (json.estimates ?? []).filter((estimate) => estimate.estimate_number === estimateNumber.trim());
+}
+
 export async function getZohoContact(id: string): Promise<ZohoContact> {
   const json = await request<ZohoEnvelope & { contact?: ZohoContact }>(`/contacts/${encodeURIComponent(id)}`);
   if (!json.contact) throw new Error("Zoho customer not found");
@@ -240,6 +246,13 @@ export async function getZohoEstimatePdf(id: string): Promise<Uint8Array> {
   const magic = new TextDecoder().decode(bytes.slice(0, 5));
   if (!type.includes("application/pdf") || bytes.length < 100 || magic !== "%PDF-") throw new Error("Zoho returned an invalid quotation PDF");
   return bytes;
+}
+
+export async function setZohoEstimateCrmQuoteKey(id: string, customFieldId: string, value: string): Promise<void> {
+  await request(`/estimate/${encodeURIComponent(id)}/customfields`, {
+    method: "PUT",
+    body: JSON.stringify([{ customfield_id: customFieldId, value }]),
+  });
 }
 
 export async function markZohoEstimateSent(id: string): Promise<void> {

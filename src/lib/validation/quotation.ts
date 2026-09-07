@@ -7,7 +7,7 @@ export const quotationLineSchema = z.object({
   name: z.string().trim().min(1, "Every line needs a name").max(200),
   description: z.string().trim().max(2000),
   quantity: z.coerce.number().positive().max(9999),
-  rateCents: z.coerce.number().int().min(0).max(100_000_000),
+  rateCents: z.coerce.number().int().min(-100_000_000).max(100_000_000),
   discountPercent: z.coerce.number().min(0).max(100),
 });
 
@@ -35,8 +35,12 @@ export const confirmZohoCustomerSchema = z.object({
 
 export const sendQuotationSchema = z.object({
   quotationId: quotationIdSchema,
-  channel: z.enum(["WhatsApp", "Email", "In person", "Other"]),
+  channel: z.enum(["WhatsApp", "Telegram", "Email", "In person", "Other"]),
   note: z.string().trim().max(2000),
+});
+
+export const importZohoQuotationSchema = sendQuotationSchema.extend({
+  estimateNumber: z.string().trim().min(1).max(64),
 });
 
 export type QuotationLineInput = z.infer<typeof quotationLineSchema>;

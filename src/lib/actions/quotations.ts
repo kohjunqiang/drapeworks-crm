@@ -16,6 +16,7 @@ import {
   quotationIdSchema,
   saveQuotationSchema,
   sendQuotationSchema,
+  importZohoQuotationSchema,
   quotationLineSchema,
   type QuotationLineInput,
 } from "@/lib/validation/quotation";
@@ -27,14 +28,16 @@ import {
   getZohoInvoice,
   getZohoBooksBinding,
   findZohoEstimatesByCrmQuoteKey,
+  findZohoEstimateByNumber,
   listZohoContacts,
   listZohoItems,
   markZohoEstimateSent,
   syncZohoEstimate,
   convertZohoEstimateToInvoice,
+  setZohoEstimateCrmQuoteKey,
 } from "@/lib/zoho/books";
 import { quotePayloadHash } from "@/lib/quotations/hash";
-import { quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
+import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 
 const BUCKET = "customer-quotations";
 const SIGNED_URL_SECONDS = 300;
@@ -383,6 +386,75 @@ export async function confirmQuotationSent(input: unknown) {
     throw error;
   }
   revalidatePath(`/orders/${row.order_id}`); revalidatePath("/orders"); revalidatePath("/leads");
+}
+
+export async function importExistingZohoQuotation(input: unknown) {
+  const parsed = importZohoQuotationSchema.parse(input);
+  const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", parsed.quotationId).executeTakeFirst();
+  if (!row) throw new Error("Quotation not found");
+  const { order } = await authorizedOrder(row.order_id, true);
+  if (order.current_status !== "order_recorded") throw new Error("Existing quotations can only be imported at Order Recorded");
+  if (row.zoho_estimate_id || row.status !== "local_draft") throw new Error("This CRM quotation is already linked to Zoho");
+  const link = await db.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id", "=", order.customer_id).executeTakeFirst();
+  if (!link) throw new Error("Confirm the matching Zoho customer first");
+
+  const matches = await findZohoEstimateByNumber(parsed.estimateNumber);
+  if (matches.length !== 1) throw new Error(matches.length === 0 ? "That Zoho quotation was not found" : "Multiple Zoho quotations matched that number");
+  let remote = await getZohoEstimate(matches[0].estimate_id);
+  if (remote.customer_id !== link.zoho_contact_id) throw new Error("The Zoho quotation belongs to a different customer");
+  if (remote.currency_code !== "SGD") throw new Error("Only SGD quotations can be imported");
+  if (remote.status !== "draft" && remote.status !== "sent") throw new Error(`Zoho quotation is already ${remote.status}`);
+  if (!remote.date || !remote.expiry_date || remote.expiry_date < remote.date) throw new Error("The Zoho quotation dates are incomplete");
+  const importedIssueDate = remote.date;
+  const importedExpiryDate = remote.expiry_date;
+  const totalCents = Math.round(Number(remote.total) * 100);
+  if (!Number.isFinite(totalCents) || totalCents < 0) throw new Error("The Zoho quotation total is invalid");
+  const lines = quotationLineSchema.array().min(1).parse((remote.line_items ?? []).map((line) => ({
+    zohoItemId: line.item_id || null,
+    name: line.name || "Zoho item",
+    description: line.description ?? "",
+    quantity: Number(line.quantity),
+    rateCents: Math.round(Number(line.rate) * 100),
+    discountPercent: Number.parseFloat(String(line.discount ?? 0)) || 0,
+  })));
+  const alreadyLinked = await db.selectFrom("order_quotations").select("order_id").where("zoho_estimate_id", "=", remote.estimate_id).executeTakeFirst();
+  if (alreadyLinked) throw new Error("That Zoho quotation is already linked to another CRM order");
+  const binding = await getZohoBooksBinding();
+  const remoteKey = await crmKeyOf(remote);
+  if (remoteKey && remoteKey !== row.crm_quote_key) throw new Error("That Zoho quotation is linked to a different CRM quotation");
+  if (!remoteKey) {
+    await setZohoEstimateCrmQuoteKey(remote.estimate_id, binding.crmKeyFieldId, row.crm_quote_key);
+    remote = await getZohoEstimate(remote.estimate_id);
+    if (await crmKeyOf(remote) !== row.crm_quote_key) throw new Error("Zoho did not save the CRM Quote Key");
+  }
+  const pdf = await storePdf({ ...row, zoho_estimate_id: remote.estimate_id });
+  const imported = await db.updateTable("order_quotations").set({
+    status: "zoho_draft",
+    issue_date: importedIssueDate,
+    expiry_date: importedExpiryDate,
+    lines: JSON.stringify(lines) as Json,
+    quoted_total_cents: totalCents,
+    customer_message: defaultCustomerMessage({
+      customerName: order.customer_name,
+      displayId: remote.estimate_number,
+      totalCents,
+      expiryDate: importedExpiryDate,
+    }),
+    notes: remote.notes ?? null,
+    terms: remote.terms ?? null,
+    zoho_contact_id: link.zoho_contact_id,
+    zoho_estimate_id: remote.estimate_id,
+    zoho_estimate_number: remote.estimate_number,
+    zoho_status: remote.status,
+    zoho_last_modified_time: remote.last_modified_time ?? null,
+    synced_payload_hash: quotePayloadHash(comparableEstimate(remote as unknown as Record<string, unknown>)),
+    pdf_storage_path: pdf.path,
+    pdf_sha256: pdf.hash,
+    synced_at: new Date(),
+    sync_error: null,
+  }).where("id", "=", row.id).where("status", "=", "local_draft").where("zoho_estimate_id", "is", null).returning("id").executeTakeFirst();
+  if (!imported) throw new Error("The CRM quotation changed while it was being imported");
+  await confirmQuotationSent({ quotationId: row.id, channel: parsed.channel, note: parsed.note });
 }
 
 export async function createQuotationRevision(quotationId: string) {

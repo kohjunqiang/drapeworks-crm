@@ -388,7 +388,7 @@ export async function confirmQuotationSent(input: unknown) {
   revalidatePath(`/orders/${row.order_id}`); revalidatePath("/orders"); revalidatePath("/leads");
 }
 
-export async function importExistingZohoQuotation(input: unknown) {
+async function importExistingZohoQuotationInternal(input: unknown) {
   const parsed = importZohoQuotationSchema.parse(input);
   const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", parsed.quotationId).executeTakeFirst();
   if (!row) throw new Error("Quotation not found");
@@ -455,6 +455,20 @@ export async function importExistingZohoQuotation(input: unknown) {
   }).where("id", "=", row.id).where("status", "=", "local_draft").where("zoho_estimate_id", "is", null).returning("id").executeTakeFirst();
   if (!imported) throw new Error("The CRM quotation changed while it was being imported");
   await confirmQuotationSent({ quotationId: row.id, channel: parsed.channel, note: parsed.note });
+}
+
+export async function importExistingZohoQuotation(input: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await importExistingZohoQuotationInternal(input);
+    return { ok: true };
+  } catch (error) {
+    // Next.js redacts errors thrown by Server Actions in production. Return the
+    // intentionally user-facing integration error so the consultant can act on
+    // the real Zoho mismatch instead of seeing an opaque render digest.
+    const message = error instanceof Error ? error.message : "The Zoho quotation could not be imported";
+    console.error("Zoho quotation import failed", error);
+    return { ok: false, error: message };
+  }
 }
 
 export async function createQuotationRevision(quotationId: string) {

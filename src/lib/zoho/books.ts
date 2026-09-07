@@ -248,10 +248,13 @@ export async function getZohoEstimatePdf(id: string): Promise<Uint8Array> {
   return bytes;
 }
 
-export async function setZohoEstimateCrmQuoteKey(id: string, customFieldId: string, value: string): Promise<void> {
+export async function setZohoEstimateCrmQuoteKey(id: string, customFieldApiName: string, value: string): Promise<void> {
   await request(`/estimate/${encodeURIComponent(id)}/customfields`, {
     method: "PUT",
-    body: JSON.stringify([{ customfield_id: customFieldId, value }]),
+    // This specialised Zoho endpoint expects an object keyed by the custom
+    // field API name. Its generated docs also display an array-shaped body,
+    // but Zoho rejects a top-level JSON array with "JSON is not well formed".
+    body: JSON.stringify({ [customFieldApiName]: value }),
   });
 }
 

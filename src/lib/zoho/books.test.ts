@@ -92,12 +92,12 @@ describe("Zoho Books transport safety", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { setZohoEstimateCrmQuoteKey } = await import("./books");
 
-    await setZohoEstimateCrmQuoteKey("estimate", "field", "crm-key");
+    await setZohoEstimateCrmQuoteKey("estimate", "cf_crm_quote_key", "crm-key");
 
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/estimate/estimate/customfields");
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       method: "PUT",
-      body: JSON.stringify([{ customfield_id: "field", value: "crm-key" }]),
+      body: JSON.stringify({ cf_crm_quote_key: "crm-key" }),
     });
   });
 

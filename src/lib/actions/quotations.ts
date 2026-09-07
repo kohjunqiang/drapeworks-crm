@@ -423,7 +423,7 @@ async function importExistingZohoQuotationInternal(input: unknown) {
   const remoteKey = await crmKeyOf(remote);
   if (remoteKey && remoteKey !== row.crm_quote_key) throw new Error("That Zoho quotation is linked to a different CRM quotation");
   if (!remoteKey) {
-    await setZohoEstimateCrmQuoteKey(remote.estimate_id, binding.crmKeyFieldId, row.crm_quote_key);
+    await setZohoEstimateCrmQuoteKey(remote.estimate_id, binding.crmKeyApiName, row.crm_quote_key);
     remote = await getZohoEstimate(remote.estimate_id);
     if (await crmKeyOf(remote) !== row.crm_quote_key) throw new Error("Zoho did not save the CRM Quote Key");
   }

@@ -19,6 +19,7 @@ import {
   type MeshPanel,
   type MeshPriceBook,
 } from "./mesh-calculator";
+import { meshCategoryMinimumSgdCents } from "./order-minimums";
 import type { MeshDraw } from "@/lib/validation/mesh";
 
 import { quoteStaleness } from "./quote-staleness";
@@ -155,7 +156,12 @@ export async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     await Promise.all([
     db
       .selectFrom("mesh_categories")
-      .select(["id", "cost_rmb_cents_per_sqm", "sale_sgd_cents_per_sqm"])
+      .select([
+        "id",
+        "name",
+        "cost_rmb_cents_per_sqm",
+        "sale_sgd_cents_per_sqm",
+      ])
       .execute(),
     db
       .selectFrom("mesh_colours")
@@ -193,6 +199,7 @@ export async function loadMeshPriceBook(): Promise<MeshPriceBook> {
     rates[r.id] = {
       costRmbCentsPerSqm: r.cost_rmb_cents_per_sqm,
       saleSgdCentsPerSqm: r.sale_sgd_cents_per_sqm,
+      minimumOrderSgdCents: meshCategoryMinimumSgdCents(r.name),
     };
   }
 

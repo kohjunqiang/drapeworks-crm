@@ -66,7 +66,8 @@ export function QuoteCard({
           <summary className="cursor-pointer font-medium text-teal-700">Package selling-price breakdown</summary>
           <dl className="mt-2 space-y-1">
             {quote.packageLines.map((line) => <div key={line.key} className="flex justify-between gap-4"><dt>{line.label}{line.quantity !== 1 ? ` × ${line.quantity}` : ""}</dt><dd className="whitespace-nowrap">{formatSGD(line.totalSgdCents)}</dd></div>)}
-            <div className="flex justify-between gap-4 border-t pt-1"><dt>Other items / operational extras</dt><dd>{formatSGD(quote.saleSgdCents - quote.packageLines.reduce((sum, line) => sum + line.totalSgdCents, 0))}</dd></div>
+            <div className="flex justify-between gap-4 border-t pt-1"><dt>Other items / operational extras</dt><dd>{formatSGD(quote.saleSgdCents - quote.minimumOrderAdjustmentSgdCents - quote.packageLines.reduce((sum, line) => sum + line.totalSgdCents, 0))}</dd></div>
+            {quote.minimumOrderAdjustmentSgdCents > 0 && <div className="flex justify-between gap-4"><dt>Minimum order adjustment</dt><dd>{formatSGD(quote.minimumOrderAdjustmentSgdCents)}</dd></div>}
           </dl>
         </details>
       )}

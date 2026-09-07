@@ -26,6 +26,10 @@
 // pure, and the dependency only runs one way.
 import type { CalcAddon } from "@/lib/orders/window-addons";
 import { resolveCurtainPackageQuote, packageAddonKind, type CurtainPackageContext } from "./curtain-package-rules";
+import {
+  blindMinimumSgdCents,
+  CURTAINS_AND_BLINDS_ORDER_MINIMUM_SGD_CENTS,
+} from "./order-minimums";
 import type { PackagePriceLine } from "./package-calculator";
 
 export type FreightMode = "air" | "sea";
@@ -264,7 +268,15 @@ function blindLeg(
   const costWidthM = costWidthOf(widthCm, costWidthCm) / 100;
   return {
     costRmbCents: Math.round(costWidthM * (price.costRmbCents ?? 0)),
-    saleSgdCents: Math.round(widthM * (price.saleSgdCents ?? 0)),
+    // Do not turn an unpriced series into a valid-looking S$300 quote. The
+    // starting price applies only after the catalogue has a sale rate.
+    saleSgdCents:
+      price.saleSgdCents == null
+        ? 0
+        : Math.max(
+            Math.round(widthM * price.saleSgdCents),
+            blindMinimumSgdCents(price.label),
+          ),
   };
 }
 
@@ -610,6 +622,10 @@ export type QuoteResult = {
   grossCostSgdCents: number;
   installationSgdCents: number; // per-offering install + ad-hoc extra
   netCostSgdCents: number;
+  /** Active order floor (zero when this product/category has none). */
+  minimumOrderSgdCents: number;
+  /** Amount added to the raw line-item subtotal to reach the order floor. */
+  minimumOrderAdjustmentSgdCents: number;
   saleSgdCents: number; // pre-discount sum of window sales
   discountedSaleSgdCents: number; // after the order-level promotion discount
   marginBps: number; // 1 − netCost/discountedSale, ×10000
@@ -662,9 +678,14 @@ export function finaliseQuote(
   freightMode: FreightMode = "air",
   extraInstallSgdCents = 0,
   discountBps = 0,
+  minimumOrderSgdCents = 0,
 ): QuoteResult {
   const cogs = totals.cogsRmbCents;
-  const sale = totals.saleSgdCents;
+  // A blank/unpriced order stays at zero. Once there is a customer price, the
+  // minimum applies to every price we can quote, including promotions and
+  // Groupbuy, so another pricing path cannot silently undercut the floor.
+  const floor = totals.saleSgdCents > 0 ? minimumOrderSgdCents : 0;
+  const sale = Math.max(totals.saleSgdCents, floor);
 
   // Air = rate × curtain COGS, clamped. Sea = flat per-m³ charge.
   //
@@ -692,10 +713,16 @@ export function finaliseQuote(
 
   // Order-level promotion (Phase 10): discount the summed sale. Margin +
   // groupbuy track the discounted price. discountBps=0 leaves everything as-is.
-  const discountedSale = Math.round((sale * (10000 - discountBps)) / 10000);
+  const discountedSale = Math.max(
+    Math.round((sale * (10000 - discountBps)) / 10000),
+    floor,
+  );
 
-  const groupbuy = Math.round(
-    (discountedSale * (10000 - a.groupbuyDiscountBps)) / 10000,
+  const groupbuy = Math.max(
+    Math.round(
+      (discountedSale * (10000 - a.groupbuyDiscountBps)) / 10000,
+    ),
+    floor,
   );
 
   return {
@@ -712,6 +739,8 @@ export function finaliseQuote(
     grossCostSgdCents: grossCostSgd,
     installationSgdCents: installation,
     netCostSgdCents: netCostSgd,
+    minimumOrderSgdCents: floor,
+    minimumOrderAdjustmentSgdCents: sale - totals.saleSgdCents,
     saleSgdCents: sale,
     discountedSaleSgdCents: discountedSale,
     marginBps: marginBps(netCostSgd, discountedSale),
@@ -796,6 +825,7 @@ export function computeQuote(
     freightMode,
     extraInstallSgdCents,
     discountBps,
+    CURTAINS_AND_BLINDS_ORDER_MINIMUM_SGD_CENTS,
   );
   if (!packageQuote) return result;
   // Never publish a partial/misleading quote while one charge is unresolved.

@@ -136,12 +136,12 @@ describe("computeStaleFlags — mesh routing", () => {
   });
 });
 
-describe("computeStaleFlags — curtain behaviour is unchanged", () => {
+describe("computeStaleFlags — curtain routing", () => {
   it("does not flag a curtain order whose baseline matches", () => {
     const windows = new Map([["order-1", [CURTAIN_WINDOW]]]);
-    // 2.8 m × S$90/m = S$252.00
+    // 2.8 m × S$90/m = S$252.00, raised to the S$500 order minimum.
     const flags = run(
-      [order({ price_calc_at_quote_cents: 25200 })],
+      [order({ price_calc_at_quote_cents: 50_000 })],
       windows,
       new Map(),
     );
@@ -163,7 +163,7 @@ describe("computeStaleFlags — curtain behaviour is unchanged", () => {
     const panels = new Map([["m", [MESH_PANEL]]]);
     const flags = run(
       [
-        order({ id: "c", price_calc_at_quote_cents: 25200 }),
+        order({ id: "c", price_calc_at_quote_cents: 50_000 }),
         order({
           id: "m",
           product_line: "mesh",

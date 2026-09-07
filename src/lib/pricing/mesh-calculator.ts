@@ -64,6 +64,8 @@ export type MeshPanel = BreakdownIdentity & {
 export type MeshRate = {
   costRmbCentsPerSqm: number | null; // null = cost not configured (margin unreliable)
   saleSgdCentsPerSqm: number | null; // null = not yet priced
+  /** Minimum for an order containing this category. */
+  minimumOrderSgdCents?: number;
 };
 
 export type MeshColourSurcharge = {
@@ -318,6 +320,14 @@ export function computeMeshQuote(
   extraInstallSgdCents = 0,
   discountBps = 0,
 ): QuoteResult {
+  const minimumOrderSgdCents = panels.reduce((minimum, panel) => {
+    if (!isMeasured(panel) || !panel.categoryId) return minimum;
+    return Math.max(
+      minimum,
+      book.rates[panel.categoryId]?.minimumOrderSgdCents ?? 0,
+    );
+  }, 0);
+
   const totals = panels.reduce(
     (acc, p) => {
       const q = panelQuote(p, book);
@@ -353,6 +363,7 @@ export function computeMeshQuote(
     freightMode,
     extraInstallSgdCents,
     discountBps,
+    minimumOrderSgdCents,
   );
 }
 

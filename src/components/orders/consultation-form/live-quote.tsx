@@ -173,8 +173,11 @@ export function LiveQuote({
   const salePrice =
     quotedCents > 0 ? quotedCents : quote.discountedSaleSgdCents;
   const shownMarginBps = marginBps(netCostSgdCents, salePrice);
-  const groupbuyCents = Math.round(
-    (salePrice * (10000 - config.assumptions.groupbuyDiscountBps)) / 10000,
+  const groupbuyCents = Math.max(
+    Math.round(
+      (salePrice * (10000 - config.assumptions.groupbuyDiscountBps)) / 10000,
+    ),
+    quote.minimumOrderSgdCents,
   );
   const groupbuyMarginBps = marginBps(netCostSgdCents, groupbuyCents);
   // The active margin floor depends on the sales channel.
@@ -251,7 +254,8 @@ export function LiveQuote({
           <summary className="cursor-pointer font-medium text-teal-700">Package selling-price breakdown</summary>
           <dl className="mt-2 max-h-[35dvh] space-y-1 overflow-y-auto">
             {quote.packageLines.map((line) => <div key={line.key} className="flex justify-between gap-4"><dt>{line.label}{line.quantity !== 1 ? ` × ${line.quantity}` : ""}</dt><dd className="whitespace-nowrap">{formatSGD(line.totalSgdCents)}</dd></div>)}
-            <div className="flex justify-between gap-4 border-t pt-1"><dt>Other items / operational extras</dt><dd>{formatSGD(quote.saleSgdCents - quote.packageLines.reduce((sum, line) => sum + line.totalSgdCents, 0))}</dd></div>
+            <div className="flex justify-between gap-4 border-t pt-1"><dt>Other items / operational extras</dt><dd>{formatSGD(quote.saleSgdCents - quote.minimumOrderAdjustmentSgdCents - quote.packageLines.reduce((sum, line) => sum + line.totalSgdCents, 0))}</dd></div>
+            {quote.minimumOrderAdjustmentSgdCents > 0 && <div className="flex justify-between gap-4"><dt>Minimum order adjustment</dt><dd>{formatSGD(quote.minimumOrderAdjustmentSgdCents)}</dd></div>}
             <div className="flex justify-between gap-4 font-semibold"><dt>Total before order discount</dt><dd>{formatSGD(quote.saleSgdCents)}</dd></div>
           </dl>
         </details>

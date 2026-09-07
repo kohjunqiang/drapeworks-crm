@@ -422,7 +422,9 @@ describe("computeQuote", () => {
       ASSUMPTIONS,
     );
     expect(q.cogsRmbCents).toBe(38640); // fabric 28560 + s-fold 3080 + rail 7000
-    expect(q.saleSgdCents).toBe(47600); // fabric + s-fold; the rail is not sold
+    expect(q.saleSgdCents).toBe(50_000); // raw S$476 is raised to the order floor
+    expect(q.minimumOrderSgdCents).toBe(50_000);
+    expect(q.minimumOrderAdjustmentSgdCents).toBe(2_400);
     expect(q.freightRmbCents).toBe(50000); // clamped to the ¥500 floor
     expect(q.otherCostRmbCents).toBe(3864);
     expect(q.gstRmbCents).toBe(3478);
@@ -431,9 +433,9 @@ describe("computeQuote", () => {
     // single-curtain install $60 (not the flat handyman)
     expect(q.installationSgdCents).toBe(6000);
     expect(q.netCostSgdCents).toBe(24110);
-    expect(q.marginBps).toBe(4935); // 49.35%
-    expect(q.groupbuySgdCents).toBe(40460);
-    expect(q.groupbuyMarginBps).toBe(4041); // 40.41%
+    expect(q.marginBps).toBe(5178); // S$500 floor against S$241.10 net cost
+    expect(q.groupbuySgdCents).toBe(50_000);
+    expect(q.groupbuyMarginBps).toBe(5178);
   });
 
   it("adds the ad-hoc extra install cost", () => {
@@ -458,25 +460,13 @@ describe("computeQuote", () => {
     };
     const base = computeQuote([win], ASSUMPTIONS, "air");
     const disc = computeQuote([win], ASSUMPTIONS, "air", 0, 1500); // −15%
-    // Pre-discount sale is preserved; the discounted sale is 85% of it.
+    // The minimum survives both the order discount and Groupbuy discount.
     expect(disc.saleSgdCents).toBe(base.saleSgdCents);
-    expect(disc.discountedSaleSgdCents).toBe(
-      Math.round((base.saleSgdCents * 8500) / 10000),
-    );
-    // Cost is untouched, so the (lower) discounted sale means a lower margin.
+    expect(disc.discountedSaleSgdCents).toBe(50_000);
+    expect(disc.groupbuySgdCents).toBe(50_000);
+    // Cost is untouched and the floor prevents this discount from changing it.
     expect(disc.netCostSgdCents).toBe(base.netCostSgdCents);
-    expect(disc.marginBps).toBeLessThan(base.marginBps);
-    expect(disc.marginBps).toBe(
-      marginBps(disc.netCostSgdCents, disc.discountedSaleSgdCents),
-    );
-    // Groupbuy derives from the discounted sale.
-    expect(disc.groupbuySgdCents).toBe(
-      Math.round(
-        (disc.discountedSaleSgdCents *
-          (10000 - ASSUMPTIONS.groupbuyDiscountBps)) /
-          10000,
-      ),
-    );
+    expect(disc.marginBps).toBe(base.marginBps);
   });
 
   it("a combo and an order discount compose", () => {
@@ -489,8 +479,8 @@ describe("computeQuote", () => {
     };
     const q = computeQuote([win], ASSUMPTIONS, "air", 0, 1000); // −10%
     // Combo fixes the per-window sale; the promo then discounts the order total.
-    expect(q.saleSgdCents).toBe(45000);
-    expect(q.discountedSaleSgdCents).toBe(Math.round((45000 * 9000) / 10000));
+    expect(q.saleSgdCents).toBe(50_000);
+    expect(q.discountedSaleSgdCents).toBe(50_000);
     expect(q.marginBps).toBe(
       marginBps(q.netCostSgdCents, q.discountedSaleSgdCents),
     );
@@ -523,7 +513,19 @@ describe("computeQuote", () => {
     const q = computeQuote([], ASSUMPTIONS);
     expect(q.cogsRmbCents).toBe(0);
     expect(q.saleSgdCents).toBe(0);
+    expect(q.minimumOrderSgdCents).toBe(0);
+    expect(q.minimumOrderAdjustmentSgdCents).toBe(0);
     expect(q.marginBps).toBe(0);
+  });
+
+  it("floors a valid Curtains & Blinds order at S$500", () => {
+    const q = computeQuote(
+      [{ widthCm: 100, dayPrice: SIGNATURE, addons: [] }],
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(50_000);
+    expect(q.discountedSaleSgdCents).toBe(50_000);
+    expect(q.groupbuySgdCents).toBe(50_000);
   });
 
   it("uses a flat sea freight when shipping by sea", () => {
@@ -606,6 +608,36 @@ describe("windowQuote — blinds", () => {
     expect(q.costRmbCents).toBe(8000);
     expect(q.saleSgdCents).toBe(14000); // 2.0m × S$70
     expect(q.offering).toBe("blind");
+  });
+
+  it("starts each Venetian blind at S$300 before add-ons", () => {
+    const q = windowQuote(
+      {
+        widthCm: 100,
+        blindPrice: { ...BLIND, label: "Venetian Blinds" },
+        addons: [BLACKOUT],
+      },
+      ASSUMPTIONS,
+    );
+
+    expect(q.saleSgdCents).toBe(30_000 + 5_000);
+  });
+
+  it("does not apply the Venetian minimum to an unpriced series", () => {
+    const q = windowQuote(
+      {
+        widthCm: 100,
+        blindPrice: {
+          costRmbCents: 4_000,
+          saleSgdCents: null,
+          label: "Venetian",
+        },
+        addons: [],
+      },
+      ASSUMPTIONS,
+    );
+
+    expect(q.saleSgdCents).toBe(0);
   });
 
   it("adds no track, whatever else it carries", () => {

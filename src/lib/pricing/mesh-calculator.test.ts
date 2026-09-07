@@ -40,9 +40,17 @@ const BRONZE = "col-bronze";
 
 const BOOK: MeshPriceBook = {
   rates: {
-    [AIR]: { costRmbCentsPerSqm: 4000, saleSgdCentsPerSqm: 8000 },
+    [AIR]: {
+      costRmbCentsPerSqm: 4000,
+      saleSgdCentsPerSqm: 8000,
+      minimumOrderSgdCents: 55_000,
+    },
     // MaxGuard: sale entered, cost still blank — margin unreliable.
-    [MAX]: { costRmbCentsPerSqm: null, saleSgdCentsPerSqm: 11000 },
+    [MAX]: {
+      costRmbCentsPerSqm: null,
+      saleSgdCentsPerSqm: 11000,
+      minimumOrderSgdCents: 65_000,
+    },
     // Created but never priced.
     [UNPRICED]: { costRmbCentsPerSqm: null, saleSgdCentsPerSqm: null },
   },
@@ -341,7 +349,7 @@ describe("computeMeshQuote", () => {
     const q = computeMeshQuote([panel(), panel()], BOOK, ASSUMPTIONS, "air");
 
     expect(q.cogsRmbCents).toBe(2 * COST_15000);
-    expect(q.saleSgdCents).toBe(2 * SALE_15000);
+    expect(q.saleSgdCents).toBe(55_000);
     // Freight base is the full COGS: 60% of ¥129.16 is below the ¥500 floor.
     expect(q.freightRmbCents).toBe(ASSUMPTIONS.airFreightFloorRmbCents);
     expect(q.installationSgdCents).toBe(2 * 4500);
@@ -360,8 +368,9 @@ describe("computeMeshQuote", () => {
 
   it("applies the order-level discount to the sale", () => {
     const q = computeMeshQuote([panel()], BOOK, ASSUMPTIONS, "air", 0, 1500);
-    expect(q.saleSgdCents).toBe(SALE_15000);
-    expect(q.discountedSaleSgdCents).toBe(10_200); // −15%
+    expect(q.saleSgdCents).toBe(55_000);
+    expect(q.discountedSaleSgdCents).toBe(55_000);
+    expect(q.groupbuySgdCents).toBe(55_000);
   });
 
   it("uses the flat sea charge when shipping by sea", () => {
@@ -372,6 +381,17 @@ describe("computeMeshQuote", () => {
   it("adds the ad-hoc extra install on top", () => {
     const q = computeMeshQuote([panel()], BOOK, ASSUMPTIONS, "air", 2500);
     expect(q.installationSgdCents).toBe(4500 + 2500);
+  });
+
+  it("uses the highest Mesh minimum in a mixed-category order", () => {
+    const q = computeMeshQuote(
+      [panel(), panel({ categoryId: MAX })],
+      BOOK,
+      ASSUMPTIONS,
+    );
+    expect(q.saleSgdCents).toBe(65_000);
+    expect(q.discountedSaleSgdCents).toBe(65_000);
+    expect(q.groupbuySgdCents).toBe(65_000);
   });
 
   it("overstates margin when the cost rate is blank, above any floor", () => {

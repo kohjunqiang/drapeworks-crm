@@ -92,6 +92,10 @@ export function useFormDraft<T extends FieldValues>(
   // Restore runs once. Without this guard the subscription below would see the
   // restore as a change, rewrite storage, and fight the user's next keystroke.
   const restored = useRef(false);
+  // Once the user deliberately discards or saves the form, prevent the live
+  // watch subscription from recreating the snapshot while navigation unmounts
+  // the page.
+  const writesEnabled = useRef(true);
 
   useEffect(() => {
     if (restored.current) return;
@@ -121,6 +125,7 @@ export function useFormDraft<T extends FieldValues>(
 
   useEffect(() => {
     const sub = form.watch((values) => {
+      if (!writesEnabled.current) return;
       try {
         sessionStorage.setItem(key, JSON.stringify(values));
       } catch {
@@ -133,6 +138,7 @@ export function useFormDraft<T extends FieldValues>(
 
   return {
     clearDraft: () => {
+      writesEnabled.current = false;
       try {
         sessionStorage.removeItem(key);
       } catch {

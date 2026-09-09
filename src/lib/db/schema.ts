@@ -1087,6 +1087,7 @@ export interface OrderShipments {
   legacy_overseas_freight_number: string | null;
   local_delivery_number: string | null;
   order_id: string;
+  overseas_freight_assigned_at: Timestamp | null;
   overseas_freight_number: string | null;
   source: Generated<"derived" | "legacy_combined" | "legacy_imported">;
   updated_at: Generated<Timestamp>;

@@ -5,10 +5,17 @@ import { OrdersCards } from "@/components/orders/orders-cards";
 import { OrdersFilters } from "@/components/orders/orders-filters";
 import { OrdersStats } from "@/components/orders/orders-stats";
 import { OrdersTable, type OrderRow } from "@/components/orders/orders-table";
+import {
+  FreightManagerProvider,
+  ManageFreightButton,
+  type FreightComponent,
+} from "@/components/orders/freight-manager";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db/kysely";
 import { orderStaleFlags } from "@/lib/pricing/order-quote";
 import { SHIPMENT_CATEGORIES } from "@/lib/logistics/shipments";
+import { normalizeFreightNumber } from "@/lib/logistics/freight";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/require-role";
@@ -220,28 +227,58 @@ export default async function OrdersDashboardPage({
     .limit(50)
     .execute();
 
-  const shipmentRows = rows.length === 0
-    ? []
-    : await db
-      .selectFrom("order_shipments")
-      .select([
-        "order_id",
-        "category",
-        "overseas_freight_number",
-      ])
-      .where("order_id", "in", rows.map((row) => row.id))
-      .execute();
+  let freightQuery = db.selectFrom("order_shipments")
+    .innerJoin("orders", "orders.id", "order_shipments.order_id")
+    .innerJoin("customers", "customers.id", "orders.customer_id")
+    .select([
+      "order_shipments.order_id",
+      "order_shipments.category",
+      "order_shipments.overseas_freight_number",
+      "order_shipments.overseas_freight_assigned_at",
+      "order_shipments.arrived_checked_at",
+      "order_shipments.updated_at",
+      "orders.display_id",
+      "orders.order_reference",
+      "orders.current_status",
+      "orders.development",
+      "customers.name as customer_name",
+    ]);
+  freightQuery = rows.length > 0
+    ? freightQuery.where((eb) => eb.or([
+        eb("orders.current_status", "in", [...ACTIVE_ORDER_STATUSES]),
+        eb("orders.id", "in", rows.map((row) => row.id)),
+      ]))
+    : freightQuery.where("orders.current_status", "in", [...ACTIVE_ORDER_STATUSES]);
+  const freightRows = await freightQuery
+    .orderBy("orders.created_at", "desc")
+    .execute();
+
+  const batchStartedAt = new Map<string, string>();
+  for (const shipment of freightRows) {
+    const freightNumber = usableFreightNumber(shipment.overseas_freight_number);
+    const assignedAt = shipment.overseas_freight_assigned_at;
+    if (!freightNumber || !assignedAt) continue;
+    const key = normalizeFreightNumber(freightNumber);
+    const iso = new Date(assignedAt).toISOString();
+    const current = batchStartedAt.get(key);
+    if (!current || iso < current) batchStartedAt.set(key, iso);
+  }
+
+  const visibleOrderIds = new Set(rows.map((row) => row.id));
   const categoryOrder = new Map(
     SHIPMENT_CATEGORIES.map((category, index) => [category, index]),
   );
   const shipmentsByOrder = new Map<string, OrderRow["shipments"]>();
-  for (const shipment of shipmentRows) {
+  for (const shipment of freightRows) {
+    if (!visibleOrderIds.has(shipment.order_id)) continue;
     const freightNumber = usableFreightNumber(shipment.overseas_freight_number);
     if (!freightNumber) continue;
     const orderShipments = shipmentsByOrder.get(shipment.order_id) ?? [];
     orderShipments.push({
       category: shipment.category,
       freightNumber,
+      batchStartedAt:
+        batchStartedAt.get(normalizeFreightNumber(freightNumber)) ?? null,
     });
     shipmentsByOrder.set(shipment.order_id, orderShipments);
   }
@@ -272,7 +309,32 @@ export default async function OrdersDashboardPage({
       r.consultant_name?.trim() ||
       (r.consultant_email ? r.consultant_email.split("@")[0] : null),
     shipments: shipmentsByOrder.get(r.id) ?? [],
+    hasFreightComponents: freightRows.some((shipment) => shipment.order_id === r.id),
     isStale: staleFlags.get(r.id) ?? false,
+  }));
+
+  const freightComponents: FreightComponent[] = freightRows.map((shipment) => ({
+    orderId: shipment.order_id,
+    orderIdentifier: primaryOrderIdentifier(
+      shipment.order_reference,
+      shipment.display_id,
+    ),
+    customerName: shipment.customer_name,
+    development: shipment.development,
+    category: shipment.category,
+    freightNumber: usableFreightNumber(shipment.overseas_freight_number),
+    freightAssignedAt: shipment.overseas_freight_assigned_at
+      ? new Date(shipment.overseas_freight_assigned_at).toISOString()
+      : null,
+    arrivedCheckedAt: shipment.arrived_checked_at
+      ? new Date(shipment.arrived_checked_at).toISOString()
+      : null,
+    updatedAt: new Date(shipment.updated_at).toISOString(),
+    currentStatus: shipment.current_status,
+    assignable:
+      ["sent_to_vendor", "sent_logistic", "shipping_sg"].includes(
+        shipment.current_status,
+      ) && !shipment.arrived_checked_at,
   }));
 
   // Distinct consultants present in the orders table (for the filter dropdown).
@@ -317,6 +379,11 @@ export default async function OrdersDashboardPage({
   }
 
   return (
+    <FreightManagerProvider
+      components={freightComponents}
+      canManage={session.profile.role === "ops" || session.profile.role === "admin"}
+      referenceTime={new Date().toISOString()}
+    >
     <main className="mx-auto max-w-[1536px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
@@ -327,12 +394,17 @@ export default async function OrdersDashboardPage({
             Consultations and fulfilment in progress
           </p>
         </div>
-        <Link
-          href="/orders/new"
-          className="inline-flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm"
-        >
-          <span>+</span> New Consultation
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {(session.profile.role === "ops" || session.profile.role === "admin") && (
+            <ManageFreightButton />
+          )}
+          <Link
+            href="/orders/new"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded bg-teal-600 px-4 text-sm font-medium text-white hover:bg-teal-700"
+          >
+            <span>+</span> New Consultation
+          </Link>
+        </div>
       </div>
 
       {zohoAttention && (
@@ -388,5 +460,6 @@ export default async function OrdersDashboardPage({
         </>
       )}
     </main>
+    </FreightManagerProvider>
   );
 }

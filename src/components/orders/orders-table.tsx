@@ -7,9 +7,12 @@ import {
   SHIPMENT_CATEGORY_LABELS,
   type ShipmentCategory,
 } from "@/lib/logistics/shipments";
+import { formatFreightAge } from "@/lib/logistics/freight";
 
 import { StatusBadge } from "./status-badge";
 import { DeleteOrderDialog } from "./delete-order-dialog";
+import { AssignFreightButton, FreightPillButton } from "./freight-manager";
+import { shipmentCategoryTone } from "./shipment-presentation";
 
 export type OrderRow = {
   id: string;
@@ -26,7 +29,9 @@ export type OrderRow = {
   shipments: Array<{
     category: ShipmentCategory;
     freightNumber: string;
+    batchStartedAt: string | null;
   }>;
+  hasFreightComponents: boolean;
   // True when the calculator has drifted from the locked quote — a nudge to
   // re-quote on the order detail page.
   isStale?: boolean;
@@ -42,46 +47,6 @@ type Props = {
 
 export function productLineLabel(line: "curtain" | "mesh"): string {
   return line === "mesh" ? "Mesh" : "Curtains & Blinds";
-}
-
-const SHIPMENT_CATEGORY_TONES: Record<
-  ShipmentCategory,
-  { dot: string; label: string; pill: string }
-> = {
-  curtains: {
-    dot: "bg-rose-500",
-    label: "text-rose-700",
-    pill: "border-rose-200 bg-rose-50",
-  },
-  blinds: {
-    dot: "bg-amber-500",
-    label: "text-amber-700",
-    pill: "border-amber-200 bg-amber-50",
-  },
-  mesh: {
-    dot: "bg-emerald-500",
-    label: "text-emerald-700",
-    pill: "border-emerald-200 bg-emerald-50",
-  },
-  standard_tracks: {
-    dot: "bg-blue-500",
-    label: "text-blue-700",
-    pill: "border-blue-200 bg-blue-50",
-  },
-  s_fold_tracks: {
-    dot: "bg-violet-500",
-    label: "text-violet-700",
-    pill: "border-violet-200 bg-violet-50",
-  },
-  overlap_tracks_attachment: {
-    dot: "bg-cyan-500",
-    label: "text-cyan-700",
-    pill: "border-cyan-200 bg-cyan-50",
-  },
-};
-
-export function shipmentCategoryTone(category: ShipmentCategory) {
-  return SHIPMENT_CATEGORY_TONES[category];
 }
 
 const SG_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -188,26 +153,33 @@ export function OrdersTable({
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {o.shipments.length === 0 ? (
-                  <span aria-label="No overseas freight numbers">—</span>
+                  o.hasFreightComponents ? (
+                    <AssignFreightButton orderIdentifier={primaryOrderIdentifier(o.order_reference, o.display_id)} />
+                  ) : (
+                    <span aria-label="No overseas freight numbers">—</span>
+                  )
                 ) : (
                   <ul className="space-y-1.5" aria-label="Overseas freight numbers">
                     {o.shipments.map((shipment) => (
                       <li
                         key={shipment.category}
-                        className={`flex w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 text-xs ${shipmentCategoryTone(shipment.category).pill}`}
                       >
-                        <span
-                          className={`inline-flex items-center gap-1.5 whitespace-nowrap ${shipmentCategoryTone(shipment.category).label}`}
+                        <FreightPillButton
+                          freightNumber={shipment.freightNumber}
+                          ariaLabel={`Open freight ${shipment.freightNumber} for ${SHIPMENT_CATEGORY_LABELS[shipment.category]}`}
+                          className={`flex w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 text-xs ${shipmentCategoryTone(shipment.category).pill}`}
                         >
-                          <span
-                            aria-hidden="true"
-                            className={`h-2 w-2 shrink-0 rounded-full ${shipmentCategoryTone(shipment.category).dot}`}
-                          />
-                          {SHIPMENT_CATEGORY_LABELS[shipment.category]}
-                        </span>
-                        <span className="font-mono font-semibold text-slate-900">
-                          {shipment.freightNumber}
-                        </span>
+                          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${shipmentCategoryTone(shipment.category).label}`}>
+                            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${shipmentCategoryTone(shipment.category).dot}`} />
+                            {SHIPMENT_CATEGORY_LABELS[shipment.category]}
+                          </span>
+                          <span className="font-mono font-semibold text-slate-900">{shipment.freightNumber}</span>
+                          {shipment.batchStartedAt && (
+                            <span className="border-l border-slate-300 pl-2 font-medium text-slate-600">
+                              {formatFreightAge(shipment.batchStartedAt)} in transit
+                            </span>
+                          )}
+                        </FreightPillButton>
                       </li>
                     ))}
                   </ul>

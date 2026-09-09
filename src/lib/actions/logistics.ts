@@ -8,6 +8,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
+import { normalizeFreightNumber } from "@/lib/logistics/freight";
 import {
   hasExactShipmentCategories,
   requiresLocalDelivery,
@@ -101,6 +102,8 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
         overseas_freight_number: overseasRequired
           ? shipment.overseasFreightNumber
           : null,
+        overseas_freight_assigned_at:
+          overseasRequired && shipment.overseasFreightNumber ? new Date() : null,
         source: "derived",
       }).onConflict((conflict) => conflict
         .columns(["order_id", "category"])
@@ -109,7 +112,15 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
             ? { local_delivery_number: shipment.localDeliveryNumber }
             : {}),
           ...(overseasRequired
-            ? { overseas_freight_number: shipment.overseasFreightNumber }
+            ? {
+                overseas_freight_number: shipment.overseasFreightNumber,
+                ...(overseasChanged
+                  ? {
+                      overseas_freight_assigned_at:
+                        shipment.overseasFreightNumber ? new Date() : null,
+                    }
+                  : {}),
+              }
             : {}),
           source: "derived",
         }))
@@ -118,6 +129,108 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
   });
 
   revalidatePath(`/orders/${parsed.orderId}`);
+  revalidatePath("/orders");
+}
+
+const freightComponentSchema = z.object({
+  orderId: z.string().uuid(),
+  category: z.enum(SHIPMENT_CATEGORIES),
+});
+
+const freightAssignmentSchema = z.object({
+  freightNumber: z.string().trim().min(1, "Enter a freight code.").max(200),
+  components: z.array(freightComponentSchema).min(1, "Select at least one component.").max(250),
+  confirmReassign: z.boolean().default(false),
+});
+
+function freightComponentKey(orderId: string, category: string): string {
+  return `${orderId}:${category}`;
+}
+
+/** Adds order components to one overseas freight code. */
+export async function assignFreightComponents(input: unknown): Promise<void> {
+  await requireRole(["ops", "admin"]);
+  const parsed = freightAssignmentSchema.parse(input);
+  const freightNumber = normalizeFreightNumber(parsed.freightNumber);
+  const selectedKeys = new Set(
+    parsed.components.map(({ orderId, category }) =>
+      freightComponentKey(orderId, category)),
+  );
+  if (selectedKeys.size !== parsed.components.length) {
+    throw new Error("A shipment component was selected more than once.");
+  }
+
+  const affectedOrderIds = await db.transaction().execute(async (trx) => {
+    const selectedRows = await trx.selectFrom("order_shipments")
+      .innerJoin("orders", "orders.id", "order_shipments.order_id")
+      .select([
+        "order_shipments.order_id",
+        "order_shipments.category",
+        "order_shipments.overseas_freight_number",
+        "order_shipments.overseas_freight_assigned_at",
+        "order_shipments.arrived_checked_at",
+        "orders.current_status",
+      ])
+      .where((eb) => eb.or(parsed.components.map(({ orderId, category }) =>
+        eb.and([
+          eb("order_shipments.order_id", "=", orderId),
+          eb("order_shipments.category", "=", category),
+        ]))))
+      .forUpdate("order_shipments")
+      .execute();
+    if (selectedRows.length !== selectedKeys.size) {
+      throw new Error("One or more shipment components changed. Refresh and try again.");
+    }
+
+    const rows = new Map(selectedRows.map((row) => [
+      freightComponentKey(row.order_id, row.category),
+      row,
+    ]));
+    const now = new Date();
+    const affected = new Set<string>();
+
+    for (const row of rows.values()) {
+      const existingNumber = row.overseas_freight_number?.trim() ?? "";
+      const existingNormalized = normalizeFreightNumber(existingNumber);
+      const belongsToThisCode = existingNormalized === freightNumber;
+      const changesNumber = existingNormalized !== freightNumber;
+
+      if (changesNumber && row.arrived_checked_at) {
+        throw new Error(
+          "An arrived component cannot be reassigned. Reopen its arrival from the order first.",
+        );
+      }
+      if (
+        existingNumber && !belongsToThisCode &&
+        !parsed.confirmReassign
+      ) {
+        throw new Error("Confirm the components that will move from another freight code.");
+      }
+      if (
+        statusIndex(row.current_status) < statusIndex("sent_to_vendor")
+      ) {
+        throw new Error("Freight can only be assigned after an order is sent to its vendor.");
+      }
+      if (!changesNumber) continue;
+
+      await trx.updateTable("order_shipments")
+        .set({
+          overseas_freight_number: freightNumber,
+          overseas_freight_assigned_at: belongsToThisCode
+            ? row.overseas_freight_assigned_at ?? now
+            : now,
+        })
+        .where("order_id", "=", row.order_id)
+        .where("category", "=", row.category)
+        .executeTakeFirstOrThrow();
+      affected.add(row.order_id);
+    }
+
+    return [...affected];
+  });
+
+  for (const orderId of affectedOrderIds) revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/orders");
 }
 
 const arrivalsSchema = z.object({

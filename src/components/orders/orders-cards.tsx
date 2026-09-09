@@ -4,7 +4,11 @@ import { formatSGD } from "@/lib/money";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { SHIPMENT_CATEGORY_LABELS } from "@/lib/logistics/shipments";
 
-import { productLineLabel, shipmentCategoryTone } from "./orders-table";
+import { productLineLabel } from "./orders-table";
+import { formatFreightAge } from "@/lib/logistics/freight";
+import { FreightPillButton } from "./freight-manager";
+import { AssignFreightButton } from "./freight-manager";
+import { shipmentCategoryTone } from "./shipment-presentation";
 
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
@@ -65,8 +69,10 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
             <div className="mt-2 space-y-1.5 text-xs">
               <div className="font-medium text-slate-600">Overseas freight</div>
               {o.shipments.map((shipment) => (
-                <div
+                <FreightPillButton
                   key={shipment.category}
+                  freightNumber={shipment.freightNumber}
+                  ariaLabel={`Open freight ${shipment.freightNumber} for ${SHIPMENT_CATEGORY_LABELS[shipment.category]}`}
                   className={`flex w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 ${shipmentCategoryTone(shipment.category).pill}`}
                 >
                   <span
@@ -81,8 +87,19 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
                   <span className="font-mono font-semibold text-slate-800">
                     {shipment.freightNumber}
                   </span>
-                </div>
+                  {shipment.batchStartedAt && (
+                    <span className="border-l border-slate-300 pl-2 font-medium text-slate-600">
+                      {formatFreightAge(shipment.batchStartedAt)} in transit
+                    </span>
+                  )}
+                </FreightPillButton>
               ))}
+            </div>
+          )}
+          {o.shipments.length === 0 && o.hasFreightComponents && (
+            <div className="mt-2 text-xs">
+              <span className="mr-1 font-medium text-slate-600">Overseas freight</span>
+              <AssignFreightButton orderIdentifier={primaryOrderIdentifier(o.order_reference, o.display_id)} />
             </div>
           )}
           <div className="text-xs text-slate-500 mt-2">

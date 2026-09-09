@@ -13,6 +13,7 @@ export type ShipmentValues = {
   category: ShipmentCategory;
   localDeliveryNumber: string | null;
   overseasFreightNumber: string | null;
+  overseasFreightAssignedAt?: string | Date | null;
   arrivedCheckedAt: string | Date | null;
   arrivalNote: string | null;
   legacyLocalDeliveryNumber: string | null;

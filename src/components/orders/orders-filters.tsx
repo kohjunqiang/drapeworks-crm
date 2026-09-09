@@ -84,7 +84,7 @@ export function OrdersFilters({ defaults, consultants }: Props) {
         type="text"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search by customer, development, or order #"
+        placeholder="Search by customer, development, order, or freight #"
         className={`flex-1 ${INPUT_CLS}`}
       />
       <div className="grid grid-cols-1 sm:flex gap-2 sm:gap-3">

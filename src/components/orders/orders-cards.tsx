@@ -2,8 +2,9 @@ import Link from "next/link";
 
 import { formatSGD } from "@/lib/money";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
+import { SHIPMENT_CATEGORY_LABELS } from "@/lib/logistics/shipments";
 
-import { productLineLabel } from "./orders-table";
+import { productLineLabel, shipmentCategoryTone } from "./orders-table";
 
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
@@ -60,6 +61,30 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
           <div className="text-xs text-slate-500 mt-2">
             Product: {productLineLabel(o.product_line)}
           </div>
+          {o.shipments.length > 0 && (
+            <div className="mt-2 space-y-1.5 text-xs">
+              <div className="font-medium text-slate-600">Overseas freight</div>
+              {o.shipments.map((shipment) => (
+                <div
+                  key={shipment.category}
+                  className={`flex w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 ${shipmentCategoryTone(shipment.category).pill}`}
+                >
+                  <span
+                    className={`inline-flex items-center gap-1.5 ${shipmentCategoryTone(shipment.category).label}`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`h-2 w-2 shrink-0 rounded-full ${shipmentCategoryTone(shipment.category).dot}`}
+                    />
+                    {SHIPMENT_CATEGORY_LABELS[shipment.category]}
+                  </span>
+                  <span className="font-mono font-semibold text-slate-800">
+                    {shipment.freightNumber}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="text-xs text-slate-500 mt-2">
             Installation: {formatDate(o.installation_date)}
           </div>

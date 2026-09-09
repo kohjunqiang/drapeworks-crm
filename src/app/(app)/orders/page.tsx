@@ -8,6 +8,7 @@ import { OrdersTable, type OrderRow } from "@/components/orders/orders-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db/kysely";
 import { orderStaleFlags } from "@/lib/pricing/order-quote";
+import { SHIPMENT_CATEGORIES } from "@/lib/logistics/shipments";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/require-role";
@@ -39,6 +40,22 @@ type SearchParams = {
 
 type OrderSort = "identifier" | "status";
 type SortDirection = "asc" | "desc";
+
+const EMPTY_FREIGHT_VALUES = new Set([
+  "",
+  ".",
+  "-",
+  "n/a",
+  "na",
+  "nil",
+  "none",
+  "not yet",
+]);
+
+function usableFreightNumber(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  return EMPTY_FREIGHT_VALUES.has(trimmed.toLowerCase()) ? null : trimmed;
+}
 
 function isOrderSort(value: string | undefined): value is OrderSort {
   return value === "identifier" || value === "status";
@@ -169,6 +186,11 @@ export default async function OrdersDashboardPage({
         eb("orders.development", "ilike", like),
         eb("orders.display_id", "ilike", like),
         eb("orders.order_reference", "ilike", like),
+        sql<boolean>`exists (
+          select 1 from public.order_shipments os
+          where os.order_id = orders.id
+            and os.overseas_freight_number ilike ${like}
+        )`,
       ]),
     );
   }
@@ -198,6 +220,39 @@ export default async function OrdersDashboardPage({
     .limit(50)
     .execute();
 
+  const shipmentRows = rows.length === 0
+    ? []
+    : await db
+      .selectFrom("order_shipments")
+      .select([
+        "order_id",
+        "category",
+        "overseas_freight_number",
+      ])
+      .where("order_id", "in", rows.map((row) => row.id))
+      .execute();
+  const categoryOrder = new Map(
+    SHIPMENT_CATEGORIES.map((category, index) => [category, index]),
+  );
+  const shipmentsByOrder = new Map<string, OrderRow["shipments"]>();
+  for (const shipment of shipmentRows) {
+    const freightNumber = usableFreightNumber(shipment.overseas_freight_number);
+    if (!freightNumber) continue;
+    const orderShipments = shipmentsByOrder.get(shipment.order_id) ?? [];
+    orderShipments.push({
+      category: shipment.category,
+      freightNumber,
+    });
+    shipmentsByOrder.set(shipment.order_id, orderShipments);
+  }
+  for (const shipments of shipmentsByOrder.values()) {
+    shipments.sort(
+      (a, b) =>
+        (categoryOrder.get(a.category) ?? 99) -
+        (categoryOrder.get(b.category) ?? 99),
+    );
+  }
+
   // Which of the listed orders have drifted from their locked quote (one
   // batched sweep, not a per-row recompute).
   const staleFlags = await orderStaleFlags(rows.map((r) => r.id));
@@ -216,6 +271,7 @@ export default async function OrdersDashboardPage({
     consultant_name:
       r.consultant_name?.trim() ||
       (r.consultant_email ? r.consultant_email.split("@")[0] : null),
+    shipments: shipmentsByOrder.get(r.id) ?? [],
     isStale: staleFlags.get(r.id) ?? false,
   }));
 
@@ -261,7 +317,7 @@ export default async function OrdersDashboardPage({
   }
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <main className="mx-auto max-w-[1536px] px-4 py-6 sm:px-6 sm:py-8">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900">

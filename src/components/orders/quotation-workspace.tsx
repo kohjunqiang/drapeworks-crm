@@ -41,6 +41,7 @@ type Props = {
   depositCents: number;
   quote: Quote | null; history: Array<{ id: string; revision: number; estimateNumber: string | null; sentAt: string | null; supersededAt: string | null; totalCents: number; hasPdf: boolean }>;
   linkedContactId: string | null; canManage: boolean; canRepairDeposit: boolean; configured: boolean;
+  quotationStageComplete: boolean;
 };
 
 type Options = Awaited<ReturnType<typeof getZohoQuotationOptions>>;
@@ -84,6 +85,9 @@ export function QuotationWorkspace(props: Props) {
   const [sendNote, setSendNote] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [paymentRepairOpen, setPaymentRepairOpen] = useState(false);
+  const [quotationDetailsOpen, setQuotationDetailsOpen] = useState(
+    !props.quotationStageComplete && props.quote?.status !== "sent",
+  );
   const [importNumber, setImportNumber] = useState("");
   const [importChannel, setImportChannel] = useState("WhatsApp");
   const [matchingOpen, setMatchingOpen] = useState(!props.linkedContactId);
@@ -192,7 +196,20 @@ export function QuotationWorkspace(props: Props) {
         )}
       </div>
 
-      <fieldset disabled={!props.canManage || sent || pending} className="mt-5 space-y-4 border-t pt-5 disabled:opacity-70">
+      <details
+        className="group mt-5 border-t"
+        open={quotationDetailsOpen}
+        onToggle={(event) => setQuotationDetailsOpen(event.currentTarget.open)}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-sm hover:text-teal-700">
+          <span className="font-semibold text-slate-900">Quotation details</span>
+          <span className="flex items-center gap-3 text-xs text-slate-500">
+            <span>{lines.length} {lines.length === 1 ? "line" : "lines"} · {money(total)}</span>
+            <span className="font-medium text-teal-700 group-open:hidden">Show</span>
+            <span className="hidden font-medium text-teal-700 group-open:inline">Hide</span>
+          </span>
+        </summary>
+      <fieldset disabled={!props.canManage || sent || pending} className="space-y-4 border-t pt-5 disabled:opacity-70">
         <legend className="sr-only">Quotation details</legend>
         <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until<Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} /></label></div>
         <div className="space-y-3">
@@ -206,6 +223,7 @@ export function QuotationWorkspace(props: Props) {
         <label className="block text-sm font-medium">Customer message<div className="mt-1 flex gap-2"><Textarea rows={5} value={displayedMessage} onChange={(e) => { setMessage(e.target.value); setMessageCustomized(true); setDirty(true); }} /><Button type="button" aria-label="Copy message" className="h-11 w-11" variant="outline" onClick={async () => { try { await navigator.clipboard.writeText(displayedMessage); toast.success("Message copied"); } catch { toast.error("Could not copy the message"); } }}><Copy /></Button></div>{messageStale && <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">This custom message differs from the current amount, date, or quote number.<Button type="button" size="sm" variant="outline" onClick={() => { setMessage(generatedMessage); setMessageCustomized(false); setDirty(true); }}>Reset to generated message</Button></span>}</label>
         <details><summary className="cursor-pointer text-sm font-medium text-teal-700">Notes and terms</summary><div className="mt-3 space-y-3"><label className="block text-sm">Notes<Textarea className="mt-1" value={notes} onChange={(e) => { setNotes(e.target.value); setDirty(true); }} /></label><label className="block text-sm">Terms<Textarea className="mt-1" value={terms} onChange={(e) => { setTerms(e.target.value); setDirty(true); }} /></label></div></details>
       </fieldset>
+      </details>
 
       <div className="-mx-4 mt-5 flex flex-col gap-2 border-t bg-white px-4 py-3 sm:-mx-6 sm:flex-row sm:flex-wrap sm:px-6">
         {props.canManage && !sent && !processing && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(save, "Local quotation saved", true)}>Save draft</Button>}

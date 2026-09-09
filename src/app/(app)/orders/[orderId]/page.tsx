@@ -724,7 +724,7 @@ export default async function OrderDetailPage({
         <div className="lg:col-span-2 space-y-4 order-1">
           {!order.is_draft && (
             <QuotationWorkspace
-              key={currentQuotation ? `${currentQuotation.id}:${new Date(currentQuotation.updated_at).toISOString()}` : "new"}
+              key={`${currentQuotation ? `${currentQuotation.id}:${new Date(currentQuotation.updated_at).toISOString()}` : "new"}:${order.current_status}`}
               orderId={order.id}
               displayId={order.order_reference || order.display_id}
               customerName={order.customer_name}
@@ -765,6 +765,9 @@ export default async function OrderDetailPage({
                 hasPdf: Boolean(item.pdf_storage_path),
               }))}
               linkedContactId={zohoCustomerLink?.zoho_contact_id ?? null}
+              quotationStageComplete={
+                statusIndex(order.current_status) > statusIndex("quotation_sent")
+              }
               canManage={(order.current_status === "order_recorded" || order.current_status === "quotation_sent") && (session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id))}
               canRepairDeposit={order.current_status === "deposit_received" && (session.profile.role === "admin" || session.profile.role === "ops")}
               configured={await isZohoBooksConfigured()}

@@ -279,6 +279,9 @@ export default async function OrdersDashboardPage({
       freightNumber,
       batchStartedAt:
         batchStartedAt.get(normalizeFreightNumber(freightNumber)) ?? null,
+      arrivedCheckedAt: shipment.arrived_checked_at
+        ? new Date(shipment.arrived_checked_at).toISOString()
+        : null,
     });
     shipmentsByOrder.set(shipment.order_id, orderShipments);
   }

@@ -87,11 +87,15 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
                   <span className="font-mono font-semibold text-slate-800">
                     {shipment.freightNumber}
                   </span>
-                  {shipment.batchStartedAt && (
+                  {shipment.arrivedCheckedAt ? (
+                    <span className="border-l border-slate-300 pl-2 font-semibold text-emerald-700">
+                      Arrived
+                    </span>
+                  ) : shipment.batchStartedAt ? (
                     <span className="border-l border-slate-300 pl-2 font-medium text-slate-600">
                       {formatFreightAge(shipment.batchStartedAt)} in transit
                     </span>
-                  )}
+                  ) : null}
                 </FreightPillButton>
               ))}
             </div>

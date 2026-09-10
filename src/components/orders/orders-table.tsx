@@ -30,6 +30,7 @@ export type OrderRow = {
     category: ShipmentCategory;
     freightNumber: string;
     batchStartedAt: string | null;
+    arrivedCheckedAt: string | null;
   }>;
   hasFreightComponents: boolean;
   // True when the calculator has drifted from the locked quote — a nudge to
@@ -174,11 +175,15 @@ export function OrdersTable({
                             {SHIPMENT_CATEGORY_LABELS[shipment.category]}
                           </span>
                           <span className="font-mono font-semibold text-slate-900">{shipment.freightNumber}</span>
-                          {shipment.batchStartedAt && (
+                          {shipment.arrivedCheckedAt ? (
+                            <span className="border-l border-slate-300 pl-2 font-semibold text-emerald-700">
+                              Arrived
+                            </span>
+                          ) : shipment.batchStartedAt ? (
                             <span className="border-l border-slate-300 pl-2 font-medium text-slate-600">
                               {formatFreightAge(shipment.batchStartedAt)} in transit
                             </span>
-                          )}
+                          ) : null}
                         </FreightPillButton>
                       </li>
                     ))}

@@ -128,6 +128,7 @@ export function FreightManagerProvider({
     .filter((value): value is string => Boolean(value))
     .sort()[0] ?? null;
   const arrivedCount = currentMembers.filter((component) => component.arrivedCheckedAt).length;
+  const allArrived = currentMembers.length > 0 && arrivedCount === currentMembers.length;
 
   const visibleComponents = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -303,21 +304,23 @@ export function FreightManagerProvider({
               </div>
 
               {normalizedFreight && currentMembers.length > 0 && (
-                <div className="rounded-lg border border-teal-200 bg-teal-50 p-3">
+                <div className={`rounded-lg border p-3 ${allArrived ? "border-emerald-200 bg-emerald-50" : "border-teal-200 bg-teal-50"}`}>
                   <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-teal-700">In transit</p>
-                    <p className="mt-0.5 flex items-center gap-1 font-semibold text-teal-950">
-                      <Clock3 className="size-3.5" /> {formatFreightAge(startedAt, referenceTime) ?? "—"}
+                    <p className={`text-[11px] font-medium uppercase tracking-wide ${allArrived ? "text-emerald-700" : "text-teal-700"}`}>
+                      {allArrived ? "Status" : "In transit"}
+                    </p>
+                    <p className={`mt-0.5 flex items-center gap-1 font-semibold ${allArrived ? "text-emerald-900" : "text-teal-950"}`}>
+                      {allArrived ? <><Check className="size-3.5" /> Arrived</> : <><Clock3 className="size-3.5" /> {formatFreightAge(startedAt, referenceTime) ?? "—"}</>}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-teal-700">Components</p>
-                    <p className="mt-0.5 font-semibold text-teal-950">{currentMembers.length}</p>
+                    <p className={`text-[11px] font-medium uppercase tracking-wide ${allArrived ? "text-emerald-700" : "text-teal-700"}`}>Components</p>
+                    <p className={`mt-0.5 font-semibold ${allArrived ? "text-emerald-900" : "text-teal-950"}`}>{currentMembers.length}</p>
                   </div>
                   <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-teal-700">Arrived</p>
-                    <p className="mt-0.5 font-semibold text-teal-950">{arrivedCount} of {currentMembers.length}</p>
+                    <p className={`text-[11px] font-medium uppercase tracking-wide ${allArrived ? "text-emerald-700" : "text-teal-700"}`}>Arrived</p>
+                    <p className={`mt-0.5 font-semibold ${allArrived ? "text-emerald-900" : "text-teal-950"}`}>{arrivedCount} of {currentMembers.length}</p>
                   </div>
                   </div>
                   {canManage && currentMembers.some((component) =>

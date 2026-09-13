@@ -14,7 +14,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db/kysely";
 import { orderStaleFlags } from "@/lib/pricing/order-quote";
 import { SHIPMENT_CATEGORIES } from "@/lib/logistics/shipments";
-import { normalizeFreightNumber } from "@/lib/logistics/freight";
+import {
+  normalizeFreightNumber,
+  usableFreightNumber,
+} from "@/lib/logistics/freight";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
@@ -48,21 +51,6 @@ type SearchParams = {
 type OrderSort = "identifier" | "status";
 type SortDirection = "asc" | "desc";
 
-const EMPTY_FREIGHT_VALUES = new Set([
-  "",
-  ".",
-  "-",
-  "n/a",
-  "na",
-  "nil",
-  "none",
-  "not yet",
-]);
-
-function usableFreightNumber(value: string | null): string | null {
-  const trimmed = value?.trim() ?? "";
-  return EMPTY_FREIGHT_VALUES.has(trimmed.toLowerCase()) ? null : trimmed;
-}
 
 function isOrderSort(value: string | undefined): value is OrderSort {
   return value === "identifier" || value === "status";

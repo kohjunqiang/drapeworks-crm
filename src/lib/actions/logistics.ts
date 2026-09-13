@@ -8,7 +8,10 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
-import { normalizeFreightNumber } from "@/lib/logistics/freight";
+import {
+  normalizeFreightNumber,
+  usableFreightNumber,
+} from "@/lib/logistics/freight";
 import {
   hasExactShipmentCategories,
   requiresLocalDelivery,
@@ -190,7 +193,7 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
     const affected = new Set<string>();
 
     for (const row of rows.values()) {
-      const existingNumber = row.overseas_freight_number?.trim() ?? "";
+      const existingNumber = usableFreightNumber(row.overseas_freight_number) ?? "";
       const existingNormalized = normalizeFreightNumber(existingNumber);
       const belongsToThisCode = existingNormalized === freightNumber;
       const changesNumber = existingNormalized !== freightNumber;

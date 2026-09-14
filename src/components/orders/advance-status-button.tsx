@@ -62,6 +62,8 @@ export function AdvanceStatusButton({
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [balanceReceivedConfirmed, setBalanceReceivedConfirmed] = useState(false);
+  const completingOrder = currentStatus === "fulfilment";
   const [photoUploading, setPhotoUploading] = useState(false);
   const manifestMissing = [
     "sent_to_vendor",
@@ -113,6 +115,10 @@ export function AdvanceStatusButton({
   function submit() {
     if (photoUploading) return;
     setActionError(null);
+    if (completingOrder && !balanceReceivedConfirmed) {
+      setActionError("Confirm that the remaining balance has been received before completing this order.");
+      return;
+    }
     if (trackingMode) {
       const nextErrors: Record<string, string> = {};
       for (const shipment of shipments) {
@@ -146,6 +152,7 @@ export function AdvanceStatusButton({
           orderId,
           expectedStatus: currentStatus,
           note: note || undefined,
+          balanceReceivedConfirmed: completingOrder ? balanceReceivedConfirmed : undefined,
           shipmentNumbers: trackingMode
               ? shipments.map((shipment) => ({
                 category: shipment.category,
@@ -205,6 +212,7 @@ export function AdvanceStatusButton({
         onClick={() => {
           resetShipmentNumbers();
           setActionError(null);
+          setBalanceReceivedConfirmed(false);
           setOpen(true);
         }}
         disabled={pending || trackingIncomplete || manifestMissing}
@@ -216,7 +224,7 @@ export function AdvanceStatusButton({
             ? "No shipment orders found"
             : trackingIncomplete
               ? "Complete shipment arrivals first"
-            : (ctaLabel ?? "Advance →")}
+            : completingOrder ? "Confirm balance & complete" : (ctaLabel ?? "Advance →")}
       </button>
       <Dialog
         open={open}
@@ -228,7 +236,9 @@ export function AdvanceStatusButton({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {directOnlyLocalStep
+              {completingOrder
+                ? "Confirm remaining balance received"
+                : directOnlyLocalStep
                 ? "Continue direct shipments"
                 : trackingMode === "local"
                   ? "Send to logistic partner"
@@ -240,6 +250,37 @@ export function AdvanceStatusButton({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {completingOrder && (
+              <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm text-slate-700">
+                  Complete this order only after the installation is finished and the customer has paid in full.
+                </p>
+                <dl className="divide-y divide-amber-200 text-sm">
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt>Final order amount</dt>
+                    <dd className="font-semibold">{formatMoney(invoiceTotalCents)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt>Deposit collected</dt>
+                    <dd className="font-semibold">{formatMoney(depositCents)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 py-2">
+                    <dt>Remaining balance</dt>
+                    <dd className="font-semibold">{formatMoney(Math.max(invoiceTotalCents - depositCents, 0))}</dd>
+                  </div>
+                </dl>
+                <label className="flex items-start gap-2 text-sm font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={balanceReceivedConfirmed}
+                    onChange={(event) => setBalanceReceivedConfirmed(event.target.checked)}
+                    disabled={pending}
+                    className="mt-1"
+                  />
+                  I confirm the final order amount and deposit collected above are correct, and the remaining balance has been received in full.
+                </label>
+              </div>
+            )}
             {currentStatus === "quotation_sent" && (
               <div className="space-y-3">
                 <p className="text-sm text-slate-600">Zoho Books will create the full invoice and apply the deposit as a customer payment before this order advances.</p>
@@ -407,14 +448,16 @@ export function AdvanceStatusButton({
               <button
                 type="button"
                 onClick={submit}
-                disabled={pending || photoUploading}
+                disabled={pending || photoUploading || (completingOrder && !balanceReceivedConfirmed)}
                 className="px-4 py-1.5 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
               >
                 {photoUploading
                   ? "Uploading photos…"
                   : pending
                     ? "Saving…"
-                    : directOnlyLocalStep
+                    : completingOrder
+                      ? "Confirm payment & complete"
+                      : directOnlyLocalStep
                       ? "Continue — direct shipments"
                       : trackingMode === "local"
                         ? "Save numbers & mark sent"

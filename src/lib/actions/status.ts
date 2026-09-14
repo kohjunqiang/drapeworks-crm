@@ -31,6 +31,7 @@ const advanceSchema = z.object({
     "Order status invalid",
   ),
   note: z.string().max(2000).optional(),
+  balanceReceivedConfirmed: z.boolean().optional(),
   shipmentNumbers: z.array(z.object({
     category: z.enum(SHIPMENT_CATEGORIES),
     localDeliveryNumber: z.string().trim().max(200).optional(),
@@ -69,6 +70,9 @@ export async function advanceOrderStatus(input: unknown) {
     }
     if (order.current_status !== parsed.expectedStatus) {
       throw new Error("Order status already changed. Refresh and try again.");
+    }
+    if (order.current_status === "fulfilment" && parsed.balanceReceivedConfirmed !== true) {
+      throw new Error("Confirm that the remaining balance has been received before completing this order.");
     }
     if (parsed.expectedStatus === "quotation_sent") {
       const quotation = await trx.selectFrom("order_quotations").select(["status", "zoho_invoice_id", "zoho_payment_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
@@ -200,7 +204,9 @@ export async function advanceOrderStatus(input: unknown) {
     await trx.insertInto("order_status_events").values({
       order_id: parsed.orderId,
       status: next,
-      note: parsed.note?.trim() || (
+      note: next === "completed"
+        ? ["Confirmed remaining balance received in full.", parsed.note?.trim()].filter(Boolean).join("\n\n")
+        : parsed.note?.trim() || (
         directOnlyLocalTransition
           ? "Not applicable — shipments sent directly"
           : null

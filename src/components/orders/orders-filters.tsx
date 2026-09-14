@@ -52,45 +52,89 @@ export function OrdersFilters({ defaults, consultants }: Props) {
   const [, startTransition] = useTransition();
 
   const [q, setQ] = useState(defaults.q ?? "");
+  const [serverQ, setServerQ] = useState(defaults.q ?? "");
+  const [submittedQueries, setSubmittedQueries] = useState<string[]>([]);
+  const [navigationReset, setNavigationReset] = useState(0);
+
+  // An acknowledgement of our own search must not overwrite newer typing.
+  // A link or history navigation should restore the query in the destination.
+  const incomingQ = defaults.q ?? "";
+  if (incomingQ !== serverQ) {
+    setServerQ(incomingQ);
+    const submittedIndex = submittedQueries.indexOf(incomingQ);
+    if (submittedIndex < 0) {
+      setQ(incomingQ);
+      setSubmittedQueries([]);
+      setNavigationReset(navigationReset + 1);
+    } else {
+      setSubmittedQueries(submittedQueries.slice(submittedIndex + 1));
+    }
+  }
   const [status, setStatus] = useState(defaults.status ?? "");
   const [consultant, setConsultant] = useState(defaults.consultant ?? "");
   const [product, setProduct] = useState(defaults.product ?? "");
 
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Cancel an unsent search when a link takes us to a different query.
   useEffect(() => {
     if (debounce.current) clearTimeout(debounce.current);
+  }, [navigationReset]);
+
+  // Search updates must preserve the input node and any newer typing. Browser
+  // history navigation, however, should restore the query from that URL.
+  useEffect(() => {
+    function restoreSearch() {
+      if (debounce.current) clearTimeout(debounce.current);
+      setSubmittedQueries([]);
+      setQ(new URLSearchParams(window.location.search).get("q") ?? "");
+    }
+    window.addEventListener("popstate", restoreSearch);
+    return () => window.removeEventListener("popstate", restoreSearch);
+  }, []);
+
+  useEffect(() => () => {
+    if (debounce.current) clearTimeout(debounce.current);
+  }, []);
+
+  function scheduleSearch(next: {
+    q: string;
+    status: string;
+    consultant: string;
+    product: string;
+  }) {
+    if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
+      setSubmittedQueries((queries) => [...queries, next.q]);
       startTransition(() => {
         router.push(buildHref(pathname, {
-          q,
-          status,
-          consultant,
-          product,
+          ...next,
           sort: defaults.sort,
           dir: defaults.dir,
-        }));
+        }), { scroll: false });
       });
     }, 300);
-    return () => {
-      if (debounce.current) clearTimeout(debounce.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, status, consultant, product]);
+  }
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 mb-4 p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
       <input
         type="text"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          setQ(e.target.value);
+          scheduleSearch({ q: e.target.value, status, consultant, product });
+        }}
         placeholder="Search by customer, development, order, or freight #"
         className={`flex-1 ${INPUT_CLS}`}
       />
       <div className="grid grid-cols-1 sm:flex gap-2 sm:gap-3">
         <AppSelect
           value={status}
-          onChange={setStatus}
+          onChange={(value) => {
+            setStatus(value);
+            scheduleSearch({ q, status: value, consultant, product });
+          }}
           noneLabel="Current orders"
           triggerClassName="w-full sm:w-44"
           options={STATUS_FLOW.map((s: FulfilmentStatus) => ({
@@ -100,14 +144,20 @@ export function OrdersFilters({ defaults, consultants }: Props) {
         />
         <AppSelect
           value={consultant}
-          onChange={setConsultant}
+          onChange={(value) => {
+            setConsultant(value);
+            scheduleSearch({ q, status, consultant: value, product });
+          }}
           noneLabel="All consultants"
           triggerClassName="w-full sm:w-44"
           options={consultants.map((c) => ({ value: c.id, label: c.label }))}
         />
         <AppSelect
           value={product}
-          onChange={setProduct}
+          onChange={(value) => {
+            setProduct(value);
+            scheduleSearch({ q, status, consultant, product: value });
+          }}
           noneLabel="All products"
           triggerClassName="w-full sm:w-36"
           options={[

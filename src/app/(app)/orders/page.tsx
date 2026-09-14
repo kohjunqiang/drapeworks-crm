@@ -415,7 +415,7 @@ export default async function OrdersDashboardPage({
       />
 
       <OrdersFilters
-        key={JSON.stringify({ q, status, consultantId, productLine, sort, direction })}
+        key={JSON.stringify({ status, consultantId, productLine, sort, direction })}
         defaults={{
           q,
           status,

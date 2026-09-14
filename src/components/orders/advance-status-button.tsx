@@ -63,7 +63,8 @@ export function AdvanceStatusButton({
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const [balanceReceivedConfirmed, setBalanceReceivedConfirmed] = useState(false);
-  const completingOrder = currentStatus === "fulfilment";
+  const completingOrder = currentStatus === "installation_completed";
+  const completingInstallation = currentStatus === "fulfilment";
   const [photoUploading, setPhotoUploading] = useState(false);
   const manifestMissing = [
     "sent_to_vendor",
@@ -225,7 +226,7 @@ export function AdvanceStatusButton({
             ? "No shipment orders found"
             : trackingIncomplete
               ? "Complete shipment arrivals first"
-            : completingOrder ? "Confirm balance & complete" : (ctaLabel ?? "Advance →")}
+            : completingOrder ? "Confirm balance received" : completingInstallation ? "Mark installation completed" : (ctaLabel ?? "Advance →")}
       </button>
       <Dialog
         open={open}
@@ -237,7 +238,9 @@ export function AdvanceStatusButton({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {completingOrder
+              {completingInstallation
+                ? "Mark installation completed"
+                : completingOrder
                 ? "Confirm remaining balance received"
                 : directOnlyLocalStep
                 ? "Continue direct shipments"
@@ -254,7 +257,7 @@ export function AdvanceStatusButton({
             {completingOrder && (
               <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <p className="text-sm text-slate-700">
-                  Complete this order only after the installation is finished and the customer has paid in full.
+                  Installation is completed. Confirm the final amount, deposit collected, and receipt of the remaining balance to close this order.
                 </p>
                 <dl className="divide-y divide-amber-200 text-sm">
                   <div className="flex justify-between gap-3 py-2">
@@ -414,9 +417,9 @@ export function AdvanceStatusButton({
             {currentStatus === "fulfilment" && (
               <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div>
-                  <p className="text-sm font-medium text-slate-800">Completed photos</p>
+                  <p className="text-sm font-medium text-slate-800">Installation photos</p>
                   <p className="text-xs text-slate-500">
-                    Upload one or more photos of the finished installation.
+                    Upload photos of the finished installation. The order will remain open until the remaining balance is confirmed.
                   </p>
                 </div>
                 <CompletionPhotoUploader
@@ -456,8 +459,10 @@ export function AdvanceStatusButton({
                   ? "Uploading photos…"
                   : pending
                     ? "Saving…"
-                    : completingOrder
-                      ? "Confirm payment & complete"
+                    : completingInstallation
+                      ? "Confirm installation completed"
+                      : completingOrder
+                      ? "Confirm balance completed"
                       : directOnlyLocalStep
                       ? "Continue — direct shipments"
                       : trackingMode === "local"

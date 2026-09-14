@@ -809,7 +809,7 @@ export default async function OrderDetailPage({
             canRevert={session.profile.role === "admin"}
           />
 
-          {order.current_status === "completed" && (
+          {["installation_completed", "completed"].includes(order.current_status) && (
             <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
               <h2 className="mb-1 text-base font-semibold text-slate-900">
                 Completed photos

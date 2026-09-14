@@ -25,6 +25,7 @@ import type { FulfilmentStatus } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/require-role";
 import {
   ACTIVE_ORDER_STATUSES,
+  AWAITING_BALANCE_STATUSES,
   AWAITING_SHIPMENT_STATUSES,
   DEFAULT_ORDER_LIST_STATUSES,
   IN_PRODUCTION_STATUSES,
@@ -110,6 +111,9 @@ export default async function OrdersDashboardPage({
           ...READY_FOR_INSTALLATION_STATUSES,
         ])
         .as("ready_for_installation"),
+      eb.fn.count<number>("id")
+        .filterWhere("current_status", "in", [...AWAITING_BALANCE_STATUSES])
+        .as("awaiting_balance"),
       eb.fn
         .count<number>("id")
         .filterWhere((fw) =>
@@ -207,8 +211,9 @@ export default async function OrdersDashboardPage({
       when 'shipping_sg' then 6
       when 'delivered_checked' then 7
       when 'fulfilment' then 8
-      when 'completed' then 9
-      else 10 end`, direction);
+      when 'installation_completed' then 9
+      when 'completed' then 10
+      else 11 end`, direction);
   }
 
   const rows = await listQ
@@ -432,6 +437,7 @@ export default async function OrdersDashboardPage({
         inProduction={Number(counts.in_production)}
         awaitingShipment={Number(counts.awaiting_shipment)}
         readyForInstallation={Number(counts.ready_for_installation)}
+        awaitingBalance={Number(counts.awaiting_balance)}
         completedThisMonth={Number(counts.completed_this_month)}
         completedHref={completedHref()}
       />

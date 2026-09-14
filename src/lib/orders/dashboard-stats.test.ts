@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ACTIVE_ORDER_STATUSES,
+  AWAITING_BALANCE_STATUSES,
   AWAITING_SHIPMENT_STATUSES,
   DEFAULT_ORDER_LIST_STATUSES,
   IN_PRODUCTION_STATUSES,
@@ -9,11 +10,12 @@ import {
 } from "./dashboard-stats";
 
 describe("order dashboard status buckets", () => {
-  it("defines active as the exact union of the three operational cards", () => {
+  it("defines active as the exact union of the operational and balance cards", () => {
     const cards = [
       ...IN_PRODUCTION_STATUSES,
       ...AWAITING_SHIPMENT_STATUSES,
       ...READY_FOR_INSTALLATION_STATUSES,
+      ...AWAITING_BALANCE_STATUSES,
     ];
     expect(ACTIVE_ORDER_STATUSES).toEqual(cards);
     expect(new Set(cards).size).toBe(cards.length);
@@ -36,5 +38,6 @@ describe("order dashboard status buckets", () => {
     expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("deposit_received");
     expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("po_ready");
     expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("completed");
+    expect(DEFAULT_ORDER_LIST_STATUSES).toContain("installation_completed");
   });
 });

@@ -12,11 +12,14 @@ export const READY_FOR_INSTALLATION_STATUSES = [
   "fulfilment",
 ] as const satisfies readonly FulfilmentStatus[];
 
-/** Active is exactly the sum of the three non-overlapping operational cards. */
+export const AWAITING_BALANCE_STATUSES = ["installation_completed"] as const satisfies readonly FulfilmentStatus[];
+
+/** Active includes installed orders still awaiting their final balance. */
 export const ACTIVE_ORDER_STATUSES = [
   ...IN_PRODUCTION_STATUSES,
   ...AWAITING_SHIPMENT_STATUSES,
   ...READY_FOR_INSTALLATION_STATUSES,
+  ...AWAITING_BALANCE_STATUSES,
 ] as const satisfies readonly FulfilmentStatus[];
 
 /** What the unfiltered Orders page shows: pipeline entry plus active work. */

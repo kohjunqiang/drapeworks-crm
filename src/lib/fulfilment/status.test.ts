@@ -13,6 +13,7 @@ describe("canScheduleInstallation", () => {
 
   it("does not schedule before measurements are frozen or after completion", () => {
     expect(canScheduleInstallation("deposit_received")).toBe(false);
+    expect(canScheduleInstallation("installation_completed")).toBe(false);
     expect(canScheduleInstallation("completed")).toBe(false);
   });
 });

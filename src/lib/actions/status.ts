@@ -71,7 +71,7 @@ export async function advanceOrderStatus(input: unknown) {
     if (order.current_status !== parsed.expectedStatus) {
       throw new Error("Order status already changed. Refresh and try again.");
     }
-    if (order.current_status === "fulfilment" && parsed.balanceReceivedConfirmed !== true) {
+    if (order.current_status === "installation_completed" && parsed.balanceReceivedConfirmed !== true) {
       throw new Error("Confirm that the remaining balance has been received before completing this order.");
     }
     if (parsed.expectedStatus === "quotation_sent") {

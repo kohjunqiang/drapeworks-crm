@@ -43,7 +43,7 @@ export type FreightMode = "air" | "sea";
 
 export type FulfilmentArrangementEventType = "booked" | "cancelled" | "rescheduled";
 
-export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "order_recorded" | "po_ready" | "quotation_sent" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
+export type FulfilmentStatus = "completed" | "delivered_checked" | "deposit_received" | "fulfilment" | "installation_completed" | "order_recorded" | "po_ready" | "quotation_sent" | "sent_logistic" | "sent_to_vendor" | "shipping_sg";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>

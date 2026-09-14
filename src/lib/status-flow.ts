@@ -11,6 +11,7 @@ export const STATUS_FLOW: FulfilmentStatus[] = [
   "shipping_sg",
   "delivered_checked",
   "fulfilment",
+  "installation_completed",
   "completed",
 ];
 
@@ -24,6 +25,7 @@ export const STATUS_LABELS: Record<FulfilmentStatus, string> = {
   shipping_sg: "Shipping to SG",
   delivered_checked: "Delivered & Checked",
   fulfilment: "Fulfillment Arrangement",
+  installation_completed: "Installation Completed",
   completed: "Completed",
 };
 
@@ -37,6 +39,7 @@ export const STATUS_COLOURS: Record<FulfilmentStatus, string> = {
   shipping_sg: "bg-blue-100 text-blue-700",
   delivered_checked: "bg-emerald-100 text-emerald-700",
   fulfilment: "bg-purple-100 text-purple-700",
+  installation_completed: "bg-amber-100 text-amber-800",
   completed: "bg-green-100 text-green-700",
 };
 

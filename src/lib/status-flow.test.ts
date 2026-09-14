@@ -23,6 +23,7 @@ describe("STATUS_FLOW", () => {
       "shipping_sg",
       "delivered_checked",
       "fulfilment",
+      "installation_completed",
       "completed",
     ]);
   });
@@ -77,6 +78,8 @@ describe("nextStatus", () => {
   });
 
   it("returns null at the end of the flow", () => {
+    expect(nextStatus("fulfilment")).toBe("installation_completed");
+    expect(nextStatus("installation_completed")).toBe("completed");
     expect(nextStatus("completed")).toBeNull();
   });
 });
@@ -103,6 +106,7 @@ describe("isLocked", () => {
     expect(isLocked("shipping_sg")).toBe(true);
     expect(isLocked("delivered_checked")).toBe(true);
     expect(isLocked("fulfilment")).toBe(true);
+    expect(isLocked("installation_completed")).toBe(true);
     expect(isLocked("completed")).toBe(true);
   });
 });

@@ -64,6 +64,7 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
       statusIndex(order.current_status) >= statusIndex("shipping_sg");
     if (
       overseasRequired &&
+      state.shipments.some((shipment) => !shipment.notNeeded) &&
       !parsed.shipments.some((shipment) => shipment.overseasFreightNumber)
     ) {
       throw new Error("Enter an overseas freight number for at least one shipment.");
@@ -72,6 +73,7 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
       const existing = state.shipments.find(
         (row) => row.category === shipment.category,
       );
+      if (existing?.notNeeded) continue;
       const localChanged = requiresLocalDelivery(shipment.category) &&
         shipment.localDeliveryNumber !== existing?.localDeliveryNumber;
       const overseasChanged = overseasRequired &&
@@ -172,6 +174,7 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
         "order_shipments.overseas_freight_number",
         "order_shipments.overseas_freight_assigned_at",
         "order_shipments.arrived_checked_at",
+        "order_shipments.not_needed",
         "orders.current_status",
       ])
       .where((eb) => eb.or(parsed.components.map(({ orderId, category }) =>
@@ -193,6 +196,7 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
     const affected = new Set<string>();
 
     for (const row of rows.values()) {
+      if (row.not_needed) throw new Error("This shipment is marked Not needed. Restore it before assigning freight.");
       const existingNumber = usableFreightNumber(row.overseas_freight_number) ?? "";
       const existingNormalized = normalizeFreightNumber(existingNumber);
       const belongsToThisCode = existingNormalized === freightNumber;
@@ -284,6 +288,7 @@ export async function saveShipmentArrivals(
         (shipment) => shipment.category === arrival.category,
       );
       if (!existing) throw new Error("Shipment order not found");
+      if (existing.notNeeded) throw new Error("This shipment is marked Not needed. Restore it before recording arrival.");
       if (new Date(existing.updatedAt).getTime() !== arrival.expectedUpdatedAt.getTime()) {
         throw new Error(
           "Shipment arrival progress was updated by someone else. Refresh and try again.",
@@ -405,4 +410,43 @@ export async function reopenShipmentArrival(input: unknown): Promise<void> {
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath("/orders");
+}
+
+const neededSchema = z.object({
+  orderId: z.string().uuid(),
+  category: z.enum(SHIPMENT_CATEGORIES),
+  notNeeded: z.boolean(),
+  expectedUpdatedAt: z.coerce.date(),
+});
+
+export async function setShipmentNotNeeded(input: unknown): Promise<void> {
+  const session = await requireRole(["ops", "admin"]);
+  const parsed = neededSchema.parse(input);
+  await db.transaction().execute(async (trx) => {
+    const order = await trx.selectFrom("orders").select("current_status")
+      .where("id", "=", parsed.orderId).forUpdate().executeTakeFirstOrThrow();
+    if (statusIndex(order.current_status) < statusIndex("sent_to_vendor") ||
+        statusIndex(order.current_status) >= statusIndex("delivered_checked")) {
+      throw new Error("Shipment requirements can only change before Delivered & Checked.");
+    }
+    const shipment = await trx.selectFrom("order_shipments").selectAll()
+      .where("order_id", "=", parsed.orderId).where("category", "=", parsed.category)
+      .forUpdate().executeTakeFirstOrThrow();
+    if (new Date(shipment.updated_at).getTime() !== parsed.expectedUpdatedAt.getTime()) {
+      throw new Error("Shipment changed. Refresh and try again.");
+    }
+    if (shipment.arrived_checked_at || usableFreightNumber(shipment.overseas_freight_number)) {
+      throw new Error("Only unassigned shipments can be marked Not needed.");
+    }
+    if (shipment.not_needed === parsed.notNeeded) return;
+    await trx.updateTable("order_shipments").set({ not_needed: parsed.notNeeded })
+      .where("order_id", "=", parsed.orderId).where("category", "=", parsed.category).execute();
+    await trx.insertInto("order_status_events").values({
+      order_id: parsed.orderId, status: order.current_status,
+      note: `${parsed.category}: ${parsed.notNeeded ? "marked Not needed" : "restored as needed"}`,
+      created_by: session.user.id,
+    }).execute();
+  });
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${parsed.orderId}`);
 }

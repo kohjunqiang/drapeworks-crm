@@ -73,10 +73,10 @@ export function AdvanceStatusButton({
   const trackingIncomplete =
     currentStatus === "shipping_sg" &&
     shipments.some((shipment) =>
-      (requiresLocalDelivery(shipment.category) &&
+      !shipment.notNeeded && ((requiresLocalDelivery(shipment.category) &&
         !shipment.localDeliveryNumber?.trim()) ||
       !shipment.overseasFreightNumber?.trim() ||
-      !shipment.arrivedCheckedAt);
+      !shipment.arrivedCheckedAt));
   const trackingMode = currentStatus === "sent_to_vendor"
     ? "local" as const
     : currentStatus === "sent_logistic"
@@ -122,6 +122,7 @@ export function AdvanceStatusButton({
     if (trackingMode) {
       const nextErrors: Record<string, string> = {};
       for (const shipment of shipments) {
+        if (shipment.notNeeded) continue;
         if (
           requiresLocalDelivery(shipment.category) &&
           !localNumbers[shipment.category]?.trim()
@@ -130,7 +131,7 @@ export function AdvanceStatusButton({
         }
       }
       if (
-        trackingMode === "overseas" &&
+        trackingMode === "overseas" && shipments.some((shipment) => !shipment.notNeeded) &&
         !shipments.some((shipment) =>
           overseasNumbers[shipment.category]?.trim())
       ) {
@@ -157,7 +158,7 @@ export function AdvanceStatusButton({
               ? shipments.map((shipment) => ({
                 category: shipment.category,
                 localDeliveryNumber: requiresLocalDelivery(shipment.category)
-                  ? localNumbers[shipment.category].trim()
+                  ? (localNumbers[shipment.category] ?? "").trim()
                   : undefined,
                 overseasFreightNumber: trackingMode === "overseas"
                   ? overseasNumbers[shipment.category].trim() || undefined
@@ -319,7 +320,7 @@ export function AdvanceStatusButton({
                   </p>
                 )}
                 <div className="space-y-3">
-                  {shipments.map((shipment, index) => {
+                  {shipments.filter((shipment) => !shipment.notNeeded).map((shipment, index) => {
                     const localId = `advance-${shipment.category}-local`;
                     const overseasId = `advance-${shipment.category}-overseas`;
                     const localError = fieldErrors[`${shipment.category}-local`];

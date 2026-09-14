@@ -36,7 +36,7 @@ export function DeliveryNumbersCard({
 }: Props) {
   const router = useRouter();
   const [drafts, setDrafts] = useState<ShipmentValues[] | null>(null);
-  const shipments = drafts ?? initial;
+  const shipments = (drafts ?? initial).filter((shipment) => !shipment.notNeeded);
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const [arrivalPending, startArrivalTransition] = useTransition();
@@ -54,7 +54,7 @@ export function DeliveryNumbersCard({
     statusIndex(currentStatus) >= statusIndex("sent_logistic");
   const overseasReached =
     statusIndex(currentStatus) >= statusIndex("shipping_sg");
-  const incomplete = initial.some((shipment) =>
+  const incomplete = initial.filter((shipment) => !shipment.notNeeded).some((shipment) =>
     (localReached && requiresLocalDelivery(shipment.category) &&
       !shipment.localDeliveryNumber?.trim()) ||
     (overseasReached && !shipment.overseasFreightNumber?.trim()));
@@ -62,7 +62,7 @@ export function DeliveryNumbersCard({
     currentStatus === "shipping_sg"
       ? Boolean(arrivalDrafts[shipment.category])
       : Boolean(shipment.arrivedCheckedAt)).length;
-  const allDraftArrived = shipments.length > 0 && arrivedCount === shipments.length;
+  const allDraftArrived = initial.length > 0 && arrivedCount === shipments.length;
   const hasArrivalChanges = initial.some((shipment) =>
     Boolean(shipment.arrivedCheckedAt) !==
       Boolean(arrivalDrafts[shipment.category]));
@@ -104,7 +104,7 @@ export function DeliveryNumbersCard({
       try {
         await saveDeliveryNumbers({
           orderId,
-          shipments: shipments.map((shipment) => ({
+          shipments: (drafts ?? initial).map((shipment) => ({
             ...shipment,
             expectedUpdatedAt: new Date(shipment.updatedAt).toISOString(),
           })),
@@ -210,6 +210,11 @@ export function DeliveryNumbersCard({
             Enter all required shipment numbers.
           </p>
         )}
+        {initial.filter((shipment) => shipment.notNeeded).map((shipment) => (
+          <div key={shipment.category} className="rounded border border-slate-200 p-3 text-sm text-slate-500">
+            {SHIPMENT_CATEGORY_LABELS[shipment.category]} · Not needed
+          </div>
+        ))}
         {shipments.map((shipment) => {
           const label = SHIPMENT_CATEGORY_LABELS[shipment.category];
           const localId = `${shipment.category}-local-number`;

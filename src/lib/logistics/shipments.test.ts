@@ -160,3 +160,25 @@ describe("validateAllShipmentsArrived", () => {
     )).toBeNull();
   });
 });
+
+describe("shipments marked not needed", () => {
+  const skipped: ShipmentValues = {
+    category: "standard_tracks", notNeeded: true,
+    localDeliveryNumber: null, overseasFreightNumber: null,
+    arrivedCheckedAt: null, arrivalNote: null,
+    legacyLocalDeliveryNumber: null, legacyOverseasFreightNumber: null,
+    source: "derived", updatedAt: new Date(),
+  };
+  it("does not require tracking or arrival for an excluded shipment", () => {
+    expect(validateShipmentNumbersForTransition(["standard_tracks"], [skipped], "overseas")).toBeNull();
+    expect(validateAllShipmentsArrived(["standard_tracks"], [skipped])).toBeNull();
+  });
+  it("requires tracking again after restoring a shipment", () => {
+    const restored = { ...skipped, notNeeded: false };
+    expect(validateAllShipmentsArrived(["standard_tracks"], [restored])).not.toBeNull();
+  });
+  it("does not excuse another required shipment", () => {
+    const required = { ...skipped, category: "s_fold_tracks" as const, notNeeded: false };
+    expect(validateAllShipmentsArrived(["standard_tracks", "s_fold_tracks"], [skipped, required])).not.toBeNull();
+  });
+});

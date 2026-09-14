@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   assignFreightComponents,
+  setShipmentNotNeeded,
   saveShipmentArrivals,
 } from "@/lib/actions/logistics";
 import type { FulfilmentStatus } from "@/lib/db/schema";
@@ -48,10 +49,11 @@ export type FreightComponent = {
   updatedAt: string;
   currentStatus: FulfilmentStatus;
   assignable: boolean;
+  notNeeded?: boolean;
 };
 
 type FreightManagerContextValue = {
-  openFreight: (freightNumber?: string, search?: string) => void;
+  openFreight: (freightNumber?: string, search?: string, target?: Pick<FreightComponent, "orderId" | "category">) => void;
 };
 
 const FreightManagerContext = createContext<FreightManagerContextValue | null>(null);
@@ -93,20 +95,43 @@ export function FreightManagerProvider({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [savedSelection, setSavedSelection] = useState<Set<string>>(new Set());
+  const [assignmentTarget, setAssignmentTarget] = useState<string | null>(null);
   const [confirmReassign, setConfirmReassign] = useState(false);
   const [pending, startTransition] = useTransition();
   const [arrivalPending, startArrivalTransition] = useTransition();
 
-  const openFreight = useCallback((number = "", initialSearch = "") => {
+  const openFreight = useCallback((number = "", initialSearch = "", target?: Pick<FreightComponent, "orderId" | "category">) => {
     const normalized = normalizeFreightNumber(number);
     const initial = selectionForCode(components, normalized);
+    const targetKey = target && components.some((component) =>
+      componentKey(component) === componentKey(target))
+      ? componentKey(target) : null;
+    setAssignmentTarget(targetKey);
     setFreightNumber(normalized);
-    setSelected(initial);
+    setSelected(new Set([...initial, ...(targetKey && components.find((component) => componentKey(component) === targetKey)?.assignable ? [targetKey] : [])]));
     setSavedSelection(new Set(initial));
     setSearch(initialSearch);
     setConfirmReassign(false);
     setOpen(true);
   }, [components]);
+
+  const targetComponent = components.find((component) => componentKey(component) === assignmentTarget);
+  function toggleNeeded() {
+    if (!targetComponent) return;
+    startTransition(async () => {
+      try {
+        await setShipmentNotNeeded({
+          orderId: targetComponent.orderId, category: targetComponent.category,
+          notNeeded: !targetComponent.notNeeded, expectedUpdatedAt: targetComponent.updatedAt,
+        });
+        toast.success(targetComponent.notNeeded ? "Shipment restored" : "Shipment marked Not needed");
+        setOpen(false);
+        router.refresh();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not update shipment");
+      }
+    });
+  }
 
   const normalizedFreight = normalizeFreightNumber(freightNumber);
   const currentMembers = useMemo(
@@ -171,7 +196,7 @@ export function FreightManagerProvider({
   function changeFreightNumber(value: string) {
     setFreightNumber(value);
     const existing = selectionForCode(components, value);
-    setSelected(existing);
+    setSelected(new Set([...existing, ...(assignmentTarget && components.find((component) => componentKey(component) === assignmentTarget)?.assignable ? [assignmentTarget] : [])]));
     setSavedSelection(new Set(existing));
     setConfirmReassign(false);
   }
@@ -214,7 +239,7 @@ export function FreightManagerProvider({
       try {
         const orderComponents = components.filter((row) => row.orderId === component.orderId);
         const completesOrder = orderComponents.every((row) =>
-          row.arrivedCheckedAt || componentKey(row) === componentKey(component));
+          row.notNeeded || row.arrivedCheckedAt || componentKey(row) === componentKey(component));
         await saveShipmentArrivals({
           orderId: component.orderId,
           arrivals: [{
@@ -247,7 +272,7 @@ export function FreightManagerProvider({
           const arrivingKeys = new Set(arrivals.map(componentKey));
           const orderComponents = components.filter((row) => row.orderId === orderId);
           const completesOrder = orderComponents.every((row) =>
-            row.arrivedCheckedAt || arrivingKeys.has(componentKey(row)));
+            row.notNeeded || row.arrivedCheckedAt || arrivingKeys.has(componentKey(row)));
           await saveShipmentArrivals({
             orderId,
             arrivals: arrivals.map((component) => ({
@@ -274,7 +299,7 @@ export function FreightManagerProvider({
     <FreightManagerContext.Provider value={{ openFreight }}>
       {children}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="w-full gap-0 sm:!w-[640px] sm:!max-w-[640px]">
+        <SheetContent className="!w-full gap-0 sm:!w-[640px] sm:!max-w-[640px] [&_button]:min-h-11 [&_button]:min-w-11 [&_input:not([type=checkbox])]:min-h-11 [&_input]:text-base sm:[&_input]:text-sm">
           <SheetHeader className="border-b border-slate-200 px-5 py-4 pr-14">
             <SheetTitle className="flex items-center gap-2 text-lg">
               <Truck className="size-5 text-teal-700" /> Manage overseas freight
@@ -287,6 +312,15 @@ export function FreightManagerProvider({
           <div className="flex-1 overflow-y-auto">
             <div className={`space-y-4 p-5 ${normalizedFreight ? "border-b border-slate-200" : ""}`}>
               <div className="space-y-1.5">
+                {targetComponent && canManage && !targetComponent.freightNumber && !targetComponent.arrivedCheckedAt && (
+                  <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-sm font-medium">{targetComponent.orderIdentifier} · {SHIPMENT_CATEGORY_LABELS[targetComponent.category]}</p>
+                    <p className="mt-1 text-xs text-slate-600">{targetComponent.notNeeded ? "This shipment is not needed. Restore it to assign freight." : "If this shipment is not required for the order, mark it Not needed."}</p>
+                    <Button type="button" variant="outline" className="mt-2" disabled={pending} onClick={toggleNeeded}>
+                      {targetComponent.notNeeded ? "Restore as needed" : "Mark as not needed"}
+                    </Button>
+                  </div>
+                )}
                 <label htmlFor="freight-code" className="text-xs font-semibold text-slate-700">
                   Freight code
                 </label>
@@ -498,16 +532,23 @@ export function FreightPillButton({
   );
 }
 
-export function AssignFreightButton({ orderIdentifier }: { orderIdentifier: string }) {
+export function AssignFreightButton({ orderIdentifier, target, children = "Assign freight", className, ariaLabel }: {
+  orderIdentifier: string;
+  target?: Pick<FreightComponent, "orderId" | "category">;
+  children?: ReactNode;
+  className?: string;
+  ariaLabel?: string;
+}) {
   const manager = useContext(FreightManagerContext);
   if (!manager) return null;
   return (
     <button
       type="button"
-      className="rounded px-1.5 py-1 text-xs font-medium text-teal-700 outline-none hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-500"
-      onClick={() => manager.openFreight("", orderIdentifier)}
+      className={className ?? "rounded px-1.5 py-1 text-xs font-medium text-teal-700 outline-none hover:bg-teal-50 focus-visible:ring-2 focus-visible:ring-teal-500"}
+      aria-label={ariaLabel}
+      onClick={() => manager.openFreight("", orderIdentifier, target)}
     >
-      Assign freight
+      {children}
     </button>
   );
 }

@@ -99,6 +99,7 @@ export async function loadOrderShipmentState(
   const rows = await executor.selectFrom("order_shipments")
     .select([
       "category",
+      "not_needed",
       "local_delivery_number",
       "overseas_freight_number",
       "overseas_freight_assigned_at",
@@ -121,6 +122,7 @@ export async function loadOrderShipmentState(
     const row = rowByCategory.get(category);
     return {
       category,
+      notNeeded: row?.not_needed ?? false,
       localDeliveryNumber: row?.local_delivery_number ?? null,
       overseasFreightNumber: row?.overseas_freight_number ?? null,
       overseasFreightAssignedAt: row?.overseas_freight_assigned_at ?? null,

@@ -13,6 +13,7 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { db } from "@/lib/db/kysely";
 import { orderStaleFlags } from "@/lib/pricing/order-quote";
+import { shipmentItemLabels, type ShipmentItemWindow } from "@/lib/logistics/shipment-items";
 import { SHIPMENT_CATEGORIES } from "@/lib/logistics/shipments";
 import {
   normalizeFreightNumber,
@@ -221,6 +222,7 @@ export default async function OrdersDashboardPage({
     .select([
       "order_shipments.order_id",
       "order_shipments.category",
+      "order_shipments.not_needed",
       "order_shipments.overseas_freight_number",
       "order_shipments.overseas_freight_assigned_at",
       "order_shipments.arrived_checked_at",
@@ -252,6 +254,22 @@ export default async function OrdersDashboardPage({
     if (!current || iso < current) batchStartedAt.set(key, iso);
   }
 
+  // One bounded lookup for the visible orders, rather than a query per row.
+  const itemWindows = rows.length ? await db.selectFrom("windows")
+    .innerJoin("rooms", "rooms.id", "windows.room_id")
+    .leftJoin("curtain_types as blind_type", "blind_type.id", "windows.blind_type_id")
+    .leftJoin("curtain_series as blind_series", "blind_series.id", "blind_type.series_id")
+    .select(["rooms.order_id", "windows.day_curtain_type_id", "windows.night_curtain_type_id",
+      "windows.blind_type_id", "blind_series.name as blind_series"])
+    .where("rooms.order_id", "in", rows.map((row) => row.id))
+    .execute() : [];
+  const windowsByOrder = new Map<string, ShipmentItemWindow[]>();
+  for (const window of itemWindows) {
+    const windows = windowsByOrder.get(window.order_id) ?? [];
+    windows.push(window);
+    windowsByOrder.set(window.order_id, windows);
+  }
+
   const visibleOrderIds = new Set(rows.map((row) => row.id));
   const categoryOrder = new Map(
     SHIPMENT_CATEGORIES.map((category, index) => [category, index]),
@@ -260,17 +278,20 @@ export default async function OrdersDashboardPage({
   for (const shipment of freightRows) {
     if (!visibleOrderIds.has(shipment.order_id)) continue;
     const freightNumber = usableFreightNumber(shipment.overseas_freight_number);
-    if (!freightNumber) continue;
     const orderShipments = shipmentsByOrder.get(shipment.order_id) ?? [];
-    orderShipments.push({
-      category: shipment.category,
-      freightNumber,
-      batchStartedAt:
-        batchStartedAt.get(normalizeFreightNumber(freightNumber)) ?? null,
-      arrivedCheckedAt: shipment.arrived_checked_at
-        ? new Date(shipment.arrived_checked_at).toISOString()
-        : null,
-    });
+    for (const label of shipmentItemLabels(shipment.category, windowsByOrder.get(shipment.order_id) ?? [])) {
+      orderShipments.push({
+        label,
+        notNeeded: shipment.not_needed,
+        category: shipment.category,
+        freightNumber,
+        batchStartedAt:
+          freightNumber ? batchStartedAt.get(normalizeFreightNumber(freightNumber)) ?? null : null,
+        arrivedCheckedAt: shipment.arrived_checked_at
+          ? new Date(shipment.arrived_checked_at).toISOString()
+          : null,
+      });
+    }
     shipmentsByOrder.set(shipment.order_id, orderShipments);
   }
   for (const shipments of shipmentsByOrder.values()) {
@@ -313,6 +334,7 @@ export default async function OrdersDashboardPage({
     customerName: shipment.customer_name,
     development: shipment.development,
     category: shipment.category,
+    notNeeded: shipment.not_needed,
     freightNumber: usableFreightNumber(shipment.overseas_freight_number),
     freightAssignedAt: shipment.overseas_freight_assigned_at
       ? new Date(shipment.overseas_freight_assigned_at).toISOString()
@@ -325,7 +347,7 @@ export default async function OrdersDashboardPage({
     assignable:
       ["sent_to_vendor", "sent_logistic", "shipping_sg"].includes(
         shipment.current_status,
-      ) && !shipment.arrived_checked_at,
+      ) && !shipment.arrived_checked_at && !shipment.not_needed,
   }));
 
   // Distinct consultants present in the orders table (for the filter dropdown).

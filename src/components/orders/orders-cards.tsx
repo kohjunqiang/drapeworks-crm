@@ -1,14 +1,10 @@
+import { OrderShipmentItems } from "./order-shipment-items";
 import Link from "next/link";
 
 import { formatSGD } from "@/lib/money";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
-import { SHIPMENT_CATEGORY_LABELS } from "@/lib/logistics/shipments";
 
 import { productLineLabel } from "./orders-table";
-import { formatFreightAge } from "@/lib/logistics/freight";
-import { FreightPillButton } from "./freight-manager";
-import { AssignFreightButton } from "./freight-manager";
-import { shipmentCategoryTone } from "./shipment-presentation";
 
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
@@ -65,45 +61,11 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
           <div className="text-xs text-slate-500 mt-2">
             Product: {productLineLabel(o.product_line)}
           </div>
-          {o.shipments.length > 0 && (
+          </Link>
+          {(o.shipments.length > 0 || o.hasFreightComponents) && (
             <div className="mt-2 space-y-1.5 text-xs">
-              <div className="font-medium text-slate-600">Overseas freight</div>
-              {o.shipments.map((shipment) => (
-                <FreightPillButton
-                  key={shipment.category}
-                  freightNumber={shipment.freightNumber}
-                  ariaLabel={`Open freight ${shipment.freightNumber} for ${SHIPMENT_CATEGORY_LABELS[shipment.category]}`}
-                  className={`flex w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 ${shipmentCategoryTone(shipment.category).pill}`}
-                >
-                  <span
-                    className={`inline-flex items-center gap-1.5 ${shipmentCategoryTone(shipment.category).label}`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`h-2 w-2 shrink-0 rounded-full ${shipmentCategoryTone(shipment.category).dot}`}
-                    />
-                    {SHIPMENT_CATEGORY_LABELS[shipment.category]}
-                  </span>
-                  <span className="font-mono font-semibold text-slate-800">
-                    {shipment.freightNumber}
-                  </span>
-                  {shipment.arrivedCheckedAt ? (
-                    <span className="border-l border-slate-300 pl-2 font-semibold text-emerald-700">
-                      Arrived
-                    </span>
-                  ) : shipment.batchStartedAt ? (
-                    <span className="border-l border-slate-300 pl-2 font-medium text-slate-600">
-                      {formatFreightAge(shipment.batchStartedAt)} in transit
-                    </span>
-                  ) : null}
-                </FreightPillButton>
-              ))}
-            </div>
-          )}
-          {o.shipments.length === 0 && o.hasFreightComponents && (
-            <div className="mt-2 text-xs">
-              <span className="mr-1 font-medium text-slate-600">Overseas freight</span>
-              <AssignFreightButton orderIdentifier={primaryOrderIdentifier(o.order_reference, o.display_id)} />
+              <div className="font-medium text-slate-600">Shippable items / freight</div>
+              <OrderShipmentItems order={o} />
             </div>
           )}
           <div className="text-xs text-slate-500 mt-2">
@@ -114,7 +76,6 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
               {o.consultant_name}
             </div>
           )}
-          </Link>
           {canDelete && (
             <div className="mt-3 flex justify-end border-t border-slate-100 pt-2">
               <DeleteOrderDialog

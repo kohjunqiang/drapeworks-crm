@@ -4,15 +4,12 @@ import type { FulfilmentStatus } from "@/lib/db/schema";
 import { formatSGD } from "@/lib/money";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import {
-  SHIPMENT_CATEGORY_LABELS,
   type ShipmentCategory,
 } from "@/lib/logistics/shipments";
-import { formatFreightAge } from "@/lib/logistics/freight";
 
 import { StatusBadge } from "./status-badge";
 import { DeleteOrderDialog } from "./delete-order-dialog";
-import { AssignFreightButton, FreightPillButton } from "./freight-manager";
-import { shipmentCategoryTone } from "./shipment-presentation";
+import { OrderShipmentItems } from "./order-shipment-items";
 
 export type OrderRow = {
   id: string;
@@ -28,7 +25,9 @@ export type OrderRow = {
   product_line: "curtain" | "mesh";
   shipments: Array<{
     category: ShipmentCategory;
-    freightNumber: string;
+    label: string;
+    notNeeded?: boolean;
+    freightNumber: string | null;
     batchStartedAt: string | null;
     arrivedCheckedAt: string | null;
   }>;
@@ -116,7 +115,7 @@ export function OrdersTable({
             <th className="text-left px-4 py-3 font-medium">Customer</th>
             <th className="text-left px-4 py-3 font-medium">Development</th>
             <th className="text-left px-4 py-3 font-medium">Product</th>
-            <th className="min-w-72 px-4 py-3 text-left font-medium">Overseas freight</th>
+            <th className="min-w-72 px-4 py-3 text-left font-medium">Shippable items / freight</th>
             <th className="text-left px-4 py-3 font-medium">Move-in</th>
             <th className="text-left px-4 py-3 font-medium">Installation date</th>
             <SortableHeader
@@ -153,42 +152,7 @@ export function OrdersTable({
                 {productLineLabel(o.product_line)}
               </td>
               <td className="px-4 py-3 text-slate-600">
-                {o.shipments.length === 0 ? (
-                  o.hasFreightComponents ? (
-                    <AssignFreightButton orderIdentifier={primaryOrderIdentifier(o.order_reference, o.display_id)} />
-                  ) : (
-                    <span aria-label="No overseas freight numbers">—</span>
-                  )
-                ) : (
-                  <ul className="space-y-1.5" aria-label="Overseas freight numbers">
-                    {o.shipments.map((shipment) => (
-                      <li
-                        key={shipment.category}
-                      >
-                        <FreightPillButton
-                          freightNumber={shipment.freightNumber}
-                          ariaLabel={`Open freight ${shipment.freightNumber} for ${SHIPMENT_CATEGORY_LABELS[shipment.category]}`}
-                          className={`flex w-fit items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 text-xs ${shipmentCategoryTone(shipment.category).pill}`}
-                        >
-                          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${shipmentCategoryTone(shipment.category).label}`}>
-                            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${shipmentCategoryTone(shipment.category).dot}`} />
-                            {SHIPMENT_CATEGORY_LABELS[shipment.category]}
-                          </span>
-                          <span className="font-mono font-semibold text-slate-900">{shipment.freightNumber}</span>
-                          {shipment.arrivedCheckedAt ? (
-                            <span className="border-l border-slate-300 pl-2 font-semibold text-emerald-700">
-                              Arrived
-                            </span>
-                          ) : shipment.batchStartedAt ? (
-                            <span className="border-l border-slate-300 pl-2 font-medium text-slate-600">
-                              {formatFreightAge(shipment.batchStartedAt)} in transit
-                            </span>
-                          ) : null}
-                        </FreightPillButton>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <OrderShipmentItems order={o} />
               </td>
               <td className="px-4 py-3 text-slate-600">
                 {formatDate(o.move_in_date)}

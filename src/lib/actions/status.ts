@@ -151,6 +151,7 @@ export async function advanceOrderStatus(input: unknown) {
       );
       if (validationError) throw new Error(validationError);
       for (const number of submittedNumbers ?? []) {
+        if (state.shipments.find((shipment) => shipment.category === number.category)?.notNeeded) continue;
         if (
           trackingMode === "local" &&
           !requiresLocalDelivery(number.category)

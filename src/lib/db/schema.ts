@@ -1078,6 +1078,7 @@ export interface OrderStatusEvents {
 }
 
 export interface OrderShipments {
+  not_needed: Generated<boolean>;
   arrival_note: string | null;
   arrived_checked_at: Timestamp | null;
   arrived_checked_by: string | null;

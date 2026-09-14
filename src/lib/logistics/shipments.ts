@@ -10,6 +10,7 @@ export const SHIPMENT_CATEGORIES = [
 export type ShipmentCategory = (typeof SHIPMENT_CATEGORIES)[number];
 
 export type ShipmentValues = {
+  notNeeded?: boolean;
   category: ShipmentCategory;
   localDeliveryNumber: string | null;
   overseasFreightNumber: string | null;
@@ -96,18 +97,19 @@ export function validateShipmentNumbersForTransition(
   }
   if (
     received.some((shipment) =>
-      requiresLocalDelivery(shipment.category) &&
+      !shipment.notNeeded && requiresLocalDelivery(shipment.category) &&
       !shipment.localDeliveryNumber?.trim())
   ) {
     return "Enter a local delivery number for Curtains, Blinds and Mesh shipments.";
   }
   if (
     mode === "overseas" &&
-    !received.some((shipment) => shipment.overseasFreightNumber?.trim())
+    received.some((shipment) => !shipment.notNeeded) &&
+    !received.some((shipment) => !shipment.notNeeded && shipment.overseasFreightNumber?.trim())
   ) {
     return "Enter an overseas freight number for at least one shipment.";
   }
-  if (received.some((shipment) => shipment.source === "legacy_combined")) {
+  if (received.some((shipment) => !shipment.notNeeded && shipment.source === "legacy_combined")) {
     return "Confirm a dedicated number for each imported combined shipment.";
   }
   return null;
@@ -126,10 +128,10 @@ export function validateAllShipmentsArrived(
   )) {
     return "Shipment orders changed. Refresh and try again.";
   }
-  if (received.some((shipment) => !shipment.overseasFreightNumber?.trim())) {
+  if (received.some((shipment) => !shipment.notNeeded && !shipment.overseasFreightNumber?.trim())) {
     return "Enter an overseas freight number for every shipment.";
   }
-  if (received.some((shipment) => !shipment.arrivedCheckedAt)) {
+  if (received.some((shipment) => !shipment.notNeeded && !shipment.arrivedCheckedAt)) {
     return "Mark every shipment as arrived and checked before advancing.";
   }
   return null;

@@ -71,13 +71,14 @@ async function assertBuildable(rooms: {
   }
 }
 
-export async function createMeshOrder(input: unknown): Promise<never> {
+export async function createMeshOrder(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[] }> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: MeshOrderCreateInput = meshOrderCreateSchema.parse(input);
   await assertBuildable(parsed.rooms);
 
   const copiedPhotoPaths: string[] = [];
   let orderId: string;
+  const roomIds: string[] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
@@ -115,6 +116,7 @@ export async function createMeshOrder(input: unknown): Promise<never> {
         })
         .returning("id")
         .executeTakeFirstOrThrow();
+      roomIds.push(insertedRoom.id);
 
       for (let p = 0; p < room.panels.length; p++) {
         await trx
@@ -169,6 +171,7 @@ export async function createMeshOrder(input: unknown): Promise<never> {
 
   await stampQuoteBaseline(orderId);
 
+  if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }
 
@@ -330,12 +333,13 @@ export async function updateMeshOrder(
 
 // Saves a partially-filled mesh consultation. Only customer.name is required;
 // rooms and panels can be empty.
-export async function createMeshOrderDraft(input: unknown): Promise<never> {
+export async function createMeshOrderDraft(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[] }> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: MeshOrderDraftInput = meshOrderDraftSchema.parse(input);
 
   const copiedPhotoPaths: string[] = [];
   let orderId: string;
+  const roomIds: string[] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
@@ -373,6 +377,7 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
         })
         .returning("id")
         .executeTakeFirstOrThrow();
+      roomIds.push(insertedRoom.id);
 
       for (let p = 0; p < room.panels.length; p++) {
         await trx
@@ -416,5 +421,6 @@ export async function createMeshOrderDraft(input: unknown): Promise<never> {
 
   await stampQuoteBaseline(orderId);
 
+  if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }

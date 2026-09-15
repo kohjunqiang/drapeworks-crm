@@ -189,7 +189,7 @@ describe("confirmManufactureSchema", () => {
     ).toThrow();
   });
 
-  it("rejects a fractional override dimension", () => {
+  it("rejects more than two decimal places", () => {
     expect(() =>
       confirmManufactureSchema.parse({
         orderId: ORDER_ID,
@@ -197,7 +197,7 @@ describe("confirmManufactureSchema", () => {
           {
             lineId: LINE_ID,
             kind: "window",
-            overrideWidthCm: 150.5,
+            overrideWidthCm: 150.555,
             overrideReason: "measured again",
           },
         ],
@@ -274,4 +274,8 @@ describe("amendManufactureSchema", () => {
       }],
     })).toThrow(/add up/i);
   });
+});
+
+it("accepts decimal mesh manufacturing dimensions", () => {
+  expect(confirmManufactureSchema.parse({ orderId: ORDER_ID, lines: [{ lineId: LINE_ID, kind: "mesh_panel", overrideWidthCm: 120.25, overrideHeightCm: 140.5 }] }).lines[0].overrideWidthCm).toBe(120.25);
 });

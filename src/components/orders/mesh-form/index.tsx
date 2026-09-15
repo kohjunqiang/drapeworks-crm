@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FormProvider, useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -173,6 +173,28 @@ export function MeshConsultationForm({
     ),
   );
   const pendingPhotos = usePendingRoomPhotos();
+  const [savedWithPhotos, setSavedWithPhotos] = useState<{ orderId: string; roomIds: string[]; roomKeys: string[] } | null>(null);
+
+  async function finishPhotoUpload(saved: { orderId: string; roomIds: string[]; roomKeys: string[] }) {
+    const failures = await pendingPhotos.upload(saved.roomKeys, saved.roomIds);
+    if (failures > 0) {
+      toast.error(`Consultation saved, but ${failures} photo(s) did not upload. Retry below.`);
+      return;
+    }
+    clearDraft();
+    router.push(`/orders/${saved.orderId}`);
+  }
+
+  async function createWithPhotos(payload: unknown, draft: boolean) {
+    const roomKeys = rooms.map((room) => room.id);
+    const action = draft ? createMeshOrderDraft : createMeshOrder;
+    const result = await action(payload, true);
+    const saved = { ...result, roomKeys };
+    // Retain the committed order before uploading; a retry must never recreate it.
+    setSavedWithPhotos(saved);
+    clearDraft();
+    await finishPhotoUpload(saved);
+  }
 
   const {
     fields: rooms,
@@ -284,12 +306,12 @@ export function MeshConsultationForm({
         router.push(`/orders/${orderId}`);
         return;
       }
-      return createMeshOrder({
+      return createWithPhotos({
         ...payload,
         appointment_id: appointment?.id,
         lead_id: appointment?.leadId,
         customer_id: appointment?.leadId ? undefined : appointment?.customerId,
-      });
+      }, false);
     }, "Save failed");
   });
 
@@ -297,12 +319,12 @@ export function MeshConsultationForm({
     // Raw current values — skip the strict resolver so partial input is
     // allowed. The draft action does its own relaxed validation.
     runAction(
-      () => createMeshOrderDraft({
+      () => createWithPhotos({
         ...normalise(getValues()),
         appointment_id: appointment?.id,
         lead_id: appointment?.leadId,
         customer_id: appointment?.leadId ? undefined : appointment?.customerId,
-      }),
+      }, true),
       "Draft save failed",
     );
   }
@@ -318,6 +340,13 @@ export function MeshConsultationForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={onSubmit} inert={pending} aria-busy={pending}>
+        {savedWithPhotos && (
+          <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm">
+            <p>Your consultation is saved. Retry the remaining photos without creating another order.</p>
+            <button type="button" disabled={pending} className="mt-2 min-h-11 rounded bg-teal-700 px-4 text-white" onClick={() => runAction(() => finishPhotoUpload(savedWithPhotos), "Photo upload failed")}>Retry photo upload</button>
+          </div>
+        )}
+        <fieldset disabled={Boolean(savedWithPhotos)} inert={Boolean(savedWithPhotos)} className="min-w-0">
         <CustomerSection
           leadOptions={mode === "create" ? leadOptions : undefined}
           customerOptions={mode === "create" ? customerOptions : undefined}
@@ -348,7 +377,7 @@ export function MeshConsultationForm({
             </span>
           </div>
 
-          <QuickAddRoomBar onAdd={handleQuickAdd} />
+          <QuickAddRoomBar onAdd={handleQuickAdd} compactSticky />
 
           <div className="space-y-4">
             {rooms.map((room, rIdx) => {
@@ -450,6 +479,7 @@ export function MeshConsultationForm({
                 : "Create mesh order"}
           </button>
         </div>
+        </fieldset>
       </form>
     </FormProvider>
   );

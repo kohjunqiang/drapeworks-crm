@@ -56,8 +56,8 @@ export function applyAllowance(
     sourceHeightCm: heightCm,
     widthDeltaCm: allowance.widthDeltaCm,
     heightDeltaCm: allowance.heightDeltaCm,
-    mfgWidthCm: widthCm + allowance.widthDeltaCm,
-    mfgHeightCm: heightCm + allowance.heightDeltaCm,
+    mfgWidthCm: Math.round((widthCm + allowance.widthDeltaCm) * 100) / 100,
+    mfgHeightCm: Math.round((heightCm + allowance.heightDeltaCm) * 100) / 100,
   };
 }
 

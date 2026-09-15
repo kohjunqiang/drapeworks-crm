@@ -89,6 +89,7 @@ export function MeshRoomCard({
       onRemove={onRemove}
       mode={mode}
       roomId={roomId}
+      allowPendingPhotosOnCreate
       photos={photos}
       pendingPhotos={pendingPhotos}
       photosDisabled={photosDisabled}

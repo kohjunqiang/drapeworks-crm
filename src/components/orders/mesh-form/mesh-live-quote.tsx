@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { CostBreakdown } from "@/components/orders/cost-breakdown";
-import { useCollapseOnScroll } from "@/components/orders/consultation-form/use-collapse-on-scroll";
 import { useQuoteAutofill } from "@/components/orders/consultation-form/use-quote-autofill";
 import { LiveQuoteRecommendation } from "@/components/orders/consultation-form/live-quote-recommendation";
 import { formatSGD } from "@/lib/money";
@@ -98,7 +97,6 @@ export function MeshLiveQuote({
 
   // Same rule as the curtain panel, from the one shared owner.
   useQuoteAutofill(quote.discountedSaleSgdCents);
-  const breakdownRef = useCollapseOnScroll();
 
   const hasPriced = quote.saleSgdCents > 0;
   const [initialRecommendationCents] = useState<number | null>(() =>
@@ -121,13 +119,21 @@ export function MeshLiveQuote({
   const belowFloor = hasPriced && shownMarginBps < floorBps;
 
   return (
-    <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">
+    <details className="group/quote bg-white rounded-lg border border-slate-200 shadow-sm mb-4">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-teal-500 [&::-webkit-details-marker]:hidden">
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Live quote</span>
+          {hasPriced && <span className="font-semibold text-slate-900">{formatSGD(salePrice)}</span>}
+        </span>
+        <span className="shrink-0 text-xs text-teal-700">
+          <span className="group-open/quote:hidden">Show details ▾</span>
+          <span className="hidden group-open/quote:inline">Collapse ▴</span>
+        </span>
+      </summary>
+      <div className="border-t border-slate-100 p-3">
       {/* Stacks on mobile for the same reason as the curtain panel — three
           four-figure stats next to the label overflow a phone. */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Live quote
-        </span>
         {hasPriced ? (
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm sm:justify-end sm:gap-6">
             <div className="flex items-baseline gap-1.5">
@@ -206,7 +212,6 @@ export function MeshLiveQuote({
 
       {hasPriced && (
         <details
-          ref={breakdownRef}
           className="mt-2 border-t border-slate-100 pt-2"
         >
           <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 select-none">
@@ -240,6 +245,7 @@ export function MeshLiveQuote({
           </div>
         </details>
       )}
-    </div>
+      </div>
+    </details>
   );
 }

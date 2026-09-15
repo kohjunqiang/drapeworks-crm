@@ -39,12 +39,12 @@ type Draft = {
   splitRight: string;
 };
 
-// Whole positive centimetres only, matching amendManufactureLineSchema.
+// Positive centimetres with up to two decimal places, matching amendManufactureLineSchema.
 function parseCm(s: string): number | null {
   const t = s.trim();
-  if (!/^\d+$/.test(t)) return null;
+  if (!/^\d+(?:\.\d{1,2})?$/.test(t)) return null;
   const n = Number(t);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 const INPUT =
@@ -106,7 +106,7 @@ export function AmendDialog({
       (l.mfgSplitLeftCm != null &&
         (splitLeft == null ||
           splitRight == null ||
-          splitLeft + splitRight !== width))
+          Math.abs(splitLeft + splitRight - width) > 0.000001))
     );
   });
   const canSubmit =
@@ -193,7 +193,7 @@ export function AmendDialog({
                   (splitLeft != null &&
                     splitRight != null &&
                     w != null &&
-                    splitLeft + splitRight === w);
+                    w != null && Math.abs(splitLeft + splitRight - w) < 0.000001);
                 const moved =
                   d.width !== String(l.mfgWidthCm) ||
                   d.height !== String(l.mfgHeightCm) ||
@@ -216,7 +216,7 @@ export function AmendDialog({
                       <label className="flex items-center gap-1.5 text-xs text-slate-600">
                         W
                         <input
-                          inputMode="numeric"
+                          inputMode="decimal"
                           aria-label={`${l.label} manufacturing width in cm`}
                           disabled={pending}
                           value={d.width}
@@ -238,7 +238,7 @@ export function AmendDialog({
                       <label className="flex items-center gap-1.5 text-xs text-slate-600">
                         H
                         <input
-                          inputMode="numeric"
+                          inputMode="decimal"
                           aria-label={`${l.label} manufacturing height in cm`}
                           disabled={pending}
                           value={d.height}
@@ -289,7 +289,7 @@ export function AmendDialog({
                           <label className="flex items-center gap-1">
                             New L
                             <input
-                              inputMode="numeric"
+                              inputMode="decimal"
                               aria-label={`${l.label} left single-draw width in cm`}
                               disabled={pending}
                               value={d.splitLeft}
@@ -312,7 +312,7 @@ export function AmendDialog({
                           <label className="flex items-center gap-1">
                             New R
                             <input
-                              inputMode="numeric"
+                              inputMode="decimal"
                               aria-label={`${l.label} right single-draw width in cm`}
                               disabled={pending}
                               value={d.splitRight}

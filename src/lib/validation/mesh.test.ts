@@ -213,3 +213,13 @@ describe("meshOrderDraftSchema", () => {
     expect(r.success).toBe(false);
   });
 });
+
+it.each([120, 120.2, 120.25, "120.25", "0.01"])("preserves two-decimal dimensions: %s", (value) => {
+  const result = meshPanelSchema.parse(panel({ width_cm: value, height_cm: value }));
+  expect(result.width_cm).toBe(Number(value));
+  expect(result.height_cm).toBe(Number(value));
+});
+it.each([120.255, "120.255", 0, -1, 1000.01, "invalid"])("rejects invalid dimensions: %s", (value) => {
+  expect(meshPanelSchema.safeParse(panel({ width_cm: value })).success).toBe(false);
+  expect(meshPanelSchema.safeParse(panel({ height_cm: value })).success).toBe(false);
+});

@@ -32,10 +32,10 @@ export const allowanceSchema = z.object({
 export const manufactureLineSchema = z.object({
   lineId: z.string().uuid(),
   kind: z.enum(["window", "mesh_panel"]),
-  overrideWidthCm: z.number().int().positive().nullable().optional(),
-  overrideHeightCm: z.number().int().positive().nullable().optional(),
-  mfgSplitLeftCm: z.number().int().positive().nullable().optional(),
-  mfgSplitRightCm: z.number().int().positive().nullable().optional(),
+  overrideWidthCm: z.number().multipleOf(0.01).positive().nullable().optional(),
+  overrideHeightCm: z.number().multipleOf(0.01).positive().nullable().optional(),
+  mfgSplitLeftCm: z.number().multipleOf(0.01).positive().nullable().optional(),
+  mfgSplitRightCm: z.number().multipleOf(0.01).positive().nullable().optional(),
   overrideReason: z.string().trim().max(500).nullable().optional(),
 }).refine(
   (line) => (line.mfgSplitLeftCm == null) === (line.mfgSplitRightCm == null),
@@ -63,14 +63,14 @@ export const amendManufactureLineSchema = z.object({
   lineId: z.string().uuid(),
   mfgWidthCm: z
     .number()
-    .int("Manufacturing width must be a whole number of centimetres")
+    .multipleOf(0.01, "Use up to 2 decimal places")
     .positive("Manufacturing width must be above zero"),
   mfgHeightCm: z
     .number()
-    .int("Manufacturing height must be a whole number of centimetres")
+    .multipleOf(0.01, "Use up to 2 decimal places")
     .positive("Manufacturing height must be above zero"),
-  mfgSplitLeftCm: z.number().int().positive().nullable().optional(),
-  mfgSplitRightCm: z.number().int().positive().nullable().optional(),
+  mfgSplitLeftCm: z.number().multipleOf(0.01).positive().nullable().optional(),
+  mfgSplitRightCm: z.number().multipleOf(0.01).positive().nullable().optional(),
 }).superRefine((line, context) => {
   const hasLeft = line.mfgSplitLeftCm != null;
   const hasRight = line.mfgSplitRightCm != null;
@@ -81,7 +81,7 @@ export const amendManufactureLineSchema = z.object({
     });
   } else if (
     hasLeft &&
-    line.mfgSplitLeftCm! + line.mfgSplitRightCm! !== line.mfgWidthCm
+    Math.abs(line.mfgSplitLeftCm! + line.mfgSplitRightCm! - line.mfgWidthCm) > 0.000001
   ) {
     context.addIssue({
       code: "custom",

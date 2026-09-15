@@ -77,14 +77,14 @@ export function draftFor(line: ReconLine): RowDraft {
   };
 }
 
-// Whole positive centimetres only, matching manufactureLineSchema. Rejecting
-// the string rather than coercing it means "29 8" or "298.5" surfaces as an
+// Positive centimetres with up to two decimal places, matching manufactureLineSchema. Rejecting
+// the string rather than coercing it means "29 8" or "298.555" surfaces as an
 // error the person can see, instead of quietly becoming 298.
 export function parseCm(s: string): number | null {
   const t = s.trim();
-  if (!/^\d+$/.test(t)) return null;
+  if (!/^\d+(?:\.\d{1,2})?$/.test(t)) return null;
   const n = Number(t);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 // A delta may be negative, zero, or positive — the sign is the whole point.
@@ -92,21 +92,21 @@ export function parseCm(s: string): number | null {
 // the caller can leave the paired field alone rather than blanking it.
 export function parseDelta(s: string): number | null {
   const t = s.trim();
-  if (!/^-?\d+$/.test(t)) return null;
+  if (!/^-?\d+(?:\.\d{1,2})?$/.test(t)) return null;
   const n = Number(t);
-  return Number.isSafeInteger(n) ? n : null;
+  return Number.isFinite(n) ? n : null;
 }
 
 /** The delta implied by a typed manufacturing size. "" when it does not parse. */
 export function deltaFromSize(size: string, sourceCm: number): string | null {
   const n = parseCm(size);
-  return n == null ? null : String(n - sourceCm);
+  return n == null ? null : String(Math.round((n - sourceCm) * 100) / 100);
 }
 
 /** The manufacturing size implied by a typed delta. null when it does not parse. */
 export function sizeFromDelta(delta: string, sourceCm: number): string | null {
   const d = parseDelta(delta);
-  return d == null ? null : String(sourceCm + d);
+  return d == null ? null : String(Math.round((sourceCm + d) * 100) / 100);
 }
 
 /**
@@ -159,7 +159,7 @@ function dimError(
   if (typed.trim() === String(computed) && computed <= 0) {
     return `The allowance takes this ${axis} to ${computed} cm, which cannot be manufactured. Change the allowance or the ${axis}.`;
   }
-  return `Manufacturing ${axis} must be a whole number of centimetres above zero.`;
+  return `Manufacturing ${axis} must be a positive number with up to 2 decimal places.`;
 }
 
 export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
@@ -192,11 +192,11 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
     errors.push(dimError("height", draft.height, line.mfgHeightCm));
   }
   if (expectsSplit && (splitLeftCm == null || splitRightCm == null)) {
-    errors.push("Enter positive whole centimetres for both PO split widths.");
+    errors.push("Enter positive centimetres with up to 2 decimal places for both PO split widths.");
   } else if (
     expectsSplit &&
     widthCm != null &&
-    splitLeftCm! + splitRightCm! !== widthCm
+    Math.abs(splitLeftCm! + splitRightCm! - widthCm) > 0.000001
   ) {
     errors.push(
       `The PO split must add up to the ${widthCm} cm manufacturing width.`,
@@ -299,7 +299,7 @@ function AxisRow({
         </span>
         <input
           id={`${lineId}-${lower}-delta`}
-          inputMode="numeric"
+          inputMode="decimal"
           aria-label={`${pieceLabel} ${lower} allowance in cm`}
           disabled={disabled}
           value={delta}
@@ -315,7 +315,7 @@ function AxisRow({
         </span>
         <input
           id={`${lineId}-${lower}`}
-          inputMode="numeric"
+          inputMode="decimal"
           aria-label={`${pieceLabel} manufacturing ${lower} in cm`}
           aria-invalid={invalid}
           disabled={disabled}
@@ -359,7 +359,7 @@ export function ReconciliationRow({
   const splitTotal = state.splitLeftCm != null && state.splitRightCm != null
     ? state.splitLeftCm + state.splitRightCm
     : null;
-  const splitValid = splitTotal != null && splitTotal === state.widthCm;
+  const splitValid = splitTotal != null && state.widthCm != null && Math.abs(splitTotal - state.widthCm) < 0.000001;
 
   return (
     <div className={`border-t border-slate-100 px-4 py-3 ${tone}`}>
@@ -446,7 +446,7 @@ export function ReconciliationRow({
                     Left
                     <span className="mt-0.5 flex items-center gap-1">
                       <input
-                        inputMode="numeric"
+                        inputMode="decimal"
                         aria-label={`${piece} PO left split in cm`}
                         disabled={disabled}
                         value={draft.splitLeft}
@@ -462,7 +462,7 @@ export function ReconciliationRow({
                     Right
                     <span className="mt-0.5 flex items-center gap-1">
                       <input
-                        inputMode="numeric"
+                        inputMode="decimal"
                         aria-label={`${piece} PO right split in cm`}
                         disabled={disabled}
                         value={draft.splitRight}

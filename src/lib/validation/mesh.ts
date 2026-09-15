@@ -48,12 +48,18 @@ export function meshDrawIsDouble(draw: MeshDraw | undefined): boolean {
   return draw === "Double";
 }
 
+// Keep dimensions numeric for pricing, while rejecting precision we cannot save.
+const optionalMeasurement = z.preprocess(
+  (value) => value === "" || value == null ? null : typeof value === "string" ? Number(value) : value,
+  z.number().positive().max(1000).multipleOf(0.01, "Use up to 2 decimal places").nullable(),
+);
+
 export const meshPanelSchema = z.object({
   position: z.number().int().min(0),
   category_id: optionalTypeId,
   colour_id: optionalTypeId,
-  width_cm: optionalInt,
-  height_cm: optionalInt,
+  width_cm: optionalMeasurement,
+  height_cm: optionalMeasurement,
   // What the frame is screwed to. The mesh fixes to the window grille; an
   // opening with no window has no grille, so it goes to the wall instead.
   // Defaults to true because that is the overwhelmingly common case, and

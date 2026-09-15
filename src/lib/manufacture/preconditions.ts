@@ -126,7 +126,7 @@ export function checkConfirmPreconditions(
       reasons.push(`${locate(line)} does not have a measured double-draw split.`);
     } else if (
       hasManufacturingSplit &&
-      override.mfgSplitLeftCm! + override.mfgSplitRightCm! !== effectiveWidth
+      Math.abs(override.mfgSplitLeftCm! + override.mfgSplitRightCm! - effectiveWidth) > 0.000001
     ) {
       reasons.push(
         `${locate(line)} PO split must add up to its ${effectiveWidth} cm manufacturing width.`,

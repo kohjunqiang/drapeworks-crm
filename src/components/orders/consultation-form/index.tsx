@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -229,6 +229,28 @@ export function ConsultationForm({
     ),
   );
   const pendingPhotos = usePendingRoomPhotos();
+  const [savedWithPhotos, setSavedWithPhotos] = useState<{ orderId: string; roomIds: string[]; roomKeys: string[] } | null>(null);
+
+  async function finishPhotoUpload(saved: { orderId: string; roomIds: string[]; roomKeys: string[] }) {
+    const failures = await pendingPhotos.upload(saved.roomKeys, saved.roomIds);
+    if (failures > 0) {
+      toast.error(`Consultation saved, but ${failures} photo(s) did not upload. Retry below.`);
+      return;
+    }
+    clearDraft();
+    router.push(`/orders/${saved.orderId}`);
+  }
+
+  async function createWithPhotos(payload: unknown, draft: boolean) {
+    const roomKeys = rooms.map((room) => room.id);
+    const action = draft ? createOrderDraft : createOrder;
+    const result = await action(payload, true);
+    const saved = { ...result, roomKeys };
+    // Retain the committed order before uploading; a retry must never recreate it.
+    setSavedWithPhotos(saved);
+    clearDraft();
+    await finishPhotoUpload(saved);
+  }
 
   const {
     fields: rooms,
@@ -295,7 +317,7 @@ export function ConsultationForm({
         } else {
           // appointment_id travels beside the form values rather than inside
           // them: it is where this consultation came from, not an input.
-          await createOrder({
+          await createWithPhotos({
             ...normalised,
             appointment_id: appointment?.id,
             lead_id: appointment?.leadId,
@@ -305,7 +327,7 @@ export function ConsultationForm({
             customer_id: appointment?.leadId
               ? undefined
               : appointment?.customerId,
-          });
+          }, false);
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
@@ -342,7 +364,7 @@ export function ConsultationForm({
     };
     startTransition(async () => {
       try {
-        await createOrderDraft(payload);
+        await createWithPhotos(payload, true);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "";
         if (msg === "NEXT_REDIRECT" || msg.includes("NEXT_REDIRECT")) {
@@ -368,6 +390,16 @@ export function ConsultationForm({
   return (
     <FormProvider {...form}>
       <form onSubmit={onSubmit} inert={pending} aria-busy={pending}>
+        {savedWithPhotos && (
+          <div role="alert" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm">
+            <p>Your consultation is saved. Retry the remaining photos without creating another order.</p>
+            <button type="button" disabled={pending} className="mt-2 min-h-11 rounded bg-teal-700 px-4 text-white" onClick={() => startTransition(async () => {
+              try { await finishPhotoUpload(savedWithPhotos); }
+              catch (error) { toast.error(error instanceof Error ? error.message : "Photo upload failed"); }
+            })}>Retry photo upload</button>
+          </div>
+        )}
+        <fieldset disabled={Boolean(savedWithPhotos)} inert={Boolean(savedWithPhotos)} className="min-w-0">
         <CustomerSection
           leadOptions={mode === "create" ? leadOptions : undefined}
           customerOptions={mode === "create" ? customerOptions : undefined}
@@ -508,6 +540,7 @@ export function ConsultationForm({
                 : "Create order"}
           </button>
         </div>
+        </fieldset>
       </form>
     </FormProvider>
   );

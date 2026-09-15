@@ -86,7 +86,7 @@ describe("parseDelta", () => {
   it("rejects a lone minus and other part-typed input", () => {
     expect(parseDelta("-")).toBeNull();
     expect(parseDelta("")).toBeNull();
-    expect(parseDelta("-2.5")).toBeNull();
+    expect(parseDelta("-2.555")).toBeNull();
     expect(parseDelta("2 8")).toBeNull();
   });
 });
@@ -188,9 +188,9 @@ describe("evaluateRow", () => {
     expect(s.widthOverridden).toBe(false);
   });
 
-  it("errors on a size that is not a whole positive number", () => {
+  it("errors on a size that is not a positive number with up to two decimals", () => {
     const l = line();
-    for (const width of ["0", "-3", "29.5", "", "abc"]) {
+    for (const width of ["0", "-3", "29.555", "", "abc"]) {
       expect(evaluateRow(l, { ...draftFor(l), width }).errors.length).toBe(1);
     }
   });
@@ -223,4 +223,9 @@ describe("deltaTone — the allowance box is coloured by sign", () => {
     expect(deltaTone("-")).not.toMatch(/rose|emerald/);
     expect(deltaTone("")).not.toMatch(/rose|emerald/);
   });
+});
+
+it("keeps a decimal mesh panel ready for manufacture", () => {
+  const panel = line({ kind: "mesh_panel", sourceWidthCm: 120.25, mfgWidthCm: 118.25 });
+  expect(evaluateRow(panel, draftFor(panel)).errors).toEqual([]);
 });

@@ -155,6 +155,8 @@ export function MeshPanelFields({
         </label>
         <input
           type="number"
+          step="0.01"
+          inputMode="decimal"
           className={INPUT_CLS}
           {...register(`${base}.width_cm`)}
         />
@@ -166,6 +168,8 @@ export function MeshPanelFields({
         </label>
         <input
           type="number"
+          step="0.01"
+          inputMode="decimal"
           className={INPUT_CLS}
           {...register(`${base}.height_cm`)}
         />

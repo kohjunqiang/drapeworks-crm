@@ -173,7 +173,7 @@ async function writeWindowAddons(
   }
 }
 
-export async function createOrder(input: unknown): Promise<never> {
+export async function createOrder(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[] }> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderCreateInput = orderCreateSchema.parse(input);
   const packageSnapshot = await resolveCurtainPackage(parsed.order);
@@ -184,6 +184,7 @@ export async function createOrder(input: unknown): Promise<never> {
 
   const copiedPhotoPaths: string[] = [];
   let orderId: string;
+  const roomIds: string[] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
@@ -239,6 +240,7 @@ export async function createOrder(input: unknown): Promise<never> {
         })
         .returning("id")
         .executeTakeFirstOrThrow();
+      roomIds.push(insertedRoom.id);
 
       const isToilet = isToiletRoom(room.type);
 
@@ -305,6 +307,7 @@ export async function createOrder(input: unknown): Promise<never> {
 
   await stampQuoteBaseline(orderId);
 
+  if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }
 
@@ -878,7 +881,7 @@ export async function deleteOrder(input: {
 // required; rooms can be empty; phone/email/dates are not strictly validated.
 // The order's is_draft flag is set so the dashboard can surface drafts
 // separately later.
-export async function createOrderDraft(input: unknown): Promise<never> {
+export async function createOrderDraft(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[] }> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderDraftInput = orderDraftSchema.parse(input);
   const packageSnapshot = await resolveCurtainPackage(parsed.order);
@@ -886,6 +889,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
 
   const copiedPhotoPaths: string[] = [];
   let orderId: string;
+  const roomIds: string[] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
@@ -940,6 +944,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
         })
         .returning("id")
         .executeTakeFirstOrThrow();
+      roomIds.push(insertedRoom.id);
 
       const isToilet = isToiletRoom(room.type);
 
@@ -1001,6 +1006,7 @@ export async function createOrderDraft(input: unknown): Promise<never> {
 
   await stampQuoteBaseline(orderId);
 
+  if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }
 

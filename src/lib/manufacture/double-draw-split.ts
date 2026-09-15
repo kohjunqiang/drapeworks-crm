@@ -24,5 +24,5 @@ export function scaleDoubleDrawSplit(
   const leftCm = Math.round(
     (manufacturingWidthCm * measuredLeftCm) / measuredTotal,
   );
-  return { leftCm, rightCm: manufacturingWidthCm - leftCm };
+  return { leftCm, rightCm: Math.round((manufacturingWidthCm - leftCm) * 100) / 100 };
 }

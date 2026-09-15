@@ -12,6 +12,17 @@ type PendingByRoom = Record<string, PendingUploaderPhoto[]>;
 export function usePendingRoomPhotos() {
   const [byRoom, setByRoom] = useState<PendingByRoom>({});
   const latest = useRef(byRoom);
+  const hasPending = Object.values(byRoom).some((photos) => photos.length > 0);
+
+  useEffect(() => {
+    if (!hasPending) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [hasPending]);
 
   useEffect(() => {
     latest.current = byRoom;
@@ -90,7 +101,7 @@ export function usePendingRoomPhotos() {
 
   return {
     byRoom,
-    hasPending: Object.values(byRoom).some((photos) => photos.length > 0),
+    hasPending,
     add,
     remove,
     discardRoom,

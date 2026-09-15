@@ -44,6 +44,7 @@ type Props = {
   onRemove: () => void;
   mode: "create" | "edit";
   roomId?: string;
+  allowPendingPhotosOnCreate?: boolean;
   photos?: UploaderPhoto[];
   pendingPhotos?: PendingUploaderPhoto[];
   photosDisabled?: boolean;
@@ -58,6 +59,7 @@ export function RoomShell({
   onRemove,
   mode,
   roomId,
+  allowPendingPhotosOnCreate = false,
   photos,
   pendingPhotos = [],
   photosDisabled = false,
@@ -130,7 +132,7 @@ export function RoomShell({
               </div>
             )}
         </div>
-      ) : mode === "edit" ? (
+      ) : mode === "edit" || allowPendingPhotosOnCreate ? (
         <div className="mt-4 pt-3 border-t border-slate-200">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs">
             <span className="font-medium text-slate-600">
@@ -138,6 +140,10 @@ export function RoomShell({
             </span>
             <span className="text-slate-400">Uploads with order</span>
           </div>
+          {mode === "create" && (photos?.length ?? 0) > 0 && (
+            <div className="mb-3"><ReadOnlyPhotoGallery photos={photos ?? []} /></div>
+          )}
+          {mode === "create" && <p className="mb-2 text-xs text-slate-500">Choose photos now. They upload when you save this consultation. Keep this page open until then.</p>}
           {onAddPendingPhotos && onRemovePendingPhoto ? (
             <PendingPhotoUploader
               photos={pendingPhotos}

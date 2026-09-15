@@ -29,6 +29,7 @@ import {
   saveShipmentArrivals,
 } from "@/lib/actions/logistics";
 import type { FulfilmentStatus } from "@/lib/db/schema";
+import { canRecordShipmentArrival } from "@/lib/logistics/arrival-status";
 import { formatFreightAge, normalizeFreightNumber } from "@/lib/logistics/freight";
 import {
   SHIPMENT_CATEGORY_LABELS,
@@ -247,7 +248,7 @@ export function FreightManagerProvider({
             arrivedChecked: true,
             expectedUpdatedAt: component.updatedAt,
           }],
-          markDelivered: completesOrder,
+          markDelivered: completesOrder && component.currentStatus === "shipping_sg",
         });
         toast.success(`${SHIPMENT_CATEGORY_LABELS[component.category]} marked arrived`);
         router.refresh();
@@ -259,7 +260,7 @@ export function FreightManagerProvider({
 
   function markAllArrived() {
     const unarrived = currentMembers.filter((component) =>
-      !component.arrivedCheckedAt && component.currentStatus === "shipping_sg");
+      !component.notNeeded && !component.arrivedCheckedAt && canRecordShipmentArrival(component.currentStatus));
     const byOrder = new Map<string, FreightComponent[]>();
     for (const component of unarrived) {
       const rows = byOrder.get(component.orderId) ?? [];
@@ -280,7 +281,7 @@ export function FreightManagerProvider({
               arrivedChecked: true,
               expectedUpdatedAt: component.updatedAt,
             })),
-            markDelivered: completesOrder,
+            markDelivered: completesOrder && arrivals[0].currentStatus === "shipping_sg",
           });
         }
         toast.success(`${unarrived.length} component${unarrived.length === 1 ? "" : "s"} marked arrived`);
@@ -358,7 +359,7 @@ export function FreightManagerProvider({
                   </div>
                   </div>
                   {canManage && currentMembers.some((component) =>
-                    !component.arrivedCheckedAt && component.currentStatus === "shipping_sg") && (
+                    !component.notNeeded && !component.arrivedCheckedAt && canRecordShipmentArrival(component.currentStatus)) && (
                     <button
                       type="button"
                       disabled={arrivalPending || dirty}
@@ -449,7 +450,7 @@ export function FreightManagerProvider({
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
                                 <Check className="size-3" /> Arrived
                               </span>
-                            ) : belongsToCurrent && component.currentStatus === "shipping_sg" && canManage ? (
+                            ) : belongsToCurrent && !component.notNeeded && canRecordShipmentArrival(component.currentStatus) && canManage ? (
                               <Button
                                 type="button"
                                 variant="outline"

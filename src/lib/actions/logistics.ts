@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import { canRecordShipmentArrival } from "@/lib/logistics/arrival-status";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
 import {
   normalizeFreightNumber,
@@ -266,10 +267,14 @@ export async function saveShipmentArrivals(
       .forUpdate()
       .executeTakeFirst();
     if (!order) throw new Error("Order not found");
-    if (order.current_status !== "shipping_sg") {
+    if (!canRecordShipmentArrival(order.current_status)) {
       throw new Error(
-        "Arrival progress can only be changed while the order is Shipping to SG.",
+        "Arrival progress can only be changed from Sent to Vendor through Shipping to SG.",
       );
+    }
+
+    if (parsed.markDelivered && order.current_status !== "shipping_sg") {
+      throw new Error("Move the order to Shipping to SG before marking it Delivered & Checked.");
     }
 
     const state = await loadOrderShipmentState(trx, parsed.orderId);

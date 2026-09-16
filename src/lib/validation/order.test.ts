@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { orderCreateSchema, orderDraftSchema, windowSchema } from "./order";
+import {
+  orderCreateSchema,
+  orderDraftSchema,
+  orderEditSchema,
+  windowSchema,
+} from "./order";
 
 const UUID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -218,6 +223,60 @@ const MINIMAL_ORDER = {
     },
   ],
 };
+
+describe("customer mobile", () => {
+  const withMobile = (mobile: string) => ({
+    ...MINIMAL_ORDER,
+    customer: { ...MINIMAL_ORDER.customer, mobile },
+  });
+
+  it.each([
+    "9123 4567",
+    "81234567",
+    "6562 3456",
+    "+65 9123 4567",
+    "+6591234567",
+  ])("accepts Singapore number %s on create", (mobile) => {
+    expect(orderCreateSchema.safeParse(withMobile(mobile)).success).toBe(true);
+  });
+
+  it.each([
+    "+60 12 345 6789",
+    "+61 412 345 678",
+    "+1 (555) 123-4567",
+    "+442079460958",
+    "+852 6123 4567",
+  ])("accepts international number %s on create", (mobile) => {
+    expect(orderCreateSchema.safeParse(withMobile(mobile)).success).toBe(true);
+  });
+
+  it("strips formatting before storing the international number", () => {
+    const parsed = orderCreateSchema.parse(withMobile("+60 12-345 6789"));
+    expect(parsed.customer.mobile).toBe("+60123456789");
+  });
+
+  it("accepts an international number on edit", () => {
+    expect(
+      orderEditSchema.safeParse(withMobile("+60 12 345 6789")).success,
+    ).toBe(true);
+  });
+
+  it.each([
+    "12345",
+    "12345678",
+    "60123456789",
+    "abc",
+    "+",
+    "+0 1234567",
+    "+1234567890123456",
+  ])("rejects malformed number %s", (mobile) => {
+    expect(orderCreateSchema.safeParse(withMobile(mobile)).success).toBe(false);
+  });
+
+  it("still requires the field — an empty string is not a number", () => {
+    expect(orderCreateSchema.safeParse(withMobile("")).success).toBe(false);
+  });
+});
 
 // Phase 15 — a consultation started from a booked appointment carries that
 // appointment's id so the write path can reuse its customer instead of

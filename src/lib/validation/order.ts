@@ -153,10 +153,13 @@ export const roomSchema = z.object({
   windows: z.array(windowSchema).min(1, "At least one window"),
 });
 
-// Singapore phone: 8 digits starting with 3 (VoIP), 6 (landline), 8 or 9
-// (mobile). Accepts optional +65 prefix and any spaces, dashes, or
-// parentheses between digits. Strips formatting before checking.
-const sgPhone = z
+// Customer phone. Singapore numbers are 8 digits starting with 3 (VoIP),
+// 6 (landline), 8 or 9 (mobile), with an optional +65 prefix. Anything else
+// must carry an explicit country code in E.164 shape — a "+" followed by
+// 7–15 digits, the first not 0 — so a foreign number is never coerced into a
+// Singapore one. Accepts spaces, dashes, or parentheses between digits;
+// strips them before checking, so the stored value is already normalised.
+const customerPhone = z
   .string()
   .min(1, "Required")
   .max(30)
@@ -165,14 +168,14 @@ const sgPhone = z
     z
       .string()
       .regex(
-        /^(\+65)?[3689]\d{7}$/,
-        "Enter an 8-digit Singapore number (e.g. 9123 4567)",
+        /^(\+65)?[3689]\d{7}$|^\+[1-9]\d{6,14}$/,
+        "Enter a valid number — 8-digit Singapore (e.g. 9123 4567) or international with country code (e.g. +60 12 345 6789)",
       ),
   );
 
 export const customerSchema = z.object({
   name: z.string().min(1, "Required").max(200),
-  mobile: sgPhone,
+  mobile: customerPhone,
   email: z
     .string()
     .email("Invalid email")

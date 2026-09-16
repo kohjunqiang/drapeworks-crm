@@ -4,6 +4,7 @@ import {
   meshDrawIsDouble,
   meshOrderCreateSchema,
   meshOrderDraftSchema,
+  meshOrderEditSchema,
   meshPanelSchema,
 } from "./mesh";
 
@@ -175,11 +176,17 @@ describe("meshOrderCreateSchema", () => {
     expect(r.success).toBe(false);
   });
 
-  it("enforces the Singapore mobile format", () => {
+  it("rejects a malformed customer mobile", () => {
     const r = meshOrderCreateSchema.safeParse(
       order({ customer: { name: "Tan", mobile: "12345" } }),
     );
     expect(r.success).toBe(false);
+  });
+
+  it("accepts an international customer mobile on create and edit", () => {
+    const foreign = order({ customer: { name: "Tan", mobile: "+60 12 345 6789" } });
+    expect(meshOrderCreateSchema.safeParse(foreign).success).toBe(true);
+    expect(meshOrderEditSchema.safeParse(foreign).success).toBe(true);
   });
 
   it("has no product_line field — it cannot be set through the schema", () => {

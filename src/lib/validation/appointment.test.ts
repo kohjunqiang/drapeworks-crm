@@ -44,6 +44,18 @@ describe("appointment booking validation", () => {
       true,
     );
   });
+
+  it.each(["+60 12 345 6789", "+1 (555) 123-4567"])(
+    "accepts a new customer with international mobile %s",
+    (mobile) => {
+      expect(
+        appointmentCreateSchema.safeParse({
+          ...validAppointment,
+          customer: { ...validAppointment.customer, mobile },
+        }).success,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("appointmentStatusSchema", () => {

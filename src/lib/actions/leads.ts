@@ -61,6 +61,8 @@ export async function createLead(input: unknown): Promise<{ id: string }> {
   const p = leadCreateSchema.parse(input);
   rejectManualWon(null, p.funnel_stage);
   const row = await db.insertInto("leads").values({
+    renovation_buying_stage: p.renovation_buying_stage ?? null, engagement_quality: p.engagement_quality ?? null,
+    latest_quote_cents: p.latest_quote_sgd == null ? null : Math.round(p.latest_quote_sgd * 100),
     lead_ref: nextLeadRef(), name: p.name, mobile: p.mobile ?? null,
     first_initiated_at: new Date(`${p.first_initiated_date}T00:00:00+08:00`),
     // Required by the schema; the before-insert trigger immediately derives
@@ -133,7 +135,7 @@ export async function logLeadUpdate(input: unknown): Promise<void> {
 export async function editLeadDetails(input: unknown): Promise<void> {
   await requireRole(["consultant", "admin"]);
   const p = leadDetailsSchema.parse(input);
-  const { id, expected_updated_at, owner_id, ...fields } = p;
+  const { id, expected_updated_at, owner_id, latest_quote_sgd, ...fields } = p;
   const before = await db.selectFrom("leads").select(["move_in_date", "funnel_stage"])
     .where("id", "=", id).executeTakeFirstOrThrow();
   rejectManualWon(before.funnel_stage, fields.funnel_stage);
@@ -141,6 +143,7 @@ export async function editLeadDetails(input: unknown): Promise<void> {
   const moveInChanged = fields.move_in_date !== undefined && fields.move_in_date !== oldMoveIn;
   const row = await db.updateTable("leads").set({
     ...fields, owner_id, assigned_consultant_id: owner_id,
+    ...(latest_quote_sgd !== undefined ? { latest_quote_cents: latest_quote_sgd === null ? null : Math.round(latest_quote_sgd * 100) } : {}),
     ...(moveInChanged ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
     updated_at: new Date(),
   }).where("id", "=", id).where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${expected_updated_at}`)
@@ -161,6 +164,8 @@ export async function quickEditLead(input: unknown): Promise<void> {
       ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
     owner_id: p.owner_id, assigned_consultant_id: p.owner_id,
     name: p.name, funnel_stage: p.funnel_stage,
+    ...(p.renovation_buying_stage !== undefined ? { renovation_buying_stage: p.renovation_buying_stage } : {}),
+    ...(p.engagement_quality !== undefined ? { engagement_quality: p.engagement_quality } : {}),
     ...(p.last_outcome !== undefined ? { last_outcome: p.last_outcome } : {}),
     ...(p.keys_collected !== undefined ? { keys_collected: p.keys_collected } : {}),
     ...(p.interaction_summary !== undefined ? { interaction_summary: p.interaction_summary } : {}),

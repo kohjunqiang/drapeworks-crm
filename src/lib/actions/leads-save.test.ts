@@ -144,3 +144,20 @@ describe("Versioned lead saves", () => {
     expect(mocks.insertInto).not.toHaveBeenCalled();
   });
 });
+
+describe("Priority inputs in versioned lead saves", () => {
+  it("persists manual assessments with money in cents and leaves numeric scores to the database", async () => {
+    await quickEditLead({...edit(), renovation_buying_stage:"Carpentry Completed", engagement_quality:"High",latest_quote_sgd:"1450.25",priority_score:100});
+    expect(mocks.set).toHaveBeenCalledWith(expect.objectContaining({renovation_buying_stage:"Carpentry Completed",engagement_quality:"High",latest_quote_cents:145025}));
+    expect(mocks.set.mock.calls[0][0]).not.toHaveProperty("priority_score");
+  });
+  it("allows explicitly clearing assessments without assuming low scores", async () => {
+    await quickEditLead({...edit(),renovation_buying_stage:"",engagement_quality:"",latest_quote_sgd:""});
+    expect(mocks.set).toHaveBeenCalledWith(expect.objectContaining({renovation_buying_stage:null,engagement_quality:null,latest_quote_cents:null}));
+  });
+  it("preserves assessments when older callers omit the new fields", async () => {
+    await quickEditLead(edit());
+    expect(mocks.set.mock.calls[0][0]).not.toHaveProperty("renovation_buying_stage");
+    expect(mocks.set.mock.calls[0][0]).not.toHaveProperty("engagement_quality");
+  });
+});

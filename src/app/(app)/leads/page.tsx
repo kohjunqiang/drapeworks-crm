@@ -1,3 +1,5 @@
+import { PriorityBadge } from "@/components/leads/priority";
+import { PRIORITY_CLASSES } from "@/lib/leads/priority";
 import Link from "next/link";
 import { parseLeadSort, sortLeadRows } from "@/lib/leads/workspace-sort";
 import { LeadFilterToolbar } from "@/components/leads/filter-toolbar";
@@ -21,8 +23,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   await requireRole(["consultant", "admin"]);
   const p = await searchParams;
   const today = todayInSingapore();
-  const sort = parseLeadSort(p.sort);
-  const sortDirection = sort === "initiated" ? (p.sort === "initiated" && p.order === "asc" ? "asc" : "desc") : p.order === "desc" ? "desc" : "asc";
+  const sort = parseLeadSort(p.sort ?? (p.view === "all" ? "priority" : "due"));
+  const sortDirection = sort === "priority" ? "desc" : sort === "initiated" ? (p.sort === "initiated" && p.order === "asc" ? "asc" : "desc") : p.order === "desc" ? "desc" : "asc";
   const actionFor = (row: { funnel_stage: Parameters<typeof deriveActionRequired>[0]["funnel_stage"]; last_outcome: Parameters<typeof deriveActionRequired>[0]["last_outcome"]; next_action_date_text: string | null }) => deriveActionRequired({ ...row, next_action_date: row.next_action_date_text as SgDate | null }, today);
   const view = p.view === "analytics" ? "analytics" : p.view === "all" ? "all" : "work";
   const tabClass = (selected: boolean) => `whitespace-nowrap rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 ${selected ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`;
@@ -94,7 +96,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   }
   let q = db.selectFrom("leads")
     .leftJoin("profiles as consultant", join => join.onRef("consultant.id", "=", sql<string>`coalesce(leads.assigned_consultant_id, leads.owner_id)`))
-    .select(["leads.id", "leads.created_at", "first_initiated_at", "last_contact_at", "inbound_outbound", "lead_ref", "name", "mobile", "development", "funnel_stage", "lead_status", "last_outcome", "contact_channel", "source", "primary_product", "latest_quote_cents", "assigned_consultant_id", "owner_id", "action_detail", "closure_reason", "consultant.full_name as consultant_name", sql<string | null>`next_action_date::text`.as("next_action_date_text"), sql<string | null>`move_in_date::text`.as("move_in_date_text")])
+    .select(["leads.id", "leads.created_at", "first_initiated_at", "last_contact_at", "inbound_outbound", "lead_ref", "name", "mobile", "development", "funnel_stage", "lead_status", "last_outcome", "contact_channel", "source", "primary_product", "latest_quote_cents", "renovation_buying_stage", "engagement_quality", "readiness_score", "commercial_value_score", "engagement_quality_score", "priority_score", "priority_class", "assigned_consultant_id", "owner_id", "action_detail", "closure_reason", "consultant.full_name as consultant_name", sql<string | null>`next_action_date::text`.as("next_action_date_text"), sql<string | null>`move_in_date::text`.as("move_in_date_text")])
     .where("is_archived", "=", false);
   if (view === "work") q = q.where("funnel_stage", "not in", [...ACTIVE_QUEUE_EXCLUDED_STAGES]);
   if (p.owner === "unassigned") q = q.where("assigned_consultant_id", "is", null).where("owner_id", "is", null);
@@ -122,11 +124,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const filterDue = DUE_FILTERS.includes(p.due as never);
   const derivedRows = (await q.orderBy("leads.created_at", "desc").orderBy("leads.id", "desc").execute()).filter(row => {
     const action = actionFor(row);
-    return (!filterAction || action === p.action) && (!filterDue || deriveDueStatus(action, row.next_action_date_text, today) === p.due);
+    return (!selectedFilterValues(p.priority, PRIORITY_CLASSES).length || selectedFilterValues(p.priority, PRIORITY_CLASSES).includes(row.priority_class ?? "Pending")) && (!filterAction || action === p.action) && (!filterDue || deriveDueStatus(action, row.next_action_date_text, today) === p.due);
   });
-  const sortedRows = sortLeadRows(derivedRows, sort, sortDirection, row => deriveDueStatus(actionFor(row), row.next_action_date_text, today));
+  const sortedRows = sortLeadRows(derivedRows, view === "work" && sort === "priority" ? "due" : sort, view === "work" && sort === "priority" ? "asc" : sortDirection, row => deriveDueStatus(actionFor(row), row.next_action_date_text, today));
   const createdLeadIndex = p.created ? sortedRows.findIndex(row => row.id === p.created) : -1;
-  const orderedRows = createdLeadIndex > 0
+  const orderedRows = view === "all" && createdLeadIndex > 0
     ? [sortedRows[createdLeadIndex], ...sortedRows.slice(0, createdLeadIndex), ...sortedRows.slice(createdLeadIndex + 1)]
     : sortedRows;
   const total = derivedRows.length;
@@ -144,23 +146,23 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const rows = orderedRows.slice((page - 1) * pageSize, page * pageSize).map(row => ({ ...row, created_date_text: toSgDate(new Date(row.created_at)), initiated_date_text: row.first_initiated_at ? toSgDate(new Date(row.first_initiated_at)) : null, last_contact_date_text: row.last_contact_at ? toSgDate(new Date(row.last_contact_at)) : null }));
   const pageHref = (nextPage: number) => { const params = new URLSearchParams(Object.entries(p).filter((entry): entry is [string, string] => entry[1] !== undefined)); params.set("view", view); params.set("page", String(nextPage)); return `/leads?${params.toString()}`; };
   const pageSizeHref = (size: number) => { const params = new URLSearchParams(Object.entries(p).filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== "page")); params.set("view", view); params.set("pageSize", String(size)); return `/leads?${params.toString()}`; };
-  const sortHref = (key: "next" | "due" | "initiated") => {
+  const sortHref = (key: "next" | "due" | "initiated" | "priority") => {
     const params = new URLSearchParams(Object.entries(p).filter((entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== "page"));
     params.set("view", view); params.set("sort", key);
-    params.set("order", sort === key ? sortDirection === "asc" ? "desc" : "asc" : key === "initiated" ? "desc" : "asc");
+    params.set("order", key === "priority" ? "desc" : sort === key ? sortDirection === "asc" ? "desc" : "asc" : key === "initiated" ? "desc" : "asc");
     return `/leads?${params.toString()}`;
   };
-  const sortLabel = sort === "initiated" ? `Initiated: ${sortDirection === "desc" ? "latest" : "earliest"} first` : sort === "next" ? `Next action: ${sortDirection === "asc" ? "earliest" : "latest"} first` : `Due status: ${sortDirection === "asc" ? "most" : "least"} urgent first`;
+  const sortLabel = sort === "priority" ? (view === "work" ? "Due category, then priority: highest score first" : "Priority: highest score first (open leads first)") : sort === "initiated" ? `Initiated: ${sortDirection === "desc" ? "latest" : "earliest"} first` : sort === "next" ? `Next action: ${sortDirection === "asc" ? "earliest" : "latest"} first` : `Due status: ${sortDirection === "asc" ? "most" : "least"} urgent first`;
   return <main className="max-w-[1880px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
     <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">{view === "work" ? "Open leads requiring follow-up" : "Search and manage every lead"}</p></div>
     {toolbar}
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">{[{label:"Matching leads",value:String(total)},{label:"Active",value:String(activeCount)},{label:"Unresponsive",value:String(unresponsiveCount)},{label:"Closed",value:String(closedCount)},{label:"Active Pipeline Value",value:new Intl.NumberFormat("en-SG",{style:"currency",currency:"SGD",maximumFractionDigits:0}).format(pipelineCents / 100)}].map(stat=><div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-medium uppercase tracking-wide text-slate-500">{stat.label}</div><div className="mt-1 text-xl font-semibold text-slate-900">{stat.value}</div></div>)}</div>
     <LeadFilterToolbar key={JSON.stringify(p)} params={p} view={view} pageSize={pageSize} owners={filterOwners}/>
     <div className="mb-3 flex items-center justify-between gap-3"><h2 aria-label={`${total} matching leads`} className="text-sm font-semibold text-slate-600">{total}</h2><span className="text-xs text-slate-500">{sortLabel} · Page {page} of {pageCount}</span></div>
-    <div aria-label="Lead sorting" className="mb-3 flex flex-wrap items-center gap-3 text-xs xl:hidden"><span>Sort:</span>{(["initiated", "next", "due"] as const).map(key => <Link key={key} href={sortHref(key)} className={sort === key ? "font-semibold text-teal-700 underline" : "text-slate-600"}>{key === "initiated" ? "Initiated Date" : key === "next" ? "Next Action Date" : "Due Status"}{sort === key ? sortDirection === "asc" ? " ↑" : " ↓" : ""}</Link>)}</div>
+    <div aria-label="Lead sorting" className="mb-3 flex flex-wrap items-center gap-3 text-xs"><span>Sort:</span>{(["priority", "initiated", "next", "due"] as const).map(key => <Link key={key} href={sortHref(key)} className={sort === key ? "font-semibold text-teal-700 underline" : "text-slate-600"}>{key === "priority" ? "Priority Score" : key === "initiated" ? "Initiated Date" : key === "next" ? "Next Action Date" : "Due Status"}{sort === key ? sortDirection === "asc" ? " ↑" : " ↓" : ""}</Link>)}</div>
     {rows.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center"><p className="font-medium text-slate-700">No leads match these filters</p><p className="mt-1 text-sm text-slate-500">Adjust the filters or clear the search.</p></div>}<div className="grid gap-3 md:grid-cols-2 xl:hidden">{rows.map(row => <article key={row.id} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <QuickEditLead lead={row} consultants={consultants} trigger="name"/>
-      <div className="mt-1 text-xs text-slate-500">{row.lead_ref}</div>
+      <div className="mt-1 text-xs text-slate-500">{row.lead_ref}</div><PriorityBadge lead={row}/>
       <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">{[
         ["Inbound / Outbound", row.inbound_outbound ?? "—"],
         ["Initiated Date", row.initiated_date_text ?? "—"],
@@ -175,8 +177,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       ].map(([label, value]) => <div key={label} className="min-w-0 break-words"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1">{label === "Funnel Stage" ? <FunnelStagePill stage={row.funnel_stage}/> : value}</dd></div>)}</dl>
       <div className="mt-4 grid grid-cols-3 gap-2"><QuickEditLead lead={row} consultants={consultants} trigger="view" fullWidth/><QuickEditLead lead={row} consultants={consultants} fullWidth/><ArchiveLeadButton leadId={row.id} leadName={row.name} fullWidth/></div>
     </article>)}</div>
-{rows.length > 0 &&     <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block"><table className="w-full table-fixed text-xs [&_th]:break-words"><colgroup>{[12,6,7,7,9,5,13,8,9,8,6,10].map((width, index) => <col key={index} style={{width: `${width}%`}}/>)}</colgroup><thead><tr className="border-b bg-slate-50/70 text-left text-slate-600">{["Customer Name", "Inbound / Outbound", "Initiated Date", "Last Contact Date", "Funnel Stage", "Lead Status", "Last Contact Outcome", "Action Required", "Action Detail", "Next Action Date", "Due Status", "Actions"].map((label, index) => {
-  const key = index === 9 ? "next" : index === 10 ? "due" : index === 2 ? "initiated" : null;
+{rows.length > 0 &&     <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block"><table className="w-full table-fixed text-xs [&_th]:break-words"><colgroup>{[11,6,7,7,8,5,11,7,7,8,7,6,10].map((width, index) => <col key={index} style={{width: `${width}%`}}/>)}</colgroup><thead><tr className="border-b bg-slate-50/70 text-left text-slate-600">{["Customer Name", "Inbound / Outbound", "Initiated Date", "Last Contact Date", "Funnel Stage", "Lead Status", "Last Contact Outcome", "Action Required", "Action Detail", "Next Action Date", "Priority", "Due Status", "Actions"].map(label => {
+  const key = label === "Priority" ? "priority" : label === "Initiated Date" ? "initiated" : label === "Next Action Date" ? "next" : label === "Due Status" ? "due" : null;
   return <th className={`px-2 py-3 font-medium ${label === "Actions" ? "text-right" : ""}`} key={label} aria-sort={key && sort === key ? sortDirection === "desc" ? "descending" : "ascending" : undefined}>{key ? <Link href={sortHref(key)} className="inline-flex items-center gap-1 rounded hover:text-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600" aria-label={`Sort by ${label}`}>{label}<span aria-hidden="true">{sort === key ? sortDirection === "desc" ? "↓" : "↑" : "↕"}</span></Link> : label}</th>;
 })}</tr></thead><tbody>{rows.map(row => <EditableLeadRow key={row.id} lead={row} consultants={consultants} variant="all" actionLabel={actionFor(row)} dueLabel={deriveDueStatus(actionFor(row), row.next_action_date_text, today)} ownerName={row.consultant_name ?? "Unassigned"}/> )}</tbody></table></div>}
     <nav aria-label="Leads pagination" className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-slate-500">Showing {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</p><div className="flex flex-wrap items-center justify-end gap-1"><div className="flex items-center gap-1 text-xs text-slate-500"><span className="mr-1">Rows</span>{[10,25,50].map(size => <Link key={size} href={pageSizeHref(size)} className={`rounded-md px-2 py-1.5 font-medium ${pageSize === size ? "bg-slate-900 text-white" : "hover:bg-slate-100"}`}>{size}</Link>)}</div><Link aria-disabled={page === 1} tabIndex={page === 1 ? -1 : undefined} className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-medium ${page === 1 ? "pointer-events-none border-slate-200 text-slate-300" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} href={pageHref(Math.max(1, page - 1))}>Previous</Link><span className="min-w-20 text-center text-sm text-slate-600">Page {page} of {pageCount}</span><Link aria-disabled={page === pageCount} tabIndex={page === pageCount ? -1 : undefined} className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-medium ${page === pageCount ? "pointer-events-none border-slate-200 text-slate-300" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} href={pageHref(Math.min(pageCount, page + 1))}>Next</Link></div></nav>

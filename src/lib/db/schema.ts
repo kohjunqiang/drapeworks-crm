@@ -67,6 +67,10 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
+export type LeadBuyingStage = "3D / Design Completed" | "Carpentry Completed" | "Keys Collected" | "Move-In Within 2 Months" | "Pre-Keys";
+
+export type LeadEngagementQuality = "High" | "Low" | "Medium";
+
 export type LeadClosureReason = "Communication / Poor Fit" | "Competitor" | "Ghosted" | "Other" | "Outside Scope" | "Price / Budget" | "Product Mismatch" | "Small Order / Low Value" | "Timing / No Longer Needed";
 
 export type LeadContactChannel = "Other" | "Telegram" | "WhatsApp";
@@ -716,11 +720,14 @@ export interface Leads {
   action_detail: string | null;
   assigned_consultant_id: string | null;
   closure_reason: LeadClosureReason | null;
+  commercial_value_score: Generated<number | null>;
   contact_channel: LeadContactChannel;
   created_at: Generated<Timestamp>;
   customer_id: string | null;
   development: string | null;
   dismissed_recommendations: Generated<string[]>;
+  engagement_quality: LeadEngagementQuality | null;
+  engagement_quality_score: Generated<number | null>;
   first_initiated_at: Timestamp | null;
   funnel_stage: Generated<LeadFunnelStage>;
   historical_summary: string | null;
@@ -743,9 +750,13 @@ export interface Leads {
   next_action_date: Timestamp | null;
   owner_id: string | null;
   primary_product: LeadPrimaryProduct | null;
+  priority_class: Generated<string | null>;
+  priority_score: Generated<number | null>;
   quotation_breakdown: string | null;
   quotation_sent_at: Timestamp | null;
   quote_valid_days: Generated<number>;
+  readiness_score: Generated<number | null>;
+  renovation_buying_stage: LeadBuyingStage | null;
   source: LeadSource | null;
   source_ref: string | null;
   telegram_chat_id: string | null;

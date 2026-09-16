@@ -11,3 +11,10 @@ README.md
 CLAUDE.md
 AGENTS.md
 .DS_Store
+
+# Explicit local test tooling must not ship in the application image.
+scripts/setup-priority-local.ts
+scripts/verify-priority-local.ts
+scripts/start-priority-local.mjs
+
+.next-priority

@@ -8,6 +8,7 @@ const supabaseHost = process.env.NEXT_PUBLIC_SUPABASE_URL
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  distDir: process.env.NEXT_BUILD_DIR || ".next",
   // Local QA is opened from other devices through this machine's LAN address.
   // Without allowing that origin, Next blocks the development client bundles:
   // the HTML renders, but buttons and enhanced forms never hydrate.

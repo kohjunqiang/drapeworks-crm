@@ -1,3 +1,4 @@
+import { PriorityBreakdown } from "@/components/leads/priority";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { sql } from "kysely";
@@ -36,12 +37,13 @@ export default async function Page({ params }: { params: Promise<{ leadId: strin
     .orderBy("appointments.created_at", "desc")
     .executeTakeFirst();
   const consultants = profiles.filter(profile => profile.is_active && (profile.role === "consultant" || profile.role === "admin")).map(profile => ({ id: profile.id, full_name: profile.full_name }));
-  const stats = [["Status", lead.lead_status], ["Action", derived.actionRequired], ["Due", derived.dueStatus], ["Readiness", derived.buyingReadiness ?? "—"], ["Owner", derived.currentOwnerId ? names.get(derived.currentOwnerId) ?? "Unknown" : "Unassigned"], ["Follow-ups", String(lead.unanswered_followups)]];
+  const stats = [["Status", lead.lead_status], ["Action", derived.actionRequired], ["Due", derived.dueStatus], ["Funnel readiness", derived.buyingReadiness ?? "—"], ["Owner", derived.currentOwnerId ? names.get(derived.currentOwnerId) ?? "Unknown" : "Unassigned"], ["Follow-ups", String(lead.unanswered_followups)]];
 
   return <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
     <Link href="/leads?view=work" className="mb-4 inline-flex text-sm font-medium text-slate-500 hover:text-slate-900">← Back to Active Queue</Link>
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><h1 className="break-words text-2xl font-bold">{lead.name}</h1><p className="text-slate-500">{lead.lead_ref} · {lead.mobile ?? "No mobile"}</p></div><Link href={`/leads/${id}/edit`} className="inline-flex h-10 w-fit shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">Edit details</Link></div>
     <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{stats.map(([label, value]) => <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" key={label}><div className="text-xs font-medium text-slate-500">{label}</div><div className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</div></div>)}</div>
+    <PriorityBreakdown lead={lead}/>
     {derived.recommendations.length > 0 && <div className="mb-4 space-y-2">{derived.recommendations.map(recommendation => <RecommendationBanner key={recommendation.code} leadId={id} recommendation={recommendation}/>)}</div>}
     <section className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><div className="mb-4"><h2 className="font-semibold">Log update</h2><p className="mt-1 text-sm text-slate-500">Record what happened and set the next clear action.</p></div><LogUpdateForm key={new Date(lead.updated_at).toISOString()} lead={lead}/></section>
     <section className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><h2 className="mb-4 font-semibold">Appointment</h2>{appointment ? <><AppointmentCard key={`${appointment.id}-${new Date(appointment.updated_at).toISOString()}`} appointment={appointment} calendarConfigured={isCalendarConfigured()}/>{appointment.status !== "scheduled" && (lead.funnel_stage === "Book Appointment" || lead.funnel_stage === "Attend Appointment") ? <div className="mt-3"><BookAppointmentDialog leadId={id} leadName={lead.name} leadMobile={lead.mobile} development={lead.development} consultants={consultants}/></div> : null}</> : lead.funnel_stage === "Book Appointment" || lead.funnel_stage === "Attend Appointment" ? <BookAppointmentDialog leadId={id} leadName={lead.name} leadMobile={lead.mobile} development={lead.development} consultants={consultants}/> : <p className="text-sm text-slate-500">Move this lead to Book Appointment before booking.</p>}</section>

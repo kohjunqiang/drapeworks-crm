@@ -51,3 +51,5 @@ resource/*
 # must never enter git history.
 *.xlsx
 /zoho.json
+
+/.next-priority/

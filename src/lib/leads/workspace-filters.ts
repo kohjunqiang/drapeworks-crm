@@ -1,3 +1,4 @@
+import { PRIORITY_CLASSES } from "./priority";
 import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_DIRECTIONS, LEAD_OUTCOMES, LEAD_SOURCES, LEAD_STATUSES, PRIMARY_PRODUCTS } from "./funnel-types";
 
 export const ACTIVE_QUEUE_EXCLUDED_STAGES = ["Won", "Lost", "Not Qualified"] as const;
@@ -6,6 +7,7 @@ export const ACTIVE_QUEUE_STAGE_PRESET = `All except ${ACTIVE_QUEUE_EXCLUDED_STA
 export const ACTION_FILTERS = ["Reply Required", "Follow-Up", "Awaiting Customer", "Resolve Appointment Barrier", "Book Appointment", "Confirm / Attend Appointment", "Send Quotation", "Push for Deposit", "Push for Decision", "Resolve Closing Barrier", "Nurture Lead", "Activate Lead", "Qualify Lead", "Closed", "Won"] as const;
 export const DUE_FILTERS = ["Overdue", "Due Today", "Upcoming", "No Date", "Closed"] as const;
 export const FILTER_SELECTS = [
+  { key: "priority", label: "Priority", values: PRIORITY_CLASSES },
   { key: "direction", label: "Inbound / Outbound", values: LEAD_DIRECTIONS },
   { key: "stage", label: "Funnel Stage", values: FUNNEL_STAGES },
   { key: "status", label: "Lead Status", values: LEAD_STATUSES },

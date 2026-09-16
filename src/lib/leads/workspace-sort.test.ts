@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { parseLeadSort, sortLeadRows } from "./workspace-sort";
-import type { DueStatus } from "./funnel-types";
+import { deriveActionRequired, deriveDueStatus } from "./funnel-engine";
+import type { FunnelStage, DueStatus } from "./funnel-types";
 
-const row = (id: string, date: string | null, due: DueStatus = "Upcoming") => ({ id, next_action_date_text: date, due });
+const row = (id: string, date: string | null, due: DueStatus = "Upcoming") => ({ id, next_action_date_text: date, due, funnel_stage: due === "Closed" ? "Won" : "Qualify Lead", priority_score: null as number | null });
 const dueFor = (value: ReturnType<typeof row>) => value.due;
 describe("Lead workspace sorting", () => {
   it("sorts initiation timestamps newest first with missing dates last", () => {
@@ -34,5 +35,26 @@ describe("Lead workspace sorting", () => {
     const rows = [row("newer", "2026-09-01"), row("older", "2026-09-01"), row("earliest", "2026-01-01")];
     expect(sortLeadRows(rows, "next", "asc", dueFor).slice(0, 2).map(r => r.id)).toEqual(["earliest", "newer"]);
     expect(sortLeadRows(rows, "initiated", "asc", dueFor)).toEqual(rows);
+  });
+});
+
+
+describe("Priority ranking uses actual funnel closure", () => {
+  it.each(["Won", "Lost", "Not Qualified"] as const)("keeps an open declined lead before %s", stage => {
+    const rows = [
+      { ...row("closed", null), funnel_stage: stage as FunnelStage, last_outcome: null, priority_score: 100 },
+      { ...row("open-declined", "2026-09-15"), funnel_stage: "Qualify Lead" as FunnelStage, last_outcome: "Customer Declined" as const, priority_score: 20 },
+    ];
+    const due = (lead: typeof rows[number]) => deriveDueStatus(deriveActionRequired({...lead,next_action_date:lead.next_action_date_text}, "2026-09-16"),lead.next_action_date_text,"2026-09-16");
+    expect(rows.map(due)).toEqual(["Closed", "Closed"]);
+    expect(sortLeadRows(rows, "priority", "desc", due).map(lead => lead.id)).toEqual(["open-declined", "closed"]);
+  });
+  it("orders by the persisted score, including within a due category", () => {
+    const rows = [
+      {...row("lower", "2026-09-15", "Due Today"),priority_score:20,latest_quote_cents:200000},
+      {...row("higher", "2026-09-15", "Due Today"),priority_score:84,latest_quote_cents:0},
+      {...row("pending", "2026-09-15", "Due Today"),priority_score:null,latest_quote_cents:500000},
+    ];
+    for (const sort of ["priority", "due"] as const) expect(sortLeadRows(rows,sort,sort === "due" ? "asc" : "desc",dueFor).map(lead=>lead.id)).toEqual(["higher","lower","pending"]);
   });
 });

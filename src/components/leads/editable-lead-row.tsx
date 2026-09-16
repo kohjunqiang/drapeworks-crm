@@ -1,15 +1,17 @@
 "use client";
 
+import Link from "next/link";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { PriorityBadge } from "@/components/leads/priority";
 import { QuickEditLead } from "@/components/leads/phase16-forms";
 import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
 import { archiveLead } from "@/lib/actions/leads";
 import type { FunnelStage } from "@/lib/leads/funnel-types";
 
-type LeadRow = {
+type LeadRow = import("@/lib/leads/priority").PriorityInput & import("@/lib/leads/priority").StoredPriority & {
   inbound_outbound?: string | null; created_date_text?: string; initiated_date_text?: string | null; last_contact_date_text?: string | null;
   id: string; lead_ref: string; name: string; funnel_stage: FunnelStage; lead_status: string;
   last_outcome: string | null; mobile?: string | null; development?: string | null;
@@ -23,15 +25,18 @@ export function EditableLeadRow({ lead, consultants, variant, ownerName, actionL
   lead: LeadRow; consultants: { id: string; full_name: string | null }[]; variant: "work" | "all";
   ownerName: string; actionLabel?: string; moveInDisplay?: string; lastContactText?: string; dueLabel?: string;
 }) {
+  const priority = <td className="px-2 py-2"><Link href={`/leads/${lead.id}#lead-priority`} aria-label={`View priority breakdown for ${lead.name}`} className="inline-flex rounded hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"><PriorityBadge lead={lead} compact/></Link></td>;
   const actions = <div className="flex items-center justify-end gap-1.5"><QuickEditLead lead={lead} consultants={consultants} trigger="edit"/><ArchiveLeadButton leadId={lead.id} leadName={lead.name}/></div>;
-  return variant === "work" ? <tr className="border-b last:border-b-0 hover:bg-slate-50/70"><td className="px-2 py-3"><QuickEditLead lead={lead} consultants={consultants} trigger="name"/><div className="text-xs text-slate-500">{lead.lead_ref}</div></td><td className="px-2 py-3 font-medium">{actionLabel}</td><td className="px-2 py-3"><FunnelStagePill stage={lead.funnel_stage}/></td><td className="max-w-64 p-3 text-slate-600">{lead.action_detail ?? "—"}</td><td className="px-2 py-3">{lead.next_action_date_text ?? "—"}</td><td className="px-2 py-3">{moveInDisplay ?? "—"}</td><td className="px-2 py-3">{lead.latest_quote_cents ? `$${(lead.latest_quote_cents / 100).toLocaleString("en-SG", { minimumFractionDigits: 2 })}` : "—"}</td><td className="px-2 py-3">{lastContactText ?? "—"}</td><td className="px-2 py-3">{ownerName}</td><td className="px-2 py-3">{actions}</td></tr>
+  return variant === "work" ? <tr className="border-b last:border-b-0 hover:bg-slate-50/70"><td className="px-2 py-3"><QuickEditLead lead={lead} consultants={consultants} trigger="name"/><div className="text-xs text-slate-500">{lead.lead_ref}</div></td><td className="px-2 py-3 font-medium">{actionLabel}</td><td className="px-2 py-3"><FunnelStagePill stage={lead.funnel_stage}/></td><td className="max-w-64 p-3 text-slate-600">{lead.action_detail ?? "—"}</td><td className="px-2 py-3">{lead.next_action_date_text ?? "—"}</td>{priority}<td className="px-2 py-3">{moveInDisplay ?? "—"}</td><td className="px-2 py-3">{lead.latest_quote_cents ? `$${(lead.latest_quote_cents / 100).toLocaleString("en-SG", { minimumFractionDigits: 2 })}` : "—"}</td><td className="px-2 py-3">{lastContactText ?? "—"}</td><td className="px-2 py-3">{ownerName}</td><td className="px-2 py-3">{actions}</td></tr>
     : <tr className="border-b last:border-b-0 hover:bg-slate-50/70">
       <td className="px-2 py-2"><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></td>
       {[lead.inbound_outbound, lead.initiated_date_text, lead.last_contact_date_text].map((value, index) => <td key={index} className="truncate px-2 py-2" title={value ?? undefined}>{value ?? "—"}</td>)}
       <td className="px-2 py-2"><FunnelStagePill stage={lead.funnel_stage}/></td>
       <td className="truncate px-2 py-2" title={lead.lead_status}>{lead.lead_status}</td>
       <td className="px-2 py-2 leading-4" title={lead.last_outcome ?? undefined}>{lead.last_outcome ?? "—"}</td>
-      {[actionLabel, lead.action_detail, lead.next_action_date_text, dueLabel].map((value, index) => <td key={index} className="truncate px-2 py-2" title={value ?? undefined}>{value ?? "—"}</td>)}
+      {[actionLabel, lead.action_detail, lead.next_action_date_text].map((value, index) => <td key={index} className="truncate px-2 py-2" title={value ?? undefined}>{value ?? "—"}</td>)}
+      {priority}
+      <td className="truncate px-2 py-2" title={dueLabel ?? undefined}>{dueLabel ?? "—"}</td>
       <td className="px-2 py-2 text-right">{actions}</td>
     </tr>;
 

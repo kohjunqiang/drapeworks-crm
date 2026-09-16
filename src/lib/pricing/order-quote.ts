@@ -359,6 +359,8 @@ type WindowPriceRow = {
    * CalcWindow.costWidthCm.
    */
   mfg_width_cm: number | null;
+  day_track_required: boolean;
+  night_track_required: boolean;
   day_cost: number | null;
   day_sale: number | null;
   day_series: string | null;
@@ -431,6 +433,8 @@ function rowToCalcWindow(
     costWidthCm: w.mfg_width_cm,
     dayPrice,
     nightPrice,
+    dayTrackRequired: w.day_track_required,
+    nightTrackRequired: w.night_track_required,
     addons,
     comboPriceSgdCents: w.combo_price,
   };
@@ -478,6 +482,8 @@ export async function computeOrderQuote(
       .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
       .select([
         "windows.id as id",
+        "windows.day_track_required",
+        "windows.night_track_required",
         "windows.blind_type_id as blind_type_id",
         "rooms.label as room_label",
         "rooms.position as room_position",
@@ -638,6 +644,8 @@ export async function orderStaleFlags(
         .select([
           "rooms.order_id as order_id",
           "windows.id as id",
+          "windows.day_track_required",
+          "windows.night_track_required",
           "windows.blind_type_id as blind_type_id",
           "rooms.label as room_label",
           "rooms.position as room_position",

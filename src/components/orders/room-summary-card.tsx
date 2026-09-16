@@ -13,6 +13,8 @@ type WindowSummary = {
   notes: string | null;
   side_installation?: boolean;
   overlap_tracks_attachment?: boolean;
+  day_track_required?: boolean;
+  night_track_required?: boolean;
   draw: string | null;
   split_left_cm?: number | null;
   split_right_cm?: number | null;
@@ -173,12 +175,22 @@ export function RoomSummaryCard({ label, windows, photos, orderControls }: Props
                       label={w.day_curtain_label}
                       photoUrl={w.day_curtain_photo_url}
                     />
+                    {w.day_curtain_label && (
+                      <span className="mt-1 block text-[11px] text-slate-500">
+                        {w.day_track_required === false ? "No new track needed" : "New track required"}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2">
                     <CurtainCell
                       label={w.night_curtain_label}
                       photoUrl={w.night_curtain_photo_url}
                     />
+                    {w.night_curtain_label && (
+                      <span className="mt-1 block text-[11px] text-slate-500">
+                        {w.night_track_required === false ? "No new track needed" : "New track required"}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
                   {hasCurtainInstallation && (

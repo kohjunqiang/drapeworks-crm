@@ -15,6 +15,8 @@ export type WindowLike = {
   notes?: string;
   side_installation?: boolean;
   overlap_tracks_attachment?: boolean;
+  day_track_required?: boolean;
+  night_track_required?: boolean;
   day_curtain_type_id?: string;
   night_curtain_type_id?: string;
   blind_type_id?: string;
@@ -35,6 +37,8 @@ export type WindowColumnValues = {
   notes: string | null;
   side_installation: boolean;
   overlap_tracks_attachment: boolean;
+  day_track_required: boolean;
+  night_track_required: boolean;
   day_curtain_type_id: string | null;
   night_curtain_type_id: string | null;
   blind_type_id: string | null;
@@ -66,6 +70,8 @@ export function windowValues(
       night_curtain_type_id: null,
       blind_type_id: win.blind_type_id ?? null,
       overlap_tracks_attachment: false,
+      day_track_required: true,
+      night_track_required: true,
       draw: win.draw ?? null,
       split_left_cm: null,
       split_right_cm: null,
@@ -79,6 +85,8 @@ export function windowValues(
     night_curtain_type_id: win.night_curtain_type_id ?? null,
     blind_type_id: null,
     overlap_tracks_attachment: win.overlap_tracks_attachment ?? false,
+    day_track_required: win.day_track_required ?? true,
+    night_track_required: win.night_track_required ?? true,
     draw: win.draw ?? null,
     split_left_cm: win.draw === "Double" ? (win.split_left_cm ?? null) : null,
     split_right_cm: win.draw === "Double" ? (win.split_right_cm ?? null) : null,

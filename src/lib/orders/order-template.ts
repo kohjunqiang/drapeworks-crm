@@ -121,6 +121,8 @@ export async function loadCurtainOrderTemplate(
           "notes",
           "side_installation",
           "overlap_tracks_attachment",
+          "day_track_required",
+          "night_track_required",
           "day_curtain_type_id",
           "night_curtain_type_id",
           "blind_type_id",
@@ -186,6 +188,8 @@ export async function loadCurtainOrderTemplate(
             notes: window.notes ?? "",
             side_installation: window.side_installation,
             overlap_tracks_attachment: window.overlap_tracks_attachment,
+            day_track_required: window.day_track_required,
+            night_track_required: window.night_track_required,
             combo_id: window.combo_id ?? "",
             addon_ids: addonIdsByWindow.get(window.id) ?? [],
           };

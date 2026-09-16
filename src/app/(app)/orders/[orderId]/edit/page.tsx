@@ -117,6 +117,8 @@ export default async function EditOrderPage({
             "notes",
             "side_installation",
             "overlap_tracks_attachment",
+            "day_track_required",
+            "night_track_required",
             "day_curtain_type_id",
             "night_curtain_type_id",
             "blind_type_id",
@@ -374,6 +376,8 @@ export default async function EditOrderPage({
             notes: w.notes ?? "",
             side_installation: w.side_installation,
             overlap_tracks_attachment: w.overlap_tracks_attachment,
+            day_track_required: w.day_track_required,
+            night_track_required: w.night_track_required,
             combo_id: w.combo_id ?? "",
             addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
           };

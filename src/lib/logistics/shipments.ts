@@ -50,6 +50,7 @@ export function isDirectShipment(category: ShipmentCategory): boolean {
 
 export type ShipmentWindowFacts = {
   hasCurtain: boolean;
+  needsTrack?: boolean;
   hasBlind: boolean;
   hasSFold: boolean;
   hasOverlap: boolean;
@@ -65,11 +66,11 @@ export function shipmentCategoriesForOrder(
     (category === "curtains" && windows.some((window) => window.hasCurtain)) ||
     (category === "blinds" && windows.some((window) => window.hasBlind)) ||
     (category === "standard_tracks" && windows.some((window) =>
-      window.hasCurtain && !window.hasSFold)) ||
+      window.hasCurtain && window.needsTrack !== false && !window.hasSFold)) ||
     (category === "s_fold_tracks" && windows.some((window) =>
-      window.hasCurtain && window.hasSFold)) ||
+      window.hasCurtain && window.needsTrack !== false && window.hasSFold)) ||
     (category === "overlap_tracks_attachment" && windows.some((window) =>
-      window.hasCurtain && window.hasOverlap)));
+      window.hasCurtain && window.needsTrack !== false && window.hasOverlap)));
 }
 
 export function hasExactShipmentCategories(

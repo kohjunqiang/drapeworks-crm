@@ -40,6 +40,17 @@ describe("shipment routing", () => {
 });
 
 describe("shipmentCategoriesForOrder", () => {
+  it("keeps curtains but omits tracks and attachments when no new track is required", () => {
+    expect(shipmentCategoriesForOrder("curtain", [
+      { hasCurtain: true, hasBlind: false, hasSFold: true, hasOverlap: true, needsTrack: false },
+    ])).toEqual(["curtains"]);
+  });
+  it("preserves another window's required tracks in a mixed order", () => {
+    expect(shipmentCategoriesForOrder("curtain", [
+      { hasCurtain: true, hasBlind: false, hasSFold: true, hasOverlap: true, needsTrack: false },
+      { hasCurtain: true, hasBlind: false, hasSFold: false, hasOverlap: false, needsTrack: true },
+    ])).toEqual(["curtains", "standard_tracks"]);
+  });
   it("splits standard and S-fold tracks and adds overlap independently", () => {
     expect(shipmentCategoriesForOrder("curtain", [
       { hasCurtain: true, hasBlind: false, hasSFold: false, hasOverlap: false },

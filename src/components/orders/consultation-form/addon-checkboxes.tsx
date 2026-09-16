@@ -32,6 +32,19 @@ export function AddonCheckboxes({
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
 
   const rawWidth = useWatch({ control, name: `${base}.width_cm` });
+  const dayId = useWatch({ control, name: `${base}.day_curtain_type_id` });
+  const nightId = useWatch({ control, name: `${base}.night_curtain_type_id` });
+  const dayTrackRequired = useWatch({ control, name: `${base}.day_track_required` }) ?? true;
+  const nightTrackRequired = useWatch({ control, name: `${base}.night_track_required` }) ?? true;
+  const trackRequirements = [
+    ...(dayId ? [dayTrackRequired] : []),
+    ...(nightId ? [nightTrackRequired] : []),
+  ];
+  const noTracks = trackRequirements.length > 0
+    ? trackRequirements.every((required) => !required)
+    : !dayTrackRequired && !nightTrackRequired;
+  const mixedTracks = trackRequirements.some(Boolean) && trackRequirements.some((required) => !required);
+
   const selected: string[] =
     useWatch({ control, name: `${base}.addon_ids` }) ?? [];
 
@@ -102,6 +115,23 @@ export function AddonCheckboxes({
         />
         Side-installation
       </label>
+      {covering === "curtain" && (
+        <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
+          <input
+            type="checkbox"
+            checked={noTracks}
+            ref={(input) => { if (input) input.indeterminate = mixedTracks; }}
+            aria-checked={mixedTracks ? "mixed" : noTracks}
+            onChange={(event) => {
+              const required = !event.target.checked;
+              setValue(`${base}.day_track_required`, required, { shouldDirty: true });
+              setValue(`${base}.night_track_required`, required, { shouldDirty: true });
+            }}
+            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+          />
+          No tracks
+        </label>
+      )}
       {covering === "curtain" && (
         <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
           <input

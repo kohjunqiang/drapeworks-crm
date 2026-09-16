@@ -12,8 +12,8 @@
 //  - The COST side rounds a width UP to the next 0.1 m (we are billed in tenths
 //    of a metre); the SALE side never does. See ceilToTenCm.
 //  - Add-ons: S-Fold + Slim tracks (per-metre → × width; per-unit → flat).
-//  - Track: per metre of MEASURED width. Single rail if one of day/night is
-//    present, double (two runs, so twice the width at the same rate) if both.
+//  - Track: per metre of MEASURED width. Single rail if one curtain needs
+//    a new track, double (two runs at the same rate) if both need one.
 //    Cost only — a rail is never billed to the customer.
 //  - Freight: AIR only — clamp(COGS × rate, floor, cap). Sea freight (needs
 //    shipping volume) is deferred.
@@ -24,6 +24,7 @@
 // The one type this module takes from outside. Deciding WHICH add-ons a window
 // carries is window-addons.ts's job; pricing them is this module's. Both are
 // pure, and the dependency only runs one way.
+import { newCurtainTrackCount } from "@/lib/orders/curtain-tracks";
 import type { CalcAddon } from "@/lib/orders/window-addons";
 import { resolveCurtainPackageQuote, packageAddonKind, type CurtainPackageContext } from "./curtain-package-rules";
 import {
@@ -159,6 +160,8 @@ export type AddonPrice = {
 };
 
 export type CalcWindow = BreakdownIdentity & {
+  dayTrackRequired?: boolean;
+  nightTrackRequired?: boolean;
   covering?: "curtain" | "blind";
   widthCm: number | null;
   /**
@@ -543,7 +546,8 @@ export function windowQuote(
     legs.push(...extra.legs);
   }
 
-  // Track: double if both day + night, single if just one. The rail is a cost
+  // Track: double if both curtains need new tracks, single if just one does.
+  // The rail is a cost
   // we bear, not a customer line item (unlike the opt-in add-ons above) — so
   // only its COST feeds COGS; its notional sale price is kept out of the quote.
   //
@@ -551,8 +555,11 @@ export function windowQuote(
   // screwed above, not to the manufacturing width the fabric is cut to. A
   // double rail is two runs of the same rail over the same opening, so it bills
   // twice the width at the same rate — there is no separate "double" rate.
+  const trackCount = newCurtainTrackCount(
+    hasDay, hasNight, win.dayTrackRequired, win.nightTrackRequired,
+  );
   const trackKind: TrackKind | null =
-    hasDay && hasNight ? "double" : hasDay || hasNight ? "single" : null;
+    trackCount === 2 ? "double" : trackCount === 1 ? "single" : null;
   // hasDay/hasNight are false unless widthCm is a positive number, so a track
   // kind guarantees a width to bill on.
   const trackWidthM = trackKind ? (win.widthCm as number) / 100 : 0;

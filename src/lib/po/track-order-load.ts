@@ -1,4 +1,5 @@
 import "server-only";
+import { newCurtainTrackCount } from "@/lib/orders/curtain-tracks";
 
 // What goes on this order's rail order, read once.
 //
@@ -49,6 +50,8 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       )
       .select([
         "windows.id as window_id",
+        "windows.day_track_required",
+        "windows.night_track_required",
         "windows.position as position",
         "manufacture_measurements.mfg_width_cm as mfg_width_cm",
         "windows.day_curtain_type_id as day_curtain_type_id",
@@ -86,10 +89,10 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     // A blind carries its own headrail, so it orders no track. A window with
     // nothing on it orders none either.
     if (w.blind_type_id) continue;
-    const curtains = [
-      w.day_curtain_type_id,
-      w.night_curtain_type_id,
-    ].filter(Boolean).length;
+    const curtains = newCurtainTrackCount(
+      Boolean(w.day_curtain_type_id), Boolean(w.night_curtain_type_id),
+      w.day_track_required, w.night_track_required,
+    );
     if (curtains === 0) continue;
 
     // Positions are 0-based in the database and 1-based on every screen.

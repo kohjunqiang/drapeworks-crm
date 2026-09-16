@@ -1032,6 +1032,31 @@ describe("track", () => {
     ...over,
   });
 
+  it.each([
+    [true, true, 12000, "double"],
+    [false, true, 6000, "single"],
+    [true, false, 6000, "single"],
+    [false, false, 0, null],
+  ] as const)("uses per-curtain requirements: day=%s night=%s", (dayTrackRequired, nightTrackRequired, cost, kind) => {
+    const window = win({ nightPrice: SIGNATURE, dayTrackRequired, nightTrackRequired });
+    const result = windowQuote(window, ASSUMPTIONS);
+    expect(result.trackRmbCents).toBe(cost);
+    expect(result.trackKind).toBe(kind);
+    expect(result.offering).toBe("double");
+    const included = computeQuote([win({ nightPrice: SIGNATURE })], ASSUMPTIONS);
+    const quote = computeQuote([window], ASSUMPTIONS);
+    expect(quote.cogsRmbCents).toBe(included.cogsRmbCents - 12000 + cost);
+    expect(quote.saleSgdCents).toBe(included.saleSgdCents);
+    expect(quote.installationSgdCents).toBe(included.installationSgdCents);
+    expect(quote.freightRmbCents).toBe(included.freightRmbCents);
+    expect(quote.cogsRooms).toEqual(included.cogsRooms);
+    expect(quote.cogsRooms.reduce((n, room) => n + room.rmbCents, 0) + quote.cogsExtras.reduce((n, e) => n + e.rmbCents, 0)).toBe(quote.cogsRmbCents);
+  });
+
+  it("does not add a track for an absent layer", () => {
+    expect(windowQuote(win({ dayTrackRequired: false, nightTrackRequired: true }), ASSUMPTIONS).trackRmbCents).toBe(0);
+  });
+
   it("bills a single rail at width × rate", () => {
     // 2.40m × ¥25.
     expect(windowQuote(win(), ASSUMPTIONS).trackRmbCents).toBe(6000);

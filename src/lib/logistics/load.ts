@@ -1,4 +1,5 @@
 import "server-only";
+import { newCurtainTrackCount } from "@/lib/orders/curtain-tracks";
 
 import type { Kysely, Transaction } from "kysely";
 
@@ -39,6 +40,8 @@ export async function deriveShipmentCategories(
     .select([
       "windows.id",
       "windows.day_curtain_type_id",
+      "windows.day_track_required",
+      "windows.night_track_required",
       "windows.night_curtain_type_id",
       "windows.blind_type_id",
       "windows.overlap_tracks_attachment",
@@ -49,6 +52,7 @@ export async function deriveShipmentCategories(
 
   const windows = new Map<string, {
     hasCurtain: boolean;
+    needsTrack: boolean;
     hasBlind: boolean;
     hasSFold: boolean;
     hasOverlap: boolean;
@@ -56,6 +60,10 @@ export async function deriveShipmentCategories(
   for (const row of rows) {
     const current = windows.get(row.id) ?? {
       hasCurtain: Boolean(row.day_curtain_type_id || row.night_curtain_type_id),
+      needsTrack: newCurtainTrackCount(
+        Boolean(row.day_curtain_type_id), Boolean(row.night_curtain_type_id),
+        row.day_track_required, row.night_track_required,
+      ) > 0,
       hasBlind: Boolean(row.blind_type_id),
       hasSFold: false,
       hasOverlap: row.overlap_tracks_attachment,

@@ -140,6 +140,8 @@ export function LiveQuote({
           covering: "curtain",
           widthCm,
           dayPrice: priceOf(w.day_curtain_type_id || undefined),
+          dayTrackRequired: w.day_track_required,
+          nightTrackRequired: w.night_track_required,
           nightPrice: priceOf(w.night_curtain_type_id || undefined),
           addons: addonsFor("curtain"),
           comboPriceSgdCents: comboId

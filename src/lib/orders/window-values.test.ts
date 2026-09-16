@@ -29,6 +29,8 @@ describe("windowValues — regular window", () => {
       notes: "beam clearance",
       side_installation: false,
       overlap_tracks_attachment: false,
+      day_track_required: true,
+      night_track_required: true,
       day_curtain_type_id: DAY,
       night_curtain_type_id: NIGHT,
       blind_type_id: null,
@@ -79,6 +81,8 @@ describe("windowValues — blind window", () => {
       notes: null,
       side_installation: false,
       overlap_tracks_attachment: false,
+      day_track_required: true,
+      night_track_required: true,
       day_curtain_type_id: null,
       night_curtain_type_id: null,
       blind_type_id: BLIND,
@@ -192,5 +196,15 @@ describe("windowValues — unequal double draw", () => {
         0,
       ).split_right_cm,
     ).toBeNull();
+  });
+});
+
+
+describe("window track requirements", () => {
+  it("persists independent day/night choices and defaults existing inputs to new tracks", () => {
+    expect(windowValues({ variant: "regular", day_track_required: false, night_track_required: true }, 0))
+      .toMatchObject({ day_track_required: false, night_track_required: true });
+    expect(windowValues({ variant: "regular" }, 0))
+      .toMatchObject({ day_track_required: true, night_track_required: true });
   });
 });

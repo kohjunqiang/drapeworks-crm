@@ -1448,10 +1448,12 @@ export interface Windows {
   combo_id: string | null;
   created_at: Generated<Timestamp>;
   day_curtain_type_id: string | null;
+  day_track_required: Generated<boolean>;
   draw: DrawDirection | null;
   height_cm: number | null;
   id: Generated<string>;
   night_curtain_type_id: string | null;
+  night_track_required: Generated<boolean>;
   notes: string | null;
   overlap_tracks_attachment: Generated<boolean>;
   position: number;

@@ -23,6 +23,7 @@ import {
   leadMilestoneForOrderStatus,
   leadStateForRevertedOrderStatus,
 } from "@/lib/status-flow";
+import { actionErrorMessage, UserFacingError } from "@/lib/user-facing-error";
 
 const advanceSchema = z.object({
   orderId: z.string().uuid(),
@@ -46,7 +47,7 @@ export async function advanceOrderStatus(input: unknown) {
   const parsed = advanceSchema.parse(input);
 
   if (parsed.expectedStatus === "order_recorded") {
-    throw new Error("Create, preview, and confirm the official quotation from the quotation workspace.");
+    throw new UserFacingError("Create, preview, and confirm the official quotation from the quotation workspace.");
   }
 
   // Creating the invoice and applying its deposit are external side effects, so they must not happen
@@ -64,28 +65,28 @@ export async function advanceOrderStatus(input: unknown) {
       .where("id", "=", parsed.orderId)
       .forUpdate()
       .executeTakeFirst();
-    if (!order) throw new Error("Order not found");
+    if (!order) throw new UserFacingError("Order not found");
     if (order.is_draft) {
-      throw new Error(
+      throw new UserFacingError(
         "Finish the consultation before advancing this order",
       );
     }
     if (order.current_status !== parsed.expectedStatus) {
-      throw new Error("Order status already changed. Refresh and try again.");
+      throw new UserFacingError("Order status already changed. Refresh and try again.");
     }
     if (order.current_status === "installation_completed" && parsed.balanceReceivedConfirmed !== true) {
-      throw new Error("Confirm that the remaining balance has been received before completing this order.");
+      throw new UserFacingError("Confirm that the remaining balance has been received before completing this order.");
     }
     if (parsed.expectedStatus === "quotation_sent") {
       const quotation = await trx.selectFrom("order_quotations").select(["status", "zoho_invoice_id", "zoho_payment_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
       if (quotation && (quotation.status !== "sent" || !quotation.zoho_invoice_id || !quotation.zoho_payment_id)) {
-        throw new Error("The current sent quotation must own the Zoho invoice and matching deposit payment before the deposit can be recorded");
+        throw new UserFacingError("The current sent quotation must own the Zoho invoice and matching deposit payment before the deposit can be recorded");
       }
     }
 
     const idx = STATUS_FLOW.indexOf(order.current_status);
-    if (idx === -1) throw new Error("Order status invalid");
-    if (idx === STATUS_FLOW.length - 1) throw new Error("Already completed");
+    if (idx === -1) throw new UserFacingError("Order status invalid");
+    if (idx === STATUS_FLOW.length - 1) throw new UserFacingError("Already completed");
     if (order.current_status === "delivered_checked") {
       const arrangement = await trx
         .selectFrom("fulfilment_arrangements")
@@ -94,7 +95,7 @@ export async function advanceOrderStatus(input: unknown) {
         .where("cancelled_at", "is", null)
         .executeTakeFirst();
       if (!arrangement) {
-        throw new Error(
+        throw new UserFacingError(
           "Arrange the installation date before moving to Fulfillment Arrangement",
         );
       }
@@ -151,7 +152,7 @@ export async function advanceOrderStatus(input: unknown) {
         numbers,
         trackingMode,
       );
-      if (validationError) throw new Error(validationError);
+      if (validationError) throw new UserFacingError(validationError);
       // A checked arrival certifies the tracking numbers recorded against it.
       // A stale dialog must never clear or replace them — refresh for the
       // recorded values, or reopen the arrival check first.
@@ -168,7 +169,7 @@ export async function advanceOrderStatus(input: unknown) {
           normalizeFreightNumber(number.overseasFreightNumber ?? "") !==
             normalizeFreightNumber(existing.overseasFreightNumber ?? "");
         if (localChanged || overseasChanged) {
-          throw new Error(
+          throw new UserFacingError(
             `${number.category} is already arrived and checked — refresh the order for its recorded numbers, or reopen the arrival before changing them.`,
           );
         }
@@ -212,7 +213,7 @@ export async function advanceOrderStatus(input: unknown) {
           .execute();
       }
     } else if (parsed.shipmentNumbers?.length) {
-      throw new Error("Delivery numbers are not recorded at this stage.");
+      throw new UserFacingError("Delivery numbers are not recorded at this stage.");
     }
 
     if (order.current_status === "shipping_sg") {
@@ -222,12 +223,12 @@ export async function advanceOrderStatus(input: unknown) {
         state.shipments,
         "overseas",
       );
-      if (numberError) throw new Error(numberError);
+      if (numberError) throw new UserFacingError(numberError);
       const arrivalError = validateAllShipmentsArrived(
         state.categories,
         state.shipments,
       );
-      if (arrivalError) throw new Error(arrivalError);
+      if (arrivalError) throw new UserFacingError(arrivalError);
     }
 
     await trx.insertInto("order_status_events").values({
@@ -276,6 +277,18 @@ export async function advanceOrderStatus(input: unknown) {
   if (linkedLeadId) {
     revalidatePath("/leads");
     revalidatePath(`/leads/${linkedLeadId}`);
+  }
+}
+
+// Server Action errors are redacted to a digest in production, so the advance
+// dialog cannot catch a thrown message. This wrapper returns the deliberate
+// user-facing message instead; anything unexpected is logged and genericised.
+export async function advanceOrderStatusUi(input: unknown): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await advanceOrderStatus(input);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: actionErrorMessage(error, "The order status could not be updated. Refresh and try again.") };
   }
 }
 

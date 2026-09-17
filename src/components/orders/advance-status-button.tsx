@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { advanceOrderStatus } from "@/lib/actions/status";
+import { advanceOrderStatusUi } from "@/lib/actions/status";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import {
   requiresLocalDelivery,
@@ -150,7 +150,7 @@ export function AdvanceStatusButton({
     }
     startTransition(async () => {
       try {
-        await advanceOrderStatus({
+        const result = await advanceOrderStatusUi({
           orderId,
           expectedStatus: currentStatus,
           note: note || undefined,
@@ -167,6 +167,12 @@ export function AdvanceStatusButton({
               }))
             : undefined,
         });
+        if (!result.ok) {
+          setActionError(result.error);
+          toast.error(result.error);
+          router.refresh();
+          return;
+        }
         toast.success(
           nextLabel ? `Advanced to ${nextLabel}` : "Status advanced",
         );

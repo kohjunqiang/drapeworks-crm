@@ -5,15 +5,17 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   revalidatePath: vi.fn(),
   load: vi.fn(),
+  ensureZohoInvoiceForOrder: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: mocks.requireRole, requireSession: vi.fn() }));
 vi.mock("@/lib/db/kysely", () => ({ db: { transaction: mocks.transaction } }));
-vi.mock("@/lib/actions/quotations", () => ({ ensureZohoInvoiceForOrder: vi.fn() }));
+vi.mock("@/lib/actions/quotations", () => ({ ensureZohoInvoiceForOrder: mocks.ensureZohoInvoiceForOrder }));
 vi.mock("@/lib/logistics/load", () => ({ loadOrderShipmentState: mocks.load }));
 
-import { advanceOrderStatus } from "./status";
+import { UserFacingError } from "@/lib/user-facing-error";
+import { advanceOrderStatus, advanceOrderStatusUi } from "./status";
 
 const orderId = "a31fd642-0fe2-4066-9762-880b0e023471";
 
@@ -321,5 +323,53 @@ describe("tracking numbers on arrived shipments during a manual advance", () => 
       .map(([value]) => (value as { status?: string }).status)
       .filter(Boolean);
     expect(statuses).toEqual(["sent_logistic"]);
+  });
+});
+
+describe("advanceOrderStatusUi result wrapper", () => {
+  const invoiceInput = { orderId, expectedStatus: "quotation_sent" };
+
+  it("returns the deliberate invoice message without opening the status transaction", async () => {
+    const deliberate = new UserFacingError(
+      "The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice",
+    );
+    mocks.ensureZohoInvoiceForOrder.mockRejectedValue(deliberate);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await advanceOrderStatusUi(invoiceInput);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice",
+    });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(consoleSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns a generic fallback for an unexpected raw error and never leaks it", async () => {
+    mocks.ensureZohoInvoiceForOrder.mockRejectedValue(
+      new Error("RAW-SECRET-401 oauth_token=abc123"),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await advanceOrderStatusUi(invoiceInput);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe("The order status could not be updated. Refresh and try again.");
+      expect(result.error).not.toContain("RAW-SECRET");
+    }
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("still enforces the ops/admin role guard", async () => {
+    mocks.requireRole.mockRejectedValue(new Error("Forbidden"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await advanceOrderStatusUi(invoiceInput);
+
+    expect(result.ok).toBe(false);
+    expect(mocks.ensureZohoInvoiceForOrder).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
   });
 });

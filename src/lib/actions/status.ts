@@ -8,7 +8,9 @@ import { z } from "zod";
 import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { FulfilmentStatus } from "@/lib/db/schema";
+import { normalizeFreightNumber } from "@/lib/logistics/freight";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
+import { reconcileFulfilmentStatus } from "@/lib/logistics/reconcile";
 import { ensureZohoInvoiceForOrder } from "@/lib/actions/quotations";
 import {
   requiresLocalDelivery,
@@ -150,19 +152,45 @@ export async function advanceOrderStatus(input: unknown) {
         trackingMode,
       );
       if (validationError) throw new Error(validationError);
+      // A checked arrival certifies the tracking numbers recorded against it.
+      // A stale dialog must never clear or replace them — refresh for the
+      // recorded values, or reopen the arrival check first.
       for (const number of submittedNumbers ?? []) {
-        if (state.shipments.find((shipment) => shipment.category === number.category)?.notNeeded) continue;
+        const existing = state.shipments.find(
+          (shipment) => shipment.category === number.category,
+        );
+        if (!existing?.arrivedCheckedAt || existing.notNeeded) continue;
+        const localChanged =
+          requiresLocalDelivery(number.category) &&
+          number.localDeliveryNumber !== existing.localDeliveryNumber;
+        const overseasChanged =
+          trackingMode === "overseas" &&
+          normalizeFreightNumber(number.overseasFreightNumber ?? "") !==
+            normalizeFreightNumber(existing.overseasFreightNumber ?? "");
+        if (localChanged || overseasChanged) {
+          throw new Error(
+            `${number.category} is already arrived and checked — refresh the order for its recorded numbers, or reopen the arrival before changing them.`,
+          );
+        }
+      }
+      for (const number of submittedNumbers ?? []) {
+        const existing = state.shipments.find(
+          (shipment) => shipment.category === number.category,
+        );
+        if (existing?.notNeeded) continue;
         if (
           trackingMode === "local" &&
           !requiresLocalDelivery(number.category)
         ) continue;
+        // Nothing new is ever recorded on a checked arrival — skipping also
+        // leaves its source and updated_at untouched.
+        if (existing?.arrivedCheckedAt) continue;
         const values = {
           order_id: parsed.orderId,
           category: number.category,
           local_delivery_number: requiresLocalDelivery(number.category)
             ? number.localDeliveryNumber ?? null
-            : state.shipments.find((row) => row.category === number.category)
-                ?.localDeliveryNumber ?? null,
+            : existing?.localDeliveryNumber ?? null,
           overseas_freight_number: trackingMode === "overseas"
             ? number.overseasFreightNumber
             : null,
@@ -233,6 +261,13 @@ export async function advanceOrderStatus(input: unknown) {
         }).execute();
       }
     }
+    // When the manifest already shows every required shipment arrived (and an
+    // installation is booked), one manual advance finishes the catch-up rather
+    // than making the operator click through stale milestones.
+    await reconcileFulfilmentStatus(trx, {
+      orderId: parsed.orderId,
+      createdBy: session.user.id,
+    });
     return linkedLead?.id ?? null;
   });
 

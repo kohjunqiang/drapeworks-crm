@@ -1,3 +1,5 @@
+import { usableFreightNumber } from "./freight";
+
 export const SHIPMENT_CATEGORIES = [
   "curtains",
   "blinds",
@@ -129,7 +131,8 @@ export function validateAllShipmentsArrived(
   )) {
     return "Shipment orders changed. Refresh and try again.";
   }
-  if (received.some((shipment) => !shipment.notNeeded && !shipment.overseasFreightNumber?.trim())) {
+  if (received.some((shipment) =>
+    !shipment.notNeeded && !usableFreightNumber(shipment.overseasFreightNumber))) {
     return "Enter an overseas freight number for every shipment.";
   }
   if (received.some((shipment) => !shipment.notNeeded && !shipment.arrivedCheckedAt)) {

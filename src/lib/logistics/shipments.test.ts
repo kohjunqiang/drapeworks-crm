@@ -170,6 +170,17 @@ describe("validateAllShipmentsArrived", () => {
       ["curtains", "s_fold_tracks"], rows,
     )).toBeNull();
   });
+
+  it.each(["N/A", "-", "none"])("rejects placeholder freight %j", (freight) => {
+    const rows = [
+      shipment("curtains", {
+        overseasFreightNumber: freight,
+        arrivedCheckedAt: new Date(),
+      }),
+    ];
+    expect(validateAllShipmentsArrived(["curtains"], rows))
+      .toMatch(/overseas freight/);
+  });
 });
 
 describe("shipments marked not needed", () => {

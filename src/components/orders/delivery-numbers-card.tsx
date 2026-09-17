@@ -17,7 +17,7 @@ import {
   SHIPMENT_CATEGORY_LABELS,
   type ShipmentValues,
 } from "@/lib/logistics/shipments";
-import { statusIndex } from "@/lib/status-flow";
+import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 
 type Props = {
   orderId: string;
@@ -137,7 +137,7 @@ export function DeliveryNumbersCard({
           markDelivered: allDraftArrived,
         });
         toast.success(result.delivered
-          ? "Order marked Delivered & Checked"
+          ? `Order advanced to ${STATUS_LABELS[result.status]}`
           : "Arrival progress saved");
         setArrivalNote("");
         router.refresh();

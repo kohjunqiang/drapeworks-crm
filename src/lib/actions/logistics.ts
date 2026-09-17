@@ -7,8 +7,10 @@ import { z } from "zod";
 
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import type { FulfilmentStatus } from "@/lib/db/schema";
 import { canRecordShipmentArrival } from "@/lib/logistics/arrival-status";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
+import { reconcileFulfilmentStatus } from "@/lib/logistics/reconcile";
 import {
   normalizeFreightNumber,
   usableFreightNumber,
@@ -17,8 +19,6 @@ import {
   hasExactShipmentCategories,
   requiresLocalDelivery,
   SHIPMENT_CATEGORIES,
-  validateAllShipmentsArrived,
-  validateShipmentNumbersForTransition,
 } from "@/lib/logistics/shipments";
 import { statusIndex } from "@/lib/status-flow";
 
@@ -256,11 +256,11 @@ const arrivalsSchema = z.object({
 
 export async function saveShipmentArrivals(
   input: unknown,
-): Promise<{ delivered: boolean }> {
+): Promise<{ delivered: boolean; status: FulfilmentStatus }> {
   const session = await requireRole(["ops", "admin"]);
   const parsed = arrivalsSchema.parse(input);
 
-  await db.transaction().execute(async (trx) => {
+  const reconciled = await db.transaction().execute(async (trx) => {
     const order = await trx.selectFrom("orders")
       .select("current_status")
       .where("id", "=", parsed.orderId)
@@ -273,10 +273,9 @@ export async function saveShipmentArrivals(
       );
     }
 
-    if (parsed.markDelivered && order.current_status !== "shipping_sg") {
-      throw new Error("Move the order to Shipping to SG before marking it Delivered & Checked.");
-    }
-
+    // markDelivered is honoured wherever the arrival window is open: the
+    // reconciliation performs the audited catch-up at any in-window status,
+    // and a premature request still fails the whole save below.
     const state = await loadOrderShipmentState(trx, parsed.orderId);
     if (state.categories.length === 0) {
       throw new Error("No shipment orders found. Review the vendor orders first.");
@@ -299,9 +298,9 @@ export async function saveShipmentArrivals(
           "Shipment arrival progress was updated by someone else. Refresh and try again.",
         );
       }
-      if (arrival.arrivedChecked && !existing.overseasFreightNumber?.trim()) {
+      if (arrival.arrivedChecked && !usableFreightNumber(existing.overseasFreightNumber)) {
         throw new Error(
-          `Enter the overseas freight number for ${arrival.category} first.`,
+          `Enter a real overseas freight number for ${arrival.category} first.`,
         );
       }
       const wasArrived = Boolean(existing.arrivedCheckedAt);
@@ -328,31 +327,32 @@ export async function saveShipmentArrivals(
       }).execute();
     }
 
-    if (parsed.markDelivered) {
-      const refreshed = await loadOrderShipmentState(trx, parsed.orderId);
-      const numberError = validateShipmentNumbersForTransition(
-        refreshed.categories,
-        refreshed.shipments,
-        "overseas",
+    // A completed manifest catches the status up to Delivered & Checked — or
+    // Fulfillment Arrangement when installation is already booked — even when
+    // the last check-in lands while the order is still with the vendor. The
+    // criteria are identical at every in-window status: every required row
+    // arrived and carrying a real (non-placeholder) freight number.
+    const reconciled = await reconcileFulfilmentStatus(trx, {
+      orderId: parsed.orderId,
+      createdBy: session.user.id,
+    });
+    if (
+      parsed.markDelivered &&
+      statusIndex(reconciled.to) < statusIndex("delivered_checked")
+    ) {
+      throw new Error(
+        "Every required shipment needs a real overseas freight number and an arrival check before Delivered & Checked.",
       );
-      if (numberError) throw new Error(numberError);
-      const arrivalError = validateAllShipmentsArrived(
-        refreshed.categories,
-        refreshed.shipments,
-      );
-      if (arrivalError) throw new Error(arrivalError);
-      await trx.insertInto("order_status_events").values({
-        order_id: parsed.orderId,
-        status: "delivered_checked",
-        note: parsed.note || "All shipments arrived and checked",
-        created_by: session.user.id,
-      }).execute();
     }
+    return reconciled;
   });
 
   revalidatePath(`/orders/${parsed.orderId}`);
   revalidatePath("/orders");
-  return { delivered: parsed.markDelivered };
+  return {
+    delivered: statusIndex(reconciled.to) >= statusIndex("delivered_checked"),
+    status: reconciled.to,
+  };
 }
 
 const reopenArrivalSchema = z.object({
@@ -451,6 +451,11 @@ export async function setShipmentNotNeeded(input: unknown): Promise<void> {
       note: `${parsed.category}: ${parsed.notNeeded ? "marked Not needed" : "restored as needed"}`,
       created_by: session.user.id,
     }).execute();
+    // Dropping a category can complete the required manifest on its own.
+    await reconcileFulfilmentStatus(trx, {
+      orderId: parsed.orderId,
+      createdBy: session.user.id,
+    });
   });
   revalidatePath("/orders");
   revalidatePath(`/orders/${parsed.orderId}`);

@@ -16,5 +16,8 @@ AGENTS.md
 scripts/setup-priority-local.ts
 scripts/verify-priority-local.ts
 scripts/start-priority-local.mjs
+scripts/verify-arrival-reconcile.ts
+scripts/seed-arrival-reconcile-local.ts
+scripts/repair-order-fulfilment-status.ts
 
 .next-priority

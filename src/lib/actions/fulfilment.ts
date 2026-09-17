@@ -8,6 +8,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { syncFulfilmentArrangement } from "@/lib/calendar/fulfilment-sync";
 import { db } from "@/lib/db/kysely";
 import { canScheduleInstallation } from "@/lib/fulfilment/status";
+import { reconcileFulfilmentStatus } from "@/lib/logistics/reconcile";
 import {
   fulfilmentArrangementCancellationSchema,
   fulfilmentArrangementRetrySchema,
@@ -89,19 +90,15 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
       })
       .execute();
 
-    // Booking is the structured action that moves Delivered & Checked into the
-    // Fulfillment Arrangement stage. It cannot be skipped by a generic advance.
-    if (order.current_status === "delivered_checked") {
-      await trx
-        .insertInto("order_status_events")
-        .values({
-          order_id: parsed.order_id,
-          status: "fulfilment",
-          note: `Installation booked for ${parsed.date} ${parsed.time}`,
-          created_by: session.user.id,
-        })
-        .execute();
-    }
+    // Booking is the structured action that moves an order into the
+    // Fulfillment Arrangement stage once every required shipment has arrived.
+    // Booking earlier is calendar planning only; the reconciliation catches the
+    // status up — whether the booking lands before or after the last arrival.
+    await reconcileFulfilmentStatus(trx, {
+      orderId: parsed.order_id,
+      createdBy: session.user.id,
+      fulfilmentNote: `Installation booked for ${parsed.date} ${parsed.time}`,
+    });
     return arrangement.id;
   });
 

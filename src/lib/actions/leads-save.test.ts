@@ -12,9 +12,9 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: mocks.requireRole }));
-vi.mock("@/lib/db/kysely", () => ({ db: { transaction: mocks.transaction } }));
+vi.mock("@/lib/db/kysely", () => ({ db: { transaction: mocks.transaction, selectFrom: mocks.selectFrom, updateTable: mocks.updateTable, insertInto: mocks.insertInto } }));
 
-import { logLeadUpdate, quickEditLead } from "./leads";
+import { createLead, editLeadDetails, logLeadUpdate, quickEditLead } from "./leads";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const owner = "00000000-0000-4000-8000-000000000002";
@@ -135,13 +135,38 @@ describe("Versioned lead saves", () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
-  it.each([quickEditLead, logLeadUpdate])("refuses a manual transition to Won", async action => {
+  it.each([quickEditLead, logLeadUpdate])("returns production-safe validation feedback for a manual Won transition", async action => {
     const payload = action === quickEditLead ? edit() : log();
-    await expect(action({ ...payload, funnel_stage: "Won" })).rejects.toThrow(
-      "Record the deposit on the linked order",
-    );
+    await expect(action({ ...payload, funnel_stage: "Won" })).resolves.toEqual({
+      ok: false,
+      error: expect.stringContaining("Record the deposit on the linked order"),
+    });
     expect(mocks.updateTable).not.toHaveBeenCalled();
     expect(mocks.insertInto).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([quickEditLead, logLeadUpdate])("keeps an already-Won lead Won while saving unrelated fields", async action => {
+    mocks.before.funnel_stage = "Won";
+    const payload = action === quickEditLead ? edit() : log();
+    await expect(action({ ...payload, funnel_stage: "Won" })).resolves.toEqual({ ok: true });
+    expect(mocks.set.mock.calls[0][0]).toMatchObject({ funnel_stage: "Won" });
+    expect(mocks.inserts.every(entry => entry.table !== "lead_stage_events")).toBe(true);
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it("rejects a forged Won stage through the details editor without writing", async () => {
+    await expect(editLeadDetails({ id, owner_id: owner, expected_updated_at: version, funnel_stage: "Won" }))
+      .resolves.toEqual({ ok: false, error: expect.stringContaining("Record the deposit on the linked order") });
+    expect(mocks.updateTable).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects creating a lead that is already Won", async () => {
+    await expect(createLead({ name: "Customer", contact_channel: "Other", first_initiated_date: "2026-09-01", funnel_stage: "Won" }))
+      .resolves.toEqual({ ok: false, error: expect.stringContaining("Record the deposit on the linked order") });
+    expect(mocks.insertInto).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });
 

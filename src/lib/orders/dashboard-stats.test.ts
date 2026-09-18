@@ -29,15 +29,14 @@ describe("order dashboard status buckets", () => {
     expect(ACTIVE_ORDER_STATUSES).not.toContain("completed");
   });
 
-  it("limits the default list to recorded, quoted, and active orders", () => {
+  it("shows every unfinished order in the default list", () => {
     expect(DEFAULT_ORDER_LIST_STATUSES).toEqual([
       "order_recorded",
       "quotation_sent",
+      "deposit_received",
+      "po_ready",
       ...ACTIVE_ORDER_STATUSES,
     ]);
-    expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("deposit_received");
-    expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("po_ready");
     expect(DEFAULT_ORDER_LIST_STATUSES).not.toContain("completed");
-    expect(DEFAULT_ORDER_LIST_STATUSES).toContain("installation_completed");
   });
 });

@@ -196,3 +196,50 @@ describe("Zoho Books transport safety", () => {
     await expect(getZohoInvoicePdf("invoice-1")).rejects.toThrow("invalid invoice PDF");
   });
 });
+
+describe("createZohoContact", () => {
+  it("creates an individual customer with a primary contact person carrying the CRM details", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await expect(createZohoContact({ name: "Jia Jun", email: "jia@example.com", mobile: "91234567" })).resolves.toMatchObject({ contact_id: "c-1" });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({ contact_name: "Jia Jun", contact_type: "customer", customer_sub_type: "individual" });
+    expect(body.contact_persons).toEqual([{ first_name: "Jia Jun", email: "jia@example.com", mobile: "91234567", is_primary_contact: true }]);
+    expect(body).not.toHaveProperty("email");
+    expect(body).not.toHaveProperty("mobile");
+  });
+
+  it("omits the email key when the CRM has none", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await createZohoContact({ name: "Jia Jun", email: null, mobile: "91234567" });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.contact_persons).toEqual([{ first_name: "Jia Jun", mobile: "91234567", is_primary_contact: true }]);
+  });
+
+  it("creates a primary person with only the name when no details exist", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await createZohoContact({ name: "Jia Jun", email: "", mobile: null });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.contact_persons).toEqual([{ first_name: "Jia Jun", is_primary_contact: true }]);
+  });
+
+  it("never retries a non-idempotent contact POST", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 1, message: "uncertain" }, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await expect(createZohoContact({ name: "Jia Jun", email: null, mobile: null })).rejects.toThrow("uncertain");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

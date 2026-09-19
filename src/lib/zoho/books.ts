@@ -160,9 +160,20 @@ export async function getZohoContact(id: string): Promise<ZohoContact> {
 }
 
 export async function createZohoContact(input: { name: string; email: string | null; mobile: string | null }): Promise<ZohoContact> {
+  const email = input.email?.trim();
+  const mobile = input.mobile?.trim();
+  // Zoho derives a contact's email/phone fields from its primary contact
+  // person — top-level email/mobile keys are silently dropped — and defaults
+  // the subtype to business, so both must be sent explicitly.
+  const person = {
+    first_name: input.name,
+    ...(email ? { email } : {}),
+    ...(mobile ? { mobile } : {}),
+    is_primary_contact: true,
+  };
   const json = await request<ZohoEnvelope & { contact?: ZohoContact }>("/contacts", {
     method: "POST",
-    body: JSON.stringify({ contact_name: input.name, contact_type: "customer", email: input.email ?? "", mobile: input.mobile ?? "" }),
+    body: JSON.stringify({ contact_name: input.name, contact_type: "customer", customer_sub_type: "individual", contact_persons: [person] }),
   });
   if (!json.contact) throw new Error("Zoho Books did not return the new customer");
   return json.contact;

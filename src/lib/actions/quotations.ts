@@ -274,7 +274,7 @@ export async function acknowledgeZohoConflict(quotationId: string) {
     const pdf = await storePdf(row);
     await db.updateTable("order_quotations").set({
       status: "zoho_draft", zoho_status: "sent", zoho_last_modified_time: remote.last_modified_time ?? null,
-      issue_date: remote.date || row.issue_date, expiry_date: remote.expiry_date || row.expiry_date,
+      issue_date: remote.date || row.issue_date, expiry_date: remote.expiry_date || null,
       lines: JSON.stringify(lines) as Json, quoted_total_cents: Math.round(Number(remote.total) * 100), notes: remote.notes ?? "", terms: remote.terms ?? "",
       synced_payload_hash: estimateSnapshotHash(remote as unknown as Record<string, unknown>), pdf_storage_path: pdf.path, pdf_sha256: pdf.hash, synced_at: new Date(), sync_error: null,
     }).where("id", "=", id).where("status", "=", "conflict").execute();
@@ -360,9 +360,13 @@ export async function confirmQuotationSent(input: unknown) {
         const lead = await trx.selectFrom("leads").select("funnel_stage").where("id", "=", leadId).forUpdate().executeTakeFirst();
         const milestone = leadMilestoneForOrderStatus("quotation_sent");
         if (lead && milestone) {
-          const validityDays = Math.max(1, Math.round((new Date(String(row.expiry_date)).getTime() - new Date(String(row.issue_date)).getTime()) / 86_400_000));
+          const validityDays = row.expiry_date
+            ? Math.max(1, Math.round((new Date(String(row.expiry_date)).getTime() - new Date(String(row.issue_date)).getTime()) / 86_400_000))
+            : null;
           const breakdown = linesOf(row).map((line) => `${line.name}: ${line.quantity} × $${(line.rateCents / 100).toFixed(2)}`).join("\n");
-          await trx.updateTable("leads").set({ funnel_stage: milestone.stage, last_outcome: milestone.outcome, quotation_sent_at: sentAt, latest_quote_cents: row.quoted_total_cents, quotation_breakdown: breakdown, quote_valid_days: validityDays, updated_at: sentAt }).where("id", "=", leadId).execute();
+          // A quotation without an expiry leaves leads.quote_valid_days at its
+          // existing value so the funnel's quote-aged nudge keeps working.
+          await trx.updateTable("leads").set({ funnel_stage: milestone.stage, last_outcome: milestone.outcome, quotation_sent_at: sentAt, latest_quote_cents: row.quoted_total_cents, quotation_breakdown: breakdown, updated_at: sentAt, ...(validityDays === null ? {} : { quote_valid_days: validityDays }) }).where("id", "=", leadId).execute();
           if (lead.funnel_stage !== milestone.stage) await trx.insertInto("lead_stage_events").values({ lead_id: leadId, from_stage: lead.funnel_stage, to_stage: milestone.stage, changed_at: sentAt, changed_by: session.user.id, source: "system" }).execute();
         }
       }
@@ -392,9 +396,9 @@ async function importExistingZohoQuotationInternal(input: unknown) {
   if (remote.customer_id !== link.zoho_contact_id) throw new Error("The Zoho quotation belongs to a different customer");
   if (remote.currency_code !== "SGD") throw new Error("Only SGD quotations can be imported");
   if (remote.status !== "draft" && remote.status !== "sent") throw new Error(`Zoho quotation is already ${remote.status}`);
-  if (!remote.date || !remote.expiry_date || remote.expiry_date < remote.date) throw new Error("The Zoho quotation dates are incomplete");
+  if (!remote.date || (remote.expiry_date && remote.expiry_date < remote.date)) throw new Error("The Zoho quotation dates are incomplete");
   const importedIssueDate = remote.date;
-  const importedExpiryDate = remote.expiry_date;
+  const importedExpiryDate = remote.expiry_date || null;
   const totalCents = Math.round(Number(remote.total) * 100);
   if (!Number.isFinite(totalCents) || totalCents < 0) throw new Error("The Zoho quotation total is invalid");
   const lines = quotationLineSchema.array().min(1).parse((remote.line_items ?? []).map((line) => ({
@@ -470,9 +474,15 @@ export async function createQuotationRevision(quotationId: string) {
     if (["pending", "uncertain"].includes(locked.invoice_sync_state) || locked.zoho_invoice_id) throw new Error("A revision cannot be created while an invoice is pending, uncertain, or already exists");
     const now = new Date();
     const issueDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-    const expiry = new Date(`${issueDate}T00:00:00Z`); expiry.setUTCDate(expiry.getUTCDate() + 7);
+    // A sent quotation without an expiry stays without one in the revision;
+    // inventing a validity window the Zoho document never had would misquote.
+    let expiryDate: string | null = null;
+    if (locked.expiry_date) {
+      const expiry = new Date(`${issueDate}T00:00:00Z`); expiry.setUTCDate(expiry.getUTCDate() + 7);
+      expiryDate = expiry.toISOString().slice(0, 10);
+    }
     await trx.updateTable("order_quotations").set({ status: "superseded", superseded_at: now, superseded_by: session.user.id }).where("id", "=", id).execute();
-    await trx.insertInto("order_quotations").values({ id: nextId, order_id: locked.order_id, revision: locked.revision + 1, crm_quote_key: `dw:${locked.order_id}:v${locked.revision + 1}:${nextId}`, issue_date: issueDate, expiry_date: expiry.toISOString().slice(0, 10), lines: locked.lines, quoted_total_cents: locked.quoted_total_cents, customer_message: locked.customer_message, notes: locked.notes, terms: locked.terms, status: "local_draft", created_by: session.user.id, updated_by: session.user.id }).execute();
+    await trx.insertInto("order_quotations").values({ id: nextId, order_id: locked.order_id, revision: locked.revision + 1, crm_quote_key: `dw:${locked.order_id}:v${locked.revision + 1}:${nextId}`, issue_date: issueDate, expiry_date: expiryDate, lines: locked.lines, quoted_total_cents: locked.quoted_total_cents, customer_message: locked.customer_message, notes: locked.notes, terms: locked.terms, status: "local_draft", created_by: session.user.id, updated_by: session.user.id }).execute();
   });
   revalidatePath(`/orders/${source.order_id}`);
   return { id: nextId };

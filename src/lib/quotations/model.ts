@@ -2,7 +2,10 @@ import type { QuotationLineInput } from "@/lib/validation/quotation";
 
 export const DEFAULT_QUOTATION_TERMS = "Payment Terms: 50% deposit of total amount in quote to be paid on order confirmation, with the remaining 50% to be paid upon installation.\n\nInstallation date and time will be provided at a later date within 3-4 weeks from order confirmation.";
 
-export function quotationDateOnly(value: Date | string): string {
+export function quotationDateOnly(value: Date | string): string;
+export function quotationDateOnly(value: Date | string | null): string | null;
+export function quotationDateOnly(value: Date | string | null): string | null {
+  if (value === null) return null;
   return value instanceof Date
     ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(value)
     : value.slice(0, 10);
@@ -23,10 +26,11 @@ export function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function defaultCustomerMessage(input: { customerName: string; displayId: string; totalCents: number; expiryDate: string }): string {
+export function defaultCustomerMessage(input: { customerName: string; displayId: string; totalCents: number; expiryDate: string | null }): string {
   const firstName = input.customerName.trim().split(/\s+/)[0] || "there";
   const amount = new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" }).format(input.totalCents / 100);
-  return `Hi ${firstName},\n\nYour Drapeworks quotation ${input.displayId} is ${amount} and is valid until ${input.expiryDate}.\n\nPlease let me know if you have any questions or would like to proceed.`;
+  const validity = input.expiryDate ? ` and is valid until ${input.expiryDate}` : "";
+  return `Hi ${firstName},\n\nYour Drapeworks quotation ${input.displayId} is ${amount}${validity}.\n\nPlease let me know if you have any questions or would like to proceed.`;
 }
 
 export function isGeneratedCustomerMessage(
@@ -43,7 +47,7 @@ export function toZohoEstimatePayload(input: {
   contactId: string;
   referenceNumber: string;
   issueDate: string;
-  expiryDate: string;
+  expiryDate: string | null;
   lines: readonly QuotationLineInput[];
   notes: string;
   terms: string;
@@ -54,7 +58,7 @@ export function toZohoEstimatePayload(input: {
     customer_id: input.contactId,
     reference_number: input.referenceNumber,
     date: input.issueDate,
-    expiry_date: input.expiryDate,
+    ...(input.expiryDate ? { expiry_date: input.expiryDate } : {}),
     discount_type: "item_level",
     is_inclusive_tax: false,
     ...(input.templateId ? { template_id: input.templateId } : {}),

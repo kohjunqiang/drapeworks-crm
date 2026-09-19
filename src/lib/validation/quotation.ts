@@ -16,14 +16,14 @@ export const saveQuotationSchema = z.object({
   quotationId: z.string().uuid().nullable(),
   expectedUpdatedAt: z.string().datetime().nullable(),
   issueDate: date,
-  expiryDate: date,
+  expiryDate: z.preprocess((value) => (value === "" || value === undefined ? null : value), date.nullable()),
   lines: z.array(quotationLineSchema).min(1, "Add at least one quotation line").max(100),
   customerMessage: z.string().max(5000),
   notes: z.string().max(5000),
   terms: z.string().max(5000),
 }).superRefine((value, ctx) => {
   if (value.quotationId && !value.expectedUpdatedAt) ctx.addIssue({ code: "custom", path: ["expectedUpdatedAt"], message: "Refresh this quotation before saving" });
-  if (value.expiryDate < value.issueDate) ctx.addIssue({ code: "custom", path: ["expiryDate"], message: "Expiry date cannot be before the issue date" });
+  if (value.expiryDate && value.expiryDate < value.issueDate) ctx.addIssue({ code: "custom", path: ["expiryDate"], message: "Expiry date cannot be before the issue date" });
 });
 
 export const quotationIdSchema = z.string().uuid("That quotation is not valid");

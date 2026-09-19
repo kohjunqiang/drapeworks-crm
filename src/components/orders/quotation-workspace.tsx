@@ -29,7 +29,7 @@ import { DEFAULT_QUOTATION_TERMS, defaultCustomerMessage, isGeneratedCustomerMes
 import type { QuotationLineInput } from "@/lib/validation/quotation";
 
 type Quote = {
-  id: string; revision: number; status: string; issueDate: string; expiryDate: string;
+  id: string; revision: number; status: string; issueDate: string; expiryDate: string | null;
   lines: QuotationLineInput[]; totalCents: number; customerMessage: string; notes: string; terms: string;
   estimateNumber: string | null; invoiceNumber: string | null; updatedAt: string; syncError: string | null;
   invoiceSyncState: string; invoiceSyncError: string | null; paymentNumber: string | null;
@@ -47,9 +47,6 @@ type Props = {
 type Options = Awaited<ReturnType<typeof getZohoQuotationOptions>>;
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const plusDays = (date: string, days: number) => {
-  const value = new Date(`${date}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10);
-};
 const money = (cents: number) => new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" }).format(cents / 100);
 
 function initialLines(quote: Quote | null, quotedCents: number, productLine: Props["productLine"]): QuotationLineInput[] {
@@ -62,8 +59,8 @@ export function QuotationWorkspace(props: Props) {
   const [options, setOptions] = useState<Options | null>(null);
   const [lines, setLines] = useState(() => initialLines(props.quote, props.quotedCents, props.productLine));
   const [issueDate, setIssueDate] = useState(props.quote?.issueDate ?? today());
-  const [expiryDate, setExpiryDate] = useState(props.quote?.expiryDate ?? plusDays(today(), 7));
-  const [message, setMessage] = useState(props.quote?.customerMessage ?? defaultCustomerMessage({ customerName: props.customerName, displayId: props.displayId, totalCents: props.quotedCents, expiryDate: plusDays(today(), 7) }));
+  const [expiryDate, setExpiryDate] = useState(props.quote?.expiryDate ?? "");
+  const [message, setMessage] = useState(props.quote?.customerMessage ?? defaultCustomerMessage({ customerName: props.customerName, displayId: props.displayId, totalCents: props.quotedCents, expiryDate: props.quote?.expiryDate ?? null }));
   const [notes, setNotes] = useState(props.quote?.notes ?? "");
   const [terms, setTerms] = useState(props.quote?.terms ?? DEFAULT_QUOTATION_TERMS);
   const [dirty, setDirty] = useState(false);
@@ -94,7 +91,7 @@ export function QuotationWorkspace(props: Props) {
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerMatches, setCustomerMatches] = useState<Options["candidates"] | null>(null);
   const total = useMemo(() => quotationTotalCents(lines), [lines]);
-  const generatedMessage = defaultCustomerMessage({ customerName: props.customerName, displayId: props.quote?.estimateNumber ?? props.displayId, totalCents: total, expiryDate });
+  const generatedMessage = defaultCustomerMessage({ customerName: props.customerName, displayId: props.quote?.estimateNumber ?? props.displayId, totalCents: total, expiryDate: expiryDate || null });
   const displayedMessage = messageCustomized ? message : generatedMessage;
   const messageStale = messageCustomized && message !== generatedMessage;
 
@@ -115,7 +112,7 @@ export function QuotationWorkspace(props: Props) {
       catch (error) { toast.error(error instanceof Error ? error.message : "Something went wrong"); }
     });
   }
-  const save = () => saveQuotation({ orderId: props.orderId, quotationId: props.quote?.id ?? null, expectedUpdatedAt: props.quote?.updatedAt ?? null, issueDate, expiryDate, lines, customerMessage: displayedMessage, notes, terms });
+  const save = () => saveQuotation({ orderId: props.orderId, quotationId: props.quote?.id ?? null, expectedUpdatedAt: props.quote?.updatedAt ?? null, issueDate, expiryDate: expiryDate || null, lines, customerMessage: displayedMessage, notes, terms });
 
   async function openPdf(download: boolean, quotationId = props.quote?.id) {
     if (!quotationId) return;
@@ -211,7 +208,7 @@ export function QuotationWorkspace(props: Props) {
         </summary>
       <fieldset disabled={!props.canManage || sent || pending} className="space-y-4 border-t pt-5 disabled:opacity-70">
         <legend className="sr-only">Quotation details</legend>
-        <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until<Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} /></label></div>
+        <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until{sent || !props.canManage ? <div className="mt-1 flex h-11 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-600">{expiryDate || "No expiry"}</div> : <Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} />}</label></div>
         <div className="space-y-3">
           {lines.map((line, index) => <div key={index} className="rounded-lg border border-slate-200 p-3">
             <div className="flex items-start gap-2"><label className="flex-1 text-xs font-medium text-slate-600">Catalogue item<select className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" value={line.zohoItemId ?? ""} onChange={(e) => { const item = options?.items.find((row) => row.id === e.target.value); mutateLine(index, item ? { zohoItemId: item.id, name: item.name, description: item.description, rateCents: item.rateCents } : { zohoItemId: null }); }}><option value="">Custom line</option>{options?.items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{lines.length > 1 && <Button aria-label="Remove line" className="mt-6 h-11 w-11" variant="ghost" onClick={() => { setLines((v) => v.filter((_, i) => i !== index)); setDirty(true); }}><Trash2 /></Button>}</div>

@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
   getZohoEstimate: vi.fn(),
   getZohoBooksBinding: vi.fn(),
+  findZohoEstimateByNumber: vi.fn(),
+  getZohoEstimatePdf: vi.fn(),
+  markZohoEstimateSent: vi.fn(),
+  adminClient: vi.fn(),
   assertZohoCustomerPaymentsReady: vi.fn(),
   listZohoCustomerPayments: vi.fn(),
   getZohoInvoice: vi.fn(),
@@ -31,10 +35,13 @@ vi.mock("@/lib/db/kysely", () => ({
     updateTable: mocks.updateTable,
   },
 }));
-vi.mock("@/lib/supabase/admin", () => ({ adminClient: vi.fn() }));
+vi.mock("@/lib/supabase/admin", () => ({ adminClient: mocks.adminClient }));
 vi.mock("@/lib/zoho/books", () => ({
   getZohoEstimate: mocks.getZohoEstimate,
   getZohoBooksBinding: mocks.getZohoBooksBinding,
+  findZohoEstimateByNumber: mocks.findZohoEstimateByNumber,
+  getZohoEstimatePdf: mocks.getZohoEstimatePdf,
+  markZohoEstimateSent: mocks.markZohoEstimateSent,
   assertZohoCustomerPaymentsReady: mocks.assertZohoCustomerPaymentsReady,
   listZohoCustomerPayments: mocks.listZohoCustomerPayments,
   getZohoInvoice: mocks.getZohoInvoice,
@@ -46,7 +53,7 @@ vi.mock("@/lib/zoho/books", () => ({
 
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
 import { toZohoEstimatePayload } from "@/lib/quotations/model";
-import { ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi } from "./quotations";
+import { confirmQuotationSent, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
 const QUOTE_ID = "b31fd642-0fe2-4066-9762-880b0e023472";
@@ -129,13 +136,19 @@ function makeQuote(storedHash: string | null) {
   };
 }
 
+// Every updateTable(...).set(...) payload, in call order, so tests can assert
+// what the actions actually persisted.
+const setCalls: Array<Record<string, unknown>> = [];
+
 function builder(result: unknown) {
   const chain = {
     select: () => chain,
     selectAll: () => chain,
+    innerJoin: () => chain,
+    leftJoin: () => chain,
     where: () => chain,
     forUpdate: () => chain,
-    set: () => chain,
+    set: (values: Record<string, unknown>) => { setCalls.push(values); return chain; },
     values: () => chain,
     returning: () => chain,
     onConflict: () => chain,
@@ -180,6 +193,7 @@ function setup({ quote, remote }: { quote: ReturnType<typeof makeQuote>; remote:
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setCalls.length = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
   mocks.requireRole.mockResolvedValue({ user: { id: "ops-user" }, profile: { role: "admin" } });
   mocks.requireSession.mockResolvedValue({ user: { id: "ops-user" }, profile: { role: "admin" } });
@@ -285,5 +299,163 @@ describe("deposit payment raw-error sanitization", () => {
       error: "The Zoho invoice and deposit could not be recorded. Refresh the order and try again.",
     });
     expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+  });
+});
+
+// Shared fixtures for the import + confirm-sent flows. The order sits at
+// order_recorded behind an unlinked local_draft quotation — the exact state the
+// "Use existing Zoho quotation" action operates on.
+const QUOTE_FLOW_ORDER = {
+  id: ORDER_ID,
+  display_id: "DW-1",
+  order_reference: "DW-1",
+  current_status: "order_recorded",
+  consultant_id: "consult-1",
+  customer_id: "cust-1",
+  customer_name: "Jamie Tan",
+  customer_email: null,
+  customer_mobile: null,
+  consultant_name: "Kenny",
+};
+const QUOTE_FLOW_LOCKED_ORDER = { current_status: "order_recorded", lead_id: "lead-1", appointment_id: null };
+const QUOTE_FLOW_LEAD = { funnel_stage: "Send Quotation" };
+
+function quoteFlowDraftRow() {
+  return {
+    id: QUOTE_ID,
+    order_id: ORDER_ID,
+    status: "local_draft",
+    crm_quote_key: "dw:o-1:v1:q-1",
+    issue_date: "2026-09-01",
+    expiry_date: "2026-09-08",
+    lines: LINES,
+    quoted_total_cents: 201_000,
+    customer_message: "local draft",
+    zoho_estimate_id: null,
+    updated_at: new Date("2026-09-19T00:00:00Z"),
+  };
+}
+
+function quoteFlowZohoDraftRow(expiryDate: string | null) {
+  return {
+    ...quoteFlowDraftRow(),
+    status: "zoho_draft",
+    issue_date: "2026-09-19",
+    expiry_date: expiryDate,
+    zoho_estimate_id: "est-1",
+    zoho_estimate_number: "QT-677815",
+    zoho_last_modified_time: null,
+    synced_payload_hash: "hash",
+    pdf_storage_path: "quotes/o/q/h.pdf",
+    pdf_sha256: "sha",
+  };
+}
+
+// quotationReads feeds db.selectFrom("order_quotations") in call order: the
+// import reads the draft, then the already-linked check (undefined), then
+// confirmQuotationSent re-reads the just-imported row.
+function setupQuoteFlow({ quotationReads, remote }: { quotationReads: unknown[]; remote: ReturnType<typeof makeRemote> }) {
+  const dbResults: Record<string, unknown[]> = {
+    order_quotations: [...quotationReads],
+    orders: [QUOTE_FLOW_ORDER, QUOTE_FLOW_ORDER],
+    customer_zoho_links: [{ zoho_contact_id: "contact-1" }],
+  };
+  mocks.selectFrom.mockImplementation((table: string) => builder(dbResults[table]?.shift()));
+  const trxResults: Record<string, unknown[]> = {
+    orders: [QUOTE_FLOW_LOCKED_ORDER, QUOTE_FLOW_LOCKED_ORDER],
+    leads: [QUOTE_FLOW_LEAD],
+  };
+  const trx = {
+    selectFrom: (table: string) => builder(trxResults[table]?.shift()),
+    updateTable: () => builder({ id: QUOTE_ID }),
+    insertInto: () => builder({}),
+  };
+  mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
+  mocks.updateTable.mockImplementation(() => builder({ id: QUOTE_ID }));
+  mocks.getZohoEstimate.mockResolvedValue(remote);
+  mocks.findZohoEstimateByNumber.mockResolvedValue([{ estimate_id: "est-1" }]);
+  mocks.getZohoEstimatePdf.mockResolvedValue(new Uint8Array([1, 2, 3]));
+  mocks.adminClient.mockReturnValue({ storage: { from: () => ({ upload: async () => ({ error: null }) }) } });
+  mocks.getZohoBooksBinding.mockResolvedValue({
+    crmKeyFieldId: "cf-1",
+    crmKeyApiName: "cf_crm_quote_key",
+    estimateTemplateId: "tmpl-1",
+  });
+}
+
+const importInput = { quotationId: QUOTE_ID, estimateNumber: "QT-677815", channel: "WhatsApp", note: "Imported existing Zoho quotation" };
+
+describe("importExistingZohoQuotation with an optional expiry", () => {
+  it("imports a Zoho quotation whose expiry is blank and stores a null expiry", async () => {
+    setupQuoteFlow({
+      quotationReads: [quoteFlowDraftRow(), undefined, quoteFlowZohoDraftRow(null)],
+      remote: makeRemote({ estimate_number: "QT-677815", date: "2026-09-19", expiry_date: "" }),
+    });
+
+    const result = await importExistingZohoQuotation(importInput);
+
+    expect(result).toEqual({ ok: true });
+    const stored = setCalls.find((values) => "customer_message" in values);
+    expect(stored).toMatchObject({ status: "zoho_draft", issue_date: "2026-09-19", expiry_date: null, zoho_estimate_id: "est-1" });
+    expect(String(stored?.customer_message)).toContain("QT-677815");
+    expect(String(stored?.customer_message)).not.toContain("valid until");
+    // The import continues into confirm-sent, and the lead milestone update
+    // leaves quote_valid_days untouched while the expiry is null.
+    expect(setCalls.some((values) => values.status === "sent")).toBe(true);
+    const leadUpdate = setCalls.find((values) => "funnel_stage" in values);
+    expect(leadUpdate).toMatchObject({ funnel_stage: "Decision Pending", last_outcome: "Quotation Sent", latest_quote_cents: 201_000 });
+    expect(leadUpdate).toHaveProperty("quotation_sent_at");
+    expect(leadUpdate).toHaveProperty("quotation_breakdown");
+    expect(leadUpdate).not.toHaveProperty("quote_valid_days");
+  });
+
+  it("stores the remote expiry unchanged when Zoho provides one", async () => {
+    setupQuoteFlow({
+      quotationReads: [quoteFlowDraftRow(), undefined, quoteFlowZohoDraftRow("2026-09-25")],
+      remote: makeRemote({ estimate_number: "QT-677815", date: "2026-09-19", expiry_date: "2026-09-25" }),
+    });
+
+    const result = await importExistingZohoQuotation(importInput);
+
+    expect(result).toEqual({ ok: true });
+    const stored = setCalls.find((values) => "customer_message" in values);
+    expect(stored).toMatchObject({ expiry_date: "2026-09-25" });
+    expect(String(stored?.customer_message)).toContain("valid until 2026-09-25");
+  });
+
+  it.each([
+    ["an expiry before the issue date", { date: "2026-09-19", expiry_date: "2026-09-10" }],
+    ["a missing issue date", { date: "", expiry_date: "2026-09-25" }],
+  ])("rejects %s", async (_case, patch) => {
+    setupQuoteFlow({
+      quotationReads: [quoteFlowDraftRow(), undefined, quoteFlowZohoDraftRow(null)],
+      remote: makeRemote({ estimate_number: "QT-677815", ...patch }),
+    });
+
+    const result = await importExistingZohoQuotation(importInput);
+
+    expect(result).toEqual({ ok: false, error: "The Zoho quotation dates are incomplete" });
+    expect(setCalls).toHaveLength(0);
+  });
+});
+
+describe("confirmQuotationSent quote_valid_days", () => {
+  it("computes quote_valid_days from the expiry when one is set", async () => {
+    setupQuoteFlow({ quotationReads: [quoteFlowZohoDraftRow("2026-09-26")], remote: makeRemote() });
+
+    await confirmQuotationSent({ quotationId: QUOTE_ID, channel: "WhatsApp", note: "" });
+
+    const leadUpdate = setCalls.find((values) => "funnel_stage" in values);
+    expect(leadUpdate).toMatchObject({ funnel_stage: "Decision Pending", last_outcome: "Quotation Sent", quote_valid_days: 7 });
+  });
+
+  it("omits quote_valid_days from the lead update when the quotation has no expiry", async () => {
+    setupQuoteFlow({ quotationReads: [quoteFlowZohoDraftRow(null)], remote: makeRemote() });
+
+    await confirmQuotationSent({ quotationId: QUOTE_ID, channel: "WhatsApp", note: "" });
+
+    const leadUpdate = setCalls.find((values) => "funnel_stage" in values);
+    expect(leadUpdate).toBeTruthy();
+    expect(leadUpdate).not.toHaveProperty("quote_valid_days");
   });
 });

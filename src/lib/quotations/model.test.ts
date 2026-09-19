@@ -31,6 +31,31 @@ describe("quotation model", () => {
     expect(defaultCustomerMessage({ customerName: "Jamie Tan", displayId: "DW-1", totalCents: 120000, expiryDate: "2026-09-10" })).toContain("$1,200.00");
   });
 
+  it("omits the validity clause when the quotation has no expiry", () => {
+    const message = defaultCustomerMessage({ customerName: "Jamie Tan", displayId: "QT-677815", totalCents: 120000, expiryDate: null });
+    expect(message).toContain("QT-677815");
+    expect(message).toContain("$1,200.00");
+    expect(message).not.toContain("valid until");
+  });
+
+  it("omits expiry_date from the Zoho payload when there is no expiry", () => {
+    const payload = toZohoEstimatePayload({ contactId: "c1", referenceNumber: "DW-1 / Q1", issueDate: "2026-09-03", expiryDate: null, notes: "n", terms: "t", salespersonName: null, templateId: "tpl", lines: [
+      { zohoItemId: null, name: "Custom", description: "B", quantity: 1, rateCents: 500, discountPercent: 0 },
+    ] });
+    expect(payload).not.toHaveProperty("expiry_date");
+  });
+
+  it("keeps expiry_date in the Zoho payload when set", () => {
+    const payload = toZohoEstimatePayload({ contactId: "c1", referenceNumber: "DW-1 / Q1", issueDate: "2026-09-03", expiryDate: "2026-09-10", notes: "n", terms: "t", salespersonName: null, templateId: "tpl", lines: [
+      { zohoItemId: null, name: "Custom", description: "B", quantity: 1, rateCents: 500, discountPercent: 0 },
+    ] });
+    expect("expiry_date" in payload ? payload.expiry_date : undefined).toBe("2026-09-10");
+  });
+
+  it("passes a null database expiry through as null", () => {
+    expect(quotationDateOnly(null)).toBeNull();
+  });
+
   it("recognizes generated messages from before or after Zoho assigns a quote number", () => {
     const input = { customerName: "Jamie Tan", totalCents: 120000, expiryDate: "2026-09-10" };
     const preZoho = defaultCustomerMessage({ ...input, displayId: "DW-1" });

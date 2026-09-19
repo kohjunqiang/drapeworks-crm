@@ -1031,7 +1031,7 @@ export interface OrderQuotations {
   created_by: string;
   crm_quote_key: string;
   customer_message: Generated<string>;
-  expiry_date: Timestamp;
+  expiry_date: Timestamp | null;
   id: string;
   invoice_created_at: Timestamp | null;
   invoice_claimed_at: Timestamp | null;

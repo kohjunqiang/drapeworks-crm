@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DEFAULT_QUOTATION_TERMS, defaultCustomerMessage, isGeneratedCustomerMessage, quotationTotalCents } from "@/lib/quotations/model";
+import { DEFAULT_QUOTATION_TERMS, defaultCustomerMessage, isGeneratedCustomerMessage, parseRateDraftCents, quotationTotalCents } from "@/lib/quotations/model";
 import type { QuotationLineInput } from "@/lib/validation/quotation";
 
 type Quote = {
@@ -53,11 +53,21 @@ function initialLines(quote: Quote | null, quotedCents: number, productLine: Pro
   return quote?.lines ?? [{ zohoItemId: null, name: productLine === "mesh" ? "Mesh" : "Curtains and blinds", description: "", quantity: 1, rateCents: quotedCents, discountPercent: 0 }];
 }
 
+function shiftRateDrafts(drafts: Record<number, string>, removedIndex: number): Record<number, string> {
+  const next: Record<number, string> = {};
+  for (const [key, value] of Object.entries(drafts)) {
+    const i = Number(key);
+    if (i !== removedIndex) next[i > removedIndex ? i - 1 : i] = value;
+  }
+  return next;
+}
+
 export function QuotationWorkspace(props: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [options, setOptions] = useState<Options | null>(null);
   const [lines, setLines] = useState(() => initialLines(props.quote, props.quotedCents, props.productLine));
+  const [rateDrafts, setRateDrafts] = useState<Record<number, string>>({});
   const [issueDate, setIssueDate] = useState(props.quote?.issueDate ?? today());
   const [expiryDate, setExpiryDate] = useState(props.quote?.expiryDate ?? "");
   const [message, setMessage] = useState(props.quote?.customerMessage ?? defaultCustomerMessage({ customerName: props.customerName, displayId: props.displayId, totalCents: props.quotedCents, expiryDate: props.quote?.expiryDate ?? null }));
@@ -105,6 +115,13 @@ export function QuotationWorkspace(props: Props) {
 
   function mutateLine(index: number, patch: Partial<QuotationLineInput>) {
     setLines((current) => current.map((line, i) => i === index ? { ...line, ...patch } : line)); setDirty(true);
+  }
+  function clearRateDraft(index: number) {
+    setRateDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[index];
+      return next;
+    });
   }
   function run(task: () => Promise<unknown>, success: string, clearDirty = false) {
     start(async () => {
@@ -211,8 +228,8 @@ export function QuotationWorkspace(props: Props) {
         <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until{sent || !props.canManage ? <div className="mt-1 flex h-11 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-600">{expiryDate || "No expiry"}</div> : <Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} />}</label></div>
         <div className="space-y-3">
           {lines.map((line, index) => <div key={index} className="rounded-lg border border-slate-200 p-3">
-            <div className="flex items-start gap-2"><label className="flex-1 text-xs font-medium text-slate-600">Catalogue item<select className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" value={line.zohoItemId ?? ""} onChange={(e) => { const item = options?.items.find((row) => row.id === e.target.value); mutateLine(index, item ? { zohoItemId: item.id, name: item.name, description: item.description, rateCents: item.rateCents } : { zohoItemId: null }); }}><option value="">Custom line</option>{options?.items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{lines.length > 1 && <Button aria-label="Remove line" className="mt-6 h-11 w-11" variant="ghost" onClick={() => { setLines((v) => v.filter((_, i) => i !== index)); setDirty(true); }}><Trash2 /></Button>}</div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-slate-600">Line name<Input className="mt-1 h-11" disabled={Boolean(line.zohoItemId)} title={line.zohoItemId ? "Catalogue names come from Zoho Books" : undefined} value={line.name} onChange={(e) => mutateLine(index, { name: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Description<Input className="mt-1 h-11" value={line.description} onChange={(e) => mutateLine(index, { description: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Quantity<Input className="mt-1 h-11" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => mutateLine(index, { quantity: Number(e.target.value) })} /></label><label className="text-xs font-medium text-slate-600">Rate (SGD)<Input className="mt-1 h-11" type="number" step="0.01" value={line.rateCents / 100} onChange={(e) => mutateLine(index, { rateCents: Math.round(Number(e.target.value) * 100) })} /></label><label className="text-xs font-medium text-slate-600">Discount %<Input className="mt-1 h-11" type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(e) => mutateLine(index, { discountPercent: Number(e.target.value) })} /></label></div>
+            <div className="flex items-start gap-2"><label className="flex-1 text-xs font-medium text-slate-600">Catalogue item<select className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" value={line.zohoItemId ?? ""} onChange={(e) => { const item = options?.items.find((row) => row.id === e.target.value); mutateLine(index, item ? { zohoItemId: item.id, name: item.name, description: item.description, rateCents: item.rateCents } : { zohoItemId: null }); clearRateDraft(index); }}><option value="">Custom line</option>{options?.items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{lines.length > 1 && <Button aria-label="Remove line" className="mt-6 h-11 w-11" variant="ghost" onClick={() => { setLines((v) => v.filter((_, i) => i !== index)); setRateDrafts((d) => shiftRateDrafts(d, index)); setDirty(true); }}><Trash2 /></Button>}</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-slate-600">Line name<Input className="mt-1 h-11" disabled={Boolean(line.zohoItemId)} title={line.zohoItemId ? "Catalogue names come from Zoho Books" : undefined} value={line.name} onChange={(e) => mutateLine(index, { name: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Description<Input className="mt-1 h-11" value={line.description} onChange={(e) => mutateLine(index, { description: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Quantity<Input className="mt-1 h-11" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => mutateLine(index, { quantity: Number(e.target.value) })} /></label><label className="text-xs font-medium text-slate-600">Rate (SGD)<Input className="mt-1 h-11" type="number" step="0.01" value={rateDrafts[index] ?? line.rateCents / 100} onChange={(e) => { const text = e.target.value; setRateDrafts((d) => ({ ...d, [index]: text })); const rateCents = parseRateDraftCents(text); if (rateCents !== null) mutateLine(index, { rateCents }); }} onBlur={() => clearRateDraft(index)} /></label><label className="text-xs font-medium text-slate-600">Discount %<Input className="mt-1 h-11" type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(e) => mutateLine(index, { discountPercent: Number(e.target.value) })} /></label></div>
           </div>)}
           <Button className="h-11" variant="outline" onClick={() => { setLines((v) => [...v, { zohoItemId: null, name: "", description: "", quantity: 1, rateCents: 0, discountPercent: 0 }]); setDirty(true); }}><Plus /> Add line</Button>
         </div>

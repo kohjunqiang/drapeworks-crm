@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultCustomerMessage, isGeneratedCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "./model";
+import { defaultCustomerMessage, isGeneratedCustomerMessage, parseRateDraftCents, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "./model";
 import { matchesStoredZohoEstimate, quotePayloadHash } from "./hash";
 
 describe("quotation model", () => {
@@ -10,6 +10,26 @@ describe("quotation model", () => {
   });
   it("totals fractional quantities and line discounts in cents", () => {
     expect(quotationTotalCents([{ zohoItemId: null, name: "Track", description: "", quantity: 2.5, rateCents: 1000, discountPercent: 10 }])).toBe(2250);
+  });
+
+  it("parses signed decimal rate drafts into integer cents", () => {
+    expect(parseRateDraftCents("-100")).toBe(-10000);
+    expect(parseRateDraftCents("-0.5")).toBe(-50);
+    expect(parseRateDraftCents("12.345")).toBe(1235);
+    expect(parseRateDraftCents("30.5")).toBe(3050);
+    expect(parseRateDraftCents("0.01")).toBe(1);
+    expect(parseRateDraftCents("-0.005")).toBe(0);
+  });
+
+  it("leaves incomplete or non-decimal rate drafts unparsed", () => {
+    expect(parseRateDraftCents("")).toBeNull();
+    expect(parseRateDraftCents("-")).toBeNull();
+    expect(parseRateDraftCents("-1.")).toBeNull();
+    expect(parseRateDraftCents("abc")).toBeNull();
+  });
+
+  it("does not accept exponent notation in rate drafts", () => {
+    expect(parseRateDraftCents("1e3")).toBeNull();
   });
 
   it("hashes object keys canonically", () => {

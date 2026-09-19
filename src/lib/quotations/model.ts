@@ -18,6 +18,16 @@ export function quotationTotalCents(lines: readonly QuotationLineInput[]): numbe
   }, 0);
 }
 
+const RATE_DRAFT_PATTERN = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
+
+export function parseRateDraftCents(text: string): number | null {
+  const trimmed = text.trim();
+  if (!RATE_DRAFT_PATTERN.test(trimmed)) return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return null;
+  return Math.round(value * 100) || 0;
+}
+
 export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (value && typeof value === "object") {

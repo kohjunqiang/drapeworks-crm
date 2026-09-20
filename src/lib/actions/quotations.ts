@@ -34,6 +34,7 @@ import {
   markZohoEstimateSent,
   syncZohoEstimate,
   convertZohoEstimateToInvoice,
+  renameZohoInvoice,
   createZohoCustomerPayment,
   assertZohoCustomerPaymentsReady,
   getZohoCustomerPayment,
@@ -41,6 +42,7 @@ import {
   listZohoCustomerPayments,
 } from "@/lib/zoho/books";
 import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate } from "@/lib/quotations/hash";
+import { invoiceNumberFor } from "@/lib/quotations/document-numbers";
 import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 import { actionErrorMessage, UserFacingError } from "@/lib/user-facing-error";
 
@@ -729,7 +731,7 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
         .where("id", "=", quote.id).where("invoice_sync_state", "=", "pending").where("invoice_claim_token", "=", invoiceClaimToken).executeTakeFirstOrThrow();
       conversionUncertain = false;
     }
-    const invoice = await getZohoInvoice(created.invoice_id);
+    let invoice = await getZohoInvoice(created.invoice_id);
     // Zoho's live Invoice response does not consistently include an
     // `invoiced_estimate_id`, even for invoices created from an Estimate. The
     // Estimate's `invoice_ids` relationship is the authoritative link and is
@@ -737,6 +739,25 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
     const linkedInvoiceId = await findConvertedInvoiceId(estimateId);
     const usableInvoiceStatuses = new Set(["draft", "sent", "overdue", "paid", "partially_paid"]);
     if (!invoice.status || !usableInvoiceStatuses.has(invoice.status) || linkedInvoiceId !== invoice.invoice_id || invoice.customer_id !== quote.zoho_contact_id || invoice.currency_code !== "SGD" || Math.round(Number(invoice.total) * 100) !== quote.quoted_total_cents) throw new UserFacingError("The Zoho invoice is void, unusable, or does not match the sent quotation; reconcile it before recording the deposit");
+    // Zoho numbers a converted invoice on its own sequence. Rename it to the
+    // quotation's suffix so the documents tally (QT-677816 → INV-677816) —
+    // only after the invoice is verified usable and ours, so a void or
+    // mismatched invoice can never take the number. This runs on every entry —
+    // fresh conversion, stored-id retry, or the already-created reconcile
+    // path — so a re-run also repairs an invoice numbered before this existed.
+    // The stored invoice id was already written above, so a rejected rename is
+    // a plain failure, not an uncertainty: the retry re-enters through
+    // `existingInvoiceId` and re-attempts the rename.
+    const expectedInvoiceNumber = invoiceNumberFor(quote.zoho_estimate_number) ?? invoiceNumberFor(remote.estimate_number);
+    if (expectedInvoiceNumber && invoice.invoice_number !== expectedInvoiceNumber) {
+      try {
+        await renameZohoInvoice(created.invoice_id, expectedInvoiceNumber);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Zoho did not confirm the number";
+        throw new UserFacingError(`The Zoho invoice was created but could not be numbered ${expectedInvoiceNumber} (${reason}). Fix the number in Zoho Books or retry.`);
+      }
+      invoice = await getZohoInvoice(created.invoice_id);
+    }
     if (claimed) {
       const finalized = await db.updateTable("order_quotations").set({ zoho_invoice_id: invoice.invoice_id, zoho_invoice_number: invoice.invoice_number ?? null, invoice_created_at: new Date(), invoice_sync_state: "created", invoice_claim_token: null, invoice_claimed_at: null, invoice_uncertain_at: null, invoice_sync_error: null, zoho_status: "invoiced" }).where("id", "=", quote.id).where("invoice_claim_token", "=", invoiceClaimToken).returning("id").executeTakeFirst();
       if (!finalized) throw new UserFacingError("The invoice was created in Zoho but its CRM claim changed; reconcile before recording the deposit");

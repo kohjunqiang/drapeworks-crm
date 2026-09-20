@@ -113,6 +113,28 @@ describe("Zoho Books transport safety", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("renames an invoice with auto-number generation disabled", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, invoice: { invoice_id: "inv-1", invoice_number: "INV-677816" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { renameZohoInvoice } = await import("./books");
+
+    await expect(renameZohoInvoice("inv-1", "INV-677816")).resolves.toMatchObject({ invoice_id: "inv-1", invoice_number: "INV-677816" });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/invoices/inv-1");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("ignore_auto_number_generation=true");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "PUT" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ invoice_number: "INV-677816" });
+  });
+
+  it("throws when Zoho does not return the renamed invoice", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { renameZohoInvoice } = await import("./books");
+
+    await expect(renameZohoInvoice("inv-1", "INV-677816")).rejects.toThrow("did not return the renumbered invoice");
+  });
+
   it("records a PayNow deposit against one invoice and the configured bank account", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, payment: { payment_id: "payment-1", payment_number: "91" } }));
     vi.stubGlobal("fetch", fetchMock);

@@ -42,6 +42,16 @@ export type ZohoEstimate = {
   custom_fields?: Array<{ customfield_id?: string; api_name?: string; value?: unknown; label?: string }>;
 };
 
+export type ZohoInvoice = {
+  invoice_id: string;
+  invoice_number?: string;
+  invoiced_estimate_id?: string;
+  customer_id?: string;
+  currency_code?: string;
+  total?: number;
+  status?: string;
+};
+
 export type ZohoCustomerPayment = {
   payment_id: string;
   payment_number?: string;
@@ -302,9 +312,23 @@ export async function convertZohoEstimateToInvoice(id: string): Promise<{ invoic
   return invoice;
 }
 
-export async function getZohoInvoice(id: string): Promise<{ invoice_id: string; invoice_number?: string; invoiced_estimate_id?: string; customer_id?: string; currency_code?: string; total?: number; status?: string }> {
-  const json = await request<ZohoEnvelope & { invoice?: { invoice_id: string; invoice_number?: string; invoiced_estimate_id?: string; customer_id?: string; currency_code?: string; total?: number; status?: string } }>(`/invoices/${encodeURIComponent(id)}`);
+export async function getZohoInvoice(id: string): Promise<ZohoInvoice> {
+  const json = await request<ZohoEnvelope & { invoice?: ZohoInvoice }>(`/invoices/${encodeURIComponent(id)}`);
   if (!json.invoice) throw new Error("Zoho invoice not found");
+  return json.invoice;
+}
+
+// Zoho numbers a converted invoice on its own sequence; the CRM renames it to
+// the quotation's suffix (QT-677816 → INV-677816) so the documents tally.
+// ignore_auto_number_generation=true is what makes invoice_number settable at
+// all. PUT is retry-safe in `request`, so a lost response retries cleanly.
+export async function renameZohoInvoice(id: string, invoiceNumber: string): Promise<ZohoInvoice> {
+  const query = new URLSearchParams({ ignore_auto_number_generation: "true" });
+  const json = await request<ZohoEnvelope & { invoice?: ZohoInvoice }>(`/invoices/${encodeURIComponent(id)}?${query}`, {
+    method: "PUT",
+    body: JSON.stringify({ invoice_number: invoiceNumber }),
+  });
+  if (!json.invoice) throw new Error("Zoho Books did not return the renumbered invoice");
   return json.invoice;
 }
 

@@ -14,6 +14,11 @@ import { newCurtainTrackCount } from "@/lib/orders/curtain-tracks";
 import { db } from "@/lib/db/kysely";
 
 import type { TrackOrderLine } from "./track-order";
+import {
+  resolveTrackOptions,
+  TRACK_OPTION_ADDON_KEYS,
+  type TrackOptions,
+} from "./track-options";
 
 export type TrackOrderLoad = {
   lines: TrackOrderLine[];
@@ -30,13 +35,12 @@ export type TrackOrderLoad = {
    */
   unmeasured: Array<{
     label: string;
-    shipmentKind: TrackOrderLine["shipmentKind"];
-    overlapTracksAttachment: boolean;
+    options: TrackOptions;
   }>;
 };
 
 export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
-  const [rows, settings, sFoldRows] = await Promise.all([
+  const [rows, settings, addonRows] = await Promise.all([
     db
       .selectFrom("windows")
       .innerJoin("rooms", "rooms.id", "windows.room_id")
@@ -70,17 +74,28 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       .select("track_note_cn")
       .where("singleton", "=", true)
       .executeTakeFirst(),
+    // Every add-on key the rail options are sourced from — the registry names
+    // them, so a new option widens this query by being registered, not by
+    // somebody remembering a second place to edit.
     db
       .selectFrom("window_addons")
       .innerJoin("pricing_addons", "pricing_addons.id", "window_addons.addon_id")
       .innerJoin("windows", "windows.id", "window_addons.window_id")
       .innerJoin("rooms", "rooms.id", "windows.room_id")
-      .select("window_addons.window_id")
+      .select([
+        "window_addons.window_id as window_id",
+        "pricing_addons.key as addon_key",
+      ])
       .where("rooms.order_id", "=", orderId)
-      .where("pricing_addons.key", "=", "s_fold")
+      .where("pricing_addons.key", "in", TRACK_OPTION_ADDON_KEYS)
       .execute(),
   ]);
-  const sFoldWindowIds = new Set(sFoldRows.map((row) => row.window_id));
+  const addonKeysByWindow = new Map<string, Set<string>>();
+  for (const row of addonRows) {
+    const keys = addonKeysByWindow.get(row.window_id) ?? new Set<string>();
+    keys.add(row.addon_key);
+    addonKeysByWindow.set(row.window_id, keys);
+  }
 
   const lines: TrackOrderLine[] = [];
   const unmeasured: TrackOrderLoad["unmeasured"] = [];
@@ -98,14 +113,14 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     // Positions are 0-based in the database and 1-based on every screen.
     const label = `${w.room_label} — Window ${w.position + 1}`;
 
+    const options = resolveTrackOptions({
+      addonKeys: addonKeysByWindow.get(w.window_id) ?? [],
+      sideInstallation: w.side_installation,
+      overlapTracksAttachment: w.overlap_tracks_attachment,
+    });
+
     if (w.mfg_width_cm == null || w.mfg_width_cm <= 0) {
-      unmeasured.push({
-        label,
-        shipmentKind: sFoldWindowIds.has(w.window_id)
-          ? "s_fold_tracks"
-          : "standard_tracks",
-        overlapTracksAttachment: w.overlap_tracks_attachment,
-      });
+      unmeasured.push({ label, options });
       continue;
     }
 
@@ -116,11 +131,7 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       // day only or night only — is one. A toilet window is a blind since
       // Phase 14, so it carries its own headrail and never reaches here.
       kind: curtains >= 2 ? "double" : "single",
-      shipmentKind: sFoldWindowIds.has(w.window_id)
-        ? "s_fold_tracks"
-        : "standard_tracks",
-      sideInstallation: w.side_installation,
-      overlapTracksAttachment: w.overlap_tracks_attachment,
+      options,
     });
   }
 

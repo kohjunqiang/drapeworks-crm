@@ -18,6 +18,7 @@ import { loadWindowCalcAddons } from "@/lib/db/window-addons";
 import type { RoomType } from "@/lib/db/schema";
 import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
 import { customerReference } from "./customer-reference";
+import { resolveTrackOptions } from "./track-options";
 
 import {
   BLIND_CONTROL_LABEL_KEYS,
@@ -328,9 +329,13 @@ async function loadLines(
     const blackout = (addonsByWindow.get(w.id) ?? []).some(
       (addon) => addon.key === "blackout",
     );
-    const sFold = (addonsByWindow.get(w.id) ?? []).some(
-      (addon) => addon.key === "s_fold",
-    );
+    // The rail options are defined once in track-options.ts. Only the s_fold
+    // flag is read here — the runner remark — but resolving through the
+    // registry keeps every add-on key out of this module.
+    const sFold = resolveTrackOptions({
+      addonKeys: (addonsByWindow.get(w.id) ?? []).flatMap((addon) =>
+        addon.key ? [addon.key] : []),
+    }).s_fold;
 
     // 开法. Missing Chinese wording falls back to the recorded English draw.
     // No draw direction at all remains a real source-data failure.

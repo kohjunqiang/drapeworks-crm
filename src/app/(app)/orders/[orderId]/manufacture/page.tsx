@@ -37,6 +37,10 @@ import {
   overlapTrackOrderText,
   trackOrderText,
 } from "@/lib/po/track-order";
+import {
+  hasExtraOrder,
+  railShipmentKind,
+} from "@/lib/po/track-options";
 import { loadTrackOrder } from "@/lib/po/track-order-load";
 import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
 import type { AllowanceLine } from "@/lib/manufacture/allowance";
@@ -628,11 +632,15 @@ async function FrozenView({
   // Built on the server so the page ships the finished text: what is copied is
   // exactly what is on screen, with no second assembly in the browser.
   const standardTrackOrder = trackOrderText(
-    trackOrder.lines.filter((line) => line.shipmentKind === "standard_tracks"),
+    trackOrder.lines.filter(
+      (line) => railShipmentKind(line.options) === "standard_tracks",
+    ),
     trackOrder.noteCn,
   );
   const sFoldTrackOrder = trackOrderText(
-    trackOrder.lines.filter((line) => line.shipmentKind === "s_fold_tracks"),
+    trackOrder.lines.filter(
+      (line) => railShipmentKind(line.options) === "s_fold_tracks",
+    ),
     trackOrder.noteCn,
   );
   const overlapTrackOrder = overlapTrackOrderText(
@@ -720,7 +728,10 @@ async function FrozenView({
               title="Standard track order"
               text={standardTrackOrder}
               unmeasured={trackOrder.unmeasured
-                .filter((line) => line.shipmentKind === "standard_tracks")
+                .filter(
+                  (line) =>
+                    railShipmentKind(line.options) === "standard_tracks",
+                )
                 .map((line) => line.label)}
             />
           )}
@@ -729,7 +740,9 @@ async function FrozenView({
               title="S-fold track order"
               text={sFoldTrackOrder}
               unmeasured={trackOrder.unmeasured
-                .filter((line) => line.shipmentKind === "s_fold_tracks")
+                .filter(
+                  (line) => railShipmentKind(line.options) === "s_fold_tracks",
+                )
                 .map((line) => line.label)}
             />
           )}
@@ -738,7 +751,7 @@ async function FrozenView({
               title="Overlap track / attachment order"
               text={overlapTrackOrder}
               unmeasured={trackOrder.unmeasured
-                .filter((line) => line.overlapTracksAttachment)
+                .filter((line) => hasExtraOrder(line.options))
                 .map((line) => line.label)}
             />
           )}

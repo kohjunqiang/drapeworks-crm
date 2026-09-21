@@ -10,14 +10,21 @@ import {
   trackOrderText,
   type TrackOrderLine,
 } from "./track-order";
+import type { TrackOptions } from "./track-options";
+
+const opts = (over: Partial<TrackOptions> = {}): TrackOptions => ({
+  s_fold: false,
+  slim_tracks: false,
+  side_installation: false,
+  overlap_tracks_attachment: false,
+  ...over,
+});
 
 const line = (over: Partial<TrackOrderLine> = {}): TrackOrderLine => ({
   label: "Living Room — Window 1",
   widthCm: 266,
   kind: "double",
-  shipmentKind: "standard_tracks",
-  sideInstallation: false,
-  overlapTracksAttachment: false,
+  options: opts(),
   ...over,
 });
 
@@ -40,13 +47,19 @@ describe("trackOrderLine", () => {
   });
 
   it("marks a side-installed track as a cutting and installation instruction", () => {
-    expect(trackOrderLine(line({ sideInstallation: true }))).toBe(
+    expect(
+      trackOrderLine(line({ options: opts({ side_installation: true }) })),
+    ).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
     );
   });
 
   it("keeps overlap attachments out of the base track order", () => {
-    expect(trackOrderLine(line({ overlapTracksAttachment: true }))).toBe(
+    expect(
+      trackOrderLine(
+        line({ options: opts({ overlap_tracks_attachment: true }) }),
+      ),
+    ).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器",
     );
   });
@@ -54,7 +67,12 @@ describe("trackOrderLine", () => {
   it("keeps side installation on the base track order", () => {
     expect(
       trackOrderLine(
-        line({ sideInstallation: true, overlapTracksAttachment: true }),
+        line({
+          options: opts({
+            side_installation: true,
+            overlap_tracks_attachment: true,
+          }),
+        }),
       ),
     ).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
@@ -62,8 +80,31 @@ describe("trackOrderLine", () => {
   });
 
   it("labels S-fold track orders separately", () => {
-    expect(trackOrderLine(line({ shipmentKind: "s_fold_tracks" }))).toBe(
+    expect(trackOrderLine(line({ options: opts({ s_fold: true }) }))).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 S-Fold",
+    );
+  });
+
+  it("labels a slim-tracks rail without changing where it ships", () => {
+    expect(
+      trackOrderLine(line({ options: opts({ slim_tracks: true }) })),
+    ).toBe("2.66米 双轨裁成1.33m 4根配连接器 Slim Tracks");
+  });
+
+  it("prints the option suffixes in registry order", () => {
+    expect(
+      trackOrderLine(
+        line({ options: opts({ s_fold: true, slim_tracks: true }) }),
+      ),
+    ).toBe("2.66米 双轨裁成1.33m 4根配连接器 S-Fold Slim Tracks");
+    expect(
+      trackOrderLine(
+        line({
+          options: opts({ slim_tracks: true, side_installation: true }),
+        }),
+      ),
+    ).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 Slim Tracks 侧装 Side installation",
     );
   });
 
@@ -95,7 +136,9 @@ describe("trackOrderLine", () => {
 
 describe("overlapTrackOrderText", () => {
   it("prints the full cut line plus the P6 attachment, for selected windows only", () => {
-    const selected = line({ overlapTracksAttachment: true });
+    const selected = line({
+      options: opts({ overlap_tracks_attachment: true }),
+    });
     expect(overlapTrackOrderLine(selected)).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 P6白色配交叉器",
     );
@@ -105,20 +148,57 @@ describe("overlapTrackOrderText", () => {
   });
 
   it("reproduces the business's example exactly", () => {
-    expect(overlapTrackOrderLine(line({ widthCm: 509 }))).toBe(
+    expect(
+      overlapTrackOrderLine(
+        line({
+          widthCm: 509,
+          options: opts({ overlap_tracks_attachment: true }),
+        }),
+      ),
+    ).toBe(
       "5.09米 双轨裁成1.273m 8根配连接器 P6白色配交叉器",
     );
   });
 
   it("keeps the P6 suffix after the S-Fold label", () => {
-    expect(overlapTrackOrderLine(line({ shipmentKind: "s_fold_tracks" }))).toBe(
+    expect(
+      overlapTrackOrderLine(
+        line({
+          options: opts({ s_fold: true, overlap_tracks_attachment: true }),
+        }),
+      ),
+    ).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 S-Fold P6白色配交叉器",
     );
   });
 
   it("keeps the P6 suffix after a side-installation instruction", () => {
-    expect(overlapTrackOrderLine(line({ sideInstallation: true }))).toBe(
+    expect(
+      overlapTrackOrderLine(
+        line({
+          options: opts({
+            side_installation: true,
+            overlap_tracks_attachment: true,
+          }),
+        }),
+      ),
+    ).toBe(
       "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation P6白色配交叉器",
+    );
+  });
+
+  it("keeps the P6 suffix after a slim-tracks label", () => {
+    expect(
+      overlapTrackOrderLine(
+        line({
+          options: opts({
+            slim_tracks: true,
+            overlap_tracks_attachment: true,
+          }),
+        }),
+      ),
+    ).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 Slim Tracks P6白色配交叉器",
     );
   });
 });

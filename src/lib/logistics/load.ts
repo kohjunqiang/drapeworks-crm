@@ -11,6 +11,7 @@ import {
   type ShipmentCategory,
   type ShipmentValues,
 } from "./shipments";
+import { resolveTrackOptions } from "@/lib/po/track-options";
 
 type Executor = Kysely<DB> | Transaction<DB>;
 
@@ -44,6 +45,7 @@ export async function deriveShipmentCategories(
       "windows.night_track_required",
       "windows.night_curtain_type_id",
       "windows.blind_type_id",
+      "windows.side_installation",
       "windows.overlap_tracks_attachment",
       "pricing_addons.key as addon_key",
     ])
@@ -54,8 +56,9 @@ export async function deriveShipmentCategories(
     hasCurtain: boolean;
     needsTrack: boolean;
     hasBlind: boolean;
-    hasSFold: boolean;
-    hasOverlap: boolean;
+    addonKeys: Set<string>;
+    sideInstallation: boolean;
+    overlapTracksAttachment: boolean;
   }>();
   for (const row of rows) {
     const current = windows.get(row.id) ?? {
@@ -65,14 +68,33 @@ export async function deriveShipmentCategories(
         row.day_track_required, row.night_track_required,
       ) > 0,
       hasBlind: Boolean(row.blind_type_id),
-      hasSFold: false,
-      hasOverlap: row.overlap_tracks_attachment,
+      addonKeys: new Set<string>(),
+      sideInstallation: row.side_installation,
+      overlapTracksAttachment: row.overlap_tracks_attachment,
     };
-    if (row.addon_key === "s_fold") current.hasSFold = true;
+    if (row.addon_key) current.addonKeys.add(row.addon_key);
     windows.set(row.id, current);
   }
 
-  return shipmentCategoriesForOrder("curtain", [...windows.values()]);
+  return shipmentCategoriesForOrder("curtain", [...windows.values()].map(
+    (window) => {
+      // The rail options are defined once in track-options.ts; shipments read
+      // only what they do — S-fold routes the rail, the overlap attachment is
+      // its own freight — never the keys underneath.
+      const options = resolveTrackOptions({
+        addonKeys: window.addonKeys,
+        sideInstallation: window.sideInstallation,
+        overlapTracksAttachment: window.overlapTracksAttachment,
+      });
+      return {
+        hasCurtain: window.hasCurtain,
+        needsTrack: window.needsTrack,
+        hasBlind: window.hasBlind,
+        hasSFold: options.s_fold,
+        hasOverlap: options.overlap_tracks_attachment,
+      };
+    },
+  ));
 }
 
 export async function materializeShipmentManifest(

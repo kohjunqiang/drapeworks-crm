@@ -20,6 +20,12 @@
 // NOTHING HERE READS THE DATABASE OR THE CLOCK.
 
 import { cmToM } from "./build";
+import {
+  extraOrderSuffix,
+  hasExtraOrder,
+  railLineSuffix,
+  type TrackOptions,
+} from "./track-options";
 
 /** One window's rail. Blinds carry their own headrail and are not here. */
 export type TrackOrderLine = {
@@ -34,12 +40,12 @@ export type TrackOrderLine = {
   widthCm: number;
   /** Double when the window carries both a day and a night curtain. */
   kind: "single" | "double";
-  /** S-fold rails are ordered and freighted separately from standard rails. */
-  shipmentKind: "standard_tracks" | "s_fold_tracks";
-  /** The track is fixed to the side wall rather than installed conventionally. */
-  sideInstallation: boolean;
-  /** Supply the overlap-track attachment for this opening. */
-  overlapTracksAttachment: boolean;
+  /**
+   * What the window's rail carries — S-fold routing, slim-track or
+   * side-installation wording, an overlap attachment — resolved once by
+   * track-options.ts, which is the only definition of those options.
+   */
+  options: TrackOptions;
 };
 
 /**
@@ -115,18 +121,12 @@ function mmToM(mm: number): string {
  */
 export function trackOrderLine(line: TrackOrderLine): string {
   const kindCn = line.kind === "double" ? "双轨" : "单轨";
-  const installation = line.sideInstallation ? " 侧装 Side installation" : "";
-  const trackType = line.shipmentKind === "s_fold_tracks" ? " S-Fold" : "";
   return `${cmToM(line.widthCm)}米 ${kindCn}裁成${mmToM(
     cutLengthMm(line.widthCm),
-  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${trackType}${installation}`;
+  )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${railLineSuffix(
+    line.options,
+  )}`;
 }
-
-/**
- * The overlap attachment the supplier pairs with the cut pieces — the
- * business's wording, stored verbatim like every other catalogue label.
- */
-const OVERLAP_ATTACHMENT_SUFFIX = "P6白色配交叉器";
 
 /**
  * The full cut line, plus the overlap attachment the opening asked for:
@@ -138,14 +138,14 @@ const OVERLAP_ATTACHMENT_SUFFIX = "P6白色配交叉器";
  * its usual spot beside the piece count.
  */
 export function overlapTrackOrderLine(line: TrackOrderLine): string {
-  return `${trackOrderLine(line)} ${OVERLAP_ATTACHMENT_SUFFIX}`;
+  return `${trackOrderLine(line)}${extraOrderSuffix(line.options)}`;
 }
 
 export function overlapTrackOrderText(
   lines: readonly TrackOrderLine[],
   noteCn: string | null,
 ): string {
-  const overlapLines = lines.filter((line) => line.overlapTracksAttachment);
+  const overlapLines = lines.filter((line) => hasExtraOrder(line.options));
   if (overlapLines.length === 0) return "";
   const body = overlapLines.map(overlapTrackOrderLine);
   const note = noteCn?.trim();

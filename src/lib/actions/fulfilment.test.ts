@@ -145,7 +145,10 @@ describe("saveFulfilmentArrangement status reconciliation", () => {
 
   it("books ahead without touching status while a shipment is still pending", async () => {
     const { events } = setup("sent_to_vendor", {
-      shipments: [arrived, { ...arrived, arrived_checked_at: null }],
+      shipments: [
+        arrived,
+        { ...arrived, overseas_freight_number: null, arrived_checked_at: null },
+      ],
     });
     await saveFulfilmentArrangement(input);
     expect(statusEvents(events)).toEqual([]);

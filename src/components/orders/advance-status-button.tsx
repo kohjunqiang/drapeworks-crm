@@ -130,14 +130,13 @@ export function AdvanceStatusButton({
         ) {
           nextErrors[`${shipment.category}-local`] = "Local delivery number is required.";
         }
-      }
-      if (
-        trackingMode === "overseas" && shipments.some((shipment) => !shipment.notNeeded) &&
-        !shipments.some((shipment) =>
-          overseasNumbers[shipment.category]?.trim())
-      ) {
-        nextErrors[`${shipments[0].category}-overseas`] =
-          "Enter a freight number for at least one shipment.";
+        if (
+          trackingMode === "overseas" &&
+          !overseasNumbers[shipment.category]?.trim()
+        ) {
+          nextErrors[`${shipment.category}-overseas`] =
+            "Overseas freight number is required.";
+        }
       }
       const firstError = Object.keys(nextErrors)[0];
       if (firstError) {
@@ -320,12 +319,12 @@ export function AdvanceStatusButton({
                       ? "These track orders are sent directly. No local delivery number is required."
                       : trackingMode === "local"
                       ? "Curtains, Blinds and Mesh go via the logistics partner. Track orders are sent directly."
-                      : "Enter the freight number for any shipment leaving now. Add the others later from Edit shipment numbers."}
+                      : "Every shipment needs its overseas freight number before the order is Shipping to SG."}
                   </p>
                 </div>
                 {Object.keys(fieldErrors).length > 0 && (
                   <p role="alert" className="text-xs font-medium text-red-600">
-                    Enter at least one freight number to mark shipping.
+                    Enter a freight number for every shipment to mark shipping.
                   </p>
                 )}
                 <div className="space-y-3">

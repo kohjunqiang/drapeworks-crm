@@ -10,6 +10,8 @@ type Executor = Kysely<DB> | Transaction<DB>;
 const ARRIVAL_NOTE =
   "Auto-reconciled: every required shipment arrived and checked.";
 const BOOKING_NOTE = "Auto-reconciled: an installation booking is active.";
+const SHIPPED_NOTE =
+  "Auto-reconciled: every required shipment has an overseas freight number.";
 
 export type FulfilmentReconcileResult = {
   from: FulfilmentStatus;
@@ -19,8 +21,10 @@ export type FulfilmentReconcileResult = {
 
 /**
  * Catch an order's status up to its recorded facts. Once every required
- * shipment is arrived and checked the order belongs at Delivered & Checked —
- * or Fulfillment Arrangement when an installation booking is already active.
+ * shipment carries a real overseas freight number the order is Shipping to SG;
+ * once every required shipment is arrived and checked it belongs at Delivered
+ * & Checked — or Fulfillment Arrangement when an installation booking is
+ * already active.
  *
  * Status is event-sourced and ose_validate_transition only accepts one step at
  * a time, so intermediate milestones are emitted as audited catch-up events in
@@ -81,16 +85,36 @@ export async function reconcileFulfilmentStatus(
         shipment.arrived_checked_at !== null &&
         usableFreightNumber(shipment.overseas_freight_number) !== null,
     );
-  if (!allArrived) return done();
+  const allShipped =
+    required.length > 0 &&
+    required.every(
+      (shipment) =>
+        usableFreightNumber(shipment.overseas_freight_number) !== null,
+    );
 
-  const booking = await executor
-    .selectFrom("fulfilment_arrangements")
-    .select("id")
-    .where("order_id", "=", input.orderId)
-    .where("cancelled_at", "is", null)
-    .executeTakeFirst();
+  let targetIdx: number;
+  let noteFor: (next: FulfilmentStatus) => string;
+  if (allArrived) {
+    const booking = await executor
+      .selectFrom("fulfilment_arrangements")
+      .select("id")
+      .where("order_id", "=", input.orderId)
+      .where("cancelled_at", "is", null)
+      .executeTakeFirst();
+    targetIdx = statusIndex(booking ? "fulfilment" : "delivered_checked");
+    noteFor = (next) =>
+      next === "fulfilment"
+        ? (input.fulfilmentNote ?? BOOKING_NOTE)
+        : ARRIVAL_NOTE;
+  } else if (allShipped && fromIdx < statusIndex("shipping_sg")) {
+    // Freight assigned but nothing arrived yet: the order is on its way to
+    // Singapore, no further. Orders already at or past Shipping to SG no-op.
+    targetIdx = statusIndex("shipping_sg");
+    noteFor = () => SHIPPED_NOTE;
+  } else {
+    return done();
+  }
 
-  const targetIdx = statusIndex(booking ? "fulfilment" : "delivered_checked");
   const emitted: FulfilmentStatus[] = [];
   for (let idx = fromIdx; idx < targetIdx; idx += 1) {
     const next = STATUS_FLOW[idx + 1];
@@ -99,11 +123,7 @@ export async function reconcileFulfilmentStatus(
       .values({
         order_id: input.orderId,
         status: next,
-        note: `${input.notePrefix ?? ""}${
-          next === "fulfilment"
-            ? (input.fulfilmentNote ?? BOOKING_NOTE)
-            : ARRIVAL_NOTE
-        }`,
+        note: `${input.notePrefix ?? ""}${noteFor(next)}`,
         created_by: input.createdBy,
       })
       .execute();

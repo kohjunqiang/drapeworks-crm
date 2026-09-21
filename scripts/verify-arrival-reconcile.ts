@@ -350,16 +350,29 @@ async function main() {
       );
       await expectCase(
         trx,
-        "partial arrival stays put",
+        "unshipped component keeps the order at sent_to_vendor",
         {
           status: "sent_to_vendor",
           shipments: [
             { category: "curtains", freight: "FR-C", arrived: true },
-            { category: "standard_tracks", freight: "FR-T", arrived: false },
+            { category: "standard_tracks", arrived: false },
           ],
         },
         "sent_to_vendor",
         0,
+      );
+      await expectCase(
+        trx,
+        "all shipped, none arrived reaches shipping_sg",
+        {
+          status: "sent_to_vendor",
+          shipments: [
+            { category: "curtains", freight: "FR-C" },
+            { category: "standard_tracks", notNeeded: true },
+          ],
+        },
+        "shipping_sg",
+        2,
       );
       await expectCase(
         trx,

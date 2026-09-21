@@ -72,6 +72,16 @@ const arrived = (freight = "FR-1"): ShipmentRow => ({
   overseas_freight_number: freight,
   arrived_checked_at: new Date("2026-09-15T00:00:00Z"),
 });
+const shipped = (freight = "FR-1"): ShipmentRow => ({
+  not_needed: false,
+  overseas_freight_number: freight,
+  arrived_checked_at: null,
+});
+const unshipped: ShipmentRow = {
+  not_needed: false,
+  overseas_freight_number: null,
+  arrived_checked_at: null,
+};
 const pending: ShipmentRow = {
   not_needed: false,
   overseas_freight_number: "FR-2",
@@ -148,8 +158,8 @@ describe("reconcileFulfilmentStatus", () => {
     ]);
   });
 
-  it.each(["sent_to_vendor", "sent_logistic", "shipping_sg"] as const)(
-    "leaves %s alone while any required shipment is still pending",
+  it.each(["sent_to_vendor", "sent_logistic"] as const)(
+    "advances %s to shipping_sg while a required shipment is still pending arrival",
     async (status) => {
       const { trx, events } = fakeDb({
         status,
@@ -160,10 +170,128 @@ describe("reconcileFulfilmentStatus", () => {
         orderId,
         createdBy: actor,
       });
-      expect(result.emitted).toEqual([]);
-      expect(events).toEqual([]);
+      expect(result.to).toBe("shipping_sg");
+      expect(events.map((event) => event.status).at(-1)).toBe("shipping_sg");
+      for (const event of events) {
+        expect(event.note).toBe(
+          "Auto-reconciled: every required shipment has an overseas freight number.",
+        );
+      }
     },
   );
+
+  it("leaves shipping_sg alone while a required shipment is still pending arrival", async () => {
+    const { trx, events } = fakeDb({
+      status: "shipping_sg",
+      shipments: [shipped("FR-1"), pending],
+      booking: { id: "arr-1" },
+    });
+    const result = await reconcileFulfilmentStatus(trx, {
+      orderId,
+      createdBy: actor,
+    });
+    expect(result.emitted).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("leaves sent_to_vendor alone while a required shipment has no freight number", async () => {
+    const { trx, events } = fakeDb({
+      status: "sent_to_vendor",
+      shipments: [shipped("FR-1"), unshipped],
+    });
+    const result = await reconcileFulfilmentStatus(trx, {
+      orderId,
+      createdBy: actor,
+    });
+    expect(result.emitted).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("walks sent_to_vendor to shipping_sg once every required shipment has freight", async () => {
+    const { trx, events } = fakeDb({
+      status: "sent_to_vendor",
+      shipments: [shipped("FR-1"), { ...unshipped, not_needed: true }],
+    });
+    const result = await reconcileFulfilmentStatus(trx, {
+      orderId,
+      createdBy: actor,
+    });
+    expect(result).toEqual({
+      from: "sent_to_vendor",
+      to: "shipping_sg",
+      emitted: ["sent_logistic", "shipping_sg"],
+    });
+    expect(events.map((event) => event.status)).toEqual([
+      "sent_logistic",
+      "shipping_sg",
+    ]);
+    for (const event of events) {
+      expect(event).toMatchObject({
+        order_id: orderId,
+        created_by: actor,
+        note: "Auto-reconciled: every required shipment has an overseas freight number.",
+      });
+    }
+  });
+
+  it("does not count a placeholder freight number as shipped", async () => {
+    const { trx, events } = fakeDb({
+      status: "sent_to_vendor",
+      shipments: [
+        { ...shipped(), overseas_freight_number: "N/A" },
+        shipped("FR-2"),
+      ],
+    });
+    const result = await reconcileFulfilmentStatus(trx, {
+      orderId,
+      createdBy: actor,
+    });
+    expect(result.emitted).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("emits only shipping_sg from sent_logistic when everything is shipped", async () => {
+    const { trx, events } = fakeDb({
+      status: "sent_logistic",
+      shipments: [shipped("FR-1"), shipped("FR-2")],
+    });
+    const result = await reconcileFulfilmentStatus(trx, {
+      orderId,
+      createdBy: actor,
+    });
+    expect(result).toEqual({
+      from: "sent_logistic",
+      to: "shipping_sg",
+      emitted: ["shipping_sg"],
+    });
+    expect(events).toEqual([
+      expect.objectContaining({
+        status: "shipping_sg",
+        note: "Auto-reconciled: every required shipment has an overseas freight number.",
+      }),
+    ]);
+  });
+
+  it("prefers the arrival rule when every shipment is both shipped and arrived", async () => {
+    const { trx, events } = fakeDb({
+      status: "sent_to_vendor",
+      shipments: [arrived("FR-1"), arrived("FR-2")],
+    });
+    const result = await reconcileFulfilmentStatus(trx, {
+      orderId,
+      createdBy: actor,
+    });
+    expect(result).toEqual({
+      from: "sent_to_vendor",
+      to: "delivered_checked",
+      emitted: ["sent_logistic", "shipping_sg", "delivered_checked"],
+    });
+    for (const event of events) {
+      expect(event.note).toBe(
+        "Auto-reconciled: every required shipment arrived and checked.",
+      );
+    }
+  });
 
   it("never advances on an empty manifest", async () => {
     const { trx, events } = fakeDb({ status: "sent_to_vendor", shipments: [] });

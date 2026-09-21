@@ -146,16 +146,11 @@ export async function advanceOrderStatus(input: unknown) {
         overseasFreightNumber: number.overseasFreightNumber ?? null,
         source: "derived" as const,
       }));
-      const numbers = submittedNumbers ?? state.shipments;
-      const validationError = validateShipmentNumbersForTransition(
-        state.categories,
-        numbers,
-        trackingMode,
-      );
-      if (validationError) throw new UserFacingError(validationError);
       // A checked arrival certifies the tracking numbers recorded against it.
       // A stale dialog must never clear or replace them — refresh for the
-      // recorded values, or reopen the arrival check first.
+      // recorded values, or reopen the arrival check first. This runs before
+      // the aggregate manifest validation so an arrived component's rewrite
+      // reports its specific remedy rather than a generic missing-number error.
       for (const number of submittedNumbers ?? []) {
         const existing = state.shipments.find(
           (shipment) => shipment.category === number.category,
@@ -174,6 +169,13 @@ export async function advanceOrderStatus(input: unknown) {
           );
         }
       }
+      const numbers = submittedNumbers ?? state.shipments;
+      const validationError = validateShipmentNumbersForTransition(
+        state.categories,
+        numbers,
+        trackingMode,
+      );
+      if (validationError) throw new UserFacingError(validationError);
       for (const number of submittedNumbers ?? []) {
         const existing = state.shipments.find(
           (shipment) => shipment.category === number.category,

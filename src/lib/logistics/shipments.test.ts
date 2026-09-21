@@ -110,13 +110,13 @@ describe("validateShipmentNumbersForTransition", () => {
     )).toBeNull();
   });
 
-  it("requires at least one overseas freight number before shipping starts", () => {
+  it("requires every shipment to carry an overseas freight number before shipping starts", () => {
     expect(validateShipmentNumbersForTransition(
       ["curtains", "standard_tracks"], local, "overseas",
     )).toMatch(/overseas freight/);
   });
 
-  it("allows the remaining shipments to receive freight numbers later", () => {
+  it("rejects when a required shipment still lacks a freight number", () => {
     expect(validateShipmentNumbersForTransition(
       ["curtains", "standard_tracks"],
       [
@@ -127,8 +127,50 @@ describe("validateShipmentNumbersForTransition", () => {
         shipment("standard_tracks"),
       ],
       "overseas",
+    )).toMatch(/every shipment/);
+  });
+
+  it("passes once every required shipment has a freight number", () => {
+    expect(validateShipmentNumbersForTransition(
+      ["curtains", "standard_tracks"],
+      [
+        shipment("curtains", {
+          localDeliveryNumber: "L-C",
+          overseasFreightNumber: "O-C",
+        }),
+        shipment("standard_tracks", { overseasFreightNumber: "O-T" }),
+      ],
+      "overseas",
     )).toBeNull();
   });
+
+  it("excludes a not-needed shipment without a freight number", () => {
+    expect(validateShipmentNumbersForTransition(
+      ["curtains", "standard_tracks"],
+      [
+        shipment("curtains", {
+          localDeliveryNumber: "L-C",
+          overseasFreightNumber: "O-C",
+        }),
+        shipment("standard_tracks", { notNeeded: true }),
+      ],
+      "overseas",
+    )).toBeNull();
+  });
+
+  it.each(["N/A", "-", "none"])(
+    "treats placeholder freight %j as missing",
+    (freight) => {
+      expect(validateShipmentNumbersForTransition(
+        ["curtains"],
+        [shipment("curtains", {
+          localDeliveryNumber: "L-C",
+          overseasFreightNumber: freight,
+        })],
+        "overseas",
+      )).toMatch(/every shipment/);
+    },
+  );
 
   it("requires local delivery for mesh", () => {
     expect(validateShipmentNumbersForTransition(

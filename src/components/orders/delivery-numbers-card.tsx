@@ -85,6 +85,9 @@ export function DeliveryNumbersCard({
       ) {
         fields.push({ category: shipment.category, field: "local" });
       }
+      if (overseasReached && !shipment.overseasFreightNumber?.trim()) {
+        fields.push({ category: shipment.category, field: "overseas" });
+      }
       return fields;
     });
     if (missing.length > 0) {

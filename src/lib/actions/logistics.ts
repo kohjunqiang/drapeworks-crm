@@ -65,10 +65,12 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
       statusIndex(order.current_status) >= statusIndex("shipping_sg");
     if (
       overseasRequired &&
-      state.shipments.some((shipment) => !shipment.notNeeded) &&
-      !parsed.shipments.some((shipment) => shipment.overseasFreightNumber)
+      parsed.shipments.some((shipment) =>
+        !state.shipments.find((row) => row.category === shipment.category)
+          ?.notNeeded &&
+        !usableFreightNumber(shipment.overseasFreightNumber))
     ) {
-      throw new Error("Enter an overseas freight number for at least one shipment.");
+      throw new Error("Enter an overseas freight number for every shipment.");
     }
     for (const shipment of parsed.shipments) {
       const existing = state.shipments.find(
@@ -155,7 +157,7 @@ function freightComponentKey(orderId: string, category: string): string {
 
 /** Adds order components to one overseas freight code. */
 export async function assignFreightComponents(input: unknown): Promise<void> {
-  await requireRole(["ops", "admin"]);
+  const session = await requireRole(["ops", "admin"]);
   const parsed = freightAssignmentSchema.parse(input);
   const freightNumber = normalizeFreightNumber(parsed.freightNumber);
   const selectedKeys = new Set(
@@ -183,7 +185,10 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
           eb("order_shipments.order_id", "=", orderId),
           eb("order_shipments.category", "=", category),
         ]))))
-      .forUpdate("order_shipments")
+      // Lock the order rows together with the shipment rows so the reconcile
+      // below runs against an orders lock this transaction already holds —
+      // the same lock the other status writers take first.
+      .forUpdate(["order_shipments", "orders"])
       .execute();
     if (selectedRows.length !== selectedKeys.size) {
       throw new Error("One or more shipment components changed. Refresh and try again.");
@@ -232,6 +237,16 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
         .where("category", "=", row.category)
         .executeTakeFirstOrThrow();
       affected.add(row.order_id);
+    }
+
+    // Completing the freight manifest is itself a status fact: an order whose
+    // required components all carry a real freight code is Shipping to SG.
+    // Orders already at or past their reconciled status emit no events.
+    for (const orderId of affected) {
+      await reconcileFulfilmentStatus(trx, {
+        orderId,
+        createdBy: session.user.id,
+      });
     }
 
     return [...affected];

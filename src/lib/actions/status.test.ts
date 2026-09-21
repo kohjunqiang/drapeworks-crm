@@ -186,14 +186,19 @@ describe("arrival catch-up during a manual advance", () => {
     expect(statuses).toEqual(["sent_logistic", "shipping_sg", "delivered_checked", "fulfilment"]);
   });
 
-  it("advances only one step while shipments are still pending", async () => {
+  it("advances one step then catches up to shipping_sg once every shipment has freight", async () => {
     mocks.load.mockResolvedValue(arrivedShipmentState);
     const { values } = setupOrder("sent_to_vendor", {
       shipments: [{ ...arrivedShipment, arrived_checked_at: null }],
     });
     await advanceOrderStatus({ orderId, expectedStatus: "sent_to_vendor" });
     const statuses = values.mock.calls.map(([value]) => (value as { status?: string }).status);
-    expect(statuses).toEqual(["sent_logistic"]);
+    expect(statuses).toEqual(["sent_logistic", "shipping_sg"]);
+    expect(values).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "shipping_sg",
+      note: "Auto-reconciled: every required shipment has an overseas freight number.",
+      created_by: "ops-user",
+    }));
   });
 });
 
@@ -268,6 +273,61 @@ describe("tracking numbers on arrived shipments during a manual advance", () => 
       expect(values).not.toHaveBeenCalled();
     },
   );
+
+  it("rejects the advance while a required shipment still lacks a freight number", async () => {
+    mocks.load.mockResolvedValue(manifest);
+    const { values, shipmentWrites, state } = setupOrder("sent_logistic", {
+      shipments: rawRows,
+    });
+    await expect(
+      advanceOrderStatus({
+        orderId,
+        expectedStatus: "sent_logistic",
+        shipmentNumbers: [
+          {
+            category: "curtains",
+            localDeliveryNumber: "LD-1",
+            overseasFreightNumber: "FR-9",
+          },
+          { category: "standard_tracks" },
+        ],
+      }),
+    ).rejects.toThrow("Enter an overseas freight number for every shipment.");
+    expect(state.status).toBe("sent_logistic");
+    expect(shipmentWrites).toEqual([]);
+    expect(values).not.toHaveBeenCalled();
+  });
+
+  it("advances when the freight-less shipment is marked not needed", async () => {
+    const notNeededTracks = { ...pendingTracks, notNeeded: true };
+    mocks.load.mockResolvedValue({
+      categories: ["curtains", "standard_tracks"],
+      shipments: [arrivedCurtains, notNeededTracks],
+    });
+    const { values, shipmentWrites } = setupOrder("sent_logistic", {
+      shipments: [
+        rawRows[0],
+        { ...rawRows[1], not_needed: true },
+      ],
+    });
+    await advanceOrderStatus({
+      orderId,
+      expectedStatus: "sent_logistic",
+      shipmentNumbers: [
+        {
+          category: "curtains",
+          localDeliveryNumber: "LD-1",
+          overseasFreightNumber: "FR-9",
+        },
+        { category: "standard_tracks" },
+      ],
+    });
+    expect(shipmentWrites).toEqual([]);
+    const statuses = values.mock.calls
+      .map(([value]) => (value as { status?: string }).status)
+      .filter(Boolean);
+    expect(statuses[0]).toBe("shipping_sg");
+  });
 
   it("accepts the unchanged freight number and still writes the pending component", async () => {
     mocks.load.mockResolvedValue(manifest);

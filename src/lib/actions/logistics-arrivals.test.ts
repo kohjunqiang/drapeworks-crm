@@ -132,7 +132,7 @@ it.each(["sent_to_vendor", "sent_logistic", "shipping_sg"])("leaves %s unchanged
   const { events } = setup(status, {}, {
     extraShipments: [{
       category: "curtains",
-      overseasFreightNumber: "CURTAIN9",
+      overseasFreightNumber: null,
       updatedAt,
       arrivedCheckedAt: null,
       notNeeded: false,
@@ -152,7 +152,7 @@ it.each(["sent_to_vendor", "sent_logistic", "shipping_sg"])("fails markDelivered
   const { events } = setup(status, {}, {
     extraShipments: [{
       category: "curtains",
-      overseasFreightNumber: "CURTAIN9",
+      overseasFreightNumber: null,
       updatedAt,
       arrivedCheckedAt: null,
       notNeeded: false,

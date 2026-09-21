@@ -309,13 +309,13 @@ describe("invoice numbering on the quotation's suffix", () => {
   it("fails before conversion and releases the claim when invoice numbering consent is missing", async () => {
     setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
     mocks.assertZohoInvoiceNumberingReady.mockRejectedValue(
-      new UserFacingError("Zoho Books must be reconnected by an admin to authorize invoice numbering"));
+      new UserFacingError("Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again."));
 
     const result = await ensureZohoInvoiceForOrderUi(ORDER_ID);
 
     expect(result).toEqual({
       ok: false,
-      error: "Zoho Books must be reconnected by an admin to authorize invoice numbering",
+      error: "Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.",
     });
     expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
     expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();

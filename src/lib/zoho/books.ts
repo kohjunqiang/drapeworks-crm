@@ -67,8 +67,8 @@ export type ZohoCustomerPayment = {
   invoices?: Array<{ invoice_id?: string; invoice_number?: string; amount_applied?: number; balance_amount?: number }>;
 };
 
-const PAYMENTS_SCOPE_MESSAGE = "Zoho Books must be reconnected by an admin to authorize customer payments";
-const INVOICE_NUMBERING_SCOPE_MESSAGE = "Zoho Books must be reconnected by an admin to authorize invoice numbering";
+const PAYMENTS_SCOPE_MESSAGE = "Zoho Books needs permission to record customer payments. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.";
+const INVOICE_NUMBERING_SCOPE_MESSAGE = "Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.";
 
 // Missing-scope failures are UserFacingError so the reconnect instruction
 // survives the Server Action boundary instead of being genericised.

@@ -146,7 +146,7 @@ describe("Zoho Books transport safety", () => {
     vi.stubGlobal("fetch", vi.fn());
     const { renameZohoInvoice } = await import("./books");
 
-    await expect(renameZohoInvoice("inv-1", "INV-677816")).rejects.toThrow("Zoho Books must be reconnected by an admin to authorize invoice numbering");
+    await expect(renameZohoInvoice("inv-1", "INV-677816")).rejects.toThrow("Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -162,7 +162,7 @@ describe("Zoho Books transport safety", () => {
       connectionId: "connection", tokenVersion: 1,
       requestedScopes: ["ZohoBooks.invoices.READ", "ZohoBooks.invoices.CREATE"],
     });
-    await expect(assertZohoInvoiceNumberingReady()).rejects.toThrow("Zoho Books must be reconnected by an admin to authorize invoice numbering");
+    await expect(assertZohoInvoiceNumberingReady()).rejects.toThrow("Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.");
   });
 
   it("records a PayNow deposit against one invoice and the configured bank account", async () => {
@@ -195,7 +195,7 @@ describe("Zoho Books transport safety", () => {
     vi.stubGlobal("fetch", vi.fn());
     const { assertZohoCustomerPaymentsReady } = await import("./books");
 
-    await expect(assertZohoCustomerPaymentsReady()).rejects.toThrow("reconnected");
+    await expect(assertZohoCustomerPaymentsReady()).rejects.toThrow("Zoho Books needs permission to record customer payments. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.");
     expect(fetch).not.toHaveBeenCalled();
   });
 

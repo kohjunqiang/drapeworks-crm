@@ -5,7 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { requireRole } from "@/lib/auth/require-role";
 import { chooseZohoOrganization } from "@/lib/actions/zoho-integration";
 import type { Json } from "@/lib/db/schema";
-import { getZohoConnectionSummary } from "@/lib/zoho/connection";
+import { getZohoConnectionSummary, ZOHO_BOOKS_SCOPES } from "@/lib/zoho/connection";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +33,9 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
     ? pending.candidate_organizations as unknown as Array<{ organization_id?: string; name?: string; currency_code?: string; country_code?: string }> : [];
   const caps = connection?.verified_capabilities ?? {};
   const paymentAccountConfigured = /^\d+$/.test(process.env.ZOHO_PAYMENT_ACCOUNT_ID?.trim() ?? "");
+  // A connection authorized before a scope was added keeps its old consent;
+  // Zoho rejects calls needing the new scope until an admin reconnects.
+  const missingConsent = connection?.status === "connected" && ZOHO_BOOKS_SCOPES.some((scope) => !connection.requested_scopes.includes(scope));
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
@@ -58,6 +61,7 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
         {!summary.appConfigured && <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">The deployment OAuth application is incomplete. Add the server application client ID and secret, encryption key, callback URL, and quotation field/template IDs.</p>}
         {summary.appConfigured && !paymentAccountConfigured && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Deposit payments are disabled until ZOHO_PAYMENT_ACCOUNT_ID is configured for the Drapeworks – MariBank account.</p>}
         {connection?.status === "partial" && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Quotation, invoice, and payment actions are disabled. An admin must reconnect Zoho Books after checking the required permissions, CRM Quote Key field, quotation template, and payment account.</p>}
+        {missingConsent && <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Zoho Books was connected before invoice numbering permission was added. An admin must reconnect Zoho Books to number invoices after the quotation.</p>}
 
         {pending && candidates.length > 0 && (
           <div className="mt-5 border-t border-slate-200 pt-5">
@@ -76,7 +80,7 @@ export default async function ZohoIntegrationPage({ searchParams }: { searchPara
               <li>{capability(caps, "customerPaymentsRead") ? "✓" : "–"} Read and reconcile customer payments</li>
               <li>{capability(caps, "crmKeyFieldVerified") ? "✓" : "–"} CRM Quote Key field verified</li>
               <li>{capability(caps, "templateVerified") ? "✓" : "–"} Quotation template verified</li>
-              <li>OAuth consent: create customers, quotations, invoices and customer payments</li>
+              <li>OAuth consent: create customers, quotations, invoices and customer payments; number invoices</li>
             </ul>
             {connection.last_verified_at && <p className="mt-3 text-xs text-slate-500">Last verified {new Date(connection.last_verified_at).toLocaleString("en-SG", { timeZone: "Asia/Singapore" })}</p>}
             {connection.last_error && <p className="mt-2 text-sm text-red-700">{connection.last_error}</p>}

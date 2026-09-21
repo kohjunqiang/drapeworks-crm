@@ -1,5 +1,7 @@
 import "server-only";
 
+import { UserFacingError } from "@/lib/user-facing-error";
+
 import { getZohoAccessContext, getZohoConnectionSummary } from "./connection";
 
 type ZohoEnvelope = { code?: number; message?: string; [key: string]: unknown };
@@ -65,9 +67,14 @@ export type ZohoCustomerPayment = {
   invoices?: Array<{ invoice_id?: string; invoice_number?: string; amount_applied?: number; balance_amount?: number }>;
 };
 
-function requirePaymentScope(context: Awaited<ReturnType<typeof getZohoAccessContext>>, scope: string) {
+const PAYMENTS_SCOPE_MESSAGE = "Zoho Books must be reconnected by an admin to authorize customer payments";
+const INVOICE_NUMBERING_SCOPE_MESSAGE = "Zoho Books must be reconnected by an admin to authorize invoice numbering";
+
+// Missing-scope failures are UserFacingError so the reconnect instruction
+// survives the Server Action boundary instead of being genericised.
+function requireScope(context: Awaited<ReturnType<typeof getZohoAccessContext>>, scope: string, message: string) {
   if (!context.requestedScopes.includes(scope)) {
-    throw new Error("Zoho Books must be reconnected by an admin to authorize customer payments");
+    throw new UserFacingError(message);
   }
 }
 
@@ -79,9 +86,17 @@ export function getZohoDepositPaymentConfig() {
 
 export async function assertZohoCustomerPaymentsReady(): Promise<void> {
   const context = await getZohoAccessContext();
-  requirePaymentScope(context, "ZohoBooks.customerpayments.READ");
-  requirePaymentScope(context, "ZohoBooks.customerpayments.CREATE");
+  requireScope(context, "ZohoBooks.customerpayments.READ", PAYMENTS_SCOPE_MESSAGE);
+  requireScope(context, "ZohoBooks.customerpayments.CREATE", PAYMENTS_SCOPE_MESSAGE);
   getZohoDepositPaymentConfig();
+}
+
+// Invoice numbering was added to the consent after some organizations were
+// already connected; those tokens reject every PUT on /invoices. Checking the
+// recorded scopes first keeps the failure a clear reconnect instruction.
+export async function assertZohoInvoiceNumberingReady(): Promise<void> {
+  const context = await getZohoAccessContext();
+  requireScope(context, "ZohoBooks.invoices.UPDATE", INVOICE_NUMBERING_SCOPE_MESSAGE);
 }
 
 export async function getZohoBooksBinding() {
@@ -323,6 +338,7 @@ export async function getZohoInvoice(id: string): Promise<ZohoInvoice> {
 // ignore_auto_number_generation=true is what makes invoice_number settable at
 // all. PUT is retry-safe in `request`, so a lost response retries cleanly.
 export async function renameZohoInvoice(id: string, invoiceNumber: string): Promise<ZohoInvoice> {
+  await assertZohoInvoiceNumberingReady();
   const query = new URLSearchParams({ ignore_auto_number_generation: "true" });
   const json = await request<ZohoEnvelope & { invoice?: ZohoInvoice }>(`/invoices/${encodeURIComponent(id)}?${query}`, {
     method: "PUT",
@@ -334,7 +350,7 @@ export async function renameZohoInvoice(id: string, invoiceNumber: string): Prom
 
 export async function listZohoCustomerPayments(customerId: string): Promise<ZohoCustomerPayment[]> {
   const context = await getZohoAccessContext();
-  requirePaymentScope(context, "ZohoBooks.customerpayments.READ");
+  requireScope(context, "ZohoBooks.customerpayments.READ", PAYMENTS_SCOPE_MESSAGE);
   const payments: ZohoCustomerPayment[] = [];
   let page = 1;
   let hasMore = true;
@@ -351,7 +367,7 @@ export async function listZohoCustomerPayments(customerId: string): Promise<Zoho
 
 export async function getZohoCustomerPayment(id: string): Promise<ZohoCustomerPayment> {
   const context = await getZohoAccessContext();
-  requirePaymentScope(context, "ZohoBooks.customerpayments.READ");
+  requireScope(context, "ZohoBooks.customerpayments.READ", PAYMENTS_SCOPE_MESSAGE);
   const json = await request<ZohoEnvelope & { payment?: ZohoCustomerPayment }>(`/customerpayments/${encodeURIComponent(id)}`);
   if (!json.payment) throw new Error("Zoho customer payment not found");
   return json.payment;
@@ -367,7 +383,7 @@ export async function createZohoCustomerPayment(input: {
   paymentMode: string;
 }): Promise<ZohoCustomerPayment> {
   const context = await getZohoAccessContext();
-  requirePaymentScope(context, "ZohoBooks.customerpayments.CREATE");
+  requireScope(context, "ZohoBooks.customerpayments.CREATE", PAYMENTS_SCOPE_MESSAGE);
   const amount = input.amountCents / 100;
   const json = await request<ZohoEnvelope & { payment?: ZohoCustomerPayment }>("/customerpayments", {
     method: "POST",

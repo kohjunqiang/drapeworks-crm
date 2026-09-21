@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   markZohoEstimateSent: vi.fn(),
   adminClient: vi.fn(),
   assertZohoCustomerPaymentsReady: vi.fn(),
+  assertZohoInvoiceNumberingReady: vi.fn(),
   listZohoCustomerPayments: vi.fn(),
   getZohoInvoice: vi.fn(),
   convertZohoEstimateToInvoice: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@/lib/zoho/books", () => ({
   getZohoEstimatePdf: mocks.getZohoEstimatePdf,
   markZohoEstimateSent: mocks.markZohoEstimateSent,
   assertZohoCustomerPaymentsReady: mocks.assertZohoCustomerPaymentsReady,
+  assertZohoInvoiceNumberingReady: mocks.assertZohoInvoiceNumberingReady,
   listZohoCustomerPayments: mocks.listZohoCustomerPayments,
   getZohoInvoice: mocks.getZohoInvoice,
   convertZohoEstimateToInvoice: mocks.convertZohoEstimateToInvoice,
@@ -55,6 +57,7 @@ vi.mock("@/lib/zoho/books", () => ({
 
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
 import { toZohoEstimatePayload } from "@/lib/quotations/model";
+import { UserFacingError } from "@/lib/user-facing-error";
 import { confirmQuotationSent, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
@@ -190,6 +193,7 @@ function setup({ quote, remote }: { quote: ReturnType<typeof makeQuote>; remote:
     estimateTemplateId: "tmpl-1",
   });
   mocks.assertZohoCustomerPaymentsReady.mockResolvedValue(undefined);
+  mocks.assertZohoInvoiceNumberingReady.mockResolvedValue(undefined);
   mocks.listZohoCustomerPayments.mockResolvedValue([]);
   mocks.getZohoDepositPaymentConfig.mockReturnValue({ accountId: "acc-1", paymentMode: "PayNow" });
 }
@@ -300,6 +304,23 @@ describe("invoice numbering on the quotation's suffix", () => {
 
     expect(mocks.renameZohoInvoice).not.toHaveBeenCalled();
     expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails before conversion and releases the claim when invoice numbering consent is missing", async () => {
+    setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
+    mocks.assertZohoInvoiceNumberingReady.mockRejectedValue(
+      new UserFacingError("Zoho Books must be reconnected by an admin to authorize invoice numbering"));
+
+    const result = await ensureZohoInvoiceForOrderUi(ORDER_ID);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Zoho Books must be reconnected by an admin to authorize invoice numbering",
+    });
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    expect(setCalls.some((values) => values.invoice_sync_state === "failed")).toBe(true);
+    expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(false);
   });
 
   it("fails the claim and names the intended number when Zoho rejects the rename", async () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("./connection", () => ({
-  getZohoAccessContext: vi.fn(async () => ({ accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3", crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template", requestedScopes: ["ZohoBooks.customerpayments.READ", "ZohoBooks.customerpayments.CREATE"] })),
+  getZohoAccessContext: vi.fn(async () => ({ accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3", crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template", requestedScopes: ["ZohoBooks.invoices.UPDATE", "ZohoBooks.customerpayments.READ", "ZohoBooks.customerpayments.CREATE"] })),
   getZohoConnectionSummary: vi.fn(async () => ({ connection: { status: "connected", estimate_crm_key_api_name: "cf_crm_quote_key", estimate_crm_key_id: "field", estimate_template_id: "template", verified_capabilities: { crmKeyUnique: false } } })),
 }));
 
@@ -133,6 +133,36 @@ describe("Zoho Books transport safety", () => {
     const { renameZohoInvoice } = await import("./books");
 
     await expect(renameZohoInvoice("inv-1", "INV-677816")).rejects.toThrow("did not return the renumbered invoice");
+  });
+
+  it("blocks the invoice rename before any Zoho call when update consent is missing", async () => {
+    const connection = await import("./connection");
+    vi.mocked(connection.getZohoAccessContext).mockResolvedValueOnce({
+      accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3",
+      crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template",
+      connectionId: "connection", tokenVersion: 1,
+      requestedScopes: ["ZohoBooks.invoices.READ", "ZohoBooks.invoices.CREATE"],
+    });
+    vi.stubGlobal("fetch", vi.fn());
+    const { renameZohoInvoice } = await import("./books");
+
+    await expect(renameZohoInvoice("inv-1", "INV-677816")).rejects.toThrow("Zoho Books must be reconnected by an admin to authorize invoice numbering");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("assertZohoInvoiceNumberingReady passes only when invoice update consent was granted", async () => {
+    const connection = await import("./connection");
+    const { assertZohoInvoiceNumberingReady } = await import("./books");
+
+    await expect(assertZohoInvoiceNumberingReady()).resolves.toBeUndefined();
+
+    vi.mocked(connection.getZohoAccessContext).mockResolvedValueOnce({
+      accessToken: "token", organizationId: "org", apiBaseUrl: "https://www.zohoapis.com/books/v3",
+      crmKeyApiName: "cf_crm_quote_key", crmKeyFieldId: "field", estimateTemplateId: "template",
+      connectionId: "connection", tokenVersion: 1,
+      requestedScopes: ["ZohoBooks.invoices.READ", "ZohoBooks.invoices.CREATE"],
+    });
+    await expect(assertZohoInvoiceNumberingReady()).rejects.toThrow("Zoho Books must be reconnected by an admin to authorize invoice numbering");
   });
 
   it("records a PayNow deposit against one invoice and the configured bank account", async () => {

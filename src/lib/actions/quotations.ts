@@ -37,6 +37,7 @@ import {
   renameZohoInvoice,
   createZohoCustomerPayment,
   assertZohoCustomerPaymentsReady,
+  assertZohoInvoiceNumberingReady,
   getZohoCustomerPayment,
   getZohoDepositPaymentConfig,
   listZohoCustomerPayments,
@@ -692,10 +693,11 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
       });
     }
     if (decision === "reject") throw new UserFacingError("The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice");
-    // Fail before converting the quotation if the payment destination or the
+    // Fail before converting the quotation if the payment destination or a
     // newly-required OAuth permission is missing. This avoids leaving a new
     // invoice behind when the second half of the operation cannot start.
     await assertZohoCustomerPaymentsReady();
+    await assertZohoInvoiceNumberingReady();
     await listZohoCustomerPayments(quote.zoho_contact_id);
     const existingInvoiceId = quote.zoho_invoice_id ?? remote.invoice_ids?.[0];
     if (quote.zoho_invoice_id && Array.isArray(remote.invoice_ids) && !remote.invoice_ids.includes(quote.zoho_invoice_id)) throw new UserFacingError("The stored Zoho invoice is no longer linked to this quotation");

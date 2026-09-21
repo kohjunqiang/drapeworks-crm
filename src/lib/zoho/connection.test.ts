@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("server-only", () => ({}));
+
+import { ZOHO_BOOKS_SCOPES } from "./connection";
 import { resolveZohoAppOrigin, resolveZohoRedirectUri } from "./oauth-redirect";
 
 const originalRedirectUri = process.env.ZOHO_OAUTH_REDIRECT_URI;
@@ -7,6 +10,12 @@ const originalRedirectUri = process.env.ZOHO_OAUTH_REDIRECT_URI;
 afterEach(() => {
   if (originalRedirectUri === undefined) delete process.env.ZOHO_OAUTH_REDIRECT_URI;
   else process.env.ZOHO_OAUTH_REDIRECT_URI = originalRedirectUri;
+});
+
+describe("ZOHO_BOOKS_SCOPES", () => {
+  it("requests invoice update consent so converted invoices can be renumbered", () => {
+    expect(ZOHO_BOOKS_SCOPES).toContain("ZohoBooks.invoices.UPDATE");
+  });
 });
 
 describe("resolveZohoRedirectUri", () => {

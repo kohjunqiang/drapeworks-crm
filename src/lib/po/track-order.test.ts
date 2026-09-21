@@ -94,13 +94,31 @@ describe("trackOrderLine", () => {
 });
 
 describe("overlapTrackOrderText", () => {
-  it("creates a separate attachment order only for selected windows", () => {
+  it("prints the full cut line plus the P6 attachment, for selected windows only", () => {
     const selected = line({ overlapTracksAttachment: true });
     expect(overlapTrackOrderLine(selected)).toBe(
-      "2.66米 双轨 Overlap track / attachment",
+      "2.66米 双轨裁成1.33m 4根配连接器 P6白色配交叉器",
     );
     expect(overlapTrackOrderText([line(), selected], "加固包装")).toBe(
-      "2.66米 双轨 Overlap track / attachment\n加固包装",
+      "2.66米 双轨裁成1.33m 4根配连接器 P6白色配交叉器\n加固包装",
+    );
+  });
+
+  it("reproduces the business's example exactly", () => {
+    expect(overlapTrackOrderLine(line({ widthCm: 509 }))).toBe(
+      "5.09米 双轨裁成1.273m 8根配连接器 P6白色配交叉器",
+    );
+  });
+
+  it("keeps the P6 suffix after the S-Fold label", () => {
+    expect(overlapTrackOrderLine(line({ shipmentKind: "s_fold_tracks" }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 S-Fold P6白色配交叉器",
+    );
+  });
+
+  it("keeps the P6 suffix after a side-installation instruction", () => {
+    expect(overlapTrackOrderLine(line({ sideInstallation: true }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation P6白色配交叉器",
     );
   });
 });

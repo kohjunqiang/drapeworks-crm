@@ -122,9 +122,23 @@ export function trackOrderLine(line: TrackOrderLine): string {
   )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${trackType}${installation}`;
 }
 
+/**
+ * The overlap attachment the supplier pairs with the cut pieces — the
+ * business's wording, stored verbatim like every other catalogue label.
+ */
+const OVERLAP_ATTACHMENT_SUFFIX = "P6白色配交叉器";
+
+/**
+ * The full cut line, plus the overlap attachment the opening asked for:
+ *
+ *   5.09米 双轨裁成1.273m 8根配连接器 P6白色配交叉器
+ *
+ * Built on trackOrderLine so the cut stays in one place, with the attachment
+ * appended last — an S-Fold label or a side-installation instruction keeps
+ * its usual spot beside the piece count.
+ */
 export function overlapTrackOrderLine(line: TrackOrderLine): string {
-  const kindCn = line.kind === "double" ? "双轨" : "单轨";
-  return `${cmToM(line.widthCm)}米 ${kindCn} Overlap track / attachment`;
+  return `${trackOrderLine(line)} ${OVERLAP_ATTACHMENT_SUFFIX}`;
 }
 
 export function overlapTrackOrderText(

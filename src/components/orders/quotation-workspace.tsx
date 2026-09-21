@@ -38,7 +38,7 @@ type Quote = {
 
 type Props = {
   orderId: string; displayId: string; customerName: string; productLine: "curtain" | "mesh"; quotedCents: number;
-  depositCents: number;
+  depositCents: number; defaultNotes: string;
   quote: Quote | null; history: Array<{ id: string; revision: number; estimateNumber: string | null; sentAt: string | null; supersededAt: string | null; totalCents: number; hasPdf: boolean }>;
   linkedContactId: string | null; canManage: boolean; canRepairDeposit: boolean; configured: boolean;
   quotationStageComplete: boolean;
@@ -71,7 +71,7 @@ export function QuotationWorkspace(props: Props) {
   const [issueDate, setIssueDate] = useState(props.quote?.issueDate ?? today());
   const [expiryDate, setExpiryDate] = useState(props.quote?.expiryDate ?? "");
   const [message, setMessage] = useState(props.quote?.customerMessage ?? defaultCustomerMessage({ customerName: props.customerName, displayId: props.displayId, totalCents: props.quotedCents, expiryDate: props.quote?.expiryDate ?? null }));
-  const [notes, setNotes] = useState(props.quote?.notes ?? "");
+  const [notes, setNotes] = useState(props.quote?.notes ?? props.defaultNotes);
   const [terms, setTerms] = useState(props.quote?.terms ?? DEFAULT_QUOTATION_TERMS);
   const [dirty, setDirty] = useState(false);
   const [messageCustomized, setMessageCustomized] = useState(() => {

@@ -56,6 +56,7 @@ import {
 } from "@/lib/pricing/order-quote";
 import { isZohoBooksConfigured } from "@/lib/zoho/books";
 import type { QuotationLineInput } from "@/lib/validation/quotation";
+import { buildFabricSelectionNotes } from "@/lib/quotations/fabric-notes";
 import { quotationDateOnly } from "@/lib/quotations/model";
 
 export const dynamic = "force-dynamic";
@@ -365,8 +366,12 @@ export default async function OrderDetailPage({
     path ? (curtainPhotoUrls.get(path) ?? null) : null;
 
   // A window's add-ons, by name, for the summary card. Read from the join as
-  // written — the same rows the quote priced.
-  const addonLabelsByWindow = new Map<string, string[]>();
+  // written — the same rows the quote priced. Key and auto_rule also feed the
+  // fabric-selection notes, which list manual add-ons only.
+  const addonsByWindow = new Map<
+    string,
+    { key: string; autoRule: string; label: string }[]
+  >();
   for (const r of roomIds.length === 0 || isMesh
     ? []
     : await db
@@ -379,16 +384,24 @@ export default async function OrderDetailPage({
         )
         .select([
           "window_addons.window_id as window_id",
+          "pricing_addons.key as key",
+          "pricing_addons.auto_rule as auto_rule",
           "pricing_addons.label as label",
         ])
         .where("windows.room_id", "in", roomIds)
         .orderBy("pricing_addons.label", "asc")
         .execute()) {
-    addonLabelsByWindow.set(r.window_id, [
-      ...(addonLabelsByWindow.get(r.window_id) ?? []),
-      r.label,
+    addonsByWindow.set(r.window_id, [
+      ...(addonsByWindow.get(r.window_id) ?? []),
+      { key: r.key, autoRule: r.auto_rule, label: r.label },
     ]);
   }
+  const addonLabelsByWindow = new Map<string, string[]>(
+    [...addonsByWindow].map(([windowId, addons]) => [
+      windowId,
+      addons.map((addon) => addon.label),
+    ]),
+  );
 
   // Build the "Series #index · Page — Label" display string per curtain, or
   // null when the window has no curtain type selected.
@@ -451,6 +464,23 @@ export default async function OrderDetailPage({
     list.push(w);
     windowsByRoom.set(w.room_id, list);
   }
+
+  // Prefill a new quotation's Notes with the fabric selections in the shape
+  // the team types into Zoho Books by hand. Existing quotations keep their
+  // stored notes; this is only the empty-draft default ("" for mesh orders,
+  // which load no windows).
+  const defaultQuotationNotes = buildFabricSelectionNotes({
+    rooms,
+    windows: windows.map((w) => ({
+      roomId: w.room_id,
+      dayLabel: w.day_curtain_label,
+      dayPage: w.day_curtain_page,
+      nightLabel: w.night_curtain_label,
+      blindLabel: w.blind_label,
+      overlapTracksAttachment: w.overlap_tracks_attachment,
+      addons: addonsByWindow.get(w.id) ?? [],
+    })),
+  });
 
   const events = await db
     .selectFrom("order_status_events")
@@ -734,6 +764,7 @@ export default async function OrderDetailPage({
               customerName={order.customer_name}
               productLine={order.product_line}
               quotedCents={order.price_quoted_cents}
+              defaultNotes={defaultQuotationNotes}
               depositCents={order.deposit_cents}
               quote={currentQuotation ? {
                 id: currentQuotation.id,

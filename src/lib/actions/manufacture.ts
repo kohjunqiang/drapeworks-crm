@@ -2,6 +2,7 @@
 
 import "server-only";
 
+import { sql } from "kysely";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -234,7 +235,69 @@ export async function confirmManufactureMeasurements(
         };
       });
 
-      await trx.insertInto("manufacture_measurements").values(rows).execute();
+      // UPSERT, not a plain insert. A revert to Deposit Received leaves the
+      // first confirmation's rows in place — they are keyed by line item
+      // (the partial unique indexes), and the consultation edit reuses the
+      // same window ids, so re-confirming meets the old row head-on. The
+      // table's contract is one row per line item, updated in place; this is
+      // that update, expressed as a conflict target per kind because one
+      // INSERT can only carry one. A kind with no rows skips its statement
+      // entirely — Kysely refuses an empty values list.
+      const upsertLines = (
+        conflictColumn: "window_id" | "mesh_panel_id",
+        subset: typeof rows,
+      ) =>
+        subset.length === 0
+          ? Promise.resolve()
+          : trx
+              .insertInto("manufacture_measurements")
+              .values(subset)
+              .onConflict((oc) =>
+                oc
+                  .column(conflictColumn)
+                  // The index predicate is part of the target: Postgres needs
+                  // `WHERE window_id IS NOT NULL` to match the partial index.
+                  .where(conflictColumn, "is not", null)
+                  .doUpdateSet((eb) => ({
+                    order_id: eb.ref("excluded.order_id"),
+                    source_width_cm: eb.ref("excluded.source_width_cm"),
+                    source_height_cm: eb.ref("excluded.source_height_cm"),
+                    width_delta_cm: eb.ref("excluded.width_delta_cm"),
+                    height_delta_cm: eb.ref("excluded.height_delta_cm"),
+                    mfg_width_cm: eb.ref("excluded.mfg_width_cm"),
+                    mfg_height_cm: eb.ref("excluded.mfg_height_cm"),
+                    mfg_split_left_cm: eb.ref("excluded.mfg_split_left_cm"),
+                    mfg_split_right_cm: eb.ref("excluded.mfg_split_right_cm"),
+                    is_overridden: eb.ref("excluded.is_overridden"),
+                    override_reason: eb.ref("excluded.override_reason"),
+                    confirmed_by: eb.ref("excluded.confirmed_by"),
+                    // The column default only fires on insert; on the update
+                    // path the new confirmation time must be set explicitly.
+                    confirmed_at: sql`now()`,
+                  })),
+              )
+              .execute();
+
+      await upsertLines(
+        "window_id",
+        rows.filter((row) => row.window_id != null),
+      );
+      await upsertLines(
+        "mesh_panel_id",
+        rows.filter((row) => row.mesh_panel_id != null),
+      );
+
+      // POs generated before a revert describe the order as it was — fabric,
+      // dimensions, everything. If they stayed current, markOrderSentToVendor
+      // would accept them and the vendor could be sent the pre-edit order.
+      // Supersede, never delete (same pattern as generateOrderPos). A first
+      // confirmation has no current POs, so this is a no-op there.
+      await trx
+        .updateTable("manufacture_pos")
+        .set({ superseded_at: new Date() })
+        .where("order_id", "=", parsed.orderId)
+        .where("superseded_at", "is", null)
+        .execute();
 
       // The ordinary status-events path: the validate_status_transition trigger
       // and the RLS advance policy apply unchanged, orders.current_status is

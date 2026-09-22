@@ -71,7 +71,7 @@ function CurtainCell({
 }
 
 // Blinds table. Separate from the curtain tables because the columns genuinely
-// differ — one covering, a control side, and none of the curtain add-ons.
+// differ — one covering and a control side.
 function BlindTable({ windows }: { windows: WindowSummary[] }) {
   const hasInstallation = windows.some(
     (w) =>
@@ -89,6 +89,7 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
             </th>
           )}
           <th className="text-left px-4 py-2 font-medium">Control side</th>
+          <th className="text-left px-4 py-2 font-medium">Add-ons</th>
           <th className="text-left px-4 py-2 font-medium">
             Installation note
           </th>
@@ -112,6 +113,9 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
                 : w.draw === "Single Right"
                   ? "Right"
                   : "—"}
+            </td>
+            <td className="px-4 py-2 text-slate-600">
+              {w.addon_labels?.join(", ") || "—"}
             </td>
             <td className="px-4 py-2 text-slate-500">
               {[

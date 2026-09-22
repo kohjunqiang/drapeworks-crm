@@ -20,6 +20,8 @@ export type InstallationSummaryInput = {
   customerName: string;
   customerMobile: string | null;
   openings: InstallationOpening[];
+  /** Public installer page link, appended as a final block when present. */
+  installerUrl?: string | null;
 };
 
 const SG_ZONE = "Asia/Singapore";
@@ -114,7 +116,12 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
       .join("\n");
   });
 
-  return [header.join("\n"), countLine, ...details]
+  return [
+    header.join("\n"),
+    countLine,
+    ...details,
+    input.installerUrl ? `Photos & measurements: ${input.installerUrl}` : null,
+  ]
     .filter(Boolean)
     .join("\n\n");
 }

@@ -1,11 +1,11 @@
 "use client";
 
-import { CalendarDays, Check, Copy, X } from "lucide-react";
+import { CalendarDays, Check, Copy, ExternalLink, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -19,11 +19,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   cancelFulfilmentArrangement,
+  resetInstallerLink,
   retryFulfilmentSync,
   saveFulfilmentArrangement,
 } from "@/lib/actions/fulfilment";
 import { CALENDAR_NOT_CONFIGURED } from "@/lib/calendar/messages";
 import type { GoogleSyncState } from "@/lib/db/schema";
+import { cn } from "@/lib/utils";
 
 type Arrangement = {
   scheduled_at: Date | string;
@@ -40,9 +42,12 @@ type Props = {
   orderId: string;
   arrangement: Arrangement | null;
   summaryText: string | null;
+  /** Public /install/<token> link; null when NEXT_PUBLIC_SITE_URL is unset. */
+  installerUrl: string | null;
   defaultAddress: string;
   canManage: boolean;
   canRetrySync: boolean;
+  canResetLink: boolean;
   calendarConfigured: boolean;
 };
 
@@ -74,14 +79,17 @@ export function FulfilmentArrangementCard({
   orderId,
   arrangement,
   summaryText,
+  installerUrl,
   defaultAddress,
   canManage,
   canRetrySync,
+  canResetLink,
   calendarConfigured,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
   const activeArrangement = arrangement?.cancelled_at ? null : arrangement;
@@ -126,6 +134,22 @@ export function FulfilmentArrangementCard({
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not cancel installation",
+        );
+      } finally {
+        router.refresh();
+      }
+    });
+  }
+
+  function resetLink() {
+    start(async () => {
+      try {
+        await resetInstallerLink({ order_id: orderId });
+        toast.success("Installer link reset");
+        setResetOpen(false);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not reset installer link",
         );
       } finally {
         router.refresh();
@@ -199,6 +223,54 @@ export function FulfilmentArrangementCard({
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               {copied ? "Copied" : "Copy details"}
             </Button>
+          ) : null}
+          {activeArrangement && installerUrl ? (
+            <a
+              href={installerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "min-h-11 gap-1 sm:min-h-8",
+              )}
+            >
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              Open installer page
+            </a>
+          ) : null}
+          {canResetLink && activeArrangement && installerUrl ? (
+            <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+              <DialogTrigger
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "sm" }),
+                  "min-h-11 sm:min-h-8",
+                )}
+              >
+                Reset link
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Reset installer link</DialogTitle>
+                  <DialogDescription>
+                    The old link stops working. Copy the details again and
+                    resend them to the installer.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setResetOpen(false)}
+                    disabled={pending}
+                  >
+                    Keep current link
+                  </Button>
+                  <Button type="button" disabled={pending} onClick={resetLink}>
+                    {pending ? "Resetting…" : "Reset link"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           ) : null}
           {canManage ? (
             <Dialog open={open} onOpenChange={setOpen}>

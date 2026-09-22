@@ -7,13 +7,20 @@ import {
   buildInstallationSummary,
   type InstallationOpening,
 } from "./installation-summary";
+import { installerPageUrl } from "./installer-link";
 
 export async function loadInstallationSummary(
   orderId: string,
   scheduledAt: Date | string,
   durationMins: number,
   address: string,
-): Promise<{ text: string; customerName: string; primaryReference: string }> {
+  installerToken?: string | null,
+): Promise<{
+  text: string;
+  customerName: string;
+  primaryReference: string;
+  installerUrl: string | null;
+}> {
   const order = await db
     .selectFrom("orders")
     .innerJoin("customers", "customers.id", "orders.customer_id")
@@ -133,7 +140,17 @@ export async function loadInstallationSummary(
   if (roomIds.length > 0 && order.product_line === "mesh") {
     const panels = await db
       .selectFrom("mesh_panels")
-      .select(["id", "room_id", "position", "width_cm", "height_cm", "draw", "notes"])
+      .select([
+        "id",
+        "room_id",
+        "position",
+        "width_cm",
+        "height_cm",
+        "draw",
+        "split_left_cm",
+        "split_right_cm",
+        "notes",
+      ])
       .where("room_id", "in", roomIds)
       .orderBy("position", "asc")
       .execute();
@@ -150,6 +167,8 @@ export async function loadInstallationSummary(
           widthCm: size?.mfg_width_cm ?? panel.width_cm,
           heightCm: size?.mfg_height_cm ?? panel.height_cm,
           draw: panel.draw,
+          splitLeftCm: size?.mfg_split_left_cm ?? panel.split_left_cm,
+          splitRightCm: size?.mfg_split_right_cm ?? panel.split_right_cm,
           addonLabels: [],
           sideInstallation: false,
           installationNote: panel.notes,
@@ -157,6 +176,11 @@ export async function loadInstallationSummary(
       }
     }
   }
+
+  // The Calendar sync calls this without a token on purpose: its event
+  // description must not carry the installer link, so the URL is only
+  // appended when the caller passes the booking's token in.
+  const installerUrl = installerToken ? installerPageUrl(installerToken) : null;
 
   return {
     text: buildInstallationSummary({
@@ -166,11 +190,13 @@ export async function loadInstallationSummary(
       customerName: order.customer_name,
       customerMobile: order.customer_mobile,
       openings,
+      installerUrl,
     }),
     customerName: order.customer_name,
     primaryReference: primaryOrderIdentifier(
       order.order_reference,
       order.display_id,
     ),
+    installerUrl,
   };
 }

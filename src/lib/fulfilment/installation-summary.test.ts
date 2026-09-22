@@ -106,4 +106,27 @@ describe("buildInstallationSummary", () => {
     expect(text).toContain("— Width — Height");
     expect(text).not.toContain("Mobile Number:");
   });
+
+  it("appends the installer page link as a final block when given", () => {
+    const base = {
+      scheduledAt: "2026-09-03T02:30:00.000Z",
+      durationMins: 60,
+      address: "Address",
+      customerName: "Customer",
+      customerMobile: null,
+      openings: [],
+    };
+    const withUrl = buildInstallationSummary({
+      ...base,
+      installerUrl: "https://crm.example.com/install/abc-123",
+    });
+    expect(
+      withUrl.endsWith(
+        "\n\nPhotos & measurements: https://crm.example.com/install/abc-123",
+      ),
+    ).toBe(true);
+
+    const withoutUrl = buildInstallationSummary(base);
+    expect(withoutUrl).not.toContain("Photos & measurements:");
+  });
 });

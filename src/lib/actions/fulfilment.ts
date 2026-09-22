@@ -2,6 +2,7 @@
 
 import "server-only";
 
+import { sql } from "kysely";
 import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/require-role";
@@ -69,6 +70,12 @@ export async function saveFulfilmentArrangement(input: unknown): Promise<void> {
           cancelled_at: null,
           cancelled_by: null,
           cancellation_reason: null,
+          // A re-book after a cancellation must not resurrect the installer
+          // link that was already sent out — mint a fresh token. A plain
+          // reschedule keeps the existing one so the sent link keeps working.
+          ...(previousArrangement?.cancelled_at
+            ? { installer_token: sql`gen_random_uuid()` }
+            : {}),
         }),
       )
       .returning("id")
@@ -188,6 +195,24 @@ export async function cancelFulfilmentArrangement(input: unknown): Promise<void>
       "Installation cancelled, but its Calendar event could not be removed. Retry Calendar sync from the order.",
     );
   }
+}
+
+/**
+ * Rotate the public installer link for an active booking. The old link stops
+ * working at once; the copied details pick up the new URL on the next render.
+ */
+export async function resetInstallerLink(input: unknown): Promise<void> {
+  await requireRole(["ops", "admin"]);
+  const parsed = fulfilmentArrangementRetrySchema.parse(input);
+  const updated = await db
+    .updateTable("fulfilment_arrangements")
+    .set({ installer_token: sql`gen_random_uuid()` })
+    .where("order_id", "=", parsed.order_id)
+    .where("cancelled_at", "is", null)
+    .returning("id")
+    .executeTakeFirst();
+  if (!updated) throw new Error("No active installation booking");
+  refresh(parsed.order_id);
 }
 
 export async function retryFulfilmentSync(input: unknown): Promise<void> {

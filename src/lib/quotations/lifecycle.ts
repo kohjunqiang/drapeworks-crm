@@ -19,6 +19,13 @@ export function assertEstimateEditable(remote: { status: string; invoice_ids?: s
   }
 }
 
+// An estimate imported before the CRM could stamp its key has no CRM Quote
+// Key custom field; that absence is not a conflict. Only a different
+// non-empty key means the remote document belongs to another quotation.
+export function crmKeyConflicts(remoteKey: unknown, expectedKey: string): boolean {
+  return Boolean(remoteKey) && remoteKey !== expectedKey;
+}
+
 // Marking an estimate sent bumps Zoho's last_modified_time without changing
 // its content, so a moved timestamp alone is not drift. Drift means the
 // remote content matches neither what we last synced nor what we are about

@@ -743,6 +743,49 @@ describe("syncQuotation for a previously-sent quotation", () => {
     expect(setCalls.find((values) => values.status === "sent")).toBeTruthy();
   });
 
+  it("syncs a previously-sent quotation whose remote never had a CRM Quote Key", async () => {
+    // An estimate brought in via "Use existing Zoho quote" carries no CRM
+    // Quote Key until a successful sync stamps it; the absence must not
+    // conflict.
+    setupSync(
+      editedSentRow(),
+      { ...remoteFor("sent", LINES), custom_fields: [] },
+      [{ ...remoteFor("sent", EDITED_LINES, "t2"), custom_fields: [] }],
+    );
+
+    await syncQuotation(QUOTE_ID);
+
+    expect(setCalls.find((values) => values.status === "sent")).toBeTruthy();
+    expect(setCalls.find((values) => values.status === "conflict")).toBeUndefined();
+  });
+
+  it("still refuses a remote carrying a different CRM Quote Key", async () => {
+    setupSync(
+      editedSentRow(),
+      { ...remoteFor("sent", LINES), custom_fields: [{ label: "CRM Quote Key", value: "dw:other:v1:q-9" }] },
+      [],
+    );
+
+    await expect(syncQuotation(QUOTE_ID)).rejects.toThrow("The Zoho CRM Quote Key changed");
+
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    expect(setCalls.find((values) => values.status === "conflict")).toBeTruthy();
+  });
+
+  it("reconciles a conflict row when the remote never had a CRM Quote Key", async () => {
+    setupSync(
+      { ...editedSentRow(), status: "conflict" },
+      makeRemote({ status: "sent", last_modified_time: "t5", custom_fields: [] }),
+      [],
+    );
+
+    const rejection = await acknowledgeZohoConflict(QUOTE_ID).catch((error: unknown) => error);
+
+    expect(setCalls[0]).toMatchObject({ status: "local_draft", zoho_last_modified_time: "t5" });
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).not.toContain("CRM Quote Key");
+  });
+
   it("accepts an already-sent remote for a never-sent quotation and stays zoho_draft", async () => {
     // A failed confirm-sent can leave Zoho "sent" while the CRM row still has
     // sent_at = null. Re-syncing must accept that remote instead of deadlocking

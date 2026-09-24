@@ -44,7 +44,7 @@ import {
 } from "@/lib/zoho/books";
 import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate } from "@/lib/quotations/hash";
 import { invoiceNumberFor } from "@/lib/quotations/document-numbers";
-import { assertEstimateEditable, assertQuotationStage, hasZohoDrift, quotationBreakdown } from "@/lib/quotations/lifecycle";
+import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, quotationBreakdown } from "@/lib/quotations/lifecycle";
 import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 import { actionErrorMessage, toActionResult, UserFacingError } from "@/lib/user-facing-error";
 
@@ -215,7 +215,7 @@ export async function syncQuotation(quotationId: string) {
   try {
     if (seed.zoho_estimate_id) {
       const remote = await getZohoEstimate(seed.zoho_estimate_id);
-      if (await crmKeyOf(remote) !== seed.crm_quote_key) throw new UserFacingError("The Zoho CRM Quote Key changed; reconciliation is required to avoid a duplicate");
+      if (crmKeyConflicts(await crmKeyOf(remote), seed.crm_quote_key)) throw new UserFacingError("The Zoho CRM Quote Key changed; reconciliation is required to avoid a duplicate");
       assertEstimateEditable(remote);
       if (hasZohoDrift({
         storedModified: seed.zoho_last_modified_time,
@@ -288,7 +288,7 @@ export async function acknowledgeZohoConflict(quotationId: string) {
   const { order } = await authorizedOrder(row.order_id, true);
   assertQuotationStage(order.current_status);
   const remote = await getZohoEstimate(row.zoho_estimate_id);
-  if (await crmKeyOf(remote) !== row.crm_quote_key) throw new UserFacingError("The Zoho CRM Quote Key no longer matches; do not overwrite or import this document");
+  if (crmKeyConflicts(await crmKeyOf(remote), row.crm_quote_key)) throw new UserFacingError("The Zoho CRM Quote Key no longer matches; do not overwrite or import this document");
   assertEstimateEditable(remote);
   // The CRM is the source of truth for an editable quotation: overwrite Zoho
   // from the CRM, refetch, verify and rebuild the PDF.

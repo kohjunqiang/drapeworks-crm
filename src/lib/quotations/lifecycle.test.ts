@@ -5,6 +5,7 @@ import {
   QUOTATION_FINAL_MESSAGE,
   assertEstimateEditable,
   assertQuotationStage,
+  crmKeyConflicts,
   hasZohoDrift,
   quotationBreakdown,
 } from "./lifecycle";
@@ -31,6 +32,18 @@ describe("assertEstimateEditable", () => {
   });
   it("refuses any estimate that carries an invoice id", () => {
     expect(() => assertEstimateEditable({ status: "accepted", invoice_ids: ["inv-1"] })).toThrow(UserFacingError);
+  });
+});
+
+describe("crmKeyConflicts", () => {
+  it.each([undefined, null, ""])("is false when the remote key is %s", (remoteKey) => {
+    expect(crmKeyConflicts(remoteKey, "dw:o-1:v1:q-1")).toBe(false);
+  });
+  it("is false when the remote key matches", () => {
+    expect(crmKeyConflicts("dw:o-1:v1:q-1", "dw:o-1:v1:q-1")).toBe(false);
+  });
+  it("is true when the remote carries a different non-empty key", () => {
+    expect(crmKeyConflicts("dw:other:v1:q-9", "dw:o-1:v1:q-1")).toBe(true);
   });
 });
 

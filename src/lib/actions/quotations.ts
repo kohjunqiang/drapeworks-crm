@@ -485,7 +485,7 @@ export async function createQuotationRevision(quotationId: string) {
       expiryDate = expiry.toISOString().slice(0, 10);
     }
     await trx.updateTable("order_quotations").set({ status: "superseded", superseded_at: now, superseded_by: session.user.id }).where("id", "=", id).execute();
-    await trx.insertInto("order_quotations").values({ id: nextId, order_id: locked.order_id, revision: locked.revision + 1, crm_quote_key: `dw:${locked.order_id}:v${locked.revision + 1}:${nextId}`, issue_date: issueDate, expiry_date: expiryDate, lines: locked.lines, quoted_total_cents: locked.quoted_total_cents, customer_message: locked.customer_message, notes: locked.notes, terms: locked.terms, status: "local_draft", created_by: session.user.id, updated_by: session.user.id }).execute();
+    await trx.insertInto("order_quotations").values({ id: nextId, order_id: locked.order_id, revision: locked.revision + 1, crm_quote_key: `dw:${locked.order_id}:v${locked.revision + 1}:${nextId}`, issue_date: issueDate, expiry_date: expiryDate, lines: JSON.stringify(locked.lines) as Json, quoted_total_cents: locked.quoted_total_cents, customer_message: locked.customer_message, notes: locked.notes, terms: locked.terms, status: "local_draft", created_by: session.user.id, updated_by: session.user.id }).execute();
   });
   revalidatePath(`/orders/${source.order_id}`);
   return { id: nextId };

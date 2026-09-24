@@ -58,7 +58,7 @@ vi.mock("@/lib/zoho/books", () => ({
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
 import { toZohoEstimatePayload } from "@/lib/quotations/model";
 import { UserFacingError } from "@/lib/user-facing-error";
-import { confirmQuotationSent, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation } from "./quotations";
+import { confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
 const QUOTE_ID = "b31fd642-0fe2-4066-9762-880b0e023472";
@@ -146,6 +146,9 @@ function makeQuote(storedHash: string | null) {
 // what the actions actually persisted.
 const setCalls: Array<Record<string, unknown>> = [];
 
+// Every insertInto(...).values(...) payload, in call order — same idea.
+const insertCalls: Array<Record<string, unknown>> = [];
+
 function builder(result: unknown) {
   const chain = {
     select: () => chain,
@@ -155,7 +158,7 @@ function builder(result: unknown) {
     where: () => chain,
     forUpdate: () => chain,
     set: (values: Record<string, unknown>) => { setCalls.push(values); return chain; },
-    values: () => chain,
+    values: (values: Record<string, unknown>) => { insertCalls.push(values); return chain; },
     returning: () => chain,
     onConflict: () => chain,
     execute: async () => [] as unknown[],
@@ -201,6 +204,7 @@ function setup({ quote, remote }: { quote: ReturnType<typeof makeQuote>; remote:
 beforeEach(() => {
   vi.clearAllMocks();
   setCalls.length = 0;
+  insertCalls.length = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
   mocks.requireRole.mockResolvedValue({ user: { id: "ops-user" }, profile: { role: "admin" } });
   mocks.requireSession.mockResolvedValue({ user: { id: "ops-user" }, profile: { role: "admin" } });
@@ -523,6 +527,68 @@ describe("importExistingZohoQuotation with an optional expiry", () => {
 
     expect(result).toEqual({ ok: false, error: "The Zoho quotation dates are incomplete" });
     expect(setCalls).toHaveLength(0);
+  });
+});
+
+describe("createQuotationRevision", () => {
+  // The source read, the authorizedOrder lookup and the status re-check hit
+  // the same two tables; inside the transaction the forUpdate reads return
+  // the same rows again.
+  function setupRevision(source: Record<string, unknown>) {
+    const order = {
+      id: ORDER_ID,
+      display_id: "DW-1",
+      order_reference: "DW-1",
+      current_status: "quotation_sent",
+      consultant_id: "consult-1",
+      customer_id: "cust-1",
+      customer_name: "Jamie Tan",
+      customer_email: null,
+      customer_mobile: null,
+      consultant_name: "Kenny",
+    };
+    mocks.selectFrom.mockImplementation((table: string) =>
+      builder(table === "order_quotations" ? source : table === "orders" ? order : undefined));
+    const trx = {
+      selectFrom: (table: string) =>
+        builder(table === "orders" ? { current_status: "quotation_sent" } : table === "order_quotations" ? source : undefined),
+      updateTable: () => builder({ id: QUOTE_ID }),
+      insertInto: () => builder({}),
+    };
+    mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
+  }
+
+  const sentQuote = () => ({ ...makeQuote(CANONICAL_HASH), revision: 1, customer_message: "sent message" });
+
+  it("serializes the locked jsonb lines into the revision insert", async () => {
+    setupRevision(sentQuote());
+
+    const result = await createQuotationRevision(QUOTE_ID);
+
+    expect(result).toEqual({ id: expect.any(String) });
+    const inserted = insertCalls.find((values) => "crm_quote_key" in values);
+    expect(inserted).toMatchObject({ order_id: ORDER_ID, revision: 2, status: "local_draft" });
+    // locked.lines arrives from node-postgres as a JS array; the jsonb column
+    // needs serialized JSON text, not a Postgres array literal.
+    expect(inserted?.lines).toBe(JSON.stringify(LINES));
+  });
+
+  it("supersedes the source quotation inside the same transaction", async () => {
+    setupRevision(sentQuote());
+
+    await createQuotationRevision(QUOTE_ID);
+
+    const superseded = setCalls.find((values) => values.status === "superseded");
+    expect(superseded).toBeTruthy();
+    expect(superseded).toHaveProperty("superseded_at");
+  });
+
+  it("rejects a source that is not sent and inserts nothing", async () => {
+    setupRevision({ ...sentQuote(), status: "local_draft" });
+
+    await expect(createQuotationRevision(QUOTE_ID)).rejects.toThrow("Only a sent quotation needs a revision");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(insertCalls).toHaveLength(0);
   });
 });
 

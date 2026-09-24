@@ -99,9 +99,18 @@ export default async function OrderDetailPage({
 
   if (!order) notFound();
 
-  const [currentQuotation, quotationHistory, zohoCustomerLink] = await Promise.all([
-    db.selectFrom("order_quotations").selectAll().where("order_id", "=", order.id).where("superseded_at", "is", null).executeTakeFirst(),
+  const currentQuotation = await db
+    .selectFrom("order_quotations")
+    .selectAll()
+    .where("order_id", "=", order.id)
+    .where("superseded_at", "is", null)
+    .executeTakeFirst();
+
+  const [quotationHistory, quotationVersions, zohoCustomerLink] = await Promise.all([
     db.selectFrom("order_quotations").select(["id", "revision", "zoho_estimate_number", "sent_at", "superseded_at", "quoted_total_cents", "pdf_storage_path"]).where("order_id", "=", order.id).where("superseded_at", "is not", null).orderBy("revision", "desc").execute(),
+    currentQuotation
+      ? db.selectFrom("order_quotation_versions").select(["id", "version", "quoted_total_cents", "pdf_storage_path", "created_at"]).where("quotation_id", "=", currentQuotation.id).orderBy("version", "desc").execute()
+      : Promise.resolve([]),
     db.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id", "=", order.customer_id).executeTakeFirst(),
   ]);
 
@@ -447,6 +456,7 @@ export default async function OrderDetailPage({
                 hasPdf: Boolean(currentQuotation.pdf_storage_path),
                 sentAt: currentQuotation.sent_at ? new Date(currentQuotation.sent_at).toISOString() : null,
               } : null}
+              versions={quotationVersions.map((item) => ({ id: item.id, version: item.version, totalCents: Number(item.quoted_total_cents), createdAt: new Date(item.created_at).toISOString(), hasPdf: Boolean(item.pdf_storage_path) }))}
               history={quotationHistory.map((item) => ({
                 id: item.id,
                 revision: item.revision,

@@ -7,8 +7,8 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
-import type { Json, OrderQuotations } from "@/lib/db/schema";
-import { sql, type Selectable } from "kysely";
+import type { DB, Json, OrderQuotations } from "@/lib/db/schema";
+import { sql, type Selectable, type Transaction } from "kysely";
 import { leadMilestoneForOrderStatus } from "@/lib/status-flow";
 import { adminClient } from "@/lib/supabase/admin";
 import {
@@ -44,8 +44,9 @@ import {
 } from "@/lib/zoho/books";
 import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate } from "@/lib/quotations/hash";
 import { invoiceNumberFor } from "@/lib/quotations/document-numbers";
+import { assertEstimateEditable, assertQuotationStage, hasZohoDrift, quotationBreakdown } from "@/lib/quotations/lifecycle";
 import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
-import { actionErrorMessage, UserFacingError } from "@/lib/user-facing-error";
+import { actionErrorMessage, toActionResult, UserFacingError } from "@/lib/user-facing-error";
 
 const BUCKET = "customer-quotations";
 const SIGNED_URL_SECONDS = 300;
@@ -61,11 +62,11 @@ async function authorizedOrder(orderId: string, write: boolean) {
       "profiles.full_name as consultant_name",
     ])
     .where("orders.id", "=", orderId).executeTakeFirst();
-  if (!order) throw new Error("Order not found");
+  if (!order) throw new UserFacingError("Order not found");
   const isOwner = session.profile.role === "consultant" && order.consultant_id === session.user.id;
   const canWrite = session.profile.role === "admin" || isOwner;
   const canRead = canWrite || session.profile.role === "ops";
-  if ((write && !canWrite) || (!write && !canRead)) throw new Error("Forbidden");
+  if ((write && !canWrite) || (!write && !canRead)) throw new UserFacingError("Forbidden");
   return { session, order };
 }
 
@@ -87,7 +88,7 @@ export async function getZohoQuotationOptions(orderId: string) {
 
 export async function searchZohoCustomers(orderId: string, query: string) {
   await authorizedOrder(orderId, false);
-  if (query.trim().length < 2) throw new Error("Enter at least two characters");
+  if (query.trim().length < 2) throw new UserFacingError("Enter at least two characters");
   const contacts = await listZohoContacts(query.trim());
   return contacts.map((contact) => ({ id: contact.contact_id, name: contact.contact_name, company: contact.company_name ?? "", email: contact.email ?? "", phone: contact.mobile || contact.phone || "" }));
 }
@@ -96,10 +97,10 @@ export async function confirmZohoCustomer(input: unknown) {
   const parsed = confirmZohoCustomerSchema.parse(input);
   const { session, order } = await authorizedOrder(parsed.orderId, true);
   const existingEstimate = await db.selectFrom("order_quotations").select("zoho_estimate_id").where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).executeTakeFirst();
-  if (existingEstimate?.zoho_estimate_id) throw new Error("The Zoho customer cannot be changed after an official draft exists");
+  if (existingEstimate?.zoho_estimate_id) throw new UserFacingError("The Zoho customer cannot be changed after an official draft exists");
   const contact = await getZohoContact(parsed.zohoContactId);
-  if (contact.status && contact.status !== "active") throw new Error("That Zoho customer is not active");
-  if (contact.contact_type !== "customer") throw new Error("Only a Zoho customer can be linked to an order");
+  if (contact.status && contact.status !== "active") throw new UserFacingError("That Zoho customer is not active");
+  if (contact.contact_type !== "customer") throw new UserFacingError("Only a Zoho customer can be linked to an order");
   await db.insertInto("customer_zoho_links").values({
     customer_id: order.customer_id, zoho_contact_id: contact.contact_id, confirmed_by: session.user.id,
   }).onConflict((conflict) => conflict.column("customer_id").doUpdateSet({
@@ -111,7 +112,7 @@ export async function confirmZohoCustomer(input: unknown) {
 export async function createAndConfirmZohoCustomer(orderId: string) {
   const { session, order } = await authorizedOrder(orderId, true);
   const existingEstimate = await db.selectFrom("order_quotations").select("zoho_estimate_id").where("order_id", "=", orderId).where("superseded_at", "is", null).executeTakeFirst();
-  if (existingEstimate?.zoho_estimate_id) throw new Error("The Zoho customer cannot be changed after an official draft exists");
+  if (existingEstimate?.zoho_estimate_id) throw new UserFacingError("The Zoho customer cannot be changed after an official draft exists");
   let contact;
   try {
     contact = await createZohoContact({ name: order.customer_name, email: order.customer_email, mobile: order.customer_mobile });
@@ -132,16 +133,15 @@ export async function createAndConfirmZohoCustomer(orderId: string) {
 export async function saveQuotation(input: unknown): Promise<{ id: string }> {
   const parsed = saveQuotationSchema.parse(input);
   const { session, order } = await authorizedOrder(parsed.orderId, true);
-  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new Error("Quotations can only be edited during the quotation stage");
+  assertQuotationStage(order.current_status);
   const total = quotationTotalCents(parsed.lines);
   const result = await db.transaction().execute(async (trx) => {
     const current = await trx.selectFrom("order_quotations").selectAll()
       .where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
-    if (current?.status === "sent") throw new Error("Create a revised quotation before editing the sent version");
-    if (current?.status === "syncing" || current?.status === "sending") throw new Error("This quotation is already being processed. Wait and refresh.");
-    if (parsed.quotationId && current?.id !== parsed.quotationId) throw new Error("The current quotation changed. Refresh and try again.");
+    if (current?.status === "syncing" || current?.status === "sending") throw new UserFacingError("This quotation is already being processed. Wait and refresh.");
+    if (parsed.quotationId && current?.id !== parsed.quotationId) throw new UserFacingError("The current quotation changed. Refresh and try again.");
     if (current && parsed.expectedUpdatedAt && new Date(current.updated_at).toISOString() !== parsed.expectedUpdatedAt) {
-      throw new Error("This quotation was edited elsewhere. Refresh before saving.");
+      throw new UserFacingError("This quotation was edited elsewhere. Refresh before saving.");
     }
     const values = {
       issue_date: parsed.issueDate, expiry_date: parsed.expiryDate, lines: JSON.stringify(parsed.lines) as Json,
@@ -173,24 +173,25 @@ async function crmKeyOf(estimate: { custom_fields?: Array<{ customfield_id?: str
 }
 
 async function storePdf(row: Pick<OrderQuotations, "id" | "order_id" | "zoho_estimate_id">) {
-  if (!row.zoho_estimate_id) throw new Error("The quotation has not been created in Zoho");
+  if (!row.zoho_estimate_id) throw new UserFacingError("The quotation has not been created in Zoho");
   const bytes = await getZohoEstimatePdf(row.zoho_estimate_id);
   const hash = createHash("sha256").update(bytes).digest("hex");
   const path = `quotes/${row.order_id}/${row.id}/${hash}.pdf`;
   const { error } = await adminClient().storage.from(BUCKET).upload(path, bytes, { contentType: "application/pdf", upsert: false });
-  if (error && !error.message.toLowerCase().includes("already exists")) throw new Error("Could not store the official quotation PDF");
+  if (error && !error.message.toLowerCase().includes("already exists")) throw new UserFacingError("Could not store the official quotation PDF");
   return { path, hash };
 }
 
 export async function syncQuotation(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const seed = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
-  if (!seed) throw new Error("Quotation not found");
-  const { order } = await authorizedOrder(seed.order_id, true);
-  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new Error("Quotations can only be synced during the quotation stage");
-  if (seed.status === "sent" || seed.status === "superseded") throw new Error("A sent quotation cannot be changed");
+  if (!seed) throw new UserFacingError("Quotation not found");
+  const { session, order } = await authorizedOrder(seed.order_id, true);
+  assertQuotationStage(order.current_status);
+  if (seed.status === "sent" || seed.status === "superseded") throw new UserFacingError("There are no unsynced changes on this quotation");
+  const previouslySent = seed.sent_at !== null;
   const link = await db.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id", "=", order.customer_id).executeTakeFirst();
-  if (!link) throw new Error("Confirm the matching Zoho customer first");
+  if (!link) throw new UserFacingError("Confirm the matching Zoho customer first");
   const binding = await getZohoBooksBinding();
 
   const payload = toZohoEstimatePayload({
@@ -209,38 +210,61 @@ export async function syncQuotation(quotationId: string) {
     .where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${seed.updated_at}`)
     .where("status", "in", ["local_draft", "zoho_draft", "sync_failed"])
     .returningAll().executeTakeFirst();
-  if (!claimed) throw new Error("Quotation changed or is already syncing. Refresh and try again.");
+  if (!claimed) throw new UserFacingError("Quotation changed or is already syncing. Refresh and try again.");
 
   try {
-    if (seed.zoho_estimate_id && seed.zoho_last_modified_time) {
+    if (seed.zoho_estimate_id) {
       const remote = await getZohoEstimate(seed.zoho_estimate_id);
-      if (await crmKeyOf(remote) !== seed.crm_quote_key) throw new Error("The Zoho CRM Quote Key changed; reconciliation is required to avoid a duplicate");
-      if (remote.status !== "draft") {
-        throw new Error("Only a draft Zoho quotation can be updated. Create a revised quotation instead.");
-      }
-      const remoteEquivalent = estimateSnapshotHash(remote as unknown as Record<string, unknown>) === estimateSnapshotHash(payload);
-      if (remote.last_modified_time && remote.last_modified_time !== seed.zoho_last_modified_time && !remoteEquivalent) {
+      if (await crmKeyOf(remote) !== seed.crm_quote_key) throw new UserFacingError("The Zoho CRM Quote Key changed; reconciliation is required to avoid a duplicate");
+      assertEstimateEditable(remote);
+      if (hasZohoDrift({
+        storedModified: seed.zoho_last_modified_time,
+        remoteModified: remote.last_modified_time,
+        remoteHash: estimateSnapshotHash(remote as unknown as Record<string, unknown>),
+        storedHash: seed.synced_payload_hash,
+        payloadHash,
+      })) {
         await db.updateTable("order_quotations").set({ status: "conflict", sync_error: "This quotation was changed directly in Zoho Books. Reconcile it before overwriting.", sync_claim_token: null, sync_claimed_at: null }).where("id", "=", id).where("sync_claim_token", "=", claimToken).execute();
-        throw new Error("This quotation was changed directly in Zoho Books. Reconcile it before overwriting.");
+        throw new UserFacingError("This quotation was changed directly in Zoho Books. Reconcile it before overwriting.");
       }
     }
     const estimate = await syncZohoEstimate({ crmQuoteKey: seed.crm_quote_key, payload, estimateId: seed.zoho_estimate_id });
-    if (seed.zoho_estimate_id && estimate.estimate_id !== seed.zoho_estimate_id) throw new Error("Zoho resolved the CRM Quote Key to a different quotation; reconciliation is required");
-    const refreshed = await getZohoEstimate(estimate.estimate_id);
-    if (refreshed.status !== "draft" || refreshed.currency_code !== "SGD") throw new Error("Zoho returned a quotation with an unexpected status or currency");
+    if (seed.zoho_estimate_id && estimate.estimate_id !== seed.zoho_estimate_id) throw new UserFacingError("Zoho resolved the CRM Quote Key to a different quotation; reconciliation is required");
+    let refreshed = await getZohoEstimate(estimate.estimate_id);
+    if (previouslySent && refreshed.status === "draft") {
+      // Zoho may revert an edited estimate to draft; the customer already has it.
+      await markZohoEstimateSent(estimate.estimate_id);
+      refreshed = await getZohoEstimate(estimate.estimate_id);
+    }
+    // A never-sent quotation may already be sent in Zoho (e.g. a confirm-sent
+    // whose CRM write failed); only an invoiced estimate is unusable. The row
+    // stays zoho_draft so Confirm quotation sent can finish the send — it skips
+    // markZohoEstimateSent when Zoho already reports sent.
+    const expectedStatus = previouslySent ? refreshed.status !== "draft" && refreshed.status !== "invoiced" : refreshed.status !== "invoiced";
+    if (!expectedStatus || refreshed.currency_code !== "SGD") throw new Error("Zoho returned a quotation with an unexpected status or currency");
     if (estimateSnapshotHash(refreshed as unknown as Record<string, unknown>) !== estimateSnapshotHash(payload)) throw new Error("Zoho quotation details do not match the CRM draft");
     if (Math.round(Number(refreshed.total) * 100) !== seed.quoted_total_cents) throw new Error("Zoho total does not match the CRM total");
     const pdf = await storePdf({ ...seed, zoho_estimate_id: estimate.estimate_id });
-    const finalized = await db.updateTable("order_quotations").set({
-      status: "zoho_draft", zoho_contact_id: link.zoho_contact_id, zoho_estimate_id: estimate.estimate_id,
-      zoho_estimate_number: estimate.estimate_number, zoho_status: refreshed.status,
-      zoho_last_modified_time: refreshed.last_modified_time ?? null, synced_payload_hash: payloadHash,
-      pdf_storage_path: pdf.path, pdf_sha256: pdf.hash, synced_at: new Date(), sync_error: null, sync_claim_token: null, sync_claimed_at: null,
-    }).where("id", "=", id).where("status", "=", "syncing").where("sync_claim_token", "=", claimToken).returning("id").executeTakeFirst();
-    if (!finalized) throw new Error("Quotation changed while Zoho was syncing. Reconcile before sending.");
+    const finalized = await db.transaction().execute(async (trx) => {
+      const done = await trx.updateTable("order_quotations").set({
+        status: previouslySent ? "sent" : "zoho_draft", zoho_contact_id: link.zoho_contact_id, zoho_estimate_id: estimate.estimate_id,
+        zoho_estimate_number: estimate.estimate_number, zoho_status: refreshed.status,
+        zoho_last_modified_time: refreshed.last_modified_time ?? null, synced_payload_hash: payloadHash,
+        pdf_storage_path: pdf.path, pdf_sha256: pdf.hash, synced_at: new Date(), sync_error: null, sync_claim_token: null, sync_claimed_at: null,
+      }).where("id", "=", id).where("status", "=", "syncing").where("sync_claim_token", "=", claimToken).returning("id").executeTakeFirst();
+      if (!done || !previouslySent) return done;
+      const latest = await trx.selectFrom("order_quotation_versions").select((eb) => eb.fn.max("version").as("max_version")).where("quotation_id", "=", id).executeTakeFirst();
+      await trx.insertInto("order_quotation_versions").values({
+        quotation_id: id, version: Number(latest?.max_version ?? 0) + 1, lines: JSON.stringify(linesOf(seed)) as Json,
+        quoted_total_cents: seed.quoted_total_cents, pdf_storage_path: pdf.path, created_by: session.user.id,
+      }).execute();
+      await applyQuotedPrice(trx, { orderId: seed.order_id, totalCents: seed.quoted_total_cents, lines: linesOf(seed) });
+      return done;
+    });
+    if (!finalized) throw new UserFacingError("Quotation changed while Zoho was syncing. Reconcile before sending.");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Zoho sync failed";
-    const conflict = message.includes("changed directly") || message.includes("Only a draft") || message.toLowerCase().includes("reconciliation") || message.includes("CRM Quote Key") || message.includes("could not be confirmed");
+    const conflict = message.includes("changed directly") || message.toLowerCase().includes("reconciliation") || message.includes("CRM Quote Key") || message.includes("could not be confirmed");
     await db.updateTable("order_quotations").set({ status: conflict ? "conflict" : "sync_failed", sync_error: message, sync_claim_token: null, sync_claimed_at: null }).where("id", "=", id).where("status", "=", "syncing").where("sync_claim_token", "=", claimToken).execute();
     throw error;
   } finally { revalidatePath(`/orders/${seed.order_id}`); }
@@ -249,49 +273,37 @@ export async function syncQuotation(quotationId: string) {
 export async function getQuotationPdfUrl(quotationId: string, download = false) {
   const id = quotationIdSchema.parse(quotationId);
   const row = await db.selectFrom("order_quotations").select(["order_id", "pdf_storage_path", "zoho_estimate_number"]).where("id", "=", id).executeTakeFirst();
-  if (!row?.pdf_storage_path) throw new Error("Generate the official quotation preview first");
+  if (!row?.pdf_storage_path) throw new UserFacingError("Generate the official quotation preview first");
   await authorizedOrder(row.order_id, false);
   const fileName = `${row.zoho_estimate_number ?? "Quotation"}.pdf`;
   const { data, error } = await adminClient().storage.from(BUCKET).createSignedUrl(row.pdf_storage_path, SIGNED_URL_SECONDS, download ? { download: fileName } : {});
-  if (error || !data) throw new Error("Could not open the quotation PDF");
+  if (error || !data) throw new UserFacingError("Could not open the quotation PDF");
   return { url: data.signedUrl, fileName };
 }
 
 export async function acknowledgeZohoConflict(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
-  if (!row || !row.zoho_estimate_id || row.status !== "conflict") throw new Error("This quotation does not have a Zoho conflict to reconcile");
+  if (!row || !row.zoho_estimate_id || row.status !== "conflict") throw new UserFacingError("This quotation does not have a Zoho conflict to reconcile");
   const { order } = await authorizedOrder(row.order_id, true);
-  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new Error("This order is no longer at the quotation stage");
+  assertQuotationStage(order.current_status);
   const remote = await getZohoEstimate(row.zoho_estimate_id);
-  if (await crmKeyOf(remote) !== row.crm_quote_key) throw new Error("The Zoho CRM Quote Key no longer matches; do not overwrite or import this document");
-  if (remote.status === "draft") {
-    await db.updateTable("order_quotations").set({ status: "local_draft", zoho_status: remote.status, zoho_last_modified_time: remote.last_modified_time ?? null, sync_error: null }).where("id", "=", id).where("status", "=", "conflict").execute();
-    await syncQuotation(id); // Explicitly overwrite, refetch, verify and rebuild PDF.
-  } else if (remote.status === "sent") {
-    if (remote.customer_id !== row.zoho_contact_id || remote.currency_code !== "SGD" || !Number.isFinite(Number(remote.total)) || Number(remote.total) < 0) throw new Error("The sent Zoho quotation customer, currency, or total is not safe to import");
-    const lines = quotationLineSchema.array().min(1).parse((remote.line_items ?? []).map((line) => ({
-      zohoItemId: line.item_id || null, name: line.name || "Zoho item", description: line.description ?? "",
-      quantity: Number(line.quantity), rateCents: Math.round(Number(line.rate) * 100), discountPercent: Number.parseFloat(String(line.discount ?? 0)) || 0,
-    })));
-    const pdf = await storePdf(row);
-    await db.updateTable("order_quotations").set({
-      status: "zoho_draft", zoho_status: "sent", zoho_last_modified_time: remote.last_modified_time ?? null,
-      issue_date: remote.date || row.issue_date, expiry_date: remote.expiry_date || null,
-      lines: JSON.stringify(lines) as Json, quoted_total_cents: Math.round(Number(remote.total) * 100), notes: remote.notes ?? "", terms: remote.terms ?? "",
-      synced_payload_hash: estimateSnapshotHash(remote as unknown as Record<string, unknown>), pdf_storage_path: pdf.path, pdf_sha256: pdf.hash, synced_at: new Date(), sync_error: null,
-    }).where("id", "=", id).where("status", "=", "conflict").execute();
-  } else throw new Error(`Zoho quotation is ${remote.status}; create a controlled revision instead of overwriting it`);
+  if (await crmKeyOf(remote) !== row.crm_quote_key) throw new UserFacingError("The Zoho CRM Quote Key no longer matches; do not overwrite or import this document");
+  assertEstimateEditable(remote);
+  // The CRM is the source of truth for an editable quotation: overwrite Zoho
+  // from the CRM, refetch, verify and rebuild the PDF.
+  await db.updateTable("order_quotations").set({ status: "local_draft", zoho_status: remote.status, zoho_last_modified_time: remote.last_modified_time ?? null, sync_error: null }).where("id", "=", id).where("status", "=", "conflict").execute();
+  await syncQuotation(id);
   revalidatePath(`/orders/${row.order_id}`);
 }
 
 export async function reconcileUncertainQuotation(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
-  if (!row || row.status !== "conflict" || row.zoho_estimate_id) throw new Error("This quotation does not have an uncertain Zoho creation to check");
+  if (!row || row.status !== "conflict" || row.zoho_estimate_id) throw new UserFacingError("This quotation does not have an uncertain Zoho creation to check");
   await authorizedOrder(row.order_id, true);
   const matches = await findZohoEstimatesByCrmQuoteKey(row.crm_quote_key);
-  if (matches.length > 1) throw new Error("Multiple Zoho quotations have this CRM Quote Key; an admin must reconcile them in Zoho Books");
+  if (matches.length > 1) throw new UserFacingError("Multiple Zoho quotations have this CRM Quote Key; an admin must reconcile them in Zoho Books");
   if (matches.length === 0) {
     await db.updateTable("order_quotations").set({ status: "local_draft", sync_error: "Zoho was checked and no matching quotation was found. You may create the Zoho draft again." })
       .where("id", "=", id).where("status", "=", "conflict").where("zoho_estimate_id", "is", null).executeTakeFirstOrThrow();
@@ -310,51 +322,68 @@ export async function reconcileUncertainQuotation(quotationId: string) {
 export async function recoverStaleQuotationClaim(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
-  if (!row || (row.status !== "syncing" && row.status !== "sending")) throw new Error("This quotation has no active operation to recover");
+  if (!row || (row.status !== "syncing" && row.status !== "sending")) throw new UserFacingError("This quotation has no active operation to recover");
   await authorizedOrder(row.order_id, true);
-  if (!row.sync_claimed_at || new Date(row.sync_claimed_at).getTime() > Date.now() - 5 * 60_000) throw new Error("Zoho is still processing this operation. Try again in a few minutes.");
+  if (!row.sync_claimed_at || new Date(row.sync_claimed_at).getTime() > Date.now() - 5 * 60_000) throw new UserFacingError("Zoho is still processing this operation. Try again in a few minutes.");
   if (!row.zoho_estimate_id) {
     await db.updateTable("order_quotations").set({ status: "local_draft", sync_claim_token: null, sync_claimed_at: null, sync_error: "Recovered an interrupted Zoho operation; sync again." }).where("id", "=", id).where("sync_claim_token", "=", row.sync_claim_token).execute();
   } else {
     const remote = await getZohoEstimate(row.zoho_estimate_id);
-    const nextStatus = row.status === "sending" && remote.status === "draft" ? "zoho_draft" : "conflict";
+    const nextStatus = row.status === "sending" && remote.status === "draft" ? "zoho_draft"
+      : row.status === "syncing" && row.sent_at && remote.status !== "invoiced" ? "local_draft"
+      : "conflict";
     await db.updateTable("order_quotations").set({ status: nextStatus, zoho_status: remote.status, zoho_last_modified_time: remote.last_modified_time ?? null, sync_claim_token: null, sync_claimed_at: null, sync_error: nextStatus === "conflict" ? "Interrupted operation reconciled with Zoho; review the remote state." : null }).where("id", "=", id).where("sync_claim_token", "=", row.sync_claim_token).execute();
   }
   revalidatePath(`/orders/${row.order_id}`);
 }
 
+// Keeps the order list and the lead funnel on the latest quoted total.
+async function applyQuotedPrice(trx: Transaction<DB>, input: { orderId: string; totalCents: number; lines: QuotationLineInput[] }) {
+  const now = new Date();
+  const order = await trx.selectFrom("orders").select(["lead_id", "appointment_id"]).where("id", "=", input.orderId).executeTakeFirstOrThrow();
+  await trx.updateTable("orders").set({ price_quoted_cents: input.totalCents, updated_at: now }).where("id", "=", input.orderId).execute();
+  const leadId = order.lead_id ?? (order.appointment_id ? (await trx.selectFrom("appointments").select("lead_id").where("id", "=", order.appointment_id).executeTakeFirst())?.lead_id : null);
+  if (leadId) await trx.updateTable("leads").set({ latest_quote_cents: input.totalCents, quotation_breakdown: quotationBreakdown(input.lines), updated_at: now }).where("id", "=", leadId).execute();
+}
+
 export async function confirmQuotationSent(input: unknown) {
   const parsed = sendQuotationSchema.parse(input);
   const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", parsed.quotationId).executeTakeFirst();
-  if (!row) throw new Error("Quotation not found");
+  if (!row) throw new UserFacingError("Quotation not found");
+  if (row.sent_at) throw new UserFacingError("This quotation has already been sent. Sync your changes to update it.");
   const { session, order } = await authorizedOrder(row.order_id, true);
-  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new Error("This order is no longer at the quotation stage");
-  if (row.status !== "zoho_draft" || !row.zoho_estimate_id || !row.synced_payload_hash || !row.pdf_storage_path || !row.pdf_sha256) throw new Error("Sync and preview the latest quotation before confirming it sent");
+  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new UserFacingError("This order is no longer at the quotation stage");
+  if (row.status !== "zoho_draft" || !row.zoho_estimate_id || !row.synced_payload_hash || !row.pdf_storage_path || !row.pdf_sha256) throw new UserFacingError("Sync and preview the latest quotation before confirming it sent");
   const remote = await getZohoEstimate(row.zoho_estimate_id);
   if (remote.last_modified_time && remote.last_modified_time !== row.zoho_last_modified_time) {
     await db.updateTable("order_quotations").set({ status: "conflict", sync_error: "Zoho changed after the last preview" }).where("id", "=", row.id).execute();
-    throw new Error("Zoho changed after the last preview. Reconcile before sending.");
+    throw new UserFacingError("Zoho changed after the last preview. Reconcile before sending.");
   }
   const sendClaimToken = randomUUID();
   await db.transaction().execute(async (trx) => {
     const locked = await trx.selectFrom("orders").select(["current_status", "lead_id", "appointment_id"]).where("id", "=", row.order_id).forUpdate().executeTakeFirstOrThrow();
-    if (locked.current_status !== "order_recorded" && locked.current_status !== "quotation_sent") throw new Error("This order is no longer at the quotation stage");
+    if (locked.current_status !== "order_recorded" && locked.current_status !== "quotation_sent") throw new UserFacingError("This order is no longer at the quotation stage");
     const claimed = await trx.updateTable("order_quotations").set({ status: "sending", sync_error: null, sync_claim_token: sendClaimToken, sync_claimed_at: new Date() })
       .where("id", "=", row.id)
       .where("status", "=", "zoho_draft")
       .where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${row.updated_at}`)
       .returning("id").executeTakeFirst();
-    if (!claimed) throw new Error("Quotation changed or is already being sent. Refresh and try again.");
+    if (!claimed) throw new UserFacingError("Quotation changed or is already being sent. Refresh and try again.");
   });
   try {
     if (remote.status === "draft") await markZohoEstimateSent(row.zoho_estimate_id);
-    else if (remote.status !== "sent") throw new Error(`Zoho quotation is already ${remote.status}`);
+    else if (remote.status !== "sent") throw new UserFacingError(`Zoho quotation is already ${remote.status}`);
+    const afterSend = await getZohoEstimate(row.zoho_estimate_id);
     await db.transaction().execute(async (trx) => {
       const locked = await trx.selectFrom("orders").select(["current_status", "lead_id", "appointment_id"]).where("id", "=", row.order_id).forUpdate().executeTakeFirstOrThrow();
-      if (locked.current_status !== "order_recorded" && locked.current_status !== "quotation_sent") throw new Error("This order changed while the quotation was being sent");
+      if (locked.current_status !== "order_recorded" && locked.current_status !== "quotation_sent") throw new UserFacingError("This order changed while the quotation was being sent");
     const sentAt = new Date();
-      const sentQuote = await trx.updateTable("order_quotations").set({ status: "sent", zoho_status: "sent", sent_at: sentAt, sent_by: session.user.id, sent_channel: parsed.channel, sent_note: parsed.note || null, sync_claim_token: null, sync_claimed_at: null }).where("id", "=", row.id).where("status", "=", "sending").where("sync_claim_token", "=", sendClaimToken).returning("id").executeTakeFirst();
-      if (!sentQuote) throw new Error("Quotation changed while it was being sent");
+      const sentQuote = await trx.updateTable("order_quotations").set({ status: "sent", zoho_status: "sent", sent_at: sentAt, sent_by: session.user.id, sent_channel: parsed.channel, sent_note: parsed.note || null, zoho_last_modified_time: afterSend.last_modified_time ?? null, sync_claim_token: null, sync_claimed_at: null }).where("id", "=", row.id).where("status", "=", "sending").where("sync_claim_token", "=", sendClaimToken).returning("id").executeTakeFirst();
+      if (!sentQuote) throw new UserFacingError("Quotation changed while it was being sent");
+      await trx.insertInto("order_quotation_versions").values({
+        quotation_id: row.id, version: 1, lines: JSON.stringify(linesOf(row)) as Json,
+        quoted_total_cents: row.quoted_total_cents, pdf_storage_path: row.pdf_storage_path!, created_by: session.user.id,
+      }).execute();
       await trx.updateTable("orders").set({ price_quoted_cents: row.quoted_total_cents, updated_at: sentAt }).where("id", "=", row.order_id).execute();
     if (locked.current_status === "order_recorded") {
       await trx.insertInto("order_status_events").values({ order_id: row.order_id, status: "quotation_sent", note: `Quotation ${row.zoho_estimate_number ?? ""} sent via ${parsed.channel}`.trim(), created_by: session.user.id }).execute();
@@ -366,7 +395,7 @@ export async function confirmQuotationSent(input: unknown) {
           const validityDays = row.expiry_date
             ? Math.max(1, Math.round((new Date(String(row.expiry_date)).getTime() - new Date(String(row.issue_date)).getTime()) / 86_400_000))
             : null;
-          const breakdown = linesOf(row).map((line) => `${line.name}: ${line.quantity} × $${(line.rateCents / 100).toFixed(2)}`).join("\n");
+          const breakdown = quotationBreakdown(linesOf(row));
           // A quotation without an expiry leaves leads.quote_valid_days at its
           // existing value so the funnel's quote-aged nudge keeps working.
           await trx.updateTable("leads").set({ funnel_stage: milestone.stage, last_outcome: milestone.outcome, quotation_sent_at: sentAt, latest_quote_cents: row.quoted_total_cents, quotation_breakdown: breakdown, updated_at: sentAt, ...(validityDays === null ? {} : { quote_valid_days: validityDays }) }).where("id", "=", leadId).execute();
@@ -386,24 +415,24 @@ export async function confirmQuotationSent(input: unknown) {
 async function importExistingZohoQuotationInternal(input: unknown) {
   const parsed = importZohoQuotationSchema.parse(input);
   const row = await db.selectFrom("order_quotations").selectAll().where("id", "=", parsed.quotationId).executeTakeFirst();
-  if (!row) throw new Error("Quotation not found");
+  if (!row) throw new UserFacingError("Quotation not found");
   const { order } = await authorizedOrder(row.order_id, true);
-  if (order.current_status !== "order_recorded") throw new Error("Existing quotations can only be imported at Order Recorded");
-  if (row.zoho_estimate_id || row.status !== "local_draft") throw new Error("This CRM quotation is already linked to Zoho");
+  if (order.current_status !== "order_recorded") throw new UserFacingError("Existing quotations can only be imported at Order Recorded");
+  if (row.zoho_estimate_id || row.status !== "local_draft") throw new UserFacingError("This CRM quotation is already linked to Zoho");
   const link = await db.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id", "=", order.customer_id).executeTakeFirst();
-  if (!link) throw new Error("Confirm the matching Zoho customer first");
+  if (!link) throw new UserFacingError("Confirm the matching Zoho customer first");
 
   const matches = await findZohoEstimateByNumber(parsed.estimateNumber);
-  if (matches.length !== 1) throw new Error(matches.length === 0 ? "That Zoho quotation was not found" : "Multiple Zoho quotations matched that number");
+  if (matches.length !== 1) throw new UserFacingError(matches.length === 0 ? "That Zoho quotation was not found" : "Multiple Zoho quotations matched that number");
   const remote = await getZohoEstimate(matches[0].estimate_id);
-  if (remote.customer_id !== link.zoho_contact_id) throw new Error("The Zoho quotation belongs to a different customer");
-  if (remote.currency_code !== "SGD") throw new Error("Only SGD quotations can be imported");
-  if (remote.status !== "draft" && remote.status !== "sent") throw new Error(`Zoho quotation is already ${remote.status}`);
-  if (!remote.date || (remote.expiry_date && remote.expiry_date < remote.date)) throw new Error("The Zoho quotation dates are incomplete");
+  if (remote.customer_id !== link.zoho_contact_id) throw new UserFacingError("The Zoho quotation belongs to a different customer");
+  if (remote.currency_code !== "SGD") throw new UserFacingError("Only SGD quotations can be imported");
+  if (remote.status !== "draft" && remote.status !== "sent") throw new UserFacingError(`Zoho quotation is already ${remote.status}`);
+  if (!remote.date || (remote.expiry_date && remote.expiry_date < remote.date)) throw new UserFacingError("The Zoho quotation dates are incomplete");
   const importedIssueDate = remote.date;
   const importedExpiryDate = remote.expiry_date || null;
   const totalCents = Math.round(Number(remote.total) * 100);
-  if (!Number.isFinite(totalCents) || totalCents < 0) throw new Error("The Zoho quotation total is invalid");
+  if (!Number.isFinite(totalCents) || totalCents < 0) throw new UserFacingError("The Zoho quotation total is invalid");
   const lines = quotationLineSchema.array().min(1).parse((remote.line_items ?? []).map((line) => ({
     zohoItemId: line.item_id || null,
     name: line.name || "Zoho item",
@@ -413,9 +442,9 @@ async function importExistingZohoQuotationInternal(input: unknown) {
     discountPercent: Number.parseFloat(String(line.discount ?? 0)) || 0,
   })));
   const alreadyLinked = await db.selectFrom("order_quotations").select("order_id").where("zoho_estimate_id", "=", remote.estimate_id).executeTakeFirst();
-  if (alreadyLinked) throw new Error("That Zoho quotation is already linked to another CRM order");
+  if (alreadyLinked) throw new UserFacingError("That Zoho quotation is already linked to another CRM order");
   const remoteKey = await crmKeyOf(remote);
-  if (remoteKey && remoteKey !== row.crm_quote_key) throw new Error("That Zoho quotation is linked to a different CRM quotation");
+  if (remoteKey && remoteKey !== row.crm_quote_key) throw new UserFacingError("That Zoho quotation is linked to a different CRM quotation");
   const pdf = await storePdf({ ...row, zoho_estimate_id: remote.estimate_id });
   const imported = await db.updateTable("order_quotations").set({
     status: "zoho_draft",
@@ -442,7 +471,7 @@ async function importExistingZohoQuotationInternal(input: unknown) {
     synced_at: new Date(),
     sync_error: null,
   }).where("id", "=", row.id).where("status", "=", "local_draft").where("zoho_estimate_id", "is", null).returning("id").executeTakeFirst();
-  if (!imported) throw new Error("The CRM quotation changed while it was being imported");
+  if (!imported) throw new UserFacingError("The CRM quotation changed while it was being imported");
   await confirmQuotationSent({ quotationId: row.id, channel: parsed.channel, note: parsed.note });
 }
 
@@ -463,18 +492,18 @@ export async function importExistingZohoQuotation(input: unknown): Promise<{ ok:
 export async function createQuotationRevision(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const source = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
-  if (!source) throw new Error("Quotation not found");
+  if (!source) throw new UserFacingError("Quotation not found");
   const { session } = await authorizedOrder(source.order_id, true);
   const order = await db.selectFrom("orders").select("current_status").where("id", "=", source.order_id).executeTakeFirstOrThrow();
-  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new Error("Revisions can only be created during the quotation stage");
-  if (source.status !== "sent") throw new Error("Only a sent quotation needs a revision");
+  if (order.current_status !== "order_recorded" && order.current_status !== "quotation_sent") throw new UserFacingError("Revisions can only be created during the quotation stage");
+  if (source.status !== "sent") throw new UserFacingError("Only a sent quotation needs a revision");
   const nextId = randomUUID();
   await db.transaction().execute(async (trx) => {
     const lockedOrder = await trx.selectFrom("orders").select("current_status").where("id", "=", source.order_id).forUpdate().executeTakeFirstOrThrow();
-    if (lockedOrder.current_status !== "order_recorded" && lockedOrder.current_status !== "quotation_sent") throw new Error("Revisions can only be created during the quotation stage");
+    if (lockedOrder.current_status !== "order_recorded" && lockedOrder.current_status !== "quotation_sent") throw new UserFacingError("Revisions can only be created during the quotation stage");
     const locked = await trx.selectFrom("order_quotations").selectAll().where("id", "=", id).forUpdate().executeTakeFirstOrThrow();
-    if (locked.superseded_at || locked.status !== "sent") throw new Error("A revision already exists. Refresh and try again.");
-    if (["pending", "uncertain"].includes(locked.invoice_sync_state) || locked.zoho_invoice_id) throw new Error("A revision cannot be created while an invoice is pending, uncertain, or already exists");
+    if (locked.superseded_at || locked.status !== "sent") throw new UserFacingError("A revision already exists. Refresh and try again.");
+    if (["pending", "uncertain"].includes(locked.invoice_sync_state) || locked.zoho_invoice_id) throw new UserFacingError("A revision cannot be created while an invoice is pending, uncertain, or already exists");
     const now = new Date();
     const issueDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
     // A sent quotation without an expiry stays without one in the revision;
@@ -626,7 +655,11 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
     }
     const quote = await trx.selectFrom("order_quotations").selectAll().where("order_id", "=", orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
     if (!quote) throw new UserFacingError("Create and send the official Zoho quotation before recording the deposit");
-    if (quote.status !== "sent" || !quote.zoho_estimate_id) throw new UserFacingError("The official Zoho quotation must be sent before recording the deposit");
+    if (quote.status !== "sent" || !quote.zoho_estimate_id) {
+      throw new UserFacingError(quote.sent_at
+        ? "Sync the latest quotation changes to Zoho before recording the deposit"
+        : "The official Zoho quotation must be sent before recording the deposit");
+    }
     if (quote.zoho_invoice_id && quote.invoice_sync_state === "created") return { quote, order, claimed: false, reconcileOnly: false };
     const staleBefore = new Date(Date.now() - 2 * 60_000);
     const reconcileOnly = quote.invoice_sync_state === "uncertain" || quote.invoice_sync_state === "pending";
@@ -791,4 +824,41 @@ export async function ensureZohoInvoiceForOrderUi(orderId: string): Promise<{ ok
   } catch (error) {
     return { ok: false, error: actionErrorMessage(error, "The Zoho invoice and deposit could not be recorded. Refresh the order and try again.") };
   }
+}
+
+// UI entry points. Production Next.js redacts thrown errors to a digest, so the
+// quotation card calls these and toasts result.error. The throwing versions
+// stay for server-side callers and tests.
+export async function saveQuotationUi(input: unknown) {
+  return toActionResult(() => saveQuotation(input), "The quotation could not be saved. Refresh and try again.");
+}
+export async function syncQuotationUi(quotationId: string) {
+  return toActionResult(() => syncQuotation(quotationId), "Zoho could not be updated. Refresh and try again.");
+}
+export async function confirmQuotationSentUi(input: unknown) {
+  return toActionResult(() => confirmQuotationSent(input), "The quotation could not be marked as sent. Refresh and try again.");
+}
+export async function acknowledgeZohoConflictUi(quotationId: string) {
+  return toActionResult(() => acknowledgeZohoConflict(quotationId), "The quotation could not be reconciled with Zoho. Refresh and try again.");
+}
+export async function reconcileUncertainQuotationUi(quotationId: string) {
+  return toActionResult(() => reconcileUncertainQuotation(quotationId), "Zoho could not be checked. Refresh and try again.");
+}
+export async function recoverStaleQuotationClaimUi(quotationId: string) {
+  return toActionResult(() => recoverStaleQuotationClaim(quotationId), "The Zoho operation could not be checked. Refresh and try again.");
+}
+export async function getQuotationPdfUrlUi(quotationId: string, download = false) {
+  return toActionResult(() => getQuotationPdfUrl(quotationId, download), "Could not open the quotation PDF.");
+}
+export async function getZohoQuotationOptionsUi(orderId: string) {
+  return toActionResult(() => getZohoQuotationOptions(orderId), "Could not load Zoho Books.");
+}
+export async function searchZohoCustomersUi(orderId: string, query: string) {
+  return toActionResult(() => searchZohoCustomers(orderId, query), "Zoho customer search failed.");
+}
+export async function confirmZohoCustomerUi(input: unknown) {
+  return toActionResult(() => confirmZohoCustomer(input), "The Zoho customer could not be confirmed.");
+}
+export async function createAndConfirmZohoCustomerUi(orderId: string) {
+  return toActionResult(() => createAndConfirmZohoCustomer(orderId), "The Zoho customer could not be created. Refresh and check for the customer before trying again.");
 }

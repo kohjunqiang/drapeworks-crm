@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   findZohoEstimateByNumber: vi.fn(),
   getZohoEstimatePdf: vi.fn(),
   markZohoEstimateSent: vi.fn(),
+  syncZohoEstimate: vi.fn(),
   adminClient: vi.fn(),
   assertZohoCustomerPaymentsReady: vi.fn(),
   assertZohoInvoiceNumberingReady: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock("@/lib/zoho/books", () => ({
   findZohoEstimateByNumber: mocks.findZohoEstimateByNumber,
   getZohoEstimatePdf: mocks.getZohoEstimatePdf,
   markZohoEstimateSent: mocks.markZohoEstimateSent,
+  syncZohoEstimate: mocks.syncZohoEstimate,
   assertZohoCustomerPaymentsReady: mocks.assertZohoCustomerPaymentsReady,
   assertZohoInvoiceNumberingReady: mocks.assertZohoInvoiceNumberingReady,
   listZohoCustomerPayments: mocks.listZohoCustomerPayments,
@@ -58,7 +60,7 @@ vi.mock("@/lib/zoho/books", () => ({
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
 import { toZohoEstimatePayload } from "@/lib/quotations/model";
 import { UserFacingError } from "@/lib/user-facing-error";
-import { confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation } from "./quotations";
+import { acknowledgeZohoConflict, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
 const QUOTE_ID = "b31fd642-0fe2-4066-9762-880b0e023472";
@@ -139,6 +141,8 @@ function makeQuote(storedHash: string | null) {
     payment_sync_error: null,
     zoho_payment_id: null,
     superseded_at: null,
+    sent_at: null as Date | null,
+    updated_at: new Date("2026-09-22T04:03:36.347Z"),
   };
 }
 
@@ -160,6 +164,7 @@ function builder(result: unknown) {
     set: (values: Record<string, unknown>) => { setCalls.push(values); return chain; },
     values: (values: Record<string, unknown>) => { insertCalls.push(values); return chain; },
     returning: () => chain,
+    returningAll: () => chain,
     onConflict: () => chain,
     execute: async () => [] as unknown[],
     executeTakeFirst: async () => result,
@@ -610,5 +615,196 @@ describe("confirmQuotationSent quote_valid_days", () => {
     const leadUpdate = setCalls.find((values) => "funnel_stage" in values);
     expect(leadUpdate).toBeTruthy();
     expect(leadUpdate).not.toHaveProperty("quote_valid_days");
+  });
+});
+
+describe("saveQuotation on a sent quotation", () => {
+  const saveInput = (quotationId: string, updatedAt: string) => ({
+    orderId: ORDER_ID, quotationId, expectedUpdatedAt: updatedAt, issueDate: "2026-09-24", expiryDate: null,
+    lines: LINES, customerMessage: "", notes: "", terms: "",
+  });
+
+  function setupSave(orderStatus: string, current: Record<string, unknown>) {
+    const order = { id: ORDER_ID, display_id: "DW-1", order_reference: "DW-1", current_status: orderStatus, consultant_id: "consult-1", customer_id: "cust-1", customer_name: "Jamie Tan", customer_email: null, customer_mobile: null, consultant_name: "Kenny" };
+    mocks.selectFrom.mockImplementation((table: string) => builder(table === "orders" ? order : undefined));
+    const trx = {
+      selectFrom: (table: string) => builder(table === "order_quotations" ? current : undefined),
+      updateTable: () => builder({ id: QUOTE_ID }),
+      insertInto: () => builder({}),
+    };
+    mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
+  }
+
+  it("moves a sent quotation back to local_draft and keeps its sent fields", async () => {
+    const updatedAt = new Date("2026-09-22T04:03:36.347Z");
+    setupSave("quotation_sent", { ...makeQuote(CANONICAL_HASH), status: "sent", sent_at: updatedAt, updated_at: updatedAt });
+
+    await saveQuotation(saveInput(QUOTE_ID, updatedAt.toISOString()));
+
+    const saved = setCalls.find((values) => values.status === "local_draft");
+    expect(saved).toBeTruthy();
+    expect(saved?.lines).toBe(JSON.stringify(LINES));
+    expect(saved).not.toHaveProperty("sent_at");
+    expect(saved).not.toHaveProperty("sent_by");
+  });
+
+  it("refuses once the deposit is recorded", async () => {
+    setupSave("deposit_received", { ...makeQuote(CANONICAL_HASH), status: "sent" });
+    await expect(saveQuotation(saveInput(QUOTE_ID, new Date().toISOString())))
+      .rejects.toThrow("This quotation is final — the deposit has been recorded");
+  });
+});
+
+describe("syncQuotation for a previously-sent quotation", () => {
+  const SENT_AT = new Date("2026-09-22T04:03:36.347Z");
+  const UPDATED_AT = new Date("2026-09-24T02:00:00.000Z");
+  const EDITED_LINES = [{ ...LINES[0], rateCents: 50000 }];
+
+  function editedSentRow(overrides: Record<string, unknown> = {}) {
+    return {
+      ...makeQuote(CANONICAL_HASH), status: "local_draft", sent_at: SENT_AT, sent_by: "consult-1", sent_channel: "WhatsApp",
+      zoho_estimate_id: "est-1", zoho_estimate_number: "QT-677819", zoho_last_modified_time: "t1",
+      lines: EDITED_LINES, quoted_total_cents: 50000, updated_at: UPDATED_AT, ...overrides,
+    };
+  }
+
+  function setupSync(row: Record<string, unknown>, remoteBefore: Record<string, unknown>, remoteAfter: Record<string, unknown>[]) {
+    const order = { id: ORDER_ID, display_id: "DW-1", order_reference: "DW-1", current_status: "quotation_sent", consultant_id: "consult-1", customer_id: "cust-1", customer_name: "Jamie Tan", customer_email: null, customer_mobile: null, consultant_name: "Kenny", lead_id: "lead-1", appointment_id: null };
+    const tables: Record<string, unknown[]> = {
+      order_quotations: [row],
+      orders: [order],
+      customer_zoho_links: [{ zoho_contact_id: "contact-1" }],
+    };
+    mocks.selectFrom.mockImplementation((table: string) => builder(tables[table]?.shift()));
+    mocks.updateTable.mockImplementation(() => builder({ ...row, status: "syncing" }));
+    const trx = {
+      selectFrom: (table: string) => builder(
+        table === "orders" ? order
+          : table === "order_quotation_versions" ? { max_version: 1 }
+          : table === "leads" ? { id: "lead-1" }
+          : undefined),
+      updateTable: () => builder({ id: QUOTE_ID }),
+      insertInto: () => builder({}),
+    };
+    mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
+    mocks.getZohoEstimate.mockResolvedValueOnce(remoteBefore);
+    for (const remote of remoteAfter) mocks.getZohoEstimate.mockResolvedValueOnce(remote);
+    mocks.syncZohoEstimate.mockResolvedValue({ estimate_id: "est-1", estimate_number: "QT-677819" });
+    mocks.getZohoEstimatePdf.mockResolvedValue(new Uint8Array([37, 80, 68, 70, 45]));
+    mocks.adminClient.mockReturnValue({ storage: { from: () => ({ upload: async () => ({ error: null }) }) } });
+    mocks.getZohoBooksBinding.mockResolvedValue({ crmKeyFieldId: "cf-1", crmKeyApiName: "cf_crm_quote_key", estimateTemplateId: "tmpl-1" });
+  }
+
+  // makeRemote(...) builds a Zoho estimate matching the CRM row; pass the
+  // edited lines so the post-sync snapshot and total match.
+  const remoteFor = (status: string, lines = EDITED_LINES, modified = "t1") =>
+    makeRemote({ status, last_modified_time: modified, total: lines.reduce((sum, line) => sum + line.rateCents * line.quantity, 0) / 100, line_items: lines.map((line) => ({ item_id: line.zohoItemId ?? undefined, name: line.name, description: line.description, quantity: line.quantity, rate: line.rateCents / 100, discount: line.discountPercent })) });
+
+  it("updates the same Zoho estimate, returns to sent and writes a version snapshot", async () => {
+    setupSync(editedSentRow(), remoteFor("sent", LINES), [remoteFor("sent", EDITED_LINES, "t2")]);
+
+    await syncQuotation(QUOTE_ID);
+
+    expect(mocks.syncZohoEstimate).toHaveBeenCalledWith(expect.objectContaining({ estimateId: "est-1" }));
+    expect(setCalls.find((values) => values.status === "sent")).toMatchObject({ zoho_estimate_number: "QT-677819", zoho_last_modified_time: "t2" });
+    const version = insertCalls.find((values) => "version" in values);
+    expect(version).toMatchObject({ quotation_id: QUOTE_ID, version: 2, quoted_total_cents: 50000 });
+    expect(version?.lines).toBe(JSON.stringify(EDITED_LINES));
+    expect(setCalls.find((values) => "price_quoted_cents" in values)).toMatchObject({ price_quoted_cents: 50000 });
+    expect(setCalls.find((values) => "latest_quote_cents" in values)).toMatchObject({ latest_quote_cents: 50000 });
+  });
+
+  it("re-marks the estimate sent when Zoho reverted it to draft on edit", async () => {
+    setupSync(editedSentRow(), remoteFor("sent", LINES), [remoteFor("draft", EDITED_LINES, "t2"), remoteFor("sent", EDITED_LINES, "t3")]);
+
+    await syncQuotation(QUOTE_ID);
+
+    expect(mocks.markZohoEstimateSent).toHaveBeenCalledWith("est-1");
+    expect(setCalls.find((values) => values.status === "sent")).toMatchObject({ zoho_last_modified_time: "t3" });
+  });
+
+  it("refuses an invoiced estimate without entering conflict", async () => {
+    setupSync(editedSentRow(), { ...remoteFor("invoiced", LINES), invoice_ids: ["inv-1"] }, []);
+
+    await expect(syncQuotation(QUOTE_ID)).rejects.toThrow("already been invoiced");
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    expect(setCalls.find((values) => values.status === "sync_failed")).toBeTruthy();
+    expect(setCalls.find((values) => values.status === "conflict")).toBeUndefined();
+  });
+
+  it("does not treat a status-only timestamp change as drift", async () => {
+    // Stored hash equals the remote snapshot (content unchanged), timestamp moved by mark-sent.
+    const remote = remoteFor("sent", LINES, "t9");
+    setupSync(editedSentRow({ synced_payload_hash: estimateSnapshotHash(remote as Record<string, unknown>) }), remote, [remoteFor("sent", EDITED_LINES, "t10")]);
+
+    await syncQuotation(QUOTE_ID);
+
+    expect(setCalls.find((values) => values.status === "conflict")).toBeUndefined();
+    expect(setCalls.find((values) => values.status === "sent")).toBeTruthy();
+  });
+
+  it("accepts an already-sent remote for a never-sent quotation and stays zoho_draft", async () => {
+    // A failed confirm-sent can leave Zoho "sent" while the CRM row still has
+    // sent_at = null. Re-syncing must accept that remote instead of deadlocking
+    // the quotation on the draft-only status check.
+    const row = { ...makeQuote(CANONICAL_HASH), status: "local_draft", sent_at: null, zoho_estimate_id: "est-1", zoho_last_modified_time: "t1", updated_at: UPDATED_AT };
+    setupSync(row, makeRemote({ status: "sent", last_modified_time: "t1" }), [makeRemote({ status: "sent", last_modified_time: "t2" })]);
+
+    await syncQuotation(QUOTE_ID);
+
+    expect(setCalls.find((values) => values.status === "zoho_draft")).toBeTruthy();
+    expect(setCalls.find((values) => values.status === "sent")).toBeUndefined();
+    expect(mocks.markZohoEstimateSent).not.toHaveBeenCalled();
+    expect(insertCalls.find((values) => "version" in values)).toBeUndefined();
+  });
+});
+
+describe("confirmQuotationSent first send", () => {
+  it("refuses a quotation that was already sent", async () => {
+    setupQuoteFlow({ quotationReads: [{ ...quoteFlowZohoDraftRow(null), sent_at: new Date() }], remote: makeRemote() });
+    await expect(confirmQuotationSent({ quotationId: QUOTE_ID, channel: "WhatsApp", note: "" }))
+      .rejects.toThrow("already been sent");
+  });
+
+  it("stores Zoho's post-send timestamp and writes version 1", async () => {
+    setupQuoteFlow({ quotationReads: [quoteFlowZohoDraftRow(null)], remote: makeRemote({ status: "draft" }) });
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate.mockResolvedValueOnce(makeRemote({ status: "draft" })).mockResolvedValueOnce(makeRemote({ status: "sent", last_modified_time: "after-send" }));
+
+    await confirmQuotationSent({ quotationId: QUOTE_ID, channel: "WhatsApp", note: "" });
+
+    expect(setCalls.find((values) => values.status === "sent")).toMatchObject({ zoho_last_modified_time: "after-send" });
+    expect(insertCalls.find((values) => "version" in values)).toMatchObject({ quotation_id: QUOTE_ID, version: 1 });
+  });
+});
+
+describe("reconcile and deposit with editable quotations", () => {
+  it("reconciles a sent Zoho estimate by overwriting it from the CRM", async () => {
+    const row = { ...makeQuote(CANONICAL_HASH), status: "conflict", zoho_estimate_id: "est-1", sent_at: new Date(), updated_at: new Date() };
+    mocks.selectFrom.mockImplementation((table: string) => builder(table === "order_quotations" ? row : table === "orders" ? { id: ORDER_ID, current_status: "quotation_sent", consultant_id: "consult-1", customer_id: "cust-1" } : undefined));
+    mocks.getZohoEstimate.mockResolvedValue(makeRemote({ status: "sent", last_modified_time: "t5" }));
+    mocks.getZohoBooksBinding.mockResolvedValue({ crmKeyFieldId: "cf-1", crmKeyApiName: "cf_crm_quote_key", estimateTemplateId: "tmpl-1" });
+    mocks.updateTable.mockImplementation(() => builder(undefined)); // no Zoho customer link, so the follow-up sync stops right after the reset
+
+    await expect(acknowledgeZohoConflict(QUOTE_ID)).rejects.toThrow();
+    expect(setCalls[0]).toMatchObject({ status: "local_draft", zoho_last_modified_time: "t5" });
+  });
+
+  it("asks to sync unsynced edits before the deposit", async () => {
+    // Reuse setup(...) from the ensureZohoInvoiceForOrder tests with a previously-sent local_draft quote.
+    setup({ quote: { ...makeQuote(CANONICAL_HASH), status: "local_draft", sent_at: new Date() }, remote: makeRemote() });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Sync the latest quotation changes to Zoho before recording the deposit");
+  });
+});
+
+describe("UI action wrappers", () => {
+  it("returns a guard message instead of throwing", async () => {
+    mocks.selectFrom.mockImplementation(() => builder(undefined));
+    await expect(syncQuotationUi(QUOTE_ID)).resolves.toEqual({ ok: false, error: "Quotation not found" });
+  });
+  it("hides unexpected errors behind a fallback", async () => {
+    mocks.selectFrom.mockImplementation(() => { throw new Error("connection terminated unexpectedly"); });
+    const result = await saveQuotationUi({ orderId: ORDER_ID, quotationId: null, expectedUpdatedAt: null, issueDate: "2026-09-24", expiryDate: null, lines: LINES, customerMessage: "", notes: "", terms: "" });
+    expect(result).toEqual({ ok: false, error: "The quotation could not be saved. Refresh and try again." });
   });
 });

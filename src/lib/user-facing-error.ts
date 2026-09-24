@@ -16,3 +16,15 @@ export function actionErrorMessage(error: unknown, fallback: string): string {
   console.error(error);
   return fallback;
 }
+
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+// Runs a server-side task and converts its outcome into a value that survives
+// the Server Action boundary in production.
+export async function toActionResult<T>(task: () => Promise<T>, fallback: string): Promise<ActionResult<T>> {
+  try {
+    return { ok: true, data: await task() };
+  } catch (error) {
+    return { ok: false, error: actionErrorMessage(error, fallback) };
+  }
+}

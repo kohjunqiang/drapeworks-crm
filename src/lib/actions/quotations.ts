@@ -44,7 +44,7 @@ import {
 } from "@/lib/zoho/books";
 import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate } from "@/lib/quotations/hash";
 import { invoiceNumberFor } from "@/lib/quotations/document-numbers";
-import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, quotationBreakdown } from "@/lib/quotations/lifecycle";
+import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, QUOTATION_INVOICED_MESSAGE, quotationBreakdown } from "@/lib/quotations/lifecycle";
 import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 import { actionErrorMessage, toActionResult, UserFacingError } from "@/lib/user-facing-error";
 
@@ -138,6 +138,7 @@ export async function saveQuotation(input: unknown): Promise<{ id: string }> {
   const result = await db.transaction().execute(async (trx) => {
     const current = await trx.selectFrom("order_quotations").selectAll()
       .where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+    if (current?.zoho_invoice_id) throw new UserFacingError(QUOTATION_INVOICED_MESSAGE);
     if (current?.status === "syncing" || current?.status === "sending") throw new UserFacingError("This quotation is already being processed. Wait and refresh.");
     if (parsed.quotationId && current?.id !== parsed.quotationId) throw new UserFacingError("The current quotation changed. Refresh and try again.");
     if (current && parsed.expectedUpdatedAt && new Date(current.updated_at).toISOString() !== parsed.expectedUpdatedAt) {
@@ -186,6 +187,7 @@ export async function syncQuotation(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const seed = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
   if (!seed) throw new UserFacingError("Quotation not found");
+  if (seed.zoho_invoice_id) throw new UserFacingError(QUOTATION_INVOICED_MESSAGE);
   const { session, order } = await authorizedOrder(seed.order_id, true);
   assertQuotationStage(order.current_status);
   if (seed.status === "sent" || seed.status === "superseded") throw new UserFacingError("There are no unsynced changes on this quotation");
@@ -287,6 +289,7 @@ export async function acknowledgeZohoConflict(quotationId: string) {
   if (!row || !row.zoho_estimate_id || row.status !== "conflict") throw new UserFacingError("This quotation does not have a Zoho conflict to reconcile");
   const { order } = await authorizedOrder(row.order_id, true);
   assertQuotationStage(order.current_status);
+  if (row.zoho_invoice_id) throw new UserFacingError(QUOTATION_INVOICED_MESSAGE);
   const remote = await getZohoEstimate(row.zoho_estimate_id);
   if (crmKeyConflicts(await crmKeyOf(remote), row.crm_quote_key)) throw new UserFacingError("The Zoho CRM Quote Key no longer matches; do not overwrite or import this document");
   assertEstimateEditable(remote);

@@ -33,7 +33,7 @@ type Quote = {
   lines: QuotationLineInput[]; totalCents: number; customerMessage: string; notes: string; terms: string;
   estimateNumber: string | null; invoiceNumber: string | null; updatedAt: string; syncError: string | null;
   invoiceSyncState: string; invoiceSyncError: string | null; paymentNumber: string | null;
-  paymentSyncState: string; paymentSyncError: string | null; hasZohoEstimate: boolean; hasPdf: boolean; sentAt: string | null;
+  paymentSyncState: string; paymentSyncError: string | null; hasZohoEstimate: boolean; hasZohoInvoice: boolean; hasPdf: boolean; sentAt: string | null;
 };
 
 type Props = {
@@ -191,6 +191,7 @@ export function QuotationWorkspace(props: Props) {
   const previouslySent = Boolean(props.quote?.sentAt);
   const synced = (props.quote?.status === "zoho_draft" || sent) && !dirty;
   const processing = props.quote?.status === "syncing" || props.quote?.status === "sending";
+  const invoiced = Boolean(props.quote?.hasZohoInvoice);
   const unsynced = dirty || (previouslySent && props.quote?.status === "local_draft") || props.quote?.status === "sync_failed";
   const statusText = sent && !dirty ? "Sent quotation"
     : previouslySent && unsynced ? "Sent · changes not synced to Zoho"
@@ -236,9 +237,9 @@ export function QuotationWorkspace(props: Props) {
             <span className="hidden font-medium text-teal-700 group-open:inline">Hide</span>
           </span>
         </summary>
-      <fieldset disabled={!props.canManage || pending || processing} className="space-y-4 border-t pt-5 disabled:opacity-70">
+      <fieldset disabled={!props.canManage || pending || processing || invoiced} className="space-y-4 border-t pt-5 disabled:opacity-70">
         <legend className="sr-only">Quotation details</legend>
-        <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until{!props.canManage ? <div className="mt-1 flex h-11 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-600">{expiryDate || "No expiry"}</div> : <Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} />}</label></div>
+        <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until{!props.canManage || invoiced ? <div className="mt-1 flex h-11 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-600">{expiryDate || "No expiry"}</div> : <Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} />}</label></div>
         <div className="space-y-3">
           {lines.map((line, index) => <div key={index} className="rounded-lg border border-slate-200 p-3">
             <div className="flex items-start gap-2"><label className="flex-1 text-xs font-medium text-slate-600">Catalogue item<select className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" value={line.zohoItemId ?? ""} onChange={(e) => { const item = options?.items.find((row) => row.id === e.target.value); mutateLine(index, item ? { zohoItemId: item.id, name: item.name, description: item.description, rateCents: item.rateCents } : { zohoItemId: null }); clearRateDraft(index); }}><option value="">Custom line</option>{options?.items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{lines.length > 1 && <Button aria-label="Remove line" className="mt-6 h-11 w-11" variant="ghost" onClick={() => { setLines((v) => v.filter((_, i) => i !== index)); setRateDrafts((d) => shiftRateDrafts(d, index)); setDirty(true); }}><Trash2 /></Button>}</div>
@@ -253,9 +254,9 @@ export function QuotationWorkspace(props: Props) {
       </details>
 
       <div className="-mx-4 mt-5 flex flex-col gap-2 border-t bg-white px-4 py-3 sm:-mx-6 sm:flex-row sm:flex-wrap sm:px-6">
-        {props.canManage && !processing && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(save, "Local quotation saved", true)}>Save draft</Button>}
-        {props.canManage && props.quote && (!sent || dirty) && !processing && props.quote.status !== "conflict" && <Button className="h-11" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => run(async () => { if (dirty) await save(); unwrap(await syncQuotationUi(props.quote!.id)); }, previouslySent ? "Zoho quotation updated" : synced ? "Zoho draft refreshed" : "Zoho draft created", true)}>{pending ? <RefreshCw className="animate-spin" /> : <ExternalLink />} {previouslySent ? "Update Zoho & refresh PDF" : props.quote.estimateNumber ? "Update Zoho draft & refresh PDF" : "Create Zoho draft & preview"}</Button>}
-        {props.canManage && props.quote && !props.quote.hasZohoEstimate && !sent && !previouslySent && !processing && <Button className="h-11" variant="outline" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => setImportOpen(true)}>Use existing Zoho quote</Button>}
+        {props.canManage && !processing && !invoiced && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(save, "Local quotation saved", true)}>Save draft</Button>}
+        {props.canManage && props.quote && (!sent || dirty) && !processing && !invoiced && props.quote.status !== "conflict" && <Button className="h-11" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => run(async () => { if (dirty) await save(); unwrap(await syncQuotationUi(props.quote!.id)); }, previouslySent ? "Zoho quotation updated" : synced ? "Zoho draft refreshed" : "Zoho draft created", true)}>{pending ? <RefreshCw className="animate-spin" /> : <ExternalLink />} {previouslySent ? "Update Zoho & refresh PDF" : props.quote.estimateNumber ? "Update Zoho draft & refresh PDF" : "Create Zoho draft & preview"}</Button>}
+        {props.canManage && props.quote && !props.quote.hasZohoEstimate && !sent && !previouslySent && !processing && !invoiced && <Button className="h-11" variant="outline" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => setImportOpen(true)}>Use existing Zoho quote</Button>}
         {props.quote?.hasPdf && !dirty && synced && <><Button className="h-11" variant="outline" onClick={() => openPdf(false)}><ExternalLink /> Preview official quotation</Button><Button aria-label="Download official quotation" className="h-11 w-11" variant="outline" onClick={() => openPdf(true)}><Download /></Button><Button aria-label="Share official quotation" className="h-11 w-11" variant="outline" onClick={sharePdf}><Share2 /></Button></>}
         {props.canManage && props.quote?.status === "zoho_draft" && !dirty && !previouslySent && <Button className="h-11" onClick={() => setSendOpen(true)}>Confirm quotation sent</Button>}
         {props.canManage && props.quote?.status === "conflict" && (props.quote.hasZohoEstimate ? <Button className="h-11" variant="destructive" onClick={() => { if (window.confirm("Reconcile now? The Zoho quotation will be overwritten with the CRM version and its PDF regenerated. Any changes made directly in Zoho will be lost.")) run(async () => unwrap(await acknowledgeZohoConflictUi(props.quote!.id)), "Zoho quotation reconciled"); }}>Reconcile with Zoho</Button> : <Button className="h-11" variant="destructive" onClick={() => run(async () => unwrap(await reconcileUncertainQuotationUi(props.quote!.id)), "Zoho checked for the interrupted quotation")}>Check Zoho before retrying creation</Button>)}

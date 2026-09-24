@@ -58,6 +58,7 @@ vi.mock("@/lib/zoho/books", () => ({
 }));
 
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
+import { QUOTATION_INVOICED_MESSAGE } from "@/lib/quotations/lifecycle";
 import { toZohoEstimatePayload } from "@/lib/quotations/model";
 import { UserFacingError } from "@/lib/user-facing-error";
 import { acknowledgeZohoConflict, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
@@ -653,6 +654,18 @@ describe("saveQuotation on a sent quotation", () => {
     await expect(saveQuotation(saveInput(QUOTE_ID, new Date().toISOString())))
       .rejects.toThrow("This quotation is final — the deposit has been recorded");
   });
+
+  it("refuses a quotation that already has a Zoho invoice while the order is still quotation_sent", async () => {
+    // DW-2026-0043 deadlock: conversion wrote zoho_invoice_id, renumbering
+    // failed, the order stayed quotation_sent — the quote must still be final.
+    const updatedAt = new Date("2026-09-22T04:03:36.347Z");
+    setupSave("quotation_sent", { ...makeQuote(CANONICAL_HASH), status: "sync_failed", zoho_invoice_id: "inv-1", updated_at: updatedAt });
+
+    await expect(saveQuotation(saveInput(QUOTE_ID, updatedAt.toISOString())))
+      .rejects.toThrow(QUOTATION_INVOICED_MESSAGE);
+
+    expect(setCalls.find((values) => values.status === "local_draft")).toBeUndefined();
+  });
 });
 
 describe("syncQuotation for a previously-sent quotation", () => {
@@ -730,6 +743,19 @@ describe("syncQuotation for a previously-sent quotation", () => {
     expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
     expect(setCalls.find((values) => values.status === "sync_failed")).toBeTruthy();
     expect(setCalls.find((values) => values.status === "conflict")).toBeUndefined();
+  });
+
+  it("refuses a quotation that already has a Zoho invoice before claiming or touching Zoho", async () => {
+    setupSync(editedSentRow({ status: "sync_failed", zoho_invoice_id: "inv-1" }), remoteFor("sent", LINES), []);
+    // setupSync queues a remote the action must never read; drop it so the
+    // once-queue stays clean for the next test.
+    mocks.getZohoEstimate.mockReset();
+
+    await expect(syncQuotation(QUOTE_ID)).rejects.toThrow(QUOTATION_INVOICED_MESSAGE);
+
+    expect(mocks.getZohoEstimate).not.toHaveBeenCalled();
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    expect(setCalls.find((values) => "status" in values)).toBeUndefined();
   });
 
   it("does not treat a status-only timestamp change as drift", async () => {

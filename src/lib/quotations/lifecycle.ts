@@ -4,6 +4,11 @@ import type { QuotationLineInput } from "@/lib/validation/quotation";
 
 export const QUOTATION_FINAL_MESSAGE = "This quotation is final — the deposit has been recorded";
 
+// The deposit action can leave an invoice behind while the order is still in
+// the quotation stage (e.g. conversion succeeded but renumbering failed). A
+// Zoho invoice makes the quotation final regardless of order status.
+export const QUOTATION_INVOICED_MESSAGE = "An invoice already exists in Zoho for this quotation, so it can no longer be changed. Finish recording the deposit.";
+
 // A quotation is editable only while the order is in the quotation stage.
 // order_recorded is the first status in STATUS_FLOW, so anything else means
 // the deposit has already converted the estimate to an invoice.

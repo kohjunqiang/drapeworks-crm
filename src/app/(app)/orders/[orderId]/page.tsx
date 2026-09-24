@@ -451,6 +451,7 @@ export default async function OrderDetailPage({
                 paymentSyncState: currentQuotation.payment_sync_state,
                 paymentSyncError: currentQuotation.payment_sync_error,
                 hasZohoEstimate: Boolean(currentQuotation.zoho_estimate_id),
+                hasZohoInvoice: Boolean(currentQuotation.zoho_invoice_id),
                 updatedAt: new Date(currentQuotation.updated_at).toISOString(),
                 syncError: currentQuotation.sync_error,
                 hasPdf: Boolean(currentQuotation.pdf_storage_path),

@@ -6,6 +6,7 @@ import {
   railLineSuffix,
   railShipmentKind,
   resolveTrackOptions,
+  trackOrderNotes,
   TRACK_OPTION_ADDON_KEYS,
   TRACK_OPTIONS,
   type TrackOptions,
@@ -106,5 +107,46 @@ describe("extra order", () => {
     expect(extraOrderSuffix(opts({ overlap_tracks_attachment: true }))).toBe(
       " P6白色配交叉器",
     );
+  });
+});
+
+describe("trackOrderNotes", () => {
+  it("prints a carried option's note first, ahead of the stored note", () => {
+    expect(
+      trackOrderNotes(
+        [opts({ side_installation: true })],
+        "多配连接器和滑轨\n加固包装",
+      ),
+    ).toEqual(["侧装，需要L型角码", "多配连接器和滑轨\n加固包装"]);
+  });
+
+  it("prints the note once however many lines carry the option", () => {
+    expect(
+      trackOrderNotes(
+        [opts({ side_installation: true }), opts({ side_installation: true })],
+        null,
+      ),
+    ).toEqual(["侧装，需要L型角码"]);
+  });
+
+  it("is just the stored note when no carried option asks for one", () => {
+    expect(trackOrderNotes([opts()], "加固包装")).toEqual(["加固包装"]);
+    expect(trackOrderNotes([opts({ slim_tracks: true })], "加固包装")).toEqual(
+      ["加固包装"],
+    );
+    expect(
+      trackOrderNotes([opts({ overlap_tracks_attachment: true })], "加固包装"),
+    ).toEqual(["加固包装"]);
+  });
+
+  it("drops a missing or blank stored note rather than trailing an empty line", () => {
+    expect(trackOrderNotes([opts()], null)).toEqual([]);
+    expect(trackOrderNotes([opts()], "   ")).toEqual([]);
+    expect(trackOrderNotes([opts({ side_installation: true })], null)).toEqual([
+      "侧装，需要L型角码",
+    ]);
+    expect(trackOrderNotes([opts({ side_installation: true })], "  ")).toEqual([
+      "侧装，需要L型角码",
+    ]);
   });
 });

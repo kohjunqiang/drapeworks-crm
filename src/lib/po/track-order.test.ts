@@ -201,6 +201,45 @@ describe("overlapTrackOrderText", () => {
       "2.66米 双轨裁成1.33m 4根配连接器 Slim Tracks P6白色配交叉器",
     );
   });
+
+  it("opens the notes with 侧装，需要L型角码 when a printed overlap line is side-installed", () => {
+    expect(
+      overlapTrackOrderText(
+        [
+          line({
+            options: opts({
+              side_installation: true,
+              overlap_tracks_attachment: true,
+            }),
+          }),
+        ],
+        "加固包装",
+      ),
+    ).toBe(
+      [
+        "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation P6白色配交叉器",
+        "侧装，需要L型角码",
+        "加固包装",
+      ].join("\n"),
+    );
+  });
+
+  it("stays unchanged when only an unprinted line is side-installed", () => {
+    expect(
+      overlapTrackOrderText(
+        [
+          line({ options: opts({ side_installation: true }) }),
+          line({
+            widthCm: 256,
+            options: opts({ overlap_tracks_attachment: true }),
+          }),
+        ],
+        "加固包装",
+      ),
+    ).toBe(
+      "2.56米 双轨裁成1.28m 4根配连接器 P6白色配交叉器\n加固包装",
+    );
+  });
 });
 
 describe("sectionCount", () => {
@@ -253,6 +292,71 @@ describe("pieceCount", () => {
 });
 
 describe("trackOrderText", () => {
+  const NOTE = "多配连接器和滑轨\n加固包装";
+
+  it("opens the notes with 侧装，需要L型角码 when a line is side-installed", () => {
+    expect(
+      trackOrderText(
+        [
+          line({ options: opts({ side_installation: true }) }),
+          line({ widthCm: 256 }),
+        ],
+        NOTE,
+      ),
+    ).toBe(
+      [
+        "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
+        "2.56米 双轨裁成1.28m 4根配连接器",
+        "侧装，需要L型角码",
+        "多配连接器和滑轨",
+        "加固包装",
+      ].join("\n"),
+    );
+  });
+
+  it("prints the phrase once however many side-installed lines the block has", () => {
+    const text = trackOrderText(
+      [
+        line({ options: opts({ side_installation: true }) }),
+        line({ widthCm: 256, options: opts({ side_installation: true }) }),
+      ],
+      NOTE,
+    );
+    expect(text.split("侧装，需要L型角码")).toHaveLength(2);
+    expect(text).toBe(
+      [
+        "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation",
+        "2.56米 双轨裁成1.28m 4根配连接器 侧装 Side installation",
+        "侧装，需要L型角码",
+        "多配连接器和滑轨",
+        "加固包装",
+      ].join("\n"),
+    );
+  });
+
+  it("is unchanged when no line is side-installed", () => {
+    expect(trackOrderText([line(), line({ widthCm: 256 })], NOTE)).toBe(
+      [
+        "2.66米 双轨裁成1.33m 4根配连接器",
+        "2.56米 双轨裁成1.28m 4根配连接器",
+        "多配连接器和滑轨",
+        "加固包装",
+      ].join("\n"),
+    );
+  });
+
+  it("lets the phrase stand as the last line when there is no stored note", () => {
+    const sideInstalled = line({
+      options: opts({ side_installation: true }),
+    });
+    expect(trackOrderText([sideInstalled], null)).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation\n侧装，需要L型角码",
+    );
+    expect(trackOrderText([sideInstalled], "   ")).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 侧装 Side installation\n侧装，需要L型角码",
+    );
+  });
+
   it("lists every window, repeats and all, then the standing note", () => {
     // Straight off the sample order: one 2.66 and two identical 2.56s.
     expect(

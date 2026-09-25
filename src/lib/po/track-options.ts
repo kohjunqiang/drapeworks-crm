@@ -52,6 +52,13 @@ export type TrackOption = {
    * marks the base line and speaks only through its extra order.
    */
   railLabel: string | null;
+  /**
+   * A note printed once, first in the block's notes, when ANY line in the
+   * block carries the option — side installation needs L-brackets for the
+   * whole cut, not per window. null when the option has nothing to say to
+   * the block.
+   */
+  orderNoteCn: string | null;
   effect: TrackOptionEffect;
 };
 
@@ -65,24 +72,28 @@ export const TRACK_OPTIONS: readonly TrackOption[] = [
     key: "s_fold",
     source: { kind: "addon", addonKey: "s_fold" },
     railLabel: "S-Fold",
+    orderNoteCn: null,
     effect: { kind: "routes_shipment", shipmentKind: "s_fold_tracks" },
   },
   {
     key: "slim_tracks",
     source: { kind: "addon", addonKey: "slim_tracks" },
     railLabel: "Slim Tracks",
+    orderNoteCn: null,
     effect: { kind: "label" },
   },
   {
     key: "side_installation",
     source: { kind: "window_column", column: "sideInstallation" },
     railLabel: "侧装 Side installation",
+    orderNoteCn: "侧装，需要L型角码",
     effect: { kind: "label" },
   },
   {
     key: "overlap_tracks_attachment",
     source: { kind: "window_column", column: "overlapTracksAttachment" },
     railLabel: null,
+    orderNoteCn: null,
     effect: { kind: "extra_order", orderSuffix: "P6白色配交叉器" },
   },
 ];
@@ -167,4 +178,24 @@ export function extraOrderSuffix(options: TrackOptions): string {
       option.effect.kind === "extra_order" ? ` ${option.effect.orderSuffix}` : "",
     )
     .join("");
+}
+
+/**
+ * The block's closing notes: each carried option's orderNoteCn once, in
+ * registry order, ahead of the stored standing note — so a block holding a
+ * side-installed window opens its notes with 侧装，需要L型角码 and only then
+ * the usual 多配连接器和滑轨 / 加固包装.
+ */
+export function trackOrderNotes(
+  options: readonly TrackOptions[],
+  noteCn: string | null,
+): string[] {
+  const notes = TRACK_OPTIONS.flatMap((option) =>
+    option.orderNoteCn !== null && options.some((line) => line[option.key])
+      ? [option.orderNoteCn]
+      : [],
+  );
+  const note = noteCn?.trim();
+  if (note) notes.push(note);
+  return notes;
 }

@@ -24,6 +24,7 @@ import {
   extraOrderSuffix,
   hasExtraOrder,
   railLineSuffix,
+  trackOrderNotes,
   type TrackOptions,
 } from "./track-options";
 
@@ -148,8 +149,13 @@ export function overlapTrackOrderText(
   const overlapLines = lines.filter((line) => hasExtraOrder(line.options));
   if (overlapLines.length === 0) return "";
   const body = overlapLines.map(overlapTrackOrderLine);
-  const note = noteCn?.trim();
-  return note ? [...body, note].join("\n") : body.join("\n");
+  return [
+    ...body,
+    ...trackOrderNotes(
+      overlapLines.map((line) => line.options),
+      noteCn,
+    ),
+  ].join("\n");
 }
 
 /**
@@ -168,6 +174,11 @@ export function trackOrderText(
 ): string {
   if (lines.length === 0) return "";
   const body = lines.map(trackOrderLine);
-  const note = noteCn?.trim();
-  return note ? [...body, note].join("\n") : body.join("\n");
+  return [
+    ...body,
+    ...trackOrderNotes(
+      lines.map((line) => line.options),
+      noteCn,
+    ),
+  ].join("\n");
 }

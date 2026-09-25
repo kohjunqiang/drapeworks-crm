@@ -255,7 +255,7 @@ describe("createZohoContact", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { createZohoContact } = await import("./books");
 
-    await expect(createZohoContact({ name: "Jia Jun", email: "jia@example.com", mobile: "91234567" })).resolves.toMatchObject({ contact_id: "c-1" });
+    await expect(createZohoContact({ name: "Jia Jun", email: "jia@example.com", mobile: "91234567", address: null })).resolves.toMatchObject({ contact_id: "c-1" });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body).toMatchObject({ contact_name: "Jia Jun", contact_type: "customer", customer_sub_type: "individual" });
@@ -269,7 +269,7 @@ describe("createZohoContact", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { createZohoContact } = await import("./books");
 
-    await createZohoContact({ name: "Jia Jun", email: null, mobile: "91234567" });
+    await createZohoContact({ name: "Jia Jun", email: null, mobile: "91234567", address: null });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.contact_persons).toEqual([{ first_name: "Jia Jun", mobile: "91234567", is_primary_contact: true }]);
@@ -280,10 +280,52 @@ describe("createZohoContact", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { createZohoContact } = await import("./books");
 
-    await createZohoContact({ name: "Jia Jun", email: "", mobile: null });
+    await createZohoContact({ name: "Jia Jun", email: "", mobile: null, address: null });
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.contact_persons).toEqual([{ first_name: "Jia Jun", is_primary_contact: true }]);
+  });
+
+  it("sends the site address as both billing and shipping address", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    const address = "Blk 123 Tampines St 11 #05-67 Singapore 521123";
+    await createZohoContact({ name: "Jia Jun", email: null, mobile: null, address });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.billing_address).toEqual({ address });
+    expect(body.shipping_address).toEqual({ address });
+  });
+
+  it("trims the address but preserves inner newlines", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await createZohoContact({ name: "Jia Jun", email: null, mobile: null, address: "  Blk 123 Tampines St 11\n#05-67 Singapore 521123  " });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.billing_address).toEqual({ address: "Blk 123 Tampines St 11\n#05-67 Singapore 521123" });
+    expect(body.shipping_address).toEqual({ address: "Blk 123 Tampines St 11\n#05-67 Singapore 521123" });
+  });
+
+  it("omits the address keys when the order has no usable address", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }))
+      .mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-2", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await createZohoContact({ name: "Jia Jun", email: null, mobile: null, address: null });
+    await createZohoContact({ name: "Jia Jun", email: null, mobile: null, address: "   " });
+
+    for (const call of fetchMock.mock.calls) {
+      const body = JSON.parse(String(call[1]?.body));
+      expect(body).not.toHaveProperty("billing_address");
+      expect(body).not.toHaveProperty("shipping_address");
+    }
   });
 
   it("never retries a non-idempotent contact POST", async () => {
@@ -291,7 +333,7 @@ describe("createZohoContact", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { createZohoContact } = await import("./books");
 
-    await expect(createZohoContact({ name: "Jia Jun", email: null, mobile: null })).rejects.toThrow("uncertain");
+    await expect(createZohoContact({ name: "Jia Jun", email: null, mobile: null, address: null })).rejects.toThrow("uncertain");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

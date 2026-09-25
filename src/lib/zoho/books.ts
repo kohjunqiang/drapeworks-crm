@@ -190,12 +190,15 @@ export async function getZohoContact(id: string): Promise<ZohoContact> {
   return json.contact;
 }
 
-export async function createZohoContact(input: { name: string; email: string | null; mobile: string | null }): Promise<ZohoContact> {
+export async function createZohoContact(input: { name: string; email: string | null; mobile: string | null; address: string | null }): Promise<ZohoContact> {
   const email = input.email?.trim();
   const mobile = input.mobile?.trim();
+  const address = input.address?.trim();
   // Zoho derives a contact's email/phone fields from its primary contact
   // person — top-level email/mobile keys are silently dropped — and defaults
-  // the subtype to business, so both must be sent explicitly.
+  // the subtype to business, so both must be sent explicitly. Estimates take
+  // Bill To / Ship To from the contact's billing/shipping address, so the
+  // order's site address is sent verbatim on both.
   const person = {
     first_name: input.name,
     ...(email ? { email } : {}),
@@ -204,7 +207,13 @@ export async function createZohoContact(input: { name: string; email: string | n
   };
   const json = await request<ZohoEnvelope & { contact?: ZohoContact }>("/contacts", {
     method: "POST",
-    body: JSON.stringify({ contact_name: input.name, contact_type: "customer", customer_sub_type: "individual", contact_persons: [person] }),
+    body: JSON.stringify({
+      contact_name: input.name,
+      contact_type: "customer",
+      customer_sub_type: "individual",
+      contact_persons: [person],
+      ...(address ? { billing_address: { address }, shipping_address: { address } } : {}),
+    }),
   });
   if (!json.contact) throw new Error("Zoho Books did not return the new customer");
   return json.contact;

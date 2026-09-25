@@ -58,7 +58,7 @@ async function authorizedOrder(orderId: string, write: boolean) {
     .innerJoin("customers", "customers.id", "orders.customer_id")
     .leftJoin("profiles", "profiles.id", "orders.consultant_id")
     .select([
-      "orders.id", "orders.display_id", "orders.order_reference", "orders.current_status", "orders.consultant_id",
+      "orders.id", "orders.display_id", "orders.order_reference", "orders.current_status", "orders.consultant_id", "orders.site_address",
       "customers.id as customer_id", "customers.name as customer_name", "customers.email as customer_email", "customers.mobile as customer_mobile",
       "profiles.full_name as consultant_name",
     ])
@@ -116,7 +116,7 @@ export async function createAndConfirmZohoCustomer(orderId: string) {
   if (existingEstimate?.zoho_estimate_id) throw new UserFacingError("The Zoho customer cannot be changed after an official draft exists");
   let contact;
   try {
-    contact = await createZohoContact({ name: order.customer_name, email: order.customer_email, mobile: order.customer_mobile });
+    contact = await createZohoContact({ name: order.customer_name, email: order.customer_email, mobile: order.customer_mobile, address: order.site_address });
   } catch (error) {
     // Never blindly retry a contact POST: Zoho may have committed it before a
     // response was lost. A refresh will surface the candidate for confirmation.

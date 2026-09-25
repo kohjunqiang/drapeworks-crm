@@ -294,6 +294,7 @@ async function loadLines(
       "windows.draw as draw",
       "windows.split_left_cm as split_left_cm",
       "windows.split_right_cm as split_right_cm",
+      "windows.side_installation as side_installation",
       "windows.blind_type_id as blind_type_id",
       "rooms.id as room_id",
       "rooms.label as room_label",
@@ -363,6 +364,9 @@ async function loadLines(
       openingLabel: opening,
       splitLeftCm: w.mfg_split_left_cm,
       splitRightCm: w.mfg_split_right_cm,
+      // A window fact, so every covering of this window carries it — though
+      // only a blind document's notes read it.
+      sideInstallation: w.side_installation,
     };
 
     // A window is ONE covering — day/night curtains or a blind, never a mix —

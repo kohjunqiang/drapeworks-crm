@@ -101,6 +101,7 @@ function line(over: Partial<PoLine> & Pick<PoLine, "lineId">): PoLine {
     fabricLabel: "清风麻 -2",
     blackout: false,
     sFold: false,
+    sideInstallation: false,
     draw: "Double",
     openingLabel: "对开 Double draw",
     mfgWidthCm: 274,
@@ -914,6 +915,77 @@ describe("buildPos — notes", () => {
     expect(pos[0].tables[0].rows[0].sFoldRemark).toBe(
       "需要蛇形，总数48走珠，单边24走珠",
     );
+  });
+
+  it("opens a blind document's notes with the side-installation instruction", () => {
+    const { pos } = buildPos(input({
+      lines: [line({
+        lineId: "side-blind",
+        kind: "blind",
+        category: "blind",
+        typeLabel: "卷帘",
+        sideInstallation: true,
+      })],
+    }));
+
+    expect(pos[0].notes).toBe("侧装，需要L型角码");
+  });
+
+  it("puts the side-installation instruction ahead of manual notes", () => {
+    const key = `${RISING.id}:blind`;
+    const { pos } = buildPos(input({
+      lines: [line({
+        lineId: "side-blind",
+        kind: "blind",
+        category: "blind",
+        typeLabel: "卷帘",
+        sideInstallation: true,
+      })],
+      notesByDocument: new Map([[key, "Manual note"]]),
+    }));
+
+    expect(pos[0].notes).toBe("侧装，需要L型角码\nManual note");
+  });
+
+  it("does not repeat the side-installation instruction already on the document", () => {
+    const key = `${RISING.id}:blind`;
+    const { pos } = buildPos(input({
+      lines: [line({
+        lineId: "side-blind",
+        kind: "blind",
+        category: "blind",
+        typeLabel: "卷帘",
+        sideInstallation: true,
+      })],
+      notesByDocument: new Map([[key, "侧装，需要L型角码\nManual note"]]),
+    }));
+
+    expect(pos[0].notes).toBe("侧装，需要L型角码\nManual note");
+  });
+
+  it("leaves a blind document's notes alone without side installation", () => {
+    const key = `${RISING.id}:blind`;
+    const { pos } = buildPos(input({
+      lines: [line({
+        lineId: "blind",
+        kind: "blind",
+        category: "blind",
+        typeLabel: "卷帘",
+      })],
+      notesByDocument: new Map([[key, "Manual note"]]),
+    }));
+
+    expect(pos[0].notes).toBe("Manual note");
+  });
+
+  it("does not put the side-installation instruction on a night document", () => {
+    // Curtains get the phrase through the rail order; the PO notes are not
+    // where a night document says it.
+    const { pos } = buildPos(input({
+      lines: [line({ lineId: "side-night", sideInstallation: true })],
+    }));
+
+    expect(pos[0].notes).toBe("都要绑带");
   });
 
   it.each([

@@ -16,6 +16,8 @@
 import type { FreightMode, RoomType } from "@/lib/db/schema";
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
 
+import { SIDE_INSTALLATION_NOTE_CN } from "./track-options";
+
 /** The singleton procurement_settings row, as the document needs it. */
 export type PoSettings = {
   companyName: string;
@@ -78,6 +80,13 @@ export type PoLine = {
   blackout: boolean;
   /** Whether this curtain uses an S-fold track and needs the supplier remark. */
   sFold: boolean;
+  /**
+   * windows.side_installation, carried on the covering. Only a blind document
+   * reads it: side installation needs L-brackets for the whole cut, and a
+   * blind has no rail order to say so, so the document opens its own notes
+   * with the same instruction the rail order prints for curtains.
+   */
+  sideInstallation: boolean;
   /** Raw draw direction, used to calculate runners per curtain side. */
   draw: "Double" | "Single Left" | "Single Right" | null;
   /**
@@ -482,10 +491,18 @@ function toRows(ready: ReadyLine, room: string, fullnessBps: number): PoRow[] {
 function documentNotes(
   category: PoCategory,
   existing: string | null | undefined,
+  hasSideInstallation: boolean,
 ): string | null {
   const cleaned = withoutLegacySFoldRemark(existing);
-  if (category !== "night") return cleaned;
   const lines = cleaned?.split("\n").map((line) => line.trim()) ?? [];
+  // A blind order has no rail order to carry the L-bracket instruction, so
+  // the document opens its own notes with the same line — first, and once.
+  if (category === "blind" && hasSideInstallation) {
+    return lines.includes(SIDE_INSTALLATION_NOTE_CN)
+      ? cleaned
+      : [SIDE_INSTALLATION_NOTE_CN, ...lines].filter(Boolean).join("\n");
+  }
+  if (category !== "night") return cleaned;
   return lines.includes(NIGHT_CURTAIN_BELT_NOTE)
     ? cleaned
     : [...lines, NIGHT_CURTAIN_BELT_NOTE].filter(Boolean).join("\n");
@@ -627,6 +644,7 @@ export function buildPos(input: PoInput): {
     const notes = documentNotes(
       category,
       input.notesByDocument?.get(`${vendorId}:${category}`),
+      ready.some((r) => r.line.sideInstallation),
     );
 
     pos.push({

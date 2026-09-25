@@ -63,6 +63,14 @@ export type TrackOption = {
 };
 
 /**
+ * The L-bracket instruction a side-installed window prints on its order —
+ * once, first in the notes. Curtains get it through the rail order (the
+ * orderNoteCn below); a blind has no rail line, so the blind purchase order
+ * reuses this exact string for its own notes.
+ */
+export const SIDE_INSTALLATION_NOTE_CN = "侧装，需要L型角码";
+
+/**
  * The registry, in rail-line order: this is the sequence the suffixes print
  * in ("…配连接器 S-Fold Slim Tracks 侧装 Side installation"), so reordering
  * it reorders the order sheet.
@@ -86,7 +94,7 @@ export const TRACK_OPTIONS: readonly TrackOption[] = [
     key: "side_installation",
     source: { kind: "window_column", column: "sideInstallation" },
     railLabel: "侧装 Side installation",
-    orderNoteCn: "侧装，需要L型角码",
+    orderNoteCn: SIDE_INSTALLATION_NOTE_CN,
     effect: { kind: "label" },
   },
   {

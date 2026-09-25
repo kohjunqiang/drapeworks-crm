@@ -29,6 +29,7 @@ import {
   getZohoBooksBinding,
   findZohoEstimatesByCrmQuoteKey,
   findZohoEstimateByNumber,
+  findZohoInvoicesByNumber,
   listZohoContacts,
   listZohoItems,
   markZohoEstimateSent,
@@ -183,6 +184,20 @@ async function storePdf(row: Pick<OrderQuotations, "id" | "order_id" | "zoho_est
   return { path, hash };
 }
 
+// Zoho's own invoice counter can already hold the number this quotation's
+// invoice will be renamed to at deposit time (QT-677820 → INV-677820) — e.g. a
+// hand-created invoice. Finding out at the rename is too late; the customer
+// already has the quote. Check the number is free before the quotation can go
+// out. The quotation's own stored invoice is allowed to hold it.
+async function assertInvoiceNumberFree(estimateNumber: string | null, ownInvoiceId: string | null) {
+  const invoiceNumber = invoiceNumberFor(estimateNumber);
+  if (!invoiceNumber) return;
+  const matches = await findZohoInvoicesByNumber(invoiceNumber);
+  if (matches.some((invoice) => invoice.invoice_id !== ownInvoiceId)) {
+    throw new UserFacingError(`${invoiceNumber} is already used by another invoice in Zoho, so this quotation's invoice could not be numbered to match. Change this quote's number in Zoho Books (or move Zoho's invoice counter), then press Update Zoho draft & refresh PDF before sending.`);
+  }
+}
+
 export async function syncQuotation(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
   const seed = await db.selectFrom("order_quotations").selectAll().where("id", "=", id).executeTakeFirst();
@@ -214,6 +229,7 @@ export async function syncQuotation(quotationId: string) {
     .returningAll().executeTakeFirst();
   if (!claimed) throw new UserFacingError("Quotation changed or is already syncing. Refresh and try again.");
 
+  let estimateNumber: string | null = null;
   try {
     if (seed.zoho_estimate_id) {
       const remote = await getZohoEstimate(seed.zoho_estimate_id);
@@ -264,12 +280,17 @@ export async function syncQuotation(quotationId: string) {
       return done;
     });
     if (!finalized) throw new UserFacingError("Quotation changed while Zoho was syncing. Reconcile before sending.");
+    estimateNumber = estimate.estimate_number;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Zoho sync failed";
     const conflict = message.includes("changed directly") || message.toLowerCase().includes("reconciliation") || message.includes("CRM Quote Key") || message.includes("could not be confirmed");
     await db.updateTable("order_quotations").set({ status: conflict ? "conflict" : "sync_failed", sync_error: message, sync_claim_token: null, sync_claimed_at: null }).where("id", "=", id).where("status", "=", "syncing").where("sync_claim_token", "=", claimToken).execute();
     throw error;
   } finally { revalidatePath(`/orders/${seed.order_id}`); }
+  // The finalized draft keeps its PDF at zoho_draft; a taken invoice number
+  // throws past the catch so the row is untouched and the consultant gets an
+  // early warning toast instead of a deposit-time failure.
+  if (!previouslySent) await assertInvoiceNumberFree(estimateNumber, seed.zoho_invoice_id);
 }
 
 export async function getQuotationPdfUrl(quotationId: string, download = false) {
@@ -362,6 +383,7 @@ export async function confirmQuotationSent(input: unknown) {
     await db.updateTable("order_quotations").set({ status: "conflict", sync_error: "Zoho changed after the last preview" }).where("id", "=", row.id).execute();
     throw new UserFacingError("Zoho changed after the last preview. Reconcile before sending.");
   }
+  await assertInvoiceNumberFree(row.zoho_estimate_number, row.zoho_invoice_id);
   const sendClaimToken = randomUUID();
   await db.transaction().execute(async (trx) => {
     const locked = await trx.selectFrom("orders").select(["current_status", "lead_id", "appointment_id"]).where("id", "=", row.order_id).forUpdate().executeTakeFirstOrThrow();

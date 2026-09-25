@@ -178,6 +178,12 @@ export async function findZohoEstimateByNumber(estimateNumber: string): Promise<
   return (json.estimates ?? []).filter((estimate) => estimate.estimate_number === estimateNumber.trim());
 }
 
+export async function findZohoInvoicesByNumber(invoiceNumber: string): Promise<ZohoInvoice[]> {
+  const query = new URLSearchParams({ invoice_number: invoiceNumber.trim(), per_page: "200" });
+  const json = await request<ZohoEnvelope & { invoices?: ZohoInvoice[] }>(`/invoices?${query}`);
+  return (json.invoices ?? []).filter((invoice) => invoice.invoice_number === invoiceNumber.trim());
+}
+
 export async function getZohoContact(id: string): Promise<ZohoContact> {
   const json = await request<ZohoEnvelope & { contact?: ZohoContact }>(`/contacts/${encodeURIComponent(id)}`);
   if (!json.contact) throw new Error("Zoho customer not found");

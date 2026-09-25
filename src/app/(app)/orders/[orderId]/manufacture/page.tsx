@@ -39,6 +39,7 @@ import {
 } from "@/lib/po/track-order";
 import {
   hasExtraOrder,
+  onStandardTrackOrder,
   railShipmentKind,
 } from "@/lib/po/track-options";
 import { loadTrackOrder } from "@/lib/po/track-order-load";
@@ -632,9 +633,7 @@ async function FrozenView({
   // Built on the server so the page ships the finished text: what is copied is
   // exactly what is on screen, with no second assembly in the browser.
   const standardTrackOrder = trackOrderText(
-    trackOrder.lines.filter(
-      (line) => railShipmentKind(line.options) === "standard_tracks",
-    ),
+    trackOrder.lines.filter((line) => onStandardTrackOrder(line.options)),
     trackOrder.noteCn,
   );
   const sFoldTrackOrder = trackOrderText(
@@ -728,10 +727,7 @@ async function FrozenView({
               title="Standard track order"
               text={standardTrackOrder}
               unmeasured={trackOrder.unmeasured
-                .filter(
-                  (line) =>
-                    railShipmentKind(line.options) === "standard_tracks",
-                )
+                .filter((line) => onStandardTrackOrder(line.options))
                 .map((line) => line.label)}
             />
           )}

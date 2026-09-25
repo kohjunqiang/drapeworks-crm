@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extraOrderSuffix,
   hasExtraOrder,
+  onStandardTrackOrder,
   railLineSuffix,
   railShipmentKind,
   resolveTrackOptions,
@@ -107,6 +108,34 @@ describe("extra order", () => {
     expect(extraOrderSuffix(opts({ overlap_tracks_attachment: true }))).toBe(
       " P6白色配交叉器",
     );
+  });
+});
+
+describe("onStandardTrackOrder", () => {
+  it("is true for a plain rail and for label-only options", () => {
+    expect(onStandardTrackOrder(opts())).toBe(true);
+    expect(onStandardTrackOrder(opts({ slim_tracks: true }))).toBe(true);
+    expect(onStandardTrackOrder(opts({ side_installation: true }))).toBe(true);
+  });
+
+  it("is false for an overlap window — its rail is ordered on the overlap card", () => {
+    expect(
+      onStandardTrackOrder(opts({ overlap_tracks_attachment: true })),
+    ).toBe(false);
+    expect(
+      onStandardTrackOrder(
+        opts({ slim_tracks: true, overlap_tracks_attachment: true }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false for an S-fold window, with or without the attachment", () => {
+    expect(onStandardTrackOrder(opts({ s_fold: true }))).toBe(false);
+    expect(
+      onStandardTrackOrder(
+        opts({ s_fold: true, overlap_tracks_attachment: true }),
+      ),
+    ).toBe(false);
   });
 });
 

@@ -10,7 +10,10 @@ import {
   trackOrderText,
   type TrackOrderLine,
 } from "./track-order";
-import type { TrackOptions } from "./track-options";
+import {
+  onStandardTrackOrder,
+  type TrackOptions,
+} from "./track-options";
 
 const opts = (over: Partial<TrackOptions> = {}): TrackOptions => ({
   s_fold: false,
@@ -373,6 +376,24 @@ describe("trackOrderText", () => {
         "加固包装",
       ].join("\n"),
     );
+  });
+
+  it("leaves an overlap window off the standard card — it is ordered there instead", () => {
+    // The standard card's filter: a plain 2.75 and an overlap 2.77 print only
+    // the 2.75, so the same rail is not ordered on both cards.
+    const lines = [
+      line({ widthCm: 275 }),
+      line({
+        widthCm: 277,
+        options: opts({ overlap_tracks_attachment: true }),
+      }),
+    ];
+    expect(
+      trackOrderText(
+        lines.filter((l) => onStandardTrackOrder(l.options)),
+        "加固包装",
+      ),
+    ).toBe("2.75米 双轨裁成1.375m 4根配连接器\n加固包装");
   });
 
   it("leaves the note off when there is none, rather than trailing a blank line", () => {

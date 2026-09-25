@@ -40,7 +40,7 @@ export type TrackOptionEffect =
     }
   /** Extra wording on the rail line; nothing else changes. */
   | { kind: "label" }
-  /** The window is ALSO listed on a second order, with this suffix. */
+  /** The window's full cut line is ordered on a second order, with this suffix. */
   | { kind: "extra_order"; orderSuffix: string };
 
 export type TrackOption = {
@@ -172,6 +172,15 @@ export function hasExtraOrder(options: TrackOptions): boolean {
   return TRACK_OPTIONS.some(
     (option) => option.effect.kind === "extra_order" && options[option.key],
   );
+}
+
+/**
+ * Whether the window prints on the standard track order. An overlap window's
+ * rail is standard-routed, but its full cut line is already ordered on the
+ * overlap card — listing it here too orders the same rail twice.
+ */
+export function onStandardTrackOrder(options: TrackOptions): boolean {
+  return railShipmentKind(options) === "standard_tracks" && !hasExtraOrder(options);
 }
 
 /**

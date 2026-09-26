@@ -22,7 +22,7 @@ const panel = (over: Record<string, unknown> = {}) => ({
 
 const order = (over: Record<string, unknown> = {}) => ({
   customer: { name: "Tan", mobile: "9123 4567" },
-  order: {},
+  order: { site_address: "12 Lynwood Grove, Singapore 358172" },
   rooms: [{ type: "Living Room", label: "Living", position: 0, panels: [panel()] }],
   ...over,
 });
@@ -189,15 +189,48 @@ describe("meshOrderCreateSchema", () => {
     expect(meshOrderEditSchema.safeParse(foreign).success).toBe(true);
   });
 
+  it("requires the installation address before creating an order", () => {
+    const r = meshOrderCreateSchema.safeParse(
+      order({ order: { site_address: "" } }),
+    );
+    expect(r.success).toBe(false);
+  });
+
   it("has no product_line field — it cannot be set through the schema", () => {
     const r = meshOrderCreateSchema.safeParse({
       ...order(),
-      order: { product_line: "curtain" },
+      order: {
+        site_address: "12 Lynwood Grove, Singapore 358172",
+        product_line: "curtain",
+      },
     });
     expect(r.success).toBe(true);
     if (r.success) {
       expect("product_line" in r.data.order).toBe(false);
     }
+  });
+});
+
+describe("meshOrderEditSchema", () => {
+  it("requires the installation address once the order is submitted", () => {
+    const r = meshOrderEditSchema.safeParse(
+      order({ order: { site_address: "", is_draft: false } }),
+    );
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find(
+        (i) => i.message === "Installation address is required",
+      );
+      expect(issue?.path).toEqual(["order", "site_address"]);
+    }
+  });
+
+  it("still saves a draft with a blank address", () => {
+    expect(
+      meshOrderEditSchema.safeParse(
+        order({ order: { site_address: "", is_draft: true } }),
+      ).success,
+    ).toBe(true);
   });
 });
 

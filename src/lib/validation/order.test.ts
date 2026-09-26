@@ -355,6 +355,46 @@ describe("orderCreateSchema / orderDraftSchema — lead_id", () => {
   });
 });
 
+describe("orderEditSchema — installation address", () => {
+  const editOrder = (order: Record<string, unknown>) => ({
+    ...MINIMAL_ORDER,
+    order: { ...MINIMAL_ORDER.order, ...order },
+  });
+
+  it("rejects a blank address once the order is submitted", () => {
+    const r = orderEditSchema.safeParse(
+      editOrder({ site_address: "", is_draft: false }),
+    );
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find(
+        (i) => i.message === "Installation address is required",
+      );
+      expect(issue?.path).toEqual(["order", "site_address"]);
+    }
+  });
+
+  it("rejects a whitespace-only address on submit", () => {
+    expect(
+      orderEditSchema.safeParse(editOrder({ site_address: "   " })).success,
+    ).toBe(false);
+  });
+
+  it("still saves a draft with a blank address", () => {
+    expect(
+      orderEditSchema.safeParse(
+        editOrder({ site_address: "", is_draft: true }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("accepts a submitted order once the address is filled", () => {
+    expect(
+      orderEditSchema.safeParse(editOrder({ is_draft: false })).success,
+    ).toBe(true);
+  });
+});
+
 describe("orderCreateSchema / orderDraftSchema — customer_id", () => {
   it("accepts an existing customer id for a repeat quote", () => {
     const customerId = crypto.randomUUID();

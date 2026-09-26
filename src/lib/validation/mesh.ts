@@ -23,6 +23,8 @@ import {
   optionalAppointmentId,
   optionalCustomerId,
   optionalLeadId,
+  requireSiteAddressWhenNotDraft,
+  requiredSiteAddress,
 } from "./order";
 
 // Mesh travels by sea unless a consultant explicitly selects air. Keep this
@@ -99,7 +101,7 @@ export const meshRoomSchema = z.object({
 
 export const meshOrderCreateSchema = z.object({
   customer: customerSchema,
-  order: meshOrderMetaSchema,
+  order: meshOrderMetaSchema.extend({ site_address: requiredSiteAddress }),
   rooms: z.array(meshRoomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
   lead_id: optionalLeadId,
@@ -158,11 +160,13 @@ export const meshRoomEditSchema = z.object({
   panels: z.array(meshPanelEditSchema).min(1, "At least one panel"),
 });
 
-export const meshOrderEditSchema = z.object({
-  customer: customerSchema,
-  order: meshOrderMetaSchema,
-  rooms: z.array(meshRoomEditSchema).min(1, "Add at least one room"),
-});
+export const meshOrderEditSchema = z
+  .object({
+    customer: customerSchema,
+    order: meshOrderMetaSchema,
+    rooms: z.array(meshRoomEditSchema).min(1, "Add at least one room"),
+  })
+  .superRefine(requireSiteAddressWhenNotDraft);
 
 export type MeshPanelInput = z.infer<typeof meshPanelSchema>;
 export type MeshRoomInput = z.infer<typeof meshRoomSchema>;

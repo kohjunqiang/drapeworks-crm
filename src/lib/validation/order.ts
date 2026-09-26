@@ -254,14 +254,38 @@ export const optionalAppointmentId = z.string().uuid().optional();
 export const optionalLeadId = z.string().uuid().optional();
 export const optionalCustomerId = z.string().uuid().optional();
 
+// Business rule: an order that goes ahead — anything that isn't a draft —
+// must have an installation address. Create schemas enforce it structurally
+// through this field; edit schemas enforce it via
+// requireSiteAddressWhenNotDraft so a saved draft may stay blank until it is
+// submitted.
+export const requiredSiteAddress = z
+  .string()
+  .trim()
+  .min(1, "Installation address is required")
+  .max(500);
+
+// Adds "Installation address is required" at ["order","site_address"] — the
+// exact path react-hook-form renders under errors.order.site_address — when a
+// non-draft order carries a blank address. is_draft defaults to false, so an
+// unstated flag counts as a submit.
+export function requireSiteAddressWhenNotDraft(
+  value: { order: { is_draft: boolean; site_address?: string } },
+  ctx: z.RefinementCtx,
+): void {
+  if (!value.order.is_draft && !value.order.site_address?.trim()) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["order", "site_address"],
+      message: "Installation address is required",
+    });
+  }
+}
+
 export const orderCreateSchema = z.object({
   customer: customerSchema,
   order: orderMetaSchema.extend({
-    site_address: z
-      .string()
-      .trim()
-      .min(1, "Installation address is required")
-      .max(500),
+    site_address: requiredSiteAddress,
   }),
   rooms: z.array(roomSchema).min(1, "Add at least one room"),
   appointment_id: optionalAppointmentId,
@@ -346,11 +370,13 @@ export const roomEditSchema = z.object({
   windows: z.array(windowEditSchema).min(1, "At least one window"),
 });
 
-export const orderEditSchema = z.object({
-  customer: customerSchema,
-  order: orderMetaSchema,
-  rooms: z.array(roomEditSchema).min(1, "Add at least one room"),
-});
+export const orderEditSchema = z
+  .object({
+    customer: customerSchema,
+    order: orderMetaSchema,
+    rooms: z.array(roomEditSchema).min(1, "Add at least one room"),
+  })
+  .superRefine(requireSiteAddressWhenNotDraft);
 
 export type OrderEditInput = z.infer<typeof orderEditSchema>;
 export type RoomEditInput = z.infer<typeof roomEditSchema>;

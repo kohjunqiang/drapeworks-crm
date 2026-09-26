@@ -11,7 +11,7 @@ vi.mock("@/lib/actions/order-customer", () => ({ resolveOrderCustomer: async () 
 vi.mock("@/lib/actions/order-shared", () => ({ SEQ_PLACEHOLDERS: {}, orderMetaColumns: () => ({}), stampQuoteBaseline: vi.fn(), cloneTemplateRoomPhotos: mocks.clone, sweepPhotoStorage: vi.fn(), collectOrphanPhotoPaths: vi.fn(), deleteDroppedRooms: vi.fn() }));
 import { createMeshOrder, createMeshOrderDraft } from "./mesh-orders";
 const input = {
-  customer: { name: "Test", mobile: "91234567" }, order: {},
+  customer: { name: "Test", mobile: "91234567" }, order: { site_address: "12 Lynwood Grove, Singapore 358172" },
   rooms: ["Living", "Bedroom"].map((label, position) => ({ type: "Living Room", label, position, panels: [{ position: 0, width_cm: 120.25, height_cm: 140.5, draw: "Single Left" }] })),
 };
 beforeEach(() => {

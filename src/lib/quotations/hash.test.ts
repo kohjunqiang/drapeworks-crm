@@ -8,12 +8,9 @@ import {
   matchesStoredZohoEstimate,
   quotePayloadHash,
 } from "./hash";
-import { toZohoEstimatePayload } from "./model";
+import { toLegacyZohoEstimatePayload, toZohoEstimatePayload } from "./model";
 
-// A payload as syncQuotation built it before the canonical fingerprint:
-// toZohoEstimatePayload emits request-only fields (discount_type,
-// is_inclusive_tax, salesperson_name) that a Zoho GET never echoes back.
-const legacyPayload = toZohoEstimatePayload({
+const legacyInput = {
   contactId: "contact-1",
   referenceNumber: "DW-2026-0042",
   issueDate: "2026-09-10",
@@ -26,7 +23,31 @@ const legacyPayload = toZohoEstimatePayload({
   terms: "50% deposit",
   salespersonName: "Kenny",
   templateId: "tmpl-1",
-});
+};
+
+// A payload as syncQuotation built it before the canonical fingerprint:
+// toZohoEstimatePayload emits request-only fields (discount_type,
+// is_inclusive_tax, salesperson_name) that a Zoho GET never echoes back.
+// This fixture is frozen as a literal — historical payloads carried the
+// discount as a bare number, and rebuilding it with the live outbound
+// builder (now "10%") would conceal a regression in the byte-for-byte
+// reconstruction the invoice path depends on.
+const legacyPayload = {
+  customer_id: "contact-1",
+  reference_number: "DW-2026-0042",
+  date: "2026-09-10",
+  expiry_date: "2026-09-17",
+  discount_type: "item_level",
+  is_inclusive_tax: false,
+  template_id: "tmpl-1",
+  salesperson_name: "Kenny",
+  notes: "leave with maid",
+  terms: "50% deposit",
+  line_items: [
+    { name: "Curtains and blinds", description: "", quantity: 1, rate: 1200, discount: 0 },
+    { item_id: "item-9", description: "day curtain", quantity: 2, rate: 450, discount: 10 },
+  ],
+};
 
 // The same estimate as Zoho echoes it back on GET: comparable fields identical,
 // plus remote-only fields the comparator ignores.
@@ -80,6 +101,26 @@ describe("estimateSnapshotHash", () => {
     expect(comparable).not.toHaveProperty("discount_type");
     expect(comparable).not.toHaveProperty("is_inclusive_tax");
     expect(comparable).not.toHaveProperty("salesperson_name");
+  });
+
+  it("reconstructs the historical numeric-discount payload byte-for-byte", () => {
+    // The invoice path accepts a legacy raw hash only when this rebuild
+    // matches it exactly; the legacy builder must keep emitting numbers.
+    expect(toLegacyZohoEstimatePayload(legacyInput)).toEqual(legacyPayload);
+  });
+
+  it("gives a percentage-string discount the same fingerprint as its remote echo", () => {
+    const payload = toZohoEstimatePayload({
+      ...legacyInput,
+      lines: [{ zohoItemId: null, name: "Curtains", description: "", quantity: 1, rateCents: 615_000, discountPercent: 15 }],
+    });
+    expect(payload.line_items[0].discount).toBe("15%");
+    const remote = {
+      ...remoteEstimate,
+      total: 5227.5,
+      line_items: [{ name: "Curtains", description: "", quantity: 1, rate: 6150, discount: "15%" }],
+    };
+    expect(estimateSnapshotHash(remote)).toBe(estimateSnapshotHash(payload));
   });
 });
 

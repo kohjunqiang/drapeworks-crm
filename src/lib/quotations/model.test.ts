@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultCustomerMessage, isGeneratedCustomerMessage, parseRateDraftCents, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "./model";
+import { defaultCustomerMessage, isGeneratedCustomerMessage, parseRateDraftCents, quotationDateOnly, quotationTotalCents, toLegacyZohoEstimatePayload, toZohoEstimatePayload } from "./model";
 import { matchesStoredZohoEstimate, quotePayloadHash } from "./hash";
+
+// The documented Zoho contract: a line discount string ending in "%" is a
+// percentage of the line; a bare number is a flat amount off the line.
+// Applying it to the serialized payload catches a regression that re-emits
+// the discount as a number — 15 would read as SGD 15.00 off, not 15%.
+function zohoInterpretedTotalCents(payload: ReturnType<typeof toZohoEstimatePayload>): number {
+  return payload.line_items.reduce((sum, line) => {
+    const grossCents = Math.round(Number(line.rate) * 100 * Number(line.quantity));
+    const discount = line.discount;
+    const discounted = typeof discount === "string" && discount.endsWith("%")
+      ? grossCents * (1 - Number.parseFloat(discount) / 100)
+      : grossCents - Number(discount) * 100;
+    return sum + Math.round(discounted);
+  }, 0);
+}
+
+const payloadInput = (lines: Parameters<typeof toZohoEstimatePayload>[0]["lines"]) => ({
+  contactId: "c1", referenceNumber: "DW-1 / Q1", issueDate: "2026-09-03", expiryDate: "2026-09-10",
+  notes: "n", terms: "t", salespersonName: null, templateId: "tpl", lines,
+});
 
 describe("quotation model", () => {
   it("formats database date values for HTML date inputs", () => {
@@ -42,9 +62,49 @@ describe("quotation model", () => {
       { zohoItemId: null, name: "Custom", description: "B", quantity: 2, rateCents: 500, discountPercent: 5 },
     ] });
     expect(payload.line_items).toEqual([
-      { item_id: "item1", description: "A", quantity: 1, rate: 123.45, discount: 0 },
-      { name: "Custom", description: "B", quantity: 2, rate: 5, discount: 5 },
+      { item_id: "item1", description: "A", quantity: 1, rate: 123.45, discount: "0%" },
+      { name: "Custom", description: "B", quantity: 2, rate: 5, discount: "5%" },
     ]);
+  });
+
+  // Reported bug: rate SGD 6150.00 x 1 at 15% must bill SGD 5227.50. Zoho
+  // reads a bare numeric 15 as a flat SGD 15.00 discount (SGD 6135.00), which
+  // is what the remote-total guard rejected.
+  it("serializes a 15% line discount as a percentage string Zoho totals at 5227.50", () => {
+    const lines = [{ zohoItemId: null, name: "Curtains", description: "", quantity: 1, rateCents: 615_000, discountPercent: 15 }];
+    const payload = toZohoEstimatePayload(payloadInput(lines));
+    expect(payload.line_items[0].discount).toBe("15%");
+    expect(zohoInterpretedTotalCents(payload)).toBe(522_750);
+    expect(zohoInterpretedTotalCents(payload)).toBe(quotationTotalCents(lines));
+  });
+
+  it.each([
+    [0, "0%"],
+    [12.5, "12.5%"],
+    [100, "100%"],
+  ])("serializes %i%% as the percentage string %s", (discountPercent, expected) => {
+    const lines = [{ zohoItemId: null, name: "Line", description: "", quantity: 1, rateCents: 615_000, discountPercent }];
+    const payload = toZohoEstimatePayload(payloadInput(lines));
+    expect(payload.line_items[0].discount).toBe(expected);
+    expect(zohoInterpretedTotalCents(payload)).toBe(quotationTotalCents(lines));
+  });
+
+  it("keeps Zoho-interpreted totals equal to the CRM total for fractional quantities and multiple lines", () => {
+    const lines = [
+      { zohoItemId: null, name: "Track", description: "", quantity: 2.5, rateCents: 100_000, discountPercent: 10 },
+      { zohoItemId: null, name: "Sheer", description: "", quantity: 1, rateCents: 615_000, discountPercent: 15 },
+    ];
+    const payload = toZohoEstimatePayload(payloadInput(lines));
+    expect(payload.line_items.map((line) => line.discount)).toEqual(["10%", "15%"]);
+    expect(zohoInterpretedTotalCents(payload)).toBe(quotationTotalCents(lines));
+    expect(zohoInterpretedTotalCents(payload)).toBe(747_750);
+  });
+
+  it("keeps the legacy reconstruction on the historical bare-number discount", () => {
+    const payload = toLegacyZohoEstimatePayload(payloadInput([
+      { zohoItemId: null, name: "Curtains", description: "", quantity: 1, rateCents: 615_000, discountPercent: 15 },
+    ]));
+    expect(payload.line_items[0].discount).toBe(15);
   });
 
   it("builds copy text from the exact total", () => {

@@ -61,7 +61,7 @@ vi.mock("@/lib/zoho/books", () => ({
 
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
 import { QUOTATION_INVOICED_MESSAGE } from "@/lib/quotations/lifecycle";
-import { toZohoEstimatePayload } from "@/lib/quotations/model";
+import { toLegacyZohoEstimatePayload } from "@/lib/quotations/model";
 import { UserFacingError } from "@/lib/user-facing-error";
 import { acknowledgeZohoConflict, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
 
@@ -75,8 +75,10 @@ const LINES = [
 
 // What the action rebuilds for a legacy raw-hash quotation: the exact payload
 // syncQuotation sent, reconstructed from persisted quote + order + consultant
-// + org binding.
-const legacyPayload = toZohoEstimatePayload({
+// + org binding. Frozen as a literal with the historical bare-number
+// discounts — building it from the live outbound builder (which now sends
+// "10%") would conceal a regression in the byte-for-byte reconstruction.
+const LEGACY_INPUT = {
   contactId: "contact-1",
   referenceNumber: "DW-1",
   issueDate: "2026-09-10",
@@ -86,7 +88,23 @@ const legacyPayload = toZohoEstimatePayload({
   terms: "50% deposit",
   salespersonName: "Kenny",
   templateId: "tmpl-1",
-});
+};
+const legacyPayload = {
+  customer_id: "contact-1",
+  reference_number: "DW-1",
+  date: "2026-09-10",
+  expiry_date: "2026-09-17",
+  discount_type: "item_level",
+  is_inclusive_tax: false,
+  template_id: "tmpl-1",
+  salesperson_name: "Kenny",
+  notes: "leave with maid",
+  terms: "50% deposit",
+  line_items: [
+    { name: "Curtains and blinds", description: "", quantity: 1, rate: 1200, discount: 0 },
+    { item_id: "item-9", description: "day curtain", quantity: 2, rate: 450, discount: 10 },
+  ],
+};
 const LEGACY_RAW_HASH = quotePayloadHash(legacyPayload);
 const CANONICAL_HASH = estimateSnapshotHash(legacyPayload as Record<string, unknown>);
 
@@ -220,6 +238,10 @@ beforeEach(() => {
 });
 
 describe("ensureZohoInvoiceForOrder legacy raw-hash compatibility", () => {
+  it("rebuilds the frozen historical payload, bare-number discounts included", () => {
+    expect(toLegacyZohoEstimatePayload(LEGACY_INPUT)).toEqual(legacyPayload);
+  });
+
   it("reconstructs the stored raw payload hash and proceeds to invoicing", async () => {
     setup({ quote: makeQuote(LEGACY_RAW_HASH), remote: makeRemote() });
     mocks.convertZohoEstimateToInvoice.mockResolvedValue({ invoice_id: "inv-1", invoice_number: "INV-1" });

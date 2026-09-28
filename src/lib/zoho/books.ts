@@ -40,7 +40,7 @@ export type ZohoEstimate = {
   currency_code?: string;
   notes?: string;
   terms?: string;
-  line_items?: Array<{ item_id?: string; name?: string; description?: string; quantity: number; rate: number; discount?: number }>;
+  line_items?: Array<{ item_id?: string; name?: string; description?: string; quantity: number; rate: number; discount?: number | string }>;
   custom_fields?: Array<{ customfield_id?: string; api_name?: string; value?: unknown; label?: string }>;
 };
 

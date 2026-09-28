@@ -53,7 +53,7 @@ export function isGeneratedCustomerMessage(
   );
 }
 
-export function toZohoEstimatePayload(input: {
+type ZohoEstimatePayloadInput = {
   contactId: string;
   referenceNumber: string;
   issueDate: string;
@@ -63,7 +63,9 @@ export function toZohoEstimatePayload(input: {
   terms: string;
   salespersonName: string | null;
   templateId: string | null;
-}) {
+};
+
+function buildZohoEstimatePayload(input: ZohoEstimatePayloadInput, discount: (percent: number) => number | string) {
   return {
     customer_id: input.contactId,
     reference_number: input.referenceNumber,
@@ -80,7 +82,22 @@ export function toZohoEstimatePayload(input: {
       description: line.description,
       quantity: line.quantity,
       rate: line.rateCents / 100,
-      discount: line.discountPercent,
+      discount: discount(line.discountPercent),
     })),
   };
+}
+
+// Zoho Books reads a bare numeric line discount as a flat amount — 15 meant
+// SGD 15.00 off, not 15%. A percentage discount must carry the "%" sign, so
+// every outbound payload serializes the stored percent verbatim ("15%").
+export function toZohoEstimatePayload(input: ZohoEstimatePayloadInput) {
+  return buildZohoEstimatePayload(input, (percent) => `${percent}%`);
+}
+
+// Quotations synced before the percentage fix stored hash(full payload) with
+// the discount as a bare number. Invoice-time verification rebuilds exactly
+// those bytes, so this variant preserves the historical serialization and is
+// never used for a live request.
+export function toLegacyZohoEstimatePayload(input: ZohoEstimatePayloadInput) {
+  return buildZohoEstimatePayload(input, (percent) => percent);
 }

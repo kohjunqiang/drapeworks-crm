@@ -46,7 +46,7 @@ import {
 import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate } from "@/lib/quotations/hash";
 import { invoiceNumberFor } from "@/lib/quotations/document-numbers";
 import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, QUOTATION_INVOICED_MESSAGE, quotationBreakdown } from "@/lib/quotations/lifecycle";
-import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
+import { defaultCustomerMessage, quotationDateOnly, quotationTotalCents, toLegacyZohoEstimatePayload, toZohoEstimatePayload } from "@/lib/quotations/model";
 import { actionErrorMessage, toActionResult, UserFacingError } from "@/lib/user-facing-error";
 
 const BUCKET = "customer-quotations";
@@ -729,11 +729,13 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<void> 
       // Rebuild that exact payload from the persisted quotation; the legacy
       // hash is accepted only when it matches byte-for-byte AND its canonical
       // form equals the live remote snapshot, so any drift still rejects.
+      // Those payloads predate the percentage-discount fix and serialized the
+      // discount as a bare number, so the reconstruction must too.
       const consultant = order.consultant_id
         ? await db.selectFrom("profiles").select("full_name").where("id", "=", order.consultant_id).executeTakeFirst()
         : null;
       const binding = await getZohoBooksBinding();
-      const legacyPayload = toZohoEstimatePayload({
+      const legacyPayload = toLegacyZohoEstimatePayload({
         contactId: quote.zoho_contact_id,
         referenceNumber: order.order_reference || order.display_id,
         issueDate: quotationDateOnly(quote.issue_date),

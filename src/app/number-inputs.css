@@ -1,0 +1,16 @@
+/* Hide the native up/down spinners on number inputs everywhere — the shared
+   <Input> and raw type="number" fields alike. Typing, arrow keys and
+   min/max/step validation are unaffected. Kept in its own plain-CSS file (no
+   Tailwind directives) so a test fixture can link the same rules the app
+   ships; imported by globals.css. Wheel-stepping is guarded separately by
+   src/lib/number-input-wheel-guard.ts. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

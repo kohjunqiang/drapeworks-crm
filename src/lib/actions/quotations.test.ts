@@ -62,7 +62,7 @@ vi.mock("@/lib/zoho/books", () => ({
 import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
 import { QUOTATION_INVOICED_MESSAGE } from "@/lib/quotations/lifecycle";
 import { toLegacyZohoEstimatePayload } from "@/lib/quotations/model";
-import { UserFacingError } from "@/lib/user-facing-error";
+import { ZohoEstimateConversionRejectedError } from "@/lib/zoho/conversion-error";
 import { acknowledgeZohoConflict, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
@@ -297,83 +297,174 @@ describe("ensureZohoInvoiceForOrder legacy raw-hash compatibility", () => {
   });
 });
 
-describe("invoice numbering on the quotation's suffix", () => {
+describe("Zoho-owned invoice numbering and conversion outcomes", () => {
   // The estimate gains its invoice link only after conversion: a first read
   // without invoice_ids lets the action convert, later reads carry the link
   // for verification.
   const unlinkedRemote = () => makeRemote({ estimate_number: "QT-677816", invoice_ids: [] });
   const linkedRemote = () => makeRemote({ estimate_number: "QT-677816", invoice_ids: ["inv-1"] });
+  const zohoInvoice = () => ({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010 });
   const recordedPayment = () => {
     mocks.createZohoCustomerPayment.mockResolvedValue({ payment_id: "pay-1", payment_number: "91" });
     mocks.getZohoCustomerPayment.mockResolvedValue({
       payment_id: "pay-1", payment_number: "91", customer_id: "contact-1",
       payment_mode: "PayNow", amount: 1000, account_id: "acc-1",
-      invoices: [{ invoice_id: "inv-1", invoice_number: "INV-677816", amount_applied: 1000 }],
+      invoices: [{ invoice_id: "inv-1", invoice_number: "INV-900001", amount_applied: 1000 }],
     });
   };
 
-  it("renames an auto-numbered invoice and stores the tallied number", async () => {
+  it("keeps the Zoho-assigned invoice number and records the deposit against it", async () => {
     setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
     mocks.getZohoEstimate.mockResolvedValueOnce(unlinkedRemote());
     mocks.convertZohoEstimateToInvoice.mockResolvedValue({ invoice_id: "inv-1", invoice_number: "INV-900001" });
-    mocks.getZohoInvoice
-      .mockResolvedValueOnce({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010 })
-      .mockResolvedValueOnce({ invoice_id: "inv-1", invoice_number: "INV-677816", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010 });
-    mocks.renameZohoInvoice.mockResolvedValue({ invoice_id: "inv-1", invoice_number: "INV-677816" });
+    mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
     recordedPayment();
 
     await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
 
-    expect(mocks.renameZohoInvoice).toHaveBeenCalledWith("inv-1", "INV-677816");
-    expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(2);
-    const finalized = setCalls.find((values) => values.invoice_sync_state === "created");
-    expect(finalized).toMatchObject({ zoho_invoice_id: "inv-1", zoho_invoice_number: "INV-677816" });
-  });
-
-  it("does not rename an invoice that already carries the expected number", async () => {
-    setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
-    mocks.getZohoInvoice.mockResolvedValue({ invoice_id: "inv-1", invoice_number: "INV-677816", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010 });
-    recordedPayment();
-
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
-
+    expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledWith("est-1");
+    expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
     expect(mocks.renameZohoInvoice).not.toHaveBeenCalled();
+    expect(mocks.assertZohoInvoiceNumberingReady).not.toHaveBeenCalled();
     expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(1);
+    expect(mocks.createZohoCustomerPayment).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "inv-1" }));
+    const finalized = setCalls.find((values) => values.invoice_sync_state === "created");
+    expect(finalized).toMatchObject({ zoho_invoice_id: "inv-1", zoho_invoice_number: "INV-900001" });
   });
 
-  it("fails before conversion and releases the claim when invoice numbering consent is missing", async () => {
+  it("reuses the linked invoice on retry without reconverting or renumbering", async () => {
     setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
-    mocks.assertZohoInvoiceNumberingReady.mockRejectedValue(
-      new UserFacingError("Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again."));
+    mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
+    recordedPayment();
 
-    const result = await ensureZohoInvoiceForOrderUi(ORDER_ID);
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
 
-    expect(result).toEqual({
-      ok: false,
-      error: "Zoho Books needs permission to number invoices. Nothing was sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept. Then try again.",
-    });
     expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
-    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
-    expect(setCalls.some((values) => values.invoice_sync_state === "failed")).toBe(true);
-    expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(false);
+    expect(mocks.renameZohoInvoice).not.toHaveBeenCalled();
+    const finalized = setCalls.find((values) => values.invoice_sync_state === "created");
+    expect(finalized).toMatchObject({ zoho_invoice_id: "inv-1", zoho_invoice_number: "INV-900001" });
   });
 
-  it("fails the claim and names the intended number when Zoho rejects the rename", async () => {
+  it("fails with the refusal code when Zoho rejects the conversion and no invoice links", async () => {
+    setup({ quote: makeQuote(CANONICAL_HASH), remote: unlinkedRemote() });
+    mocks.convertZohoEstimateToInvoice.mockRejectedValue(new ZohoEstimateConversionRejectedError(1002));
+
+    vi.useFakeTimers();
+    try {
+      const pending = ensureZohoInvoiceForOrderUi(ORDER_ID);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain("rejected the invoice conversion (code 1002)");
+        expect(result.error).toContain("Zoho Books");
+        expect(result.error).not.toContain("five minutes");
+        expect(result.error).not.toContain("lost");
+        expect(result.error).not.toContain("Some of the quotes");
+      }
+      expect(setCalls.some((values) => values.invoice_sync_state === "failed")).toBe(true);
+      expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(false);
+      expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
+      expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reconciles a bare-acknowledgement conversion through the estimate link", async () => {
     setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
-    mocks.getZohoInvoice.mockResolvedValue({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010 });
-    mocks.renameZohoInvoice.mockRejectedValue(new Error("The invoice number already exists"));
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate.mockResolvedValueOnce(unlinkedRemote()).mockResolvedValue(linkedRemote());
+    // The documented success shape: top-level code 0, no invoice object.
+    mocks.convertZohoEstimateToInvoice.mockResolvedValue(null);
+    mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
+    recordedPayment();
+
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
+
+    expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
+    expect(mocks.createZohoCustomerPayment).toHaveBeenCalled();
+    const finalized = setCalls.find((values) => values.invoice_sync_state === "created");
+    expect(finalized).toMatchObject({ zoho_invoice_id: "inv-1", zoho_invoice_number: "INV-900001" });
+  });
+
+  it("stays uncertain when an acknowledged conversion never links an invoice", async () => {
+    setup({ quote: makeQuote(CANONICAL_HASH), remote: unlinkedRemote() });
+    mocks.convertZohoEstimateToInvoice.mockResolvedValue(null);
+
+    vi.useFakeTimers();
+    try {
+      const pending = ensureZohoInvoiceForOrderUi(ORDER_ID);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await pending;
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Zoho confirmed the quotation conversion but no invoice is linked to it yet. Wait five minutes, then check again; creation is locked meanwhile.",
+      });
+      expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(true);
+      expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
+      expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reuses the linked invoice even when the conversion response was a refusal", async () => {
+    setup({ quote: makeQuote(CANONICAL_HASH), remote: linkedRemote() });
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate.mockResolvedValueOnce(unlinkedRemote()).mockResolvedValue(linkedRemote());
+    mocks.convertZohoEstimateToInvoice.mockRejectedValue(new ZohoEstimateConversionRejectedError(1002));
+    mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
+    recordedPayment();
+
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
+
+    expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
+    expect(mocks.createZohoCustomerPayment).toHaveBeenCalled();
+  });
+
+  it("keeps the lost-response uncertainty when the conversion errors and nothing links", async () => {
+    setup({ quote: makeQuote(CANONICAL_HASH), remote: unlinkedRemote() });
+    mocks.convertZohoEstimateToInvoice.mockRejectedValue(new Error("socket timeout"));
+
+    vi.useFakeTimers();
+    try {
+      const pending = ensureZohoInvoiceForOrderUi(ORDER_ID);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain("response was lost");
+        expect(result.error).toContain("five minutes");
+      }
+      expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(true);
+      expect(setCalls.some((values) => values.invoice_sync_state === "failed")).toBe(false);
+      expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
+      expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays uncertain when the post-conversion link check itself fails", async () => {
+    setup({ quote: makeQuote(CANONICAL_HASH), remote: unlinkedRemote() });
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate
+      .mockResolvedValueOnce(unlinkedRemote())
+      .mockRejectedValue(new Error("RAW-SECRET-503 oauth_token=abc123"));
+    mocks.convertZohoEstimateToInvoice.mockRejectedValue(new ZohoEstimateConversionRejectedError(1002));
 
     const result = await ensureZohoInvoiceForOrderUi(ORDER_ID);
 
     expect(result).toEqual({
       ok: false,
-      error: "The Zoho invoice was created but could not be numbered INV-677816 (The invoice number already exists). Fix the number in Zoho Books or retry.",
+      error: "The Zoho invoice and deposit could not be recorded. Refresh the order and try again.",
     });
-    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
-    // The stored invoice id lets the retry re-enter and re-attempt the rename,
-    // so this is a failure, not an uncertainty.
-    expect(setCalls.some((values) => values.invoice_sync_state === "failed")).toBe(true);
-    expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(false);
+    expect(setCalls.some((values) => values.invoice_sync_state === "uncertain")).toBe(true);
+    expect(setCalls.some((values) => values.invoice_sync_state === "failed")).toBe(false);
   });
 });
 
@@ -852,17 +943,16 @@ describe("syncQuotation for a previously-sent quotation", () => {
     expect(insertCalls.find((values) => "version" in values)).toBeUndefined();
   });
 
-  it("rejects a never-sent quotation when its invoice number is taken, keeping the finalized zoho_draft", async () => {
-    // INV-677819 is the number the converted invoice would be renamed to at
-    // deposit time; a hand-numbered Zoho invoice already holds it. The sync's
-    // catch update is guarded by status "syncing", so the finalized draft is
-    // not overwritten and no sync_failed/conflict write happens.
+  it("syncs a never-sent quotation even when another Zoho invoice holds the matching number", async () => {
+    // Zoho Books owns invoice numbering; an unrelated invoice holding the
+    // quotation's suffix no longer gates the send.
     const row = { ...makeQuote(CANONICAL_HASH), status: "local_draft", sent_at: null, zoho_estimate_id: "est-1", zoho_last_modified_time: "t1", updated_at: UPDATED_AT };
     setupSync(row, makeRemote({ status: "sent", last_modified_time: "t1" }), [makeRemote({ status: "sent", last_modified_time: "t2" })]);
     mocks.findZohoInvoicesByNumber.mockResolvedValue([{ invoice_id: "other", invoice_number: "INV-677819" }]);
 
-    await expect(syncQuotation(QUOTE_ID)).rejects.toThrow("INV-677819 is already used by another invoice in Zoho");
+    await syncQuotation(QUOTE_ID);
 
+    expect(mocks.findZohoInvoicesByNumber).not.toHaveBeenCalled();
     expect(setCalls.find((values) => values.status === "zoho_draft")).toBeTruthy();
     expect(setCalls.find((values) => values.status === "sync_failed")).toBeUndefined();
     expect(setCalls.find((values) => values.status === "conflict")).toBeUndefined();
@@ -888,30 +978,17 @@ describe("confirmQuotationSent first send", () => {
   });
 });
 
-describe("invoice number clash before the quote goes to the customer", () => {
-  it("confirmQuotationSent refuses the send claim when another Zoho invoice holds the tallied number", async () => {
+describe("invoice numbers owned by Zoho before the quote goes to the customer", () => {
+  it("confirmQuotationSent proceeds even when another Zoho invoice holds the matching number", async () => {
     setupQuoteFlow({ quotationReads: [quoteFlowZohoDraftRow(null)], remote: makeRemote({ status: "draft" }) });
     mocks.findZohoInvoicesByNumber.mockResolvedValue([{ invoice_id: "other", invoice_number: "INV-677815" }]);
-
-    await expect(confirmQuotationSent({ quotationId: QUOTE_ID, channel: "WhatsApp", note: "" }))
-      .rejects.toThrow("INV-677815 is already used by another invoice in Zoho");
-
-    expect(mocks.findZohoInvoicesByNumber).toHaveBeenCalledWith("INV-677815");
-    expect(setCalls.some((values) => values.status === "sending" || values.status === "sent")).toBe(false);
-    expect(mocks.markZohoEstimateSent).not.toHaveBeenCalled();
-  });
-
-  it("confirmQuotationSent proceeds when the only match is the row's own Zoho invoice", async () => {
-    setupQuoteFlow({
-      quotationReads: [{ ...quoteFlowZohoDraftRow(null), zoho_invoice_id: "inv-own" }],
-      remote: makeRemote({ status: "sent" }),
-    });
-    mocks.findZohoInvoicesByNumber.mockResolvedValue([{ invoice_id: "inv-own", invoice_number: "INV-677815" }]);
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate.mockResolvedValueOnce(makeRemote({ status: "draft" })).mockResolvedValueOnce(makeRemote({ status: "sent", last_modified_time: "after-send" }));
 
     await confirmQuotationSent({ quotationId: QUOTE_ID, channel: "WhatsApp", note: "" });
 
+    expect(mocks.findZohoInvoicesByNumber).not.toHaveBeenCalled();
     expect(setCalls.find((values) => values.status === "sent")).toBeTruthy();
-    expect(mocks.markZohoEstimateSent).not.toHaveBeenCalled();
   });
 });
 

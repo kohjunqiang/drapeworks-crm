@@ -113,6 +113,62 @@ describe("Zoho Books transport safety", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("treats the documented bare acknowledgement as a conversion to reconcile", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, message: "The invoices have been created." }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const { convertZohoEstimateToInvoice } = await import("./books");
+    await expect(convertZohoEstimateToInvoice("estimate")).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the inline invoice when Zoho includes one", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, invoice: { invoice_id: "inv-1", invoice_number: "INV-9" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { convertZohoEstimateToInvoice } = await import("./books");
+    await expect(convertZohoEstimateToInvoice("estimate")).resolves.toMatchObject({ invoice_id: "inv-1", invoice_number: "INV-9" });
+  });
+
+  it("recognizes a nested per-estimate refusal as a rejection, not a lost response", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({
+        code: 0,
+        message: "Selected quotes have been converted to invoices.",
+        data: { code: 1002, ids: ["estimate"], message: "Some of the quotes cannot be converted to Invoices." },
+      }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const { convertZohoEstimateToInvoice } = await import("./books");
+    const { ZohoEstimateConversionRejectedError } = await import("./conversion-error");
+    const error = await convertZohoEstimateToInvoice("estimate").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ZohoEstimateConversionRejectedError);
+    expect((error as { code?: number }).code).toBe(1002);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects even when a refusal arrives alongside an invoice object", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({
+        code: 0,
+        invoice: { invoice_id: "inv-1" },
+        data: { code: 1002, ids: ["estimate"] },
+      }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+    const { convertZohoEstimateToInvoice } = await import("./books");
+    const { ZohoEstimateConversionRejectedError } = await import("./conversion-error");
+    await expect(convertZohoEstimateToInvoice("estimate")).rejects.toBeInstanceOf(ZohoEstimateConversionRejectedError);
+  });
+
+  it("treats loosely-shaped data as an acknowledgement, not a refusal", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, data: { code: "1002" } }))
+      .mockResolvedValueOnce(envelope({ code: 0, data: [{ code: 1002 }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { convertZohoEstimateToInvoice } = await import("./books");
+    await expect(convertZohoEstimateToInvoice("estimate")).resolves.toBeNull();
+    await expect(convertZohoEstimateToInvoice("estimate")).resolves.toBeNull();
+  });
+
   it("renames an invoice with auto-number generation disabled", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(envelope({ code: 0, invoice: { invoice_id: "inv-1", invoice_number: "INV-677816" } }));

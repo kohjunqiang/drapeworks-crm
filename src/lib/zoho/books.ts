@@ -3,6 +3,7 @@ import "server-only";
 import { UserFacingError } from "@/lib/user-facing-error";
 
 import { getZohoAccessContext, getZohoConnectionSummary } from "./connection";
+import { ZohoEstimateConversionRejectedError } from "./conversion-error";
 
 type ZohoEnvelope = { code?: number; message?: string; [key: string]: unknown };
 
@@ -335,11 +336,29 @@ export async function markZohoEstimateSent(id: string): Promise<void> {
   await request(`/estimates/${encodeURIComponent(id)}/status/sent`, { method: "POST" });
 }
 
-export async function convertZohoEstimateToInvoice(id: string): Promise<{ invoice_id: string; invoice_number?: string }> {
-  const json = await request<ZohoEnvelope & { invoices?: Array<{ invoice_id: string; invoice_number?: string }>; invoice?: { invoice_id: string; invoice_number?: string } }>(`/invoices/fromestimates?estimate_ids=${encodeURIComponent(id)}`, { method: "POST" });
+// Zoho's documented success for this endpoint is the bare envelope
+// {code:0,message:"The invoices have been created."} — no invoice object — so
+// a missing inline id is an acknowledgement, not a failure: return null and
+// let the caller reconcile through the estimate's authoritative invoice_ids.
+// A per-estimate refusal is reported only inside `data` as a numeric nonzero
+// code under the same code:0 envelope; it is checked before any inline
+// invoice so an error mixed with an invoice object can never bypass
+// reconciliation.
+export async function convertZohoEstimateToInvoice(id: string): Promise<{ invoice_id: string; invoice_number?: string } | null> {
+  const json = await request<ZohoEnvelope & { invoices?: Array<{ invoice_id: string; invoice_number?: string }>; invoice?: { invoice_id: string; invoice_number?: string }; data?: unknown }>(`/invoices/fromestimates?estimate_ids=${encodeURIComponent(id)}`, { method: "POST" });
+  const rejection = conversionRejectionCode(json.data);
+  if (rejection !== null) throw new ZohoEstimateConversionRejectedError(rejection);
   const invoice = json.invoice ?? json.invoices?.[0];
-  if (!invoice?.invoice_id) throw new Error("Zoho Books did not return the invoice it created");
-  return invoice;
+  return invoice?.invoice_id ? invoice : null;
+}
+
+// Only a plain-object `data` carrying a numeric nonzero code is treated as a
+// rejection; anything looser (string codes, arrays, missing data) stays on
+// the conservative uncertain path.
+function conversionRejectionCode(data: unknown): number | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const code = (data as { code?: unknown }).code;
+  return typeof code === "number" && Number.isFinite(code) && code !== 0 ? code : null;
 }
 
 export async function getZohoInvoice(id: string): Promise<ZohoInvoice> {

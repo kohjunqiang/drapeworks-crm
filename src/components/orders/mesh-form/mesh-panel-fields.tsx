@@ -83,8 +83,12 @@ export function MeshPanelFields({
   // and the factory gets exactly what was measured.
   const splitSum = Number(splitLeft ?? 0) + Number(splitRight ?? 0);
   const width = Number(widthCm ?? 0);
+  // Two-decimal cm inputs can sum with binary float residue (120.1 + 119.2 =
+  // 239.29999999999998), so compare within half the input resolution rather
+  // than exactly — a real mismatch differs by at least 0.01.
   const splitMismatch =
-    isDouble && width > 0 && splitSum > 0 && splitSum !== width;
+    isDouble && width > 0 && splitSum > 0 && Math.abs(splitSum - width) > 0.005;
+  const splitSumDisplay = Math.round(splitSum * 100) / 100;
 
   // Derived, never stored and never editable: width and draw decide it, and one
   // source of truth means changing the matrix changes every order.
@@ -262,6 +266,8 @@ export function MeshPanelFields({
           <div className="flex items-center gap-2">
             <input
               type="number"
+              step="0.01"
+              inputMode="decimal"
               placeholder="Left"
               aria-label="Left leaf width in cm"
               className={INPUT_CLS}
@@ -270,6 +276,8 @@ export function MeshPanelFields({
             <span className="text-slate-400 text-sm">+</span>
             <input
               type="number"
+              step="0.01"
+              inputMode="decimal"
               placeholder="Right"
               aria-label="Right leaf width in cm"
               className={INPUT_CLS}
@@ -278,7 +286,8 @@ export function MeshPanelFields({
           </div>
           {splitMismatch && (
             <p className="mt-1 text-xs text-amber-700">
-              Left + right is {splitSum} cm but the width is {width} cm. Saved
+              Left + right is {splitSumDisplay} cm but the width is {width}{" "}
+              cm. Saved
               as measured — check if that&rsquo;s not intended.
             </p>
           )}

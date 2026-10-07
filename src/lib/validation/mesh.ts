@@ -17,7 +17,6 @@ import { z } from "zod";
 import {
   ROOM_TYPE_VALUES,
   customerSchema,
-  optionalInt,
   optionalTypeId,
   orderMetaSchema,
   optionalAppointmentId,
@@ -86,8 +85,12 @@ export const meshPanelSchema = z.object({
   // These SHOULD sum to width_cm, but a mismatch is deliberately not a
   // validation error — a consultant must never be blocked on site by a 1 cm
   // discrepancy. The form shows an amber hint; the schema accepts the values.
-  split_left_cm: optionalInt,
-  split_right_cm: optionalInt,
+  //
+  // Same measurement rules as width/height: a leaf can fall on a fraction of
+  // a centimetre (e.g. 120 + 119.5 across a 239.5 opening), and the DB column
+  // is double precision.
+  split_left_cm: optionalMeasurement,
+  split_right_cm: optionalMeasurement,
   notes: z.string().max(2000).optional(),
 });
 

@@ -126,6 +126,76 @@ describe("meshPanelSchema", () => {
     );
     expect(r.success).toBe(true);
   });
+
+  it("accepts fractional leaf widths, as numbers and form strings", () => {
+    for (const value of [119.5, 119.25, "119.5", "119.25", "0.01"]) {
+      const r = meshPanelSchema.safeParse(
+        panel({ draw: "Double", split_left_cm: value, split_right_cm: value }),
+      );
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect(r.data.split_left_cm).toBe(Number(value));
+        expect(r.data.split_right_cm).toBe(Number(value));
+      }
+    }
+  });
+
+  it("accepts the reported case: 120 + 119.5 across a 239.5 opening", () => {
+    const r = meshPanelSchema.safeParse(
+      panel({
+        draw: "Double",
+        width_cm: 239.5,
+        split_left_cm: 120,
+        split_right_cm: 119.5,
+      }),
+    );
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts a valid decimal split that mismatches the width", () => {
+    // Still warning-only — a fractional mismatch is no more blocking than an
+    // integer one. 120.1 + 119.2 = 239.3, genuinely short of the 240 width.
+    const r = meshPanelSchema.safeParse(
+      panel({
+        draw: "Double",
+        width_cm: 240,
+        split_left_cm: 120.1,
+        split_right_cm: 119.2,
+      }),
+    );
+    expect(r.success).toBe(true);
+  });
+
+  it("normalises blank splits to null, not a validation error", () => {
+    const r = meshPanelSchema.safeParse(
+      panel({ draw: "Double", split_left_cm: "", split_right_cm: null }),
+    );
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.split_left_cm).toBeNull();
+      expect(r.data.split_right_cm).toBeNull();
+    }
+  });
+
+  it("rejects splits past 2 decimals, non-positive, or over 1000 cm", () => {
+    for (const value of [119.255, "119.255", 0, -1, 1000.01, "invalid"]) {
+      expect(
+        meshPanelSchema.safeParse(panel({ split_left_cm: value })).success,
+      ).toBe(false);
+      expect(
+        meshPanelSchema.safeParse(panel({ split_right_cm: value })).success,
+      ).toBe(false);
+    }
+  });
+
+  it("still accepts splits on a non-double draw — nulling is persistence's job", () => {
+    // meshPanelValues nulls splits when draw isn't Double; the schema itself
+    // has never rejected them, and that stays unchanged.
+    const r = meshPanelSchema.safeParse(
+      panel({ draw: "Single Left", split_left_cm: 119.5, split_right_cm: 120 }),
+    );
+    expect(r.success).toBe(true);
+  });
 });
 
 describe("meshDrawIsDouble", () => {

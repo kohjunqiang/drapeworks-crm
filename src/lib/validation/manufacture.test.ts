@@ -223,6 +223,63 @@ describe("confirmManufactureSchema", () => {
     }
   });
 
+  it("accepts a single bead count or a left/right pair", () => {
+    const single = confirmManufactureSchema.parse({
+      orderId: ORDER_ID,
+      lines: [{ lineId: LINE_ID, kind: "window", sFoldBeadCount: 28 }],
+    });
+    expect(single.lines[0].sFoldBeadCount).toBe(28);
+    const pair = confirmManufactureSchema.parse({
+      orderId: ORDER_ID,
+      lines: [
+        {
+          lineId: LINE_ID,
+          kind: "window",
+          sFoldBeadLeft: 20,
+          sFoldBeadRight: 36,
+        },
+      ],
+    });
+    expect(pair.lines[0].sFoldBeadRight).toBe(36);
+  });
+
+  // Beads are supplied in even counts per leaf: an odd number, a fraction,
+  // or a non-positive count is not something the vendor can cut to.
+  it.each([25, 0, -2, 2.5, 1])(
+    "rejects %s as a bead count",
+    (sFoldBeadCount) => {
+      expect(() =>
+        confirmManufactureSchema.parse({
+          orderId: ORDER_ID,
+          lines: [{ lineId: LINE_ID, kind: "window", sFoldBeadCount }],
+        }),
+      ).toThrow();
+    },
+  );
+
+  it("rejects half a pair, and a single count mixed with a pair", () => {
+    expect(() =>
+      confirmManufactureSchema.parse({
+        orderId: ORDER_ID,
+        lines: [{ lineId: LINE_ID, kind: "window", sFoldBeadLeft: 20 }],
+      }),
+    ).toThrow(/both the left and right/i);
+    expect(() =>
+      confirmManufactureSchema.parse({
+        orderId: ORDER_ID,
+        lines: [
+          {
+            lineId: LINE_ID,
+            kind: "window",
+            sFoldBeadCount: 28,
+            sFoldBeadLeft: 20,
+            sFoldBeadRight: 36,
+          },
+        ],
+      }),
+    ).toThrow(/either one bead count or a left\/right pair/i);
+  });
+
   it("rejects an unknown line kind", () => {
     expect(() =>
       confirmManufactureSchema.parse({

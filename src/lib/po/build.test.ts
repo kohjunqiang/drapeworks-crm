@@ -841,6 +841,45 @@ describe("buildPos — notes", () => {
     }))).toBe("需要蛇形，总数58走珠，左边20走珠，右边38走珠");
   });
 
+  it("prints the recorded bead count instead of deriving one", () => {
+    expect(sFoldRunnerRemark(line({
+      lineId: "recorded-single",
+      draw: "Single Left",
+      sFoldBeads: { kind: "single", count: 28 },
+    }))).toBe("需要蛇形，总数28走珠");
+    expect(sFoldRunnerRemark(line({
+      lineId: "recorded-symmetric",
+      draw: "Double",
+      sFoldBeads: { kind: "pair", left: 26, right: 26 },
+    }))).toBe("需要蛇形，总数52走珠，单边26走珠");
+    // An uneven recorded pair spells out each side; the total is their sum.
+    expect(sFoldRunnerRemark(line({
+      lineId: "recorded-unequal",
+      draw: "Double",
+      sFoldBeads: { kind: "pair", left: 22, right: 38 },
+    }))).toBe("需要蛇形，总数60走珠，左边22走珠，右边38走珠");
+  });
+
+  it("prints each leaf's own recorded count on a split double draw", () => {
+    const { pos } = buildPos(
+      input({
+        lines: [line({
+          lineId: "s-fold-split",
+          sFold: true,
+          mfgWidthCm: 346,
+          splitLeftCm: 124,
+          splitRightCm: 222,
+          sFoldBeads: { kind: "pair", left: 20, right: 36 },
+        })],
+      }),
+    );
+
+    expect(pos[0].tables[0].rows.map((row) => row.sFoldRemark)).toEqual([
+      "需要蛇形，总数20走珠",
+      "需要蛇形，总数36走珠",
+    ]);
+  });
+
   it("attaches the per-vendor note the Night sample carries", () => {
     const { pos } = buildPos(
       input({

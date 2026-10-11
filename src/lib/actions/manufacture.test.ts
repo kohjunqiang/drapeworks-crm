@@ -26,7 +26,7 @@ vi.mock("@/lib/logistics/load", () => ({
 vi.mock("./procurement", () => ({ generateOrderPos: mocks.generateOrderPos }));
 
 import type { ManufactureLine } from "@/lib/manufacture/load";
-import { confirmManufactureMeasurements } from "./manufacture";
+import { amendManufactureMeasurements, confirmManufactureMeasurements } from "./manufacture";
 
 const orderId = "a31fd642-0fe2-4066-9762-880b0e023471";
 const windowId1 = "11111111-1111-4111-8111-111111111111";
@@ -57,7 +57,7 @@ type RecordedUpdate = {
 
 type Write = RecordedInsert | RecordedUpdate;
 
-function setupOrder(currentStatus = "deposit_received") {
+function setupOrder(currentStatus = "deposit_received", measurements: Record<string, unknown>[] = []) {
   const writes: Write[] = [];
   const trx = {
     selectFrom: (table: string) => {
@@ -67,7 +67,7 @@ function setupOrder(currentStatus = "deposit_received") {
         forUpdate: () => chain,
         executeTakeFirst: async () =>
           table === "orders" ? { current_status: currentStatus } : undefined,
-        execute: async () => [],
+        execute: async () => table === "manufacture_measurements" ? measurements : [],
       };
       return chain;
     },
@@ -136,7 +136,11 @@ function setupOrder(currentStatus = "deposit_received") {
   return { writes, trx };
 }
 
-function windowLine(lineId: string, position = 0): ManufactureLine {
+function windowLine(
+  lineId: string,
+  position = 0,
+  over: Partial<ManufactureLine> = {},
+): ManufactureLine {
   return {
     lineId,
     kind: "window",
@@ -149,6 +153,9 @@ function windowLine(lineId: string, position = 0): ManufactureLine {
     heightCm: 250,
     splitLeftCm: null,
     splitRightCm: null,
+    draw: null,
+    sFold: false,
+    ...over,
   };
 }
 
@@ -165,6 +172,8 @@ function meshLine(lineId: string, position = 0): ManufactureLine {
     heightCm: 240,
     splitLeftCm: null,
     splitRightCm: null,
+    draw: null,
+    sFold: false,
   };
 }
 
@@ -309,6 +318,132 @@ describe("confirmManufactureMeasurements re-confirmation upsert", () => {
   });
 });
 
+describe("confirmManufactureMeasurements S-fold beads", () => {
+  it("freezes the measured-width default on an unedited S-fold line", async () => {
+    const lines = [
+      windowLine(windowId1, 0, { sFold: true, draw: "Single Left" }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements(payloadFor(lines));
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    // ceil(200 / 12) * 2 = 34 — from the measured width, not 210 mfg.
+    expect(rows[0]).toMatchObject({
+      sfold_bead_count: 34,
+      sfold_bead_count_left: null,
+      sfold_bead_count_right: null,
+      is_overridden: false,
+    });
+  });
+
+  it("freezes a left/right pair from the measured split on a double draw", async () => {
+    const lines = [
+      windowLine(windowId1, 0, {
+        sFold: true,
+        draw: "Double",
+        widthCm: 336,
+        splitLeftCm: 120,
+        splitRightCm: 216,
+      }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements({
+      orderId,
+      lines: [
+        {
+          lineId: windowId1,
+          kind: "window",
+          // The measured split requires a PO split totaling the 346 mfg
+          // width — the beads below still come from the MEASURED split.
+          mfgSplitLeftCm: 124,
+          mfgSplitRightCm: 222,
+        },
+      ],
+    });
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    // Measured leaves, not manufacturing: ceil(120/12)*2 and ceil(216/12)*2.
+    expect(rows[0]).toMatchObject({
+      sfold_bead_count: null,
+      sfold_bead_count_left: 20,
+      sfold_bead_count_right: 36,
+    });
+  });
+
+  it("stores a typed count and marks the row overridden", async () => {
+    const lines = [
+      windowLine(windowId1, 0, { sFold: true, draw: "Single Left" }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements({
+      orderId,
+      lines: [
+        {
+          lineId: windowId1,
+          kind: "window",
+          sFoldBeadCount: 28,
+          overrideReason: "vendor standard runner",
+        },
+      ],
+    });
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({
+      sfold_bead_count: 28,
+      is_overridden: true,
+      override_reason: "vendor standard runner",
+    });
+  });
+
+  it("rejects a bead count injected on a non-S-fold line", async () => {
+    const lines = [windowLine(windowId1)];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await expect(
+      confirmManufactureMeasurements({
+        orderId,
+        lines: [
+          { lineId: windowId1, kind: "window", sFoldBeadCount: 28 },
+        ],
+      }),
+    ).rejects.toThrow(/not an S-fold curtain/);
+    expect(writes).toEqual([]);
+  });
+
+  it("rejects a pair submitted on a single-draw S-fold window", async () => {
+    const lines = [
+      windowLine(windowId1, 0, { sFold: true, draw: "Single Left" }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await expect(
+      confirmManufactureMeasurements({
+        orderId,
+        lines: [
+          {
+            lineId: windowId1,
+            kind: "window",
+            sFoldBeadLeft: 20,
+            sFoldBeadRight: 22,
+          },
+        ],
+      }),
+    ).rejects.toThrow(/single draw/);
+    expect(writes).toEqual([]);
+  });
+});
+
 describe("confirmManufactureMeasurements refusals", () => {
   it("rejects an order that is not at deposit_received and writes nothing", async () => {
     const lines = [windowLine(windowId1)];
@@ -346,5 +481,43 @@ describe("confirmManufactureMeasurements refusals", () => {
     await confirmManufactureMeasurements(payloadFor(lines));
 
     expect(mocks.requireRole).toHaveBeenCalledWith(["ops", "admin"]);
+  });
+});
+
+
+describe("amendManufactureMeasurements bead persistence", () => {
+  const stored = { id: "stored-row", window_id: windowId1, mesh_panel_id: null,
+    source_width_cm: 150, source_height_cm: 250, mfg_split_left_cm: null, mfg_split_right_cm: null };
+  const amendment = (extra: Record<string, unknown> = {}) => ({ orderId, reason: "Local bead adjustment",
+    lines: [{ lineId: windowId1, mfgWidthCm: 148, mfgHeightCm: 245, ...extra }] });
+  it("saves bead-only changes, audits them and regenerates the PO", async () => {
+    mocks.loadManufactureLines.mockResolvedValue([windowLine(windowId1, 0, { sFold: true, draw: "Single Left" })]);
+    const { writes } = setupOrder("po_ready", [stored]);
+    await amendManufactureMeasurements(amendment({ sFoldBeadCount: 28 }));
+    expect(writes).toContainEqual(expect.objectContaining({ kind: "update", table: "manufacture_measurements",
+      set: expect.objectContaining({ sfold_bead_count: 28, sfold_bead_count_left: null, sfold_bead_count_right: null }) }));
+    expect(writes).toContainEqual(expect.objectContaining({ table: "order_status_events",
+      values: expect.objectContaining({ note: "[MEASUREMENTS AMENDED] Local bead adjustment" }) }));
+    expect(mocks.requireRole).toHaveBeenCalledWith(["admin"]);
+    expect(mocks.generateOrderPos).toHaveBeenCalledWith(orderId);
+  });
+  it.each([null, 28])("preserves stored bead value %s when dimensions alone change", async (count) => {
+    mocks.loadManufactureLines.mockResolvedValue([windowLine(windowId1, 0, { sFold: true, draw: "Single Left" })]);
+    const { writes } = setupOrder("po_ready", [{ ...stored, sfold_bead_count: count }]);
+    await amendManufactureMeasurements(amendment({ mfgWidthCm: 146 }));
+    const update = writes.find((w): w is RecordedUpdate => w.kind === "update");
+    expect(update?.set).toMatchObject({ mfg_width_cm: 146 });
+    expect(Object.keys(update!.set).filter(k => k.startsWith("sfold_bead"))).toEqual([]);
+  });
+  it.each([
+    { sFold: false, draw: "Single Left" as const, fields: { sFoldBeadCount: 28 } },
+    { sFold: true, draw: "Double" as const, fields: { sFoldBeadCount: 28 } },
+    { sFold: true, draw: "Single Left" as const, fields: { sFoldBeadLeft: 20, sFoldBeadRight: 26 } },
+  ])("rejects ineligible or wrong-shaped bead changes $draw $sFold", async ({ sFold, draw, fields }) => {
+    mocks.loadManufactureLines.mockResolvedValue([windowLine(windowId1, 0, { sFold, draw })]);
+    const { writes } = setupOrder("po_ready", [stored]);
+    await expect(amendManufactureMeasurements(amendment(fields))).rejects.toThrow();
+    expect(writes).toEqual([]);
+    expect(mocks.generateOrderPos).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,8 @@ function line(over: Partial<ReconLine> = {}): ReconLine {
     sourceHeightCm: 260,
     mfgWidthCm: 298,
     mfgHeightCm: 256,
+    sFold: false,
+    draw: null,
     ...over,
   };
 }
@@ -33,8 +35,100 @@ describe("draftFor", () => {
       heightDelta: "-4",
       splitLeft: "",
       splitRight: "",
+      beadCount: "",
+      beadLeft: "",
+      beadRight: "",
       reason: "",
     });
+  });
+});
+
+describe("S-fold bead counts", () => {
+  const single = line({ sFold: true, draw: "Single Left", sourceWidthCm: 150 });
+  const dbl = line({ sFold: true, draw: "Double", sourceWidthCm: 300 });
+  const asymmetric = line({
+    sFold: true,
+    draw: "Double",
+    sourceWidthCm: 336,
+    splitLeftCm: 120,
+    splitRightCm: 216,
+  });
+
+  it("seeds the single-draw default from the MEASURED width, not the mfg width", () => {
+    // ceil(150 / 12) * 2 = 26 — the −2 allowance must not move it.
+    expect(draftFor(single).beadCount).toBe("26");
+    expect(draftFor(single).beadLeft).toBe("");
+  });
+
+  it("seeds a symmetric double draw as measured-width halves", () => {
+    const d = draftFor(dbl);
+    expect(d.beadLeft).toBe("26");
+    expect(d.beadRight).toBe("26");
+    expect(d.beadCount).toBe("");
+  });
+
+  it("seeds an asymmetric double draw from the measured split", () => {
+    const d = draftFor(asymmetric);
+    expect(d.beadLeft).toBe("20");
+    expect(d.beadRight).toBe("36");
+  });
+
+  it("does not flag the row at the seeded default", () => {
+    for (const l of [single, dbl, asymmetric]) {
+      const s = evaluateRow(l, draftFor(l));
+      expect(s.beadsOverridden).toBe(false);
+      expect(s.errors).toEqual([]);
+    }
+  });
+
+  it("flags a typed even count that differs from the default", () => {
+    const s = evaluateRow(single, { ...draftFor(single), beadCount: "28" });
+    expect(s.beadCount).toBe(28);
+    expect(s.beadsOverridden).toBe(true);
+    expect(s.overridden).toBe(true);
+    expect(s.errors).toEqual([]);
+  });
+
+  it("flags a changed left/right pair", () => {
+    const s = evaluateRow(asymmetric, {
+      ...draftFor(asymmetric),
+      beadLeft: "22",
+      beadRight: "38",
+    });
+    expect(s.beadsOverridden).toBe(true);
+    expect(s.errors).toEqual([]);
+  });
+
+  it.each(["25", "0", "-2", "2.5", "", "abc", "2e2"])(
+    "rejects %j as a single-draw count and blocks confirmation",
+    (beadCount) => {
+      const s = evaluateRow(single, { ...draftFor(single), beadCount });
+      expect(s.errors).toContain(
+        "The S-fold bead count must be a positive even whole number.",
+      );
+    },
+  );
+
+  it.each(["25", "0", "-2", "2.5", "", "abc"])(
+    "rejects %j on a pair side and blocks confirmation",
+    (bad) => {
+      const s = evaluateRow(dbl, {
+        ...draftFor(dbl),
+        beadLeft: bad,
+      });
+      expect(s.errors).toContain(
+        "Enter a positive even whole number for both the left and right bead counts.",
+      );
+    },
+  );
+
+  it("ignores manufacturing edits — the bead default tracks measured width", () => {
+    const s = evaluateRow(
+      single,
+      syncDraft(single, draftFor(single), { widthDelta: "-10" }),
+    );
+    expect(s.beadCount).toBe(26);
+    expect(s.beadsOverridden).toBe(false);
   });
 });
 

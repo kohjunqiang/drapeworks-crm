@@ -304,6 +304,9 @@ async function loadLines(
       "mm.mfg_height_cm as mfg_height_cm",
       "mm.mfg_split_left_cm as mfg_split_left_cm",
       "mm.mfg_split_right_cm as mfg_split_right_cm",
+      "mm.sfold_bead_count as sfold_bead_count",
+      "mm.sfold_bead_count_left as sfold_bead_count_left",
+      "mm.sfold_bead_count_right as sfold_bead_count_right",
       "day_ct.label as day_label",
       "day_cs.vendor_id as day_vendor_id",
       "night_ct.label as night_label",
@@ -364,6 +367,21 @@ async function loadLines(
       openingLabel: opening,
       splitLeftCm: w.mfg_split_left_cm,
       splitRightCm: w.mfg_split_right_cm,
+      // The recorded bead counts, a window fact carried onto each covering.
+      // Null on rows confirmed before counts were recorded — build.ts keeps
+      // its own manufacturing-width derivation for those, so an already
+      // issued document never changes under a vendor.
+      sFoldBeads:
+        w.sfold_bead_count != null
+          ? { kind: "single" as const, count: w.sfold_bead_count }
+          : w.sfold_bead_count_left != null &&
+              w.sfold_bead_count_right != null
+            ? {
+                kind: "pair" as const,
+                left: w.sfold_bead_count_left,
+                right: w.sfold_bead_count_right,
+              }
+            : null,
       // A window fact, so every covering of this window carries it — though
       // only a blind document's notes read it.
       sideInstallation: w.side_installation,

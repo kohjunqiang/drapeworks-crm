@@ -17,6 +17,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { amendManufactureMeasurements } from "@/lib/actions/manufacture";
+import type { DrawDirection } from "@/lib/db/schema";
+import {
+  beadShapeFor,
+  parseBeadCount,
+} from "@/lib/manufacture/sfold-beads";
 
 import { MINUS, signedCm } from "./delta-chip";
 
@@ -30,6 +35,13 @@ export type AmendLine = {
   mfgHeightCm: number;
   mfgSplitLeftCm: number | null;
   mfgSplitRightCm: number | null;
+  /** Whether this curtain takes S-fold runners — decides the bead inputs. */
+  sFold: boolean;
+  draw: DrawDirection | null;
+  /** The stored bead counts, null when the row predates their recording. */
+  beadCount: number | null;
+  beadLeft: number | null;
+  beadRight: number | null;
 };
 
 type Draft = {
@@ -37,6 +49,9 @@ type Draft = {
   height: string;
   splitLeft: string;
   splitRight: string;
+  beadCount: string;
+  beadLeft: string;
+  beadRight: string;
 };
 
 // Positive centimetres with up to two decimal places, matching amendManufactureLineSchema.
@@ -47,8 +62,54 @@ function parseCm(s: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// Bead fields are opt-in on an amendment: blank on an unrecorded row means
+// "keep the PO's calculated count", not "invalid". A row that HAS a stored
+// count cannot be blanked back to the derived value — there is no clearing.
+function beadFieldsValid(l: AmendLine, d: Draft): boolean {
+  if (!l.sFold) return true;
+  if (beadShapeFor(l.draw) === "pair") {
+    const bothBlank =
+      d.beadLeft.trim() === "" && d.beadRight.trim() === "";
+    if (bothBlank) return l.beadLeft == null && l.beadRight == null;
+    return (
+      parseBeadCount(d.beadLeft) != null && parseBeadCount(d.beadRight) != null
+    );
+  }
+  if (d.beadCount.trim() === "") return l.beadCount == null;
+  return parseBeadCount(d.beadCount) != null;
+}
+
+/** The bead fields to send for one line — empty when nothing should change. */
+function beadPayload(l: AmendLine, d: Draft) {
+  if (!l.sFold || !beadChanged(l, d)) return {};
+  if (beadShapeFor(l.draw) === "pair") {
+    const left = parseBeadCount(d.beadLeft);
+    const right = parseBeadCount(d.beadRight);
+    return left != null && right != null
+      ? { sFoldBeadLeft: left, sFoldBeadRight: right }
+      : {};
+  }
+  const count = parseBeadCount(d.beadCount);
+  return count != null ? { sFoldBeadCount: count } : {};
+}
+
+function beadChanged(l: AmendLine, d: Draft): boolean {
+  return (
+    d.beadCount !== (l.beadCount == null ? "" : String(l.beadCount)) ||
+    d.beadLeft !== (l.beadLeft == null ? "" : String(l.beadLeft)) ||
+    d.beadRight !== (l.beadRight == null ? "" : String(l.beadRight))
+  );
+}
+
 const INPUT =
   "w-20 px-2 py-1 border rounded text-sm text-right tabular-nums " +
+  "focus:outline-none focus:border-teal-500";
+
+// Bead inputs get the mobile treatment the dimension inputs in the dialog are
+// missing: a 44px touch target and 16px text below sm, compact above it.
+const BEAD_INPUT =
+  "w-20 min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 border rounded " +
+  "text-base sm:text-sm text-right tabular-nums " +
   "focus:outline-none focus:border-teal-500";
 
 export function AmendDialog({
@@ -75,6 +136,9 @@ export function AmendDialog({
               l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm),
             splitRight:
               l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm),
+            beadCount: l.beadCount == null ? "" : String(l.beadCount),
+            beadLeft: l.beadLeft == null ? "" : String(l.beadLeft),
+            beadRight: l.beadRight == null ? "" : String(l.beadRight),
           },
         ]),
       ) as Record<string, Draft>,
@@ -92,7 +156,8 @@ export function AmendDialog({
       d.splitLeft !==
         (l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm)) ||
       d.splitRight !==
-        (l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm))
+        (l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm)) ||
+      beadChanged(l, d)
     );
   });
   const invalid = changed.filter((l) => {
@@ -106,7 +171,8 @@ export function AmendDialog({
       (l.mfgSplitLeftCm != null &&
         (splitLeft == null ||
           splitRight == null ||
-          Math.abs(splitLeft + splitRight - width) > 0.000001))
+          Math.abs(splitLeft + splitRight - width) > 0.000001)) ||
+      !beadFieldsValid(l, d)
     );
   });
   const canSubmit =
@@ -136,6 +202,7 @@ export function AmendDialog({
             mfgSplitRightCm: parseCm(drafts[l.lineId].splitRight)!,
           }
         : {}),
+      ...beadPayload(l, drafts[l.lineId]),
     }));
 
     startTransition(async () => {
@@ -200,7 +267,9 @@ export function AmendDialog({
                   d.splitLeft !==
                     (l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm)) ||
                   d.splitRight !==
-                    (l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm));
+                    (l.mfgSplitRightCm == null ? "" : String(l.mfgSplitRightCm)) ||
+                  beadChanged(l, d);
+                const beadsOk = beadFieldsValid(l, d);
                 return (
                   <div
                     key={l.lineId}
@@ -279,7 +348,7 @@ export function AmendDialog({
                           Width split · two single draws
                         </legend>
                         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                          <span className="mr-1 text-slate-500">
+                          <span className="w-full text-slate-500">
                             Current PO L {l.mfgSplitLeftCm} · R{" "}
                             {l.mfgSplitRightCm} cm
                           </span>
@@ -346,6 +415,112 @@ export function AmendDialog({
                             width.
                           </p>
                         )}
+                      </fieldset>
+                    )}
+                    {l.sFold && (
+                      <fieldset className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <legend className="px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          S-fold beads
+                        </legend>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                          <span className="w-full text-slate-500">
+                            {l.beadCount != null
+                              ? `Current ${l.beadCount}`
+                              : l.beadLeft != null && l.beadRight != null
+                                ? `Current L ${l.beadLeft} · R ${l.beadRight}`
+                                : "Not recorded — the PO calculates the count"}
+                          </span>
+                          {beadShapeFor(l.draw) === "pair" ? (
+                            <>
+                              <label className="flex items-center gap-1">
+                                L
+                                <input
+                                  inputMode="numeric"
+                                  aria-label={`${l.label} S-fold left bead count`}
+                                  aria-invalid={!beadsOk}
+                                  disabled={pending}
+                                  value={d.beadLeft}
+                                  onChange={(e) =>
+                                    setDrafts((state) => ({
+                                      ...state,
+                                      [l.lineId]: {
+                                        ...state[l.lineId],
+                                        beadLeft: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className={`${BEAD_INPUT} ${
+                                    !beadsOk && parseBeadCount(d.beadLeft) == null
+                                      ? "border-rose-400 bg-rose-50"
+                                      : "border-slate-300 bg-white"
+                                  }`}
+                                />
+                              </label>
+                              <label className="flex items-center gap-1">
+                                R
+                                <input
+                                  inputMode="numeric"
+                                  aria-label={`${l.label} S-fold right bead count`}
+                                  aria-invalid={!beadsOk}
+                                  disabled={pending}
+                                  value={d.beadRight}
+                                  onChange={(e) =>
+                                    setDrafts((state) => ({
+                                      ...state,
+                                      [l.lineId]: {
+                                        ...state[l.lineId],
+                                        beadRight: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className={`${BEAD_INPUT} ${
+                                    !beadsOk && parseBeadCount(d.beadRight) == null
+                                      ? "border-rose-400 bg-rose-50"
+                                      : "border-slate-300 bg-white"
+                                  }`}
+                                />
+                              </label>
+                            </>
+                          ) : (
+                            <label className="flex items-center gap-1">
+                              New
+                              <input
+                                inputMode="numeric"
+                                aria-label={`${l.label} S-fold bead count`}
+                                aria-invalid={!beadsOk}
+                                disabled={pending}
+                                value={d.beadCount}
+                                onChange={(e) =>
+                                  setDrafts((state) => ({
+                                    ...state,
+                                    [l.lineId]: {
+                                      ...state[l.lineId],
+                                      beadCount: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className={`${BEAD_INPUT} ${
+                                  !beadsOk && parseBeadCount(d.beadCount) == null
+                                    ? "border-rose-400 bg-rose-50"
+                                    : "border-slate-300 bg-white"
+                                }`}
+                              />
+                            </label>
+                          )}
+                        </div>
+                        {!beadsOk ? (
+                          <p className="mt-1.5 text-xs text-rose-700">
+                            Bead counts must be positive even whole numbers
+                            {beadShapeFor(l.draw) === "pair"
+                              ? ", one for each side"
+                              : ""}
+                            .
+                          </p>
+                        ) : l.beadCount == null && l.beadLeft == null ? (
+                          <p className="mt-1.5 text-xs text-slate-500">
+                            Leave blank to keep the existing PO calculation.
+                          </p>
+                        ) : null}
                       </fieldset>
                     )}
                   </div>

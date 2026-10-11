@@ -15,6 +15,7 @@
 
 import type { FreightMode, RoomType } from "@/lib/db/schema";
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
+import type { SFoldBeads } from "@/lib/manufacture/sfold-beads";
 
 import { SIDE_INSTALLATION_NOTE_CN } from "./track-options";
 
@@ -100,6 +101,12 @@ export type PoLine = {
   /** Optional measured allocation for an off-centre double draw. */
   splitLeftCm?: number | null;
   splitRightCm?: number | null;
+  /**
+   * The bead counts frozen at confirmation. NULL means the row predates
+   * their recording — the remark then derives from the manufacturing width
+   * exactly as it always has, so an already-issued document never changes.
+   */
+  sFoldBeads?: SFoldBeads | null;
   mfgWidthCm: number;
   mfgHeightCm: number;
 };
@@ -412,11 +419,34 @@ function runnersForWidth(widthCm: number): number {
 export function sFoldRunnerRemark(
   line: Pick<
     PoLine,
-    "draw" | "mfgWidthCm" | "splitLeftCm" | "splitRightCm"
+    "draw" | "mfgWidthCm" | "splitLeftCm" | "splitRightCm" | "sFoldBeads"
   >,
 ): string {
+  const beads = line.sFoldBeads ?? null;
   if (line.draw !== "Double") {
-    return `需要蛇形，总数${runnersForWidth(line.mfgWidthCm)}走珠`;
+    // An off-centre double draw renders as two single-draw rows; each names
+    // ITS leaf's recorded count, so the two rows still sum to the pair.
+    const recorded =
+      beads?.kind === "single"
+        ? beads.count
+        : beads?.kind === "pair"
+          ? line.draw === "Single Right"
+            ? beads.right
+            : beads.left
+          : null;
+    return `需要蛇形，总数${recorded ?? runnersForWidth(line.mfgWidthCm)}走珠`;
+  }
+
+  // A recorded pair drives the remark — the counts a human confirmed, not a
+  // recomputation. The total is their sum, read straight off the document.
+  if (beads?.kind === "pair") {
+    const total = beads.left + beads.right;
+    return beads.left === beads.right
+      ? `需要蛇形，总数${total}走珠，单边${beads.left}走珠`
+      : `需要蛇形，总数${total}走珠，左边${beads.left}走珠，右边${beads.right}走珠`;
+  }
+  if (beads?.kind === "single") {
+    return `需要蛇形，总数${beads.count}走珠`;
   }
 
   let leftWidthCm = line.mfgWidthCm / 2;

@@ -25,6 +25,8 @@ function line(over: Partial<ManufactureLine> = {}): ManufactureLine {
     description: "Series A #3 — 3021-15",
     widthCm: 200,
     heightCm: 260,
+    draw: null,
+    sFold: false,
     ...over,
   };
 }

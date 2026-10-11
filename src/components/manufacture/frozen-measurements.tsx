@@ -5,6 +5,8 @@
 // admin later changes an allowance, recomputing here would quietly show a
 // different number than the one being cut.
 
+import type { DrawDirection } from "@/lib/db/schema";
+
 import { DeltaChip } from "./delta-chip";
 
 export type FrozenLine = {
@@ -21,6 +23,18 @@ export type FrozenLine = {
   sourceSplitRightCm: number | null;
   mfgSplitLeftCm: number | null;
   mfgSplitRightCm: number | null;
+  /** Whether this curtain takes S-fold runners — decides the bead display. */
+  sFold: boolean;
+  /** The window's draw; a pair of bead counts is one per leaf. */
+  draw: DrawDirection | null;
+  /**
+   * The recorded bead counts. NULL on an S-fold window means "confirmed
+   * before counts were recorded" — the PO derives one at print time, and the
+   * display must say that rather than invent a number.
+   */
+  beadCount: number | null;
+  beadLeft: number | null;
+  beadRight: number | null;
   isOverridden: boolean;
   overrideReason: string | null;
 };
@@ -118,6 +132,26 @@ export function FrozenMeasurements({ rooms }: { rooms: FrozenRoom[] }) {
                     </span>
                   </div>
                 )}
+              {line.sFold &&
+                (line.beadCount != null ||
+                (line.beadLeft != null && line.beadRight != null) ? (
+                  <div className="mb-3 inline-flex flex-wrap items-center gap-x-2 rounded border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-medium text-teal-900 tabular-nums">
+                    <span>S-fold beads</span>
+                    <span>
+                      {line.beadCount != null
+                        ? `${line.beadCount}`
+                        : `L ${line.beadLeft} · R ${line.beadRight} · total ${(line.beadLeft ?? 0) + (line.beadRight ?? 0)}`}
+                    </span>
+                  </div>
+                ) : (
+                  // Confirmed before bead counts were recorded: the PO still
+                  // derives the count from the manufacturing width at print
+                  // time. Say so — printing a number here would invent a
+                  // stored value that does not exist.
+                  <div className="mb-3 inline-flex flex-wrap items-center gap-x-2 rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600">
+                    S-fold beads — not recorded; the PO calculates the count
+                  </div>
+                ))}
               <div className="space-y-1">
                 <Pair
                   label="Width"

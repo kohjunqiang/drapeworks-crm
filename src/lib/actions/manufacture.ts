@@ -11,6 +11,7 @@ import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
 import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
+import { beadShapeFor, defaultBeads } from "@/lib/manufacture/sfold-beads";
 import {
   loadAllowanceBook,
   loadManufactureLines,
@@ -207,10 +208,86 @@ export async function confirmManufactureMeasurements(
           override?.mfgSplitLeftCm !== defaultSplit.leftCm ||
           override?.mfgSplitRightCm !== defaultSplit.rightCm
         );
+        // Bead counts are governed by the line's own facts — the s_fold
+        // add-on join and windows.draw — never by the payload's say-so. A
+        // non-S-fold line carrying a count, or a pair on a single draw, is
+        // rejected rather than quietly stored.
+        const submittedSingle = override?.sFoldBeadCount ?? null;
+        const submittedLeft = override?.sFoldBeadLeft ?? null;
+        const submittedRight = override?.sFoldBeadRight ?? null;
+        if (
+          !line.sFold &&
+          (submittedSingle != null ||
+            submittedLeft != null ||
+            submittedRight != null)
+        ) {
+          throw new AuthoredError(
+            `${line.roomLabel} Window ${line.position + 1} is not an S-fold curtain, so it cannot carry a bead count.`,
+          );
+        }
+        let beadColumns = {
+          sfold_bead_count: null as number | null,
+          sfold_bead_count_left: null as number | null,
+          sfold_bead_count_right: null as number | null,
+        };
+        let beadsOverridden = false;
+        if (line.sFold) {
+          // Same measured-width default the screen seeded. Confirming without
+          // a typed count freezes that default — it is still a real count the
+          // vendor can cut to, recorded rather than recomputed downstream.
+          const beadDefault = defaultBeads({
+            draw: line.draw,
+            widthCm: applied.sourceWidthCm,
+            splitLeftCm: line.splitLeftCm,
+            splitRightCm: line.splitRightCm,
+          });
+          if (beadShapeFor(line.draw) === "pair") {
+            if (submittedSingle != null) {
+              throw new AuthoredError(
+                `${line.roomLabel} Window ${line.position + 1} is a double draw and takes a left and a right bead count, not a single count.`,
+              );
+            }
+            const left =
+              submittedLeft ??
+              (beadDefault.kind === "pair" ? beadDefault.left : 0);
+            const right =
+              submittedRight ??
+              (beadDefault.kind === "pair" ? beadDefault.right : 0);
+            beadColumns = {
+              sfold_bead_count: null,
+              sfold_bead_count_left: left,
+              sfold_bead_count_right: right,
+            };
+            beadsOverridden =
+              beadDefault.kind === "pair" &&
+              (submittedLeft != null || submittedRight != null) &&
+              (left !== beadDefault.left || right !== beadDefault.right);
+          } else {
+            if (submittedLeft != null || submittedRight != null) {
+              throw new AuthoredError(
+                `${line.roomLabel} Window ${line.position + 1} is a single draw and takes one bead count, not a left/right pair.`,
+              );
+            }
+            const count =
+              submittedSingle ??
+              (beadDefault.kind === "single" ? beadDefault.count : 0);
+            beadColumns = {
+              sfold_bead_count: count,
+              sfold_bead_count_left: null,
+              sfold_bead_count_right: null,
+            };
+            beadsOverridden =
+              beadDefault.kind === "single" &&
+              submittedSingle != null &&
+              count !== beadDefault.count;
+          }
+        }
+
         const isOverridden =
           override?.overrideWidthCm != null ||
           override?.overrideHeightCm != null ||
-          isSplitOverridden;
+          isSplitOverridden ||
+          beadsOverridden;
 
         return {
           order_id: parsed.orderId,
@@ -227,6 +304,7 @@ export async function confirmManufactureMeasurements(
           mfg_height_cm: mfgHeightCm,
           mfg_split_left_cm: override?.mfgSplitLeftCm ?? null,
           mfg_split_right_cm: override?.mfgSplitRightCm ?? null,
+          ...beadColumns,
           is_overridden: isOverridden,
           override_reason: isOverridden
             ? (override?.overrideReason?.trim() || null)
@@ -268,6 +346,13 @@ export async function confirmManufactureMeasurements(
                     mfg_height_cm: eb.ref("excluded.mfg_height_cm"),
                     mfg_split_left_cm: eb.ref("excluded.mfg_split_left_cm"),
                     mfg_split_right_cm: eb.ref("excluded.mfg_split_right_cm"),
+                    sfold_bead_count: eb.ref("excluded.sfold_bead_count"),
+                    sfold_bead_count_left: eb.ref(
+                      "excluded.sfold_bead_count_left",
+                    ),
+                    sfold_bead_count_right: eb.ref(
+                      "excluded.sfold_bead_count_right",
+                    ),
                     is_overridden: eb.ref("excluded.is_overridden"),
                     override_reason: eb.ref("excluded.override_reason"),
                     confirmed_by: eb.ref("excluded.confirmed_by"),
@@ -449,6 +534,16 @@ export async function amendManufactureMeasurements(
         existing.map((r) => [(r.window_id ?? r.mesh_panel_id) as string, r]),
       );
 
+      // The authoritative S-fold flag and draw for each line, read inside the
+      // transaction — a submitted bead count is validated against THESE, so
+      // the payload cannot talk a plain curtain into carrying beads.
+      const lineFacts = new Map(
+        (await loadManufactureLines(parsed.orderId, trx)).map((l) => [
+          l.lineId,
+          l,
+        ]),
+      );
+
       for (const line of parsed.lines) {
         const row = byLine.get(line.lineId);
         // No insert fallback on purpose: a line with no frozen row was never
@@ -482,6 +577,56 @@ export async function amendManufactureMeasurements(
               row.mfg_split_left_cm,
               row.mfg_split_right_cm,
             );
+
+        // Bead fields are OPT-IN on an amendment: omitted columns are left
+        // untouched, so a dimensional edit never recalculates a stored count
+        // and a legacy null row stays null until beads are set deliberately.
+        const submittedSingle = line.sFoldBeadCount ?? null;
+        const submittedLeft = line.sFoldBeadLeft ?? null;
+        const submittedRight = line.sFoldBeadRight ?? null;
+        const beadsSubmitted =
+          submittedSingle != null ||
+          submittedLeft != null ||
+          submittedRight != null;
+        let beadSet:
+          | {
+              sfold_bead_count: number | null;
+              sfold_bead_count_left: number | null;
+              sfold_bead_count_right: number | null;
+            }
+          | Record<string, never> = {};
+        if (beadsSubmitted) {
+          const facts = lineFacts.get(line.lineId);
+          if (!facts?.sFold) {
+            throw new AuthoredError(
+              "That line item is not an S-fold curtain, so it cannot carry a bead count.",
+            );
+          }
+          if (beadShapeFor(facts.draw) === "pair") {
+            if (submittedLeft == null || submittedRight == null) {
+              throw new AuthoredError(
+                "A double-draw window takes a left and a right bead count, not a single count.",
+              );
+            }
+            beadSet = {
+              sfold_bead_count: null,
+              sfold_bead_count_left: submittedLeft,
+              sfold_bead_count_right: submittedRight,
+            };
+          } else {
+            if (submittedSingle == null) {
+              throw new AuthoredError(
+                "That window takes one bead count, not a left/right pair.",
+              );
+            }
+            beadSet = {
+              sfold_bead_count: submittedSingle,
+              sfold_bead_count_left: null,
+              sfold_bead_count_right: null,
+            };
+          }
+        }
+
         await trx
           .updateTable("manufacture_measurements")
           .set({
@@ -491,6 +636,7 @@ export async function amendManufactureMeasurements(
             mfg_split_right_cm: resizedSplit?.rightCm ?? null,
             width_delta_cm: line.mfgWidthCm - row.source_width_cm,
             height_delta_cm: line.mfgHeightCm - row.source_height_cm,
+            ...beadSet,
             is_overridden: true,
             override_reason: parsed.reason,
           })

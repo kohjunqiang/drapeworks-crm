@@ -849,6 +849,9 @@ export interface ManufactureMeasurements {
   mfg_width_cm: number;
   order_id: string;
   override_reason: string | null;
+  sfold_bead_count: number | null;
+  sfold_bead_count_left: number | null;
+  sfold_bead_count_right: number | null;
   source_height_cm: number;
   source_width_cm: number;
   updated_at: Generated<Timestamp>;

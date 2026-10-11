@@ -1,3 +1,4 @@
+import { MAX_BEAD_COUNT } from "@/lib/manufacture/sfold-beads";
 import { z } from "zod";
 
 export const ALLOWANCE_LINES = ["curtain", "blind", "mesh"] as const;
@@ -16,6 +17,50 @@ export const allowanceSchema = z.object({
   widthDeltaCm: deltaCm,
   heightDeltaCm: deltaCm,
 });
+
+// S-fold bead counts are positive EVEN integers — runners space at 6 cm per
+// side and the vendor supplies them in pairs. A single draw sends one count,
+// a double draw a left and a right; the shape itself is enforced against the
+// window's stored draw in the actions, which derive it rather than trusting
+// the payload.
+const beadCount = z
+  .number()
+  .int("A bead count must be a whole number")
+  .max(MAX_BEAD_COUNT, "The bead count is too large")
+  .multipleOf(2, "A bead count must be even — runners come in pairs")
+  .positive("A bead count must be above zero");
+
+const beadFields = {
+  sFoldBeadCount: beadCount.nullable().optional(),
+  sFoldBeadLeft: beadCount.nullable().optional(),
+  sFoldBeadRight: beadCount.nullable().optional(),
+};
+
+// A line carries one count OR a left/right pair, never a mix and never half a
+// pair — which of the two is legitimate is checked against the stored draw.
+function refineBeadShape(
+  line: {
+    sFoldBeadCount?: number | null;
+    sFoldBeadLeft?: number | null;
+    sFoldBeadRight?: number | null;
+  },
+  context: z.RefinementCtx,
+) {
+  const hasSingle = line.sFoldBeadCount != null;
+  const hasLeft = line.sFoldBeadLeft != null;
+  const hasRight = line.sFoldBeadRight != null;
+  if (hasSingle && (hasLeft || hasRight)) {
+    context.addIssue({
+      code: "custom",
+      message: "Send either one bead count or a left/right pair, not both",
+    });
+  } else if (hasLeft !== hasRight) {
+    context.addIssue({
+      code: "custom",
+      message: "Enter both the left and right bead counts",
+    });
+  }
+}
 
 // The confirm payload.
 //
@@ -37,10 +82,16 @@ export const manufactureLineSchema = z.object({
   mfgSplitLeftCm: z.number().multipleOf(0.01).positive().nullable().optional(),
   mfgSplitRightCm: z.number().multipleOf(0.01).positive().nullable().optional(),
   overrideReason: z.string().trim().max(500).nullable().optional(),
-}).refine(
-  (line) => (line.mfgSplitLeftCm == null) === (line.mfgSplitRightCm == null),
-  { message: "Enter both the left and right PO split" },
-);
+  ...beadFields,
+}).superRefine((line, context) => {
+  if ((line.mfgSplitLeftCm == null) !== (line.mfgSplitRightCm == null)) {
+    context.addIssue({
+      code: "custom",
+      message: "Enter both the left and right PO split",
+    });
+  }
+  refineBeadShape(line, context);
+});
 
 export type ManufactureLineInput = z.infer<typeof manufactureLineSchema>;
 
@@ -71,6 +122,7 @@ export const amendManufactureLineSchema = z.object({
     .positive("Manufacturing height must be above zero"),
   mfgSplitLeftCm: z.number().multipleOf(0.01).positive().nullable().optional(),
   mfgSplitRightCm: z.number().multipleOf(0.01).positive().nullable().optional(),
+  ...beadFields,
 }).superRefine((line, context) => {
   const hasLeft = line.mfgSplitLeftCm != null;
   const hasRight = line.mfgSplitRightCm != null;
@@ -88,6 +140,8 @@ export const amendManufactureLineSchema = z.object({
       message: "The PO split must add up to the manufacturing width",
     });
   }
+  // Omitted bead fields preserve the stored counts; submitted ones replace.
+  refineBeadShape(line, context);
 });
 
 // A reason is mandatory, not optional-with-a-default. An amendment changes what

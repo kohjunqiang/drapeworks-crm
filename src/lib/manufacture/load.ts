@@ -11,8 +11,9 @@ import type { Kysely, Transaction } from "kysely";
 
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { db } from "@/lib/db/kysely";
-import type { DB } from "@/lib/db/schema";
+import type { DB, DrawDirection } from "@/lib/db/schema";
 import type { AllowanceBook, AllowanceLine } from "@/lib/manufacture/allowance";
+import { resolveTrackOptions } from "@/lib/po/track-options";
 import { ALLOWANCE_LINES } from "@/lib/validation/manufacture";
 
 // Matches the precedent in lib/actions/order-shared.ts: callers pass either the
@@ -36,6 +37,17 @@ export type ManufactureLine = {
   /** Optional measured allocation for an off-centre double draw. */
   splitLeftCm?: number | null;
   splitRightCm?: number | null;
+  /**
+   * windows.draw — authoritative. The confirm action decides the bead shape
+   * (single count, or left/right per leaf) from this, not from the payload.
+   */
+  draw: DrawDirection | null;
+  /**
+   * Whether the window carries the s_fold add-on, resolved through the track
+   * registry like the PO loader. Always false on a mesh panel or a blind —
+   * only a curtain can take S-fold runners.
+   */
+  sFold: boolean;
 };
 
 // "Series #index · Page — Label", or null when nothing is selected. Same helper
@@ -103,6 +115,8 @@ export async function loadManufactureLines(
       heightCm: p.height_cm,
       splitLeftCm: null,
       splitRightCm: null,
+      draw: null,
+      sFold: false,
     }));
   }
 
@@ -126,6 +140,7 @@ export async function loadManufactureLines(
       "windows.height_cm as height_cm",
       "windows.split_left_cm as split_left_cm",
       "windows.split_right_cm as split_right_cm",
+      "windows.draw as draw",
       "rooms.label as room_label",
       "rooms.position as room_position",
       "day_ct.label as day_curtain_label",
@@ -146,6 +161,29 @@ export async function loadManufactureLines(
     .orderBy("rooms.position", "asc")
     .orderBy("windows.position", "asc")
     .execute();
+
+  // The persisted add-on joins are the order's source of truth for whether a
+  // window takes S-fold runners — the same rule the PO loader follows. One
+  // query for the whole order, keyed per window, so a large order does not
+  // turn into a query per row.
+  const addonRows = await executor
+    .selectFrom("window_addons")
+    .innerJoin("windows", "windows.id", "window_addons.window_id")
+    .innerJoin("rooms", "rooms.id", "windows.room_id")
+    .innerJoin("pricing_addons", "pricing_addons.id", "window_addons.addon_id")
+    .select([
+      "window_addons.window_id as window_id",
+      "pricing_addons.key as key",
+    ])
+    .where("rooms.order_id", "=", orderId)
+    .execute();
+  const addonKeysByWindow = new Map<string, string[]>();
+  for (const r of addonRows) {
+    addonKeysByWindow.set(r.window_id, [
+      ...(addonKeysByWindow.get(r.window_id) ?? []),
+      r.key,
+    ]);
+  }
 
   return windows.map((w) => {
     // A window is ONE covering — day/night curtains or a blind, never a mix —
@@ -186,6 +224,14 @@ export async function loadManufactureLines(
       heightCm: w.height_cm,
       splitLeftCm: w.split_left_cm,
       splitRightCm: w.split_right_cm,
+      draw: w.draw,
+      // A blind has no rail to space runners on: only a curtain window can be
+      // S-fold, matching the PO loader's per-covering flag.
+      sFold:
+        !isBlind &&
+        resolveTrackOptions({
+          addonKeys: addonKeysByWindow.get(w.id) ?? [],
+        }).s_fold,
     };
   });
 }

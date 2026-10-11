@@ -15,6 +15,12 @@
 // file has to be read in full to change the other.
 
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
+import {
+  beadShapeFor,
+  defaultBeads,
+  parseBeadCount,
+} from "@/lib/manufacture/sfold-beads";
+import type { DrawDirection } from "@/lib/db/schema";
 
 /** A line item with its computed manufacturing candidate, from the server. */
 export type ReconLine = {
@@ -32,6 +38,10 @@ export type ReconLine = {
   /** Measured left/right allocation for an off-centre double draw. */
   splitLeftCm?: number | null;
   splitRightCm?: number | null;
+  /** Whether this curtain takes S-fold runners — false on blinds and panels. */
+  sFold: boolean;
+  /** The window's draw direction; decides one bead count or a left/right pair. */
+  draw: DrawDirection | null;
 };
 
 /** What a person has typed into one row. Seeded from the computed candidate. */
@@ -42,6 +52,9 @@ export type RowDraft = {
   heightDelta: string;
   splitLeft: string;
   splitRight: string;
+  beadCount: string;
+  beadLeft: string;
+  beadRight: string;
   reason: string;
 };
 
@@ -51,6 +64,7 @@ export type RowState = {
   widthOverridden: boolean;
   heightOverridden: boolean;
   splitOverridden: boolean;
+  beadsOverridden: boolean;
   overridden: boolean;
   /** Recomputed against the source, so the figure shown always reconciles. */
   widthDeltaCm: number | null;
@@ -60,6 +74,9 @@ export type RowState = {
   heightDeltaInvalid: boolean;
   splitLeftCm: number | null;
   splitRightCm: number | null;
+  beadCount: number | null;
+  beadLeft: number | null;
+  beadRight: number | null;
   errors: string[];
 };
 
@@ -69,6 +86,7 @@ export function draftFor(line: ReconLine): RowDraft {
     line.splitLeftCm,
     line.splitRightCm,
   );
+  const beads = line.sFold ? defaultBeads(beadLine(line)) : null;
   return {
     width: String(line.mfgWidthCm),
     height: String(line.mfgHeightCm),
@@ -79,7 +97,24 @@ export function draftFor(line: ReconLine): RowDraft {
     heightDelta: String(Math.round((line.mfgHeightCm - line.sourceHeightCm) * 100) / 100),
     splitLeft: split ? String(split.leftCm) : "",
     splitRight: split ? String(split.rightCm) : "",
+    // Bead defaults come from the MEASURED width — a manufacturing allowance
+    // edit must never move them, which is also why syncDraft leaves these
+    // fields alone.
+    beadCount: beads?.kind === "single" ? String(beads.count) : "",
+    beadLeft: beads?.kind === "pair" ? String(beads.left) : "",
+    beadRight: beads?.kind === "pair" ? String(beads.right) : "",
     reason: "",
+  };
+}
+
+// The measured facts the bead defaults derive from — the opening, never the
+// manufacturing width.
+function beadLine(line: ReconLine): Parameters<typeof defaultBeads>[0] {
+  return {
+    draw: line.draw,
+    widthCm: line.sourceWidthCm,
+    splitLeftCm: line.splitLeftCm,
+    splitRightCm: line.splitRightCm,
   };
 }
 
@@ -195,7 +230,28 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   const splitOverridden = expectsSplit && splitLeftCm != null && splitRightCm != null && (
     splitLeftCm !== defaultSplit?.leftCm || splitRightCm !== defaultSplit?.rightCm
   );
-  const overridden = widthOverridden || heightOverridden || splitOverridden;
+  // Beads are validated against the MEASURED default, same source as the
+  // server derives: a non-default count is an override, and so is a value
+  // that does not parse — the field was seeded valid, so an unreadable one
+  // is something a person typed.
+  const beadDefault = line.sFold ? defaultBeads(beadLine(line)) : null;
+  const beadCount =
+    beadDefault?.kind === "single" ? parseBeadCount(draft.beadCount) : null;
+  const beadLeft =
+    beadDefault?.kind === "pair" ? parseBeadCount(draft.beadLeft) : null;
+  const beadRight =
+    beadDefault?.kind === "pair" ? parseBeadCount(draft.beadRight) : null;
+  const beadsOverridden =
+    (beadDefault?.kind === "single" &&
+      beadCount != null &&
+      beadCount !== beadDefault.count) ||
+    (beadDefault?.kind === "pair" &&
+      beadLeft != null &&
+      beadRight != null &&
+      (beadLeft !== beadDefault.left || beadRight !== beadDefault.right));
+
+  const overridden =
+    widthOverridden || heightOverridden || splitOverridden || beadsOverridden;
 
   const errors: string[] = [];
   if (widthDeltaInvalid) {
@@ -221,6 +277,17 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
       `The PO split must add up to the ${widthCm} cm manufacturing width.`,
     );
   }
+  if (beadDefault?.kind === "single" && beadCount == null) {
+    errors.push("The S-fold bead count must be a positive even whole number.");
+  }
+  if (
+    beadDefault?.kind === "pair" &&
+    (beadLeft == null || beadRight == null)
+  ) {
+    errors.push(
+      "Enter a positive even whole number for both the left and right bead counts.",
+    );
+  }
 
   return {
     widthCm,
@@ -228,6 +295,7 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
     widthOverridden,
     heightOverridden,
     splitOverridden,
+    beadsOverridden,
     overridden,
     // Null when the axis's own delta draft is invalid: the paired size is
     // stale mid-typing, so a delta recomputed from it would count a value the
@@ -245,6 +313,9 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
     heightDeltaInvalid,
     splitLeftCm,
     splitRightCm,
+    beadCount,
+    beadLeft,
+    beadRight,
     errors,
   };
 }
@@ -537,6 +608,87 @@ export function ReconciliationRow({
           onDelta={(heightDelta) => onChange({ heightDelta })}
         />
       </div>
+
+      {line.sFold && (
+        <fieldset className="mt-3 rounded-md bg-slate-50 px-3 py-3 ring-1 ring-inset ring-slate-200">
+          <legend className="sr-only">S-fold beads</legend>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div className="text-xs font-semibold text-slate-700">
+              S-fold beads
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Based on measured width; rounded up to an even count
+            </div>
+          </div>
+          {beadShapeFor(line.draw) === "pair" ? (
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <label className="block text-[11px] text-slate-500">
+                Left
+                <span className="mt-0.5 flex items-center gap-1">
+                  <input
+                    inputMode="numeric"
+                    aria-label={`${piece} S-fold left bead count`}
+                    aria-invalid={state.beadLeft == null}
+                    disabled={disabled}
+                    value={draft.beadLeft}
+                    onChange={(e) => onChange({ beadLeft: e.target.value })}
+                    className={`min-w-0 w-full rounded border min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 text-right text-base sm:text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                      state.beadLeft == null
+                        ? "border-rose-400 bg-rose-50"
+                        : state.beadsOverridden
+                          ? "border-amber-400 bg-amber-50"
+                          : "border-slate-300 bg-white"
+                    }`}
+                  />
+                </span>
+              </label>
+              <label className="block text-[11px] text-slate-500">
+                Right
+                <span className="mt-0.5 flex items-center gap-1">
+                  <input
+                    inputMode="numeric"
+                    aria-label={`${piece} S-fold right bead count`}
+                    aria-invalid={state.beadRight == null}
+                    disabled={disabled}
+                    value={draft.beadRight}
+                    onChange={(e) => onChange({ beadRight: e.target.value })}
+                    className={`min-w-0 w-full rounded border min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 text-right text-base sm:text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                      state.beadRight == null
+                        ? "border-rose-400 bg-rose-50"
+                        : state.beadsOverridden
+                          ? "border-amber-400 bg-amber-50"
+                          : "border-slate-300 bg-white"
+                    }`}
+                  />
+                </span>
+              </label>
+            </div>
+          ) : (
+            <div className="mt-2">
+              <label className="block text-[11px] text-slate-500">
+                Beads
+                <span className="mt-0.5 flex items-center gap-1">
+                  <input
+                    inputMode="numeric"
+                    aria-label={`${piece} S-fold bead count`}
+                    aria-invalid={state.beadCount == null}
+                    disabled={disabled}
+                    value={draft.beadCount}
+                    onChange={(e) => onChange({ beadCount: e.target.value })}
+                    className={`w-24 rounded border min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 text-right text-base sm:text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                      state.beadCount == null
+                        ? "border-rose-400 bg-rose-50"
+                        : state.beadsOverridden
+                          ? "border-amber-400 bg-amber-50"
+                          : "border-slate-300 bg-white"
+                    }`}
+                  />
+                </span>
+              </label>
+            </div>
+          )}
+        </fieldset>
+      )}
 
       {state.overridden && (
         <div className="mt-3">

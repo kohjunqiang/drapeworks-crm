@@ -487,6 +487,8 @@ async function EditableView({
       mfgHeightCm: applied.mfgHeightCm,
       splitLeftCm: line.splitLeftCm,
       splitRightCm: line.splitRightCm,
+      sFold: line.sFold,
+      draw: line.draw,
     });
   }
 
@@ -561,6 +563,9 @@ async function FrozenView({
       "mfg_height_cm",
       "mfg_split_left_cm",
       "mfg_split_right_cm",
+      "sfold_bead_count",
+      "sfold_bead_count_left",
+      "sfold_bead_count_right",
       "is_overridden",
       "override_reason",
       "confirmed_at",
@@ -592,6 +597,11 @@ async function FrozenView({
       sourceSplitRightCm: line.splitRightCm ?? null,
       mfgSplitLeftCm: row.mfg_split_left_cm,
       mfgSplitRightCm: row.mfg_split_right_cm,
+      sFold: line.sFold,
+      draw: line.draw,
+      beadCount: row.sfold_bead_count,
+      beadLeft: row.sfold_bead_count_left,
+      beadRight: row.sfold_bead_count_right,
       isOverridden: row.is_overridden,
       overrideReason: row.override_reason,
     };
@@ -664,6 +674,11 @@ async function FrozenView({
       mfgHeightCm: l.mfgHeightCm,
       mfgSplitLeftCm: l.mfgSplitLeftCm,
       mfgSplitRightCm: l.mfgSplitRightCm,
+      sFold: l.sFold,
+      draw: l.draw,
+      beadCount: l.beadCount,
+      beadLeft: l.beadLeft,
+      beadRight: l.beadRight,
     })),
   );
 

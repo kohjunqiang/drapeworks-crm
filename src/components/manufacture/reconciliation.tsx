@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { confirmManufactureMeasurements } from "@/lib/actions/manufacture";
+import { beadShapeFor } from "@/lib/manufacture/sfold-beads";
 
 import {
   ReconciliationRow,
@@ -119,6 +120,17 @@ export function Reconciliation({
         overrideHeightCm: s.heightOverridden ? s.heightCm : undefined,
         mfgSplitLeftCm: s.splitLeftCm ?? undefined,
         mfgSplitRightCm: s.splitRightCm ?? undefined,
+        // Bead counts go only when a person changed them — the server derives
+        // the same measured-width default when they are absent, and flags the
+        // row overridden only when the submitted count differs from it.
+        ...(s.beadsOverridden
+          ? beadShapeFor(line.draw) === "pair"
+            ? {
+                sFoldBeadLeft: s.beadLeft ?? undefined,
+                sFoldBeadRight: s.beadRight ?? undefined,
+              }
+            : { sFoldBeadCount: s.beadCount ?? undefined }
+          : {}),
         overrideReason: s.overridden
           ? (drafts[line.lineId]?.reason.trim() ?? "")
           : undefined,

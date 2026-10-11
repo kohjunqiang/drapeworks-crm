@@ -202,7 +202,16 @@ export function LiveQuote({
   const breakdownRef = useCollapseOnScroll();
 
   return (
-    <div className="sticky top-2 z-10 bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4">
+    // Saved-order edit stacks the recommendation tiles into this panel, which on
+    // a phone made the sticky box cover more than half the viewport and hide the
+    // measurement fields behind it. Below sm that variant scrolls away with the
+    // page; from sm the shorter desktop layout keeps it pinned. Create mode has
+    // no recommendations and stays compact, so it keeps always-sticky.
+    <div
+      className={`bg-white rounded-lg border border-slate-200 shadow-sm p-3 mb-4 ${
+        showRecommendation ? "sm:sticky sm:top-2 sm:z-10" : "sticky top-2 z-10"
+      }`}
+    >
       {/* "Live quote" + three figures on one line fits a desk, not a phone. A
           four-figure quote — the normal case here — pushed the row past the
           card and scrolled the whole page sideways. On mobile the label takes

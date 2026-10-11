@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildInstallationSummary } from "./installation-summary";
+import {
+  buildInstallationSummary,
+  type InstallationOpening,
+} from "./installation-summary";
 
 describe("buildInstallationSummary", () => {
   it("formats a Singapore installation block with counts and instructions", () => {
@@ -128,5 +131,94 @@ describe("buildInstallationSummary", () => {
 
     const withoutUrl = buildInstallationSummary(base);
     expect(withoutUrl).not.toContain("Photos & measurements:");
+  });
+});
+
+describe("buildInstallationSummary — supply-only windows", () => {
+  const base = {
+    roomLabel: "Living Room",
+    openingsInRoom: 3,
+    widthCm: 200,
+    heightCm: 240,
+    draw: null,
+    addonLabels: [],
+    sideInstallation: false,
+    installationNote: null,
+  } as const;
+  const input = (openings: InstallationOpening[]) => ({
+    scheduledAt: "2026-09-03T02:30:00.000Z",
+    durationMins: 60,
+    address: "Address",
+    customerName: "Customer",
+    customerMobile: null,
+    openings,
+  });
+
+  it("excludes flagged windows from the count but keeps them listed and numbered", () => {
+    const text = buildInstallationSummary(
+      input([
+        { ...base, openingNumber: 1, covering: "Double", noInstallation: true },
+        { ...base, openingNumber: 2, covering: "Single" },
+        { ...base, openingNumber: 3, covering: "Blinds", noInstallation: true },
+      ]),
+    );
+
+    expect(text).toContain("1 Single");
+    expect(text).not.toContain("1 Double");
+    expect(text).not.toContain("1 Blinds");
+    // The crew still sees every opening, numbered as captured, marked clearly.
+    expect(text).toContain("Living Room - Window 1: Double");
+    expect(text).toContain("Living Room - Window 3: Blinds");
+    expect(text.match(/No installation — supply only/g)).toHaveLength(2);
+  });
+
+  it("strips installation instructions from a supply-only entry", () => {
+    const text = buildInstallationSummary(
+      input([
+        {
+          ...base,
+          openingsInRoom: 1,
+          openingNumber: 1,
+          covering: "Double",
+          noInstallation: true,
+          sideInstallation: true,
+          installationNote: "Beam too high for ladder.",
+        },
+      ]),
+    );
+
+    expect(text).toContain("No installation — supply only");
+    expect(text).not.toContain("Side-installation: Yes");
+    expect(text).not.toContain("Installation note:");
+  });
+
+  it("says so explicitly when no window requires installation", () => {
+    const text = buildInstallationSummary(
+      input([
+        { ...base, openingsInRoom: 2, openingNumber: 1, covering: "Double", noInstallation: true },
+        { ...base, openingsInRoom: 2, openingNumber: 2, covering: "Blinds", noInstallation: true },
+      ]),
+    );
+
+    expect(text).toContain("No windows require installation");
+    expect(text).toContain("Living Room - Window 1: Double");
+    expect(text).toContain("Living Room - Window 2: Blinds");
+  });
+
+  it("counts an opening with the flag omitted — legacy rows still install", () => {
+    const text = buildInstallationSummary(
+      input([{ ...base, openingsInRoom: 1, openingNumber: 1, covering: "Double" }]),
+    );
+    expect(text).toContain("1 Double");
+    expect(text).not.toContain("No installation — supply only");
+    expect(text).not.toContain("No windows require installation");
+  });
+
+  it("counts mesh panels as install work — the flag is a windows feature only", () => {
+    const text = buildInstallationSummary(
+      input([{ ...base, openingsInRoom: 1, openingNumber: 1, covering: "Mesh" }]),
+    );
+    expect(text).toContain("1 Mesh");
+    expect(text).not.toContain("No installation — supply only");
   });
 });

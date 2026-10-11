@@ -361,6 +361,7 @@ type WindowPriceRow = {
   mfg_width_cm: number | null;
   day_track_required: boolean;
   night_track_required: boolean;
+  no_installation: boolean;
   day_cost: number | null;
   day_sale: number | null;
   day_series: string | null;
@@ -401,6 +402,7 @@ function rowToCalcWindow(
       covering: "blind",
       widthCm: w.width_cm,
       costWidthCm: w.mfg_width_cm,
+      noInstallation: w.no_installation,
       blindPrice: {
         costRmbCents: w.blind_cost,
         saleSgdCents: w.blind_sale,
@@ -435,6 +437,7 @@ function rowToCalcWindow(
     nightPrice,
     dayTrackRequired: w.day_track_required,
     nightTrackRequired: w.night_track_required,
+    noInstallation: w.no_installation,
     addons,
     comboPriceSgdCents: w.combo_price,
   };
@@ -484,6 +487,7 @@ export async function computeOrderQuote(
         "windows.id as id",
         "windows.day_track_required",
         "windows.night_track_required",
+        "windows.no_installation",
         "windows.blind_type_id as blind_type_id",
         "rooms.label as room_label",
         "rooms.position as room_position",
@@ -646,6 +650,7 @@ export async function orderStaleFlags(
           "windows.id as id",
           "windows.day_track_required",
           "windows.night_track_required",
+          "windows.no_installation",
           "windows.blind_type_id as blind_type_id",
           "rooms.label as room_label",
           "rooms.position as room_position",

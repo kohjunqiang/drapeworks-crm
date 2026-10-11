@@ -227,12 +227,16 @@ export function MeshLiveQuote({
             <CostBreakdown quote={quote} />
 
             <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Installation (Handyman)
+              Installation
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
               <div className="flex justify-between">
                 <dt>Drill + silicone, per measured panel</dt>
-                <dd>{formatSGD(quote.installationSgdCents)}</dd>
+                <dd>{formatSGD(quote.automaticInstallSgdCents)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Transport / extras</dt>
+                <dd>{formatSGD(quote.transportExtrasSgdCents)}</dd>
               </div>
             </dl>
 

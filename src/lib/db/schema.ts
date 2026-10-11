@@ -1444,6 +1444,7 @@ export interface Windows {
   id: Generated<string>;
   night_curtain_type_id: string | null;
   night_track_required: Generated<boolean>;
+  no_installation: Generated<boolean>;
   notes: string | null;
   overlap_tracks_attachment: Generated<boolean>;
   position: number;

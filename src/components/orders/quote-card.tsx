@@ -233,7 +233,13 @@ export function QuoteCard({
             <div className="flex justify-between gap-2">
               <dt>Installation</dt>
               <dd className="whitespace-nowrap">
-                {formatSGD(quote.installationSgdCents)}
+                {formatSGD(quote.automaticInstallSgdCents)}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-2">
+              <dt>Transport / extras</dt>
+              <dd className="whitespace-nowrap">
+                {formatSGD(quote.transportExtrasSgdCents)}
               </dd>
             </div>
             {/* The figure the list adds up to. It is on the card above as well,

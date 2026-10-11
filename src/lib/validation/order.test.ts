@@ -408,3 +408,57 @@ describe("orderCreateSchema / orderDraftSchema — customer_id", () => {
     }).customer_id).toBe(customerId);
   });
 });
+
+describe("windowSchema — no_installation", () => {
+  it("round-trips true and false on both variants", () => {
+    for (const variant of ["regular", "blind"] as const) {
+      for (const flag of [true, false]) {
+        expect(
+          windowSchema.parse({ variant, position: 0, no_installation: flag })
+            .no_installation,
+        ).toBe(flag);
+      }
+    }
+  });
+
+  it("defaults to installed when the field is omitted (legacy rows)", () => {
+    expect(
+      windowSchema.parse({ variant: "regular", position: 0 }).no_installation,
+    ).toBe(false);
+    expect(
+      windowSchema.parse({ variant: "blind", position: 0 }).no_installation,
+    ).toBe(false);
+  });
+
+  it("rejects a string boolean — the flag is a real boolean, not a checkbox value", () => {
+    for (const variant of ["regular", "blind"]) {
+      expect(
+        windowSchema.safeParse({
+          variant,
+          position: 0,
+          no_installation: "true",
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("carries through create, edit and draft parses", () => {
+    const window = { variant: "blind" as const, position: 0, no_installation: true };
+    const room = { ...MINIMAL_ORDER.rooms[0], windows: [window] };
+    expect(
+      orderCreateSchema.parse({ ...MINIMAL_ORDER, rooms: [room] })
+        .rooms[0].windows[0].no_installation,
+    ).toBe(true);
+    expect(
+      orderEditSchema.parse({ ...MINIMAL_ORDER, rooms: [room] })
+        .rooms[0].windows[0].no_installation,
+    ).toBe(true);
+    expect(
+      orderDraftSchema.parse({
+        customer: { name: "Tan Wei Ming" },
+        order: {},
+        rooms: [room],
+      }).rooms[0].windows[0].no_installation,
+    ).toBe(true);
+  });
+});

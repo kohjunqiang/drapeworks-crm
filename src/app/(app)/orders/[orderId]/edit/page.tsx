@@ -116,6 +116,7 @@ export default async function EditOrderPage({
             "height_cm",
             "notes",
             "side_installation",
+            "no_installation",
             "overlap_tracks_attachment",
             "day_track_required",
             "night_track_required",
@@ -359,6 +360,7 @@ export default async function EditOrderPage({
               height_cm: w.height_cm ?? null,
               notes: w.notes ?? "",
               side_installation: w.side_installation,
+              no_installation: w.no_installation,
               addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
             };
           }
@@ -375,6 +377,7 @@ export default async function EditOrderPage({
             height_cm: w.height_cm ?? null,
             notes: w.notes ?? "",
             side_installation: w.side_installation,
+            no_installation: w.no_installation,
             overlap_tracks_attachment: w.overlap_tracks_attachment,
             day_track_required: w.day_track_required,
             night_track_required: w.night_track_required,

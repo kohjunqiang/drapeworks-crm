@@ -162,6 +162,12 @@ export type AddonPrice = {
 export type CalcWindow = BreakdownIdentity & {
   dayTrackRequired?: boolean;
   nightTrackRequired?: boolean;
+  /**
+   * Per-window opt-out of the automatic handyman charge. Removes ONLY that
+   * charge — tracks, fabric, add-ons, freight and the sale price are untouched,
+   * and order-level transport/extras still applies.
+   */
+  noInstallation?: boolean;
   covering?: "curtain" | "blind";
   widthCm: number | null;
   /**
@@ -628,6 +634,13 @@ export type QuoteResult = {
   grossCostRmbCents: number;
   grossCostSgdCents: number;
   installationSgdCents: number; // per-offering install + ad-hoc extra
+  /**
+   * The automatic per-window handyman charge alone (no extras). Zero for
+   * windows flagged no-installation — it is the only leg that flag removes.
+   */
+  automaticInstallSgdCents: number;
+  /** The order-level, manually-entered transport/extras amount alone. */
+  transportExtrasSgdCents: number;
   netCostSgdCents: number;
   /** Active order floor (zero when this product/category has none). */
   minimumOrderSgdCents: number;
@@ -715,6 +728,9 @@ export function finaliseQuote(
   const grossCostRmb = cogs + freight + other + gst;
   // RMB → SGD: cents / (fx/10000) = cents × 10000 / fx.
   const grossCostSgd = Math.round((grossCostRmb * 10000) / a.fxSgdToRmb);
+  // Kept apart on the result so a breakdown can label them honestly: the
+  // automatic handyman charge and the manual transport/extras amount are not
+  // the same thing and neither is ever reclassified as the other.
   const installation = totals.installSgdCents + extraInstallSgdCents;
   const netCostSgd = grossCostSgd + installation;
 
@@ -745,6 +761,8 @@ export function finaliseQuote(
     grossCostRmbCents: grossCostRmb,
     grossCostSgdCents: grossCostSgd,
     installationSgdCents: installation,
+    automaticInstallSgdCents: totals.installSgdCents,
+    transportExtrasSgdCents: extraInstallSgdCents,
     netCostSgdCents: netCostSgd,
     minimumOrderSgdCents: floor,
     minimumOrderAdjustmentSgdCents: sale - totals.saleSgdCents,
@@ -783,7 +801,10 @@ export function computeQuote(
         nonPackageSaleSgdCents:
           acc.nonPackageSaleSgdCents + nonPackageSale,
         curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
-        installSgdCents: acc.installSgdCents + installFor(q.offering, a),
+        // "No installation" waives only this leg: every other cost and the
+        // sale price are computed exactly as before.
+        installSgdCents:
+          acc.installSgdCents + (w.noInstallation ? 0 : installFor(q.offering, a)),
         // The window's own cost — fabric and its add-ons — with the rail taken
         // out. The rails are counted below and listed once; between the two,
         // every cent still lands somewhere.

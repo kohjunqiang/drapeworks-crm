@@ -324,7 +324,7 @@ export function PricingSection({
         </div>
         <div>
           <label className="block text-xs font-medium text-slate-600 mb-1">
-            Extra install (transport, etc.)
+            Transport / extras (SGD)
           </label>
           <DollarInput
             cents={extraInstallCents}

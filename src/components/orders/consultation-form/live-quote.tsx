@@ -128,6 +128,7 @@ export function LiveQuote({
             ...where,
             covering: "blind",
             widthCm,
+            noInstallation: w.no_installation ?? false,
             blindPrice: priceOf(w.blind_type_id || undefined),
             addons: addonsFor("blind"),
             comboPriceSgdCents: null,
@@ -139,6 +140,7 @@ export function LiveQuote({
           ...where,
           covering: "curtain",
           widthCm,
+          noInstallation: w.no_installation ?? false,
           dayPrice: priceOf(w.day_curtain_type_id || undefined),
           dayTrackRequired: w.day_track_required,
           nightTrackRequired: w.night_track_required,
@@ -312,14 +314,20 @@ export function LiveQuote({
                 carrying the cost, not just what the order totals. */}
             <CostBreakdown quote={quote} />
 
-            {/* Installation, its own category, in SGD. */}
+            {/* Installation, its own category, in SGD. The automatic handyman
+                charge and the manual transport/extras amount are shown
+                separately — never reclassified into each other. */}
             <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Installation (Handyman)
+              Installation
             </p>
             <dl className="mt-1 space-y-0.5 text-slate-500">
               <div className="flex justify-between">
-                <dt>Handyman + extra install</dt>
-                <dd>{formatSGD(quote.installationSgdCents)}</dd>
+                <dt>Handyman</dt>
+                <dd>{formatSGD(quote.automaticInstallSgdCents)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Transport / extras</dt>
+                <dd>{formatSGD(quote.transportExtrasSgdCents)}</dd>
               </div>
             </dl>
 

@@ -98,6 +98,7 @@ function makeWindow(roomType: RoomType, position: number) {
       notes: "",
       addon_ids: [] as string[],
       side_installation: false,
+      no_installation: false,
     };
   }
   return {
@@ -114,6 +115,7 @@ function makeWindow(roomType: RoomType, position: number) {
     combo_id: "",
     addon_ids: [] as string[],
     side_installation: false,
+    no_installation: false,
     overlap_tracks_attachment: false,
   };
 }

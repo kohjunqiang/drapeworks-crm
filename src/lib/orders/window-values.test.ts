@@ -28,6 +28,7 @@ describe("windowValues — regular window", () => {
       height_cm: 240,
       notes: "beam clearance",
       side_installation: false,
+      no_installation: false,
       overlap_tracks_attachment: false,
       day_track_required: true,
       night_track_required: true,
@@ -80,6 +81,7 @@ describe("windowValues — blind window", () => {
       height_cm: 200,
       notes: null,
       side_installation: false,
+      no_installation: false,
       overlap_tracks_attachment: false,
       day_track_required: true,
       night_track_required: true,
@@ -199,6 +201,36 @@ describe("windowValues — unequal double draw", () => {
   });
 });
 
+
+describe("windowValues — no installation", () => {
+  it("persists the flag on a curtain window", () => {
+    expect(
+      windowValues({ variant: "regular", no_installation: true }, 0)
+        .no_installation,
+    ).toBe(true);
+  });
+
+  it("persists the flag on a blind window — it is a window option, not a curtain one", () => {
+    expect(
+      windowValues({ variant: "blind", no_installation: true }, 0)
+        .no_installation,
+    ).toBe(true);
+  });
+
+  it("defaults to installed when the input omits the flag (legacy payloads)", () => {
+    expect(windowValues({ variant: "regular" }, 0).no_installation).toBe(false);
+    expect(windowValues({ variant: "blind" }, 0).no_installation).toBe(false);
+  });
+
+  it("keeps the flag through a variant switch — it is a covering-independent choice", () => {
+    expect(
+      windowValues(
+        { variant: "blind", day_curtain_type_id: DAY, no_installation: true },
+        0,
+      ).no_installation,
+    ).toBe(true);
+  });
+});
 
 describe("window track requirements", () => {
   it("persists independent day/night choices and defaults existing inputs to new tracks", () => {

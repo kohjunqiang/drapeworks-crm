@@ -119,6 +119,7 @@ export function RoomCard({
             notes: "",
             addon_ids: [],
             side_installation: false,
+            no_installation: false,
           }
         : {
             variant: "regular",
@@ -134,6 +135,7 @@ export function RoomCard({
             combo_id: "",
             addon_ids: [],
             side_installation: false,
+            no_installation: false,
             overlap_tracks_attachment: false,
           },
     );

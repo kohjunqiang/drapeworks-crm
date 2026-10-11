@@ -74,6 +74,7 @@ export async function loadInstallationSummary(
         "height_cm",
         "notes",
         "side_installation",
+        "no_installation",
         "draw",
         "day_curtain_type_id",
         "night_curtain_type_id",
@@ -131,6 +132,7 @@ export async function loadInstallationSummary(
           splitRightCm: size?.mfg_split_right_cm,
           addonLabels: addonsByWindow.get(window.id) ?? [],
           sideInstallation: window.side_installation,
+          noInstallation: window.no_installation,
           installationNote: window.notes,
         });
       }

@@ -1017,6 +1017,101 @@ describe("installation cost by offering", () => {
   });
 });
 
+describe("no installation", () => {
+  const single = {
+    widthCm: 200,
+    dayPrice: SIGNATURE,
+    addons: [],
+  };
+  const double = {
+    widthCm: 200,
+    dayPrice: SIGNATURE,
+    nightPrice: SIGNATURE,
+    addons: [],
+  };
+  const blind = {
+    widthCm: 200,
+    blindPrice: BLIND,
+    addons: [],
+  };
+
+  it.each([
+    ["single", single, ASSUMPTIONS.handymanSingleSgdCents],
+    ["double", double, ASSUMPTIONS.handymanDoubleSgdCents],
+    ["blind", blind, ASSUMPTIONS.handymanBlindsSgdCents],
+  ] as const)(
+    "waives the %s handyman charge and nothing else",
+    (_label, win, rate) => {
+      const installed = computeQuote([win], ASSUMPTIONS);
+      const waived = computeQuote(
+        [{ ...win, noInstallation: true }],
+        ASSUMPTIONS,
+      );
+      expect(waived.automaticInstallSgdCents).toBe(0);
+      expect(waived.installationSgdCents).toBe(
+        installed.installationSgdCents - rate,
+      );
+      // Tracks, fabric, freight and the customer sale are untouched.
+      expect(waived.cogsRmbCents).toBe(installed.cogsRmbCents);
+      expect(waived.freightRmbCents).toBe(installed.freightRmbCents);
+      expect(waived.saleSgdCents).toBe(installed.saleSgdCents);
+      expect(waived.discountedSaleSgdCents).toBe(installed.discountedSaleSgdCents);
+      expect(waived.netCostSgdCents).toBe(installed.netCostSgdCents - rate);
+    },
+  );
+
+  it("charges only the installed windows on a mixed order", () => {
+    const q = computeQuote(
+      [
+        { ...double, noInstallation: true },
+        single,
+        { ...blind, noInstallation: true },
+      ],
+      ASSUMPTIONS,
+      "sea",
+      0,
+      0,
+    );
+    expect(q.automaticInstallSgdCents).toBe(ASSUMPTIONS.handymanSingleSgdCents);
+    expect(q.installationSgdCents).toBe(ASSUMPTIONS.handymanSingleSgdCents);
+    // The rail on the waived double window is still bought — "No installation"
+    // is not "No tracks".
+    const installed = computeQuote([double, single, blind], ASSUMPTIONS, "sea");
+    expect(q.cogsRmbCents).toBe(installed.cogsRmbCents);
+  });
+
+  it("keeps manual transport/extras on an all-waived order, shown apart", () => {
+    const q = computeQuote(
+      [{ ...double, noInstallation: true }],
+      ASSUMPTIONS,
+      "air",
+      2500,
+    );
+    expect(q.automaticInstallSgdCents).toBe(0);
+    expect(q.transportExtrasSgdCents).toBe(2500);
+    expect(q.installationSgdCents).toBe(2500);
+    const withoutExtras = computeQuote(
+      [{ ...double, noInstallation: true }],
+      ASSUMPTIONS,
+      "air",
+    );
+    expect(q.netCostSgdCents).toBe(withoutExtras.netCostSgdCents + 2500);
+  });
+
+  it("splits the aggregate exactly — omitted flag and legacy windows behave as before", () => {
+    for (const extras of [0, 2500]) {
+      const q = computeQuote([double], ASSUMPTIONS, "air", extras);
+      expect(q.automaticInstallSgdCents + q.transportExtrasSgdCents).toBe(
+        q.installationSgdCents,
+      );
+      expect(q.automaticInstallSgdCents).toBe(
+        ASSUMPTIONS.handymanDoubleSgdCents,
+      );
+      expect(q.transportExtrasSgdCents).toBe(extras);
+    }
+  });
+});
+
 // ── The rail, per metre ───────────────────────────────────────────────────
 //
 // It used to be a flat per-unit charge that ignored the window entirely, and

@@ -63,6 +63,9 @@ const baseWindow = z.object({
   height_cm: optionalInt,
   notes: z.string().max(2000).optional(),
   side_installation: z.boolean().default(false),
+  // Per-window opt-out of the automatic handyman cost. Distinct from "No
+  // tracks": a window can keep its rail and still waive installation.
+  no_installation: z.boolean().default(false),
   // Which add-ons are ticked. The server re-resolves this against the
   // catalogue before persisting (lib/actions/orders.ts), so a payload cannot
   // attach an out-of-scope, archived or unpriced add-on by asserting it.

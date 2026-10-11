@@ -120,6 +120,7 @@ export async function loadCurtainOrderTemplate(
           "height_cm",
           "notes",
           "side_installation",
+          "no_installation",
           "overlap_tracks_attachment",
           "day_track_required",
           "night_track_required",
@@ -172,6 +173,7 @@ export async function loadCurtainOrderTemplate(
               height_cm: window.height_cm ?? null,
               notes: window.notes ?? "",
               side_installation: window.side_installation,
+              no_installation: window.no_installation,
               addon_ids: addonIdsByWindow.get(window.id) ?? [],
             };
           }
@@ -187,6 +189,7 @@ export async function loadCurtainOrderTemplate(
             height_cm: window.height_cm ?? null,
             notes: window.notes ?? "",
             side_installation: window.side_installation,
+            no_installation: window.no_installation,
             overlap_tracks_attachment: window.overlap_tracks_attachment,
             day_track_required: window.day_track_required,
             night_track_required: window.night_track_required,

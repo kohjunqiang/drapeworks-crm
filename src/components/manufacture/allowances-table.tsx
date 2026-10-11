@@ -173,7 +173,7 @@ export function AllowancesTable({ rows }: { rows: AllowanceRow[] }) {
                     <label className="inline-flex items-center gap-1">
                       <input
                         aria-label={`${label} width allowance in cm`}
-                        inputMode="numeric"
+                        inputMode="text"
                         placeholder="—"
                         className={CELL_INPUT}
                         value={d.width}
@@ -186,7 +186,7 @@ export function AllowancesTable({ rows }: { rows: AllowanceRow[] }) {
                     <label className="inline-flex items-center gap-1">
                       <input
                         aria-label={`${label} height allowance in cm`}
-                        inputMode="numeric"
+                        inputMode="text"
                         placeholder="—"
                         className={CELL_INPUT}
                         value={d.height}

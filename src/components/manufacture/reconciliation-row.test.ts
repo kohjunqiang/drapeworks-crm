@@ -86,8 +86,18 @@ describe("parseDelta", () => {
   it("rejects a lone minus and other part-typed input", () => {
     expect(parseDelta("-")).toBeNull();
     expect(parseDelta("")).toBeNull();
-    expect(parseDelta("-2.555")).toBeNull();
     expect(parseDelta("2 8")).toBeNull();
+  });
+
+  // Allowances are whole centimetres — a fraction is a mistake, not a precision.
+  it("rejects fractions, exponents and non-numeric input", () => {
+    for (const d of ["1.5", "-2.5", "2e2", "abc", "1,5"]) {
+      expect(parseDelta(d)).toBeNull();
+    }
+  });
+
+  it("rejects integers beyond safe precision", () => {
+    expect(parseDelta("9007199254740993")).toBeNull();
   });
 });
 
@@ -200,6 +210,78 @@ describe("evaluateRow", () => {
     const l = line();
     const s = evaluateRow(l, syncDraft(l, draftFor(l), { widthDelta: "-5" }));
     expect(s.errors).toEqual([]);
+  });
+});
+
+describe("evaluateRow — the allowance is validated in its own right", () => {
+  const l = line();
+
+  // An unparseable draft leaves the paired Make untouched, so a lone "-"
+  // would otherwise confirm a stale size the person never finished changing.
+  it.each(["-", "", "1.5", "-2.5", "2e2", "abc"])(
+    "flags allowance %j and blocks confirmation while keeping the typed Make",
+    (widthDelta) => {
+      const draft = syncDraft(l, draftFor(l), { widthDelta });
+      expect(draft.width).toBe("298");
+      const s = evaluateRow(l, draft);
+      expect(s.errors).toContain(
+        "The width allowance must be a whole number of centimetres.",
+      );
+      expect(s.widthDeltaInvalid).toBe(true);
+      expect(s.widthCm).toBe(298);
+    },
+  );
+
+  it("flags the height axis the same way", () => {
+    const s = evaluateRow(l, { ...draftFor(l), heightDelta: "-2.5" });
+    expect(s.errors).toContain(
+      "The height allowance must be a whole number of centimetres.",
+    );
+    expect(s.heightDeltaInvalid).toBe(true);
+  });
+
+  it("clears the error when a whole number is finished", () => {
+    const s = evaluateRow(l, syncDraft(l, draftFor(l), { widthDelta: "-5" }));
+    expect(s.errors).toEqual([]);
+    expect(s.widthDeltaInvalid).toBe(false);
+    expect(s.widthCm).toBe(295);
+  });
+
+  // A delta recomputed from the stale paired size would count as a resize the
+  // person never asked for; the invalid axis reports null until it parses.
+  it("nulls the recomputed delta on the invalid axis only", () => {
+    const s = evaluateRow(l, { ...draftFor(l), widthDelta: "-2.5" });
+    expect(s.widthDeltaCm).toBeNull();
+    expect(s.heightDeltaCm).toBe(-4);
+    expect(s.widthCm).toBe(298);
+    const h = evaluateRow(l, { ...draftFor(l), heightDelta: "abc" });
+    expect(h.heightDeltaCm).toBeNull();
+    expect(h.widthDeltaCm).toBe(-2);
+    expect(h.heightCm).toBe(256);
+  });
+
+  it("restores the recomputed delta once the draft parses again", () => {
+    const s = evaluateRow(l, syncDraft(l, draftFor(l), { widthDelta: "-5" }));
+    expect(s.widthDeltaCm).toBe(-5);
+  });
+
+  // A Make edit can imply a fractional allowance; the typed size stands and
+  // the allowance constraint is surfaced, never silently rounded away.
+  it("flags a fractional allowance derived from a Make edit", () => {
+    const decimal = line({ sourceWidthCm: 120.25, mfgWidthCm: 118.25 });
+    const draft = syncDraft(decimal, draftFor(decimal), { width: "118" });
+    expect(draft.widthDelta).toBe("-2.25");
+    const s = evaluateRow(decimal, draft);
+    expect(s.widthDeltaInvalid).toBe(true);
+    expect(s.widthCm).toBe(118);
+  });
+
+  // 126.2 - 128.2 is -1.9999999999999858 in binary float; seeding must round
+  // to display precision or an integer allowance reads as a fraction.
+  it("seeds an integer allowance from decimal sources without float noise", () => {
+    const l = line({ sourceWidthCm: 128.2, mfgWidthCm: 126.2 });
+    expect(draftFor(l).widthDelta).toBe("-2");
+    expect(evaluateRow(l, draftFor(l)).errors).toEqual([]);
   });
 });
 

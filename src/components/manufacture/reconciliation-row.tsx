@@ -55,6 +55,9 @@ export type RowState = {
   /** Recomputed against the source, so the figure shown always reconciles. */
   widthDeltaCm: number | null;
   heightDeltaCm: number | null;
+  /** The allowance draft is not a whole number of centimetres. */
+  widthDeltaInvalid: boolean;
+  heightDeltaInvalid: boolean;
   splitLeftCm: number | null;
   splitRightCm: number | null;
   errors: string[];
@@ -69,8 +72,11 @@ export function draftFor(line: ReconLine): RowDraft {
   return {
     width: String(line.mfgWidthCm),
     height: String(line.mfgHeightCm),
-    widthDelta: String(line.mfgWidthCm - line.sourceWidthCm),
-    heightDelta: String(line.mfgHeightCm - line.sourceHeightCm),
+    // Rounded to the same 2-decimal precision deltaFromSize displays at, so a
+    // decimal source like 120.25 cannot float-error an integer allowance into
+    // "-1.9999999999999716" and get itself rejected as fractional.
+    widthDelta: String(Math.round((line.mfgWidthCm - line.sourceWidthCm) * 100) / 100),
+    heightDelta: String(Math.round((line.mfgHeightCm - line.sourceHeightCm) * 100) / 100),
     splitLeft: split ? String(split.leftCm) : "",
     splitRight: split ? String(split.rightCm) : "",
     reason: "",
@@ -88,13 +94,15 @@ export function parseCm(s: string): number | null {
 }
 
 // A delta may be negative, zero, or positive — the sign is the whole point.
-// Returns null for anything unparseable, including a lone "-" mid-typing, so
-// the caller can leave the paired field alone rather than blanking it.
+// Whole centimetres only, matching the integer contract of the configured
+// allowances; a fraction like "-2.5" is as unparseable as "abc". Returns null
+// for anything unparseable, including a lone "-" mid-typing, so the caller can
+// leave the paired field alone rather than blanking it.
 export function parseDelta(s: string): number | null {
   const t = s.trim();
-  if (!/^-?\d+(?:\.\d{1,2})?$/.test(t)) return null;
+  if (!/^-?\d+$/.test(t)) return null;
   const n = Number(t);
-  return Number.isFinite(n) ? n : null;
+  return Number.isSafeInteger(n) ? n : null;
 }
 
 /** The delta implied by a typed manufacturing size. "" when it does not parse. */
@@ -165,6 +173,11 @@ function dimError(
 export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   const widthCm = parseCm(draft.width);
   const heightCm = parseCm(draft.height);
+  // The allowance is validated in its own right, not just by the size it
+  // implies: an unparseable draft leaves the paired size untouched, so without
+  // this check a lone "-" would confirm the stale Make it never recomputed.
+  const widthDeltaInvalid = parseDelta(draft.widthDelta) == null;
+  const heightDeltaInvalid = parseDelta(draft.heightDelta) == null;
   const expectsSplit = line.splitLeftCm != null && line.splitRightCm != null;
   const splitLeftCm = expectsSplit ? parseCm(draft.splitLeft) : null;
   const splitRightCm = expectsSplit ? parseCm(draft.splitRight) : null;
@@ -185,6 +198,12 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   const overridden = widthOverridden || heightOverridden || splitOverridden;
 
   const errors: string[] = [];
+  if (widthDeltaInvalid) {
+    errors.push("The width allowance must be a whole number of centimetres.");
+  }
+  if (heightDeltaInvalid) {
+    errors.push("The height allowance must be a whole number of centimetres.");
+  }
   if (widthCm == null) {
     errors.push(dimError("width", draft.width, line.mfgWidthCm));
   }
@@ -210,8 +229,20 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
     heightOverridden,
     splitOverridden,
     overridden,
-    widthDeltaCm: widthCm == null ? null : widthCm - line.sourceWidthCm,
-    heightDeltaCm: heightCm == null ? null : heightCm - line.sourceHeightCm,
+    // Null when the axis's own delta draft is invalid: the paired size is
+    // stale mid-typing, so a delta recomputed from it would count a value the
+    // person never entered as a resize. The widthCm/heightCm pair is left
+    // alone — that stale Make is what stays visible until typing finishes.
+    widthDeltaCm:
+      widthCm == null || widthDeltaInvalid
+        ? null
+        : Math.round((widthCm - line.sourceWidthCm) * 100) / 100,
+    heightDeltaCm:
+      heightCm == null || heightDeltaInvalid
+        ? null
+        : Math.round((heightCm - line.sourceHeightCm) * 100) / 100,
+    widthDeltaInvalid,
+    heightDeltaInvalid,
     splitLeftCm,
     splitRightCm,
     errors,
@@ -223,7 +254,7 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
 // attribute, so a per-input `text-center` could not reliably beat a `text-right`
 // baked into this string. Each input states its own alignment instead.
 const INPUT_BASE =
-  "px-2 py-1 border rounded text-sm tabular-nums font-semibold " +
+  "min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 border rounded text-base sm:text-sm tabular-nums font-semibold " +
   "focus:outline-none focus:border-teal-500 disabled:bg-slate-50 disabled:text-slate-500";
 
 function toneFor(invalid: boolean, adjusted: boolean): string {
@@ -253,9 +284,12 @@ export function deltaTone(delta: string): string {
 /**
  * One axis across all three columns.
  *
- * Rendered as `display: contents` on desktop so the six cells of a two-axis row
- * become direct children of ONE grid. That is what keeps Width and Height
- * aligned by construction — the previous flex-per-column layout let the two
+ * On mobile the axis is a real grid group: the three cells stack together and
+ * Height gets a rule above it, so the two axes can't read as one list of six
+ * cells. From `sm:` up it becomes `display: contents` — which discards the
+ * group's margin/border/padding — so the six cells of a two-axis row turn into
+ * direct children of ONE grid. That is what keeps Width and Height aligned by
+ * construction on desktop — the previous flex-per-column layout let the two
  * rows size independently and drift apart whenever a value was wider.
  */
 function AxisRow({
@@ -266,6 +300,7 @@ function AxisRow({
   size,
   delta,
   invalid,
+  deltaInvalid,
   adjusted,
   disabled,
   onSize,
@@ -278,6 +313,8 @@ function AxisRow({
   size: string;
   delta: string;
   invalid: boolean;
+  /** The allowance draft is not a whole number — flagged on the delta box. */
+  deltaInvalid: boolean;
   adjusted: boolean;
   disabled: boolean;
   onSize: (v: string) => void;
@@ -285,7 +322,11 @@ function AxisRow({
 }) {
   const lower = axis.toLowerCase();
   return (
-    <div className="contents">
+    <div
+      className={`grid gap-y-2 sm:contents ${
+        axis === "Height" ? "mt-4 border-t border-slate-200 pt-4" : ""
+      }`}
+    >
       <div className="flex items-center gap-2 min-w-0">
         <span className="w-14 shrink-0 text-xs text-slate-500">{axis}</span>
         <span className="text-sm text-slate-600 tabular-nums">
@@ -299,12 +340,13 @@ function AxisRow({
         </span>
         <input
           id={`${lineId}-${lower}-delta`}
-          inputMode="decimal"
+          inputMode="text"
           aria-label={`${pieceLabel} ${lower} allowance in cm`}
+          aria-invalid={deltaInvalid}
           disabled={disabled}
           value={delta}
           onChange={(e) => onDelta(e.target.value)}
-          className={`w-16 text-center ${INPUT_BASE} ${deltaTone(delta)}`}
+          className={`w-16 text-center ${INPUT_BASE} ${deltaInvalid ? "border-rose-400 bg-rose-50 text-rose-900" : deltaTone(delta)}`}
         />
         <span className="text-xs text-slate-400">cm</span>
       </div>
@@ -393,6 +435,7 @@ export function ReconciliationRow({
           size={draft.width}
           delta={draft.widthDelta}
           invalid={state.widthCm == null}
+          deltaInvalid={state.widthDeltaInvalid}
           adjusted={state.widthOverridden}
           disabled={disabled}
           onSize={(width) => onChange({ width })}
@@ -451,7 +494,7 @@ export function ReconciliationRow({
                         disabled={disabled}
                         value={draft.splitLeft}
                         onChange={(e) => onChange({ splitLeft: e.target.value })}
-                        className={`min-w-0 w-full rounded border px-2 py-1 text-right text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                        className={`min-w-0 w-full rounded border min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 text-right text-base sm:text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
                           state.splitLeftCm == null ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
                         }`}
                       />
@@ -467,7 +510,7 @@ export function ReconciliationRow({
                         disabled={disabled}
                         value={draft.splitRight}
                         onChange={(e) => onChange({ splitRight: e.target.value })}
-                        className={`min-w-0 w-full rounded border px-2 py-1 text-right text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
+                        className={`min-w-0 w-full rounded border min-h-11 px-3 py-2.5 sm:min-h-0 sm:px-2 sm:py-1 text-right text-base sm:text-sm font-semibold text-slate-900 focus:outline-none focus:border-teal-600 ${
                           state.splitRightCm == null ? "border-rose-400 bg-rose-50" : "border-slate-300 bg-white"
                         }`}
                       />
@@ -487,6 +530,7 @@ export function ReconciliationRow({
           size={draft.height}
           delta={draft.heightDelta}
           invalid={state.heightCm == null}
+          deltaInvalid={state.heightDeltaInvalid}
           adjusted={state.heightOverridden}
           disabled={disabled}
           onSize={(height) => onChange({ height })}
@@ -507,7 +551,7 @@ export function ReconciliationRow({
               type="button"
               onClick={onReset}
               disabled={disabled}
-              className="text-xs text-slate-500 hover:text-slate-900 underline underline-offset-2"
+              className="inline-flex items-center min-h-11 px-2 sm:min-h-0 sm:px-0 text-xs text-slate-500 hover:text-slate-900 underline underline-offset-2"
             >
               Reset to {line.mfgWidthCm} × {line.mfgHeightCm} cm
             </button>
@@ -520,7 +564,7 @@ export function ReconciliationRow({
             value={draft.reason}
             onChange={(e) => onChange({ reason: e.target.value })}
             placeholder="e.g. site re-measure — the ledge is 4cm proud of the wall"
-            className="w-full px-3 py-2 border border-amber-300 rounded text-sm bg-white focus:outline-none focus:border-amber-500"
+            className="w-full px-3 py-2 border border-amber-300 rounded text-base sm:text-sm bg-white focus:outline-none focus:border-amber-500"
           />
         </div>
       )}

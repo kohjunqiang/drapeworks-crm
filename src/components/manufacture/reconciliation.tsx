@@ -219,7 +219,7 @@ export function Reconciliation({
             type="button"
             onClick={() => setOpen(true)}
             disabled={!canConfirm}
-            className="px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
+            className="w-full sm:w-auto min-h-11 sm:min-h-0 px-4 py-2 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
           >
             {pending ? "Confirming…" : "Confirm manufacturing measurements"}
           </button>

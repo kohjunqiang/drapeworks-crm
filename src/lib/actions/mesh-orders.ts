@@ -171,6 +171,7 @@ export async function createMeshOrder(input: unknown, returnRoomIds = false): Pr
 
   await stampQuoteBaseline(orderId);
 
+  revalidatePath("/orders");
   if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }
@@ -421,6 +422,7 @@ export async function createMeshOrderDraft(input: unknown, returnRoomIds = false
 
   await stampQuoteBaseline(orderId);
 
+  revalidatePath("/orders");
   if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }

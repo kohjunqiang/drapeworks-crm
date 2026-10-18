@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { revalidatePath } from "next/cache";
 const mocks = vi.hoisted(() => ({ transaction: vi.fn(), redirect: vi.fn(), clone: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -27,8 +28,16 @@ beforeEach(() => {
 it.each([createMeshOrder, createMeshOrderDraft])("returns committed room IDs in form order for photo uploads", async (create) => {
   expect(await create(input, true)).toEqual({ orderId: "order-1", roomIds: ["room-0", "room-1"] });
   expect(mocks.redirect).not.toHaveBeenCalled();
+  expect(revalidatePath).toHaveBeenCalledWith("/orders");
 });
 it.each([createMeshOrder, createMeshOrderDraft])("preserves default redirect for callers without pending photos", async (create) => {
   await expect(create(input)).rejects.toThrow("NEXT_REDIRECT");
   expect(mocks.redirect).toHaveBeenCalledWith("/orders/order-1");
+  expect(revalidatePath).toHaveBeenCalledWith("/orders");
+});
+it.each([createMeshOrder, createMeshOrderDraft])("does not report a refreshed list when creation rolls back", async (create) => {
+  mocks.transaction.mockReturnValue({ execute: async () => { throw new Error("save failed"); } });
+  await expect(create(input, true)).rejects.toThrow("save failed");
+  expect(revalidatePath).not.toHaveBeenCalled();
+  expect(mocks.redirect).not.toHaveBeenCalled();
 });

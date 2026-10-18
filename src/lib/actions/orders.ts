@@ -307,6 +307,7 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
 
   await stampQuoteBaseline(orderId);
 
+  revalidatePath("/orders");
   if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }
@@ -1006,6 +1007,7 @@ export async function createOrderDraft(input: unknown, returnRoomIds = false): P
 
   await stampQuoteBaseline(orderId);
 
+  revalidatePath("/orders");
   if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
 }

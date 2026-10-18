@@ -17,6 +17,7 @@ type Props = {
     product?: string;
     sort?: string;
     dir?: string;
+    zohoAttention?: boolean;
   };
   consultants: Consultant[];
 };
@@ -33,6 +34,7 @@ function buildHref(
     product: string;
     sort?: string;
     dir?: string;
+    zohoAttention?: boolean;
   },
 ): string {
   const params = new URLSearchParams();
@@ -42,6 +44,7 @@ function buildHref(
   if (next.product) params.set("product", next.product);
   if (next.sort) params.set("sort", next.sort);
   if (next.dir) params.set("dir", next.dir);
+  if (next.zohoAttention) params.set("zohoAttention", "1");
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
 }
@@ -49,7 +52,8 @@ function buildHref(
 export function OrdersFilters({ defaults, consultants }: Props) {
   const router = useRouter();
   const pathname = usePathname();
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
+  const [debouncing, setDebouncing] = useState(false);
 
   const [q, setQ] = useState(defaults.q ?? "");
   const [serverQ, setServerQ] = useState(defaults.q ?? "");
@@ -66,6 +70,7 @@ export function OrdersFilters({ defaults, consultants }: Props) {
       setQ(incomingQ);
       setSubmittedQueries([]);
       setNavigationReset(navigationReset + 1);
+      setDebouncing(false);
     } else {
       setSubmittedQueries(submittedQueries.slice(submittedIndex + 1));
     }
@@ -87,6 +92,7 @@ export function OrdersFilters({ defaults, consultants }: Props) {
     function restoreSearch() {
       if (debounce.current) clearTimeout(debounce.current);
       setSubmittedQueries([]);
+      setDebouncing(false);
       setQ(new URLSearchParams(window.location.search).get("q") ?? "");
     }
     window.addEventListener("popstate", restoreSearch);
@@ -104,22 +110,27 @@ export function OrdersFilters({ defaults, consultants }: Props) {
     product: string;
   }) {
     if (debounce.current) clearTimeout(debounce.current);
+    setDebouncing(true);
     debounce.current = setTimeout(() => {
-      setSubmittedQueries((queries) => [...queries, next.q]);
+      setDebouncing(false);
+      setSubmittedQueries((queries) => [...queries, next.q.trim()]);
       startTransition(() => {
         router.push(buildHref(pathname, {
           ...next,
           sort: defaults.sort,
           dir: defaults.dir,
+          zohoAttention: defaults.zohoAttention,
         }), { scroll: false });
       });
     }, 300);
   }
 
   return (
+    <>
     <div className="bg-white rounded-lg border border-slate-200 mb-4 p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
       <input
         type="text"
+        aria-label="Search orders"
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
@@ -137,10 +148,10 @@ export function OrdersFilters({ defaults, consultants }: Props) {
           }}
           noneLabel="Current orders"
           triggerClassName="w-full sm:w-44"
-          options={STATUS_FLOW.map((s: FulfilmentStatus) => ({
+          options={[{ value: "all", label: "All orders" }, ...STATUS_FLOW.map((s: FulfilmentStatus) => ({
             value: s,
             label: STATUS_LABELS[s],
-          }))}
+          }))]}
         />
         <AppSelect
           value={consultant}
@@ -167,5 +178,9 @@ export function OrdersFilters({ defaults, consultants }: Props) {
         />
       </div>
     </div>
+    <p role="status" aria-live="polite" className="mb-3 min-h-5 text-sm text-slate-500">
+      {debouncing || pending ? "Searching…" : ""}
+    </p>
+    </>
   );
 }

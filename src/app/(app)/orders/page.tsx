@@ -20,6 +20,7 @@ import {
   usableFreightNumber,
 } from "@/lib/logistics/freight";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
+import { ORDER_PAGE_SIZE, orderPagination, orderSearch } from "@/lib/orders/list-query";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/require-role";
@@ -48,6 +49,7 @@ type SearchParams = {
   sort?: string;
   dir?: string;
   zohoAttention?: string;
+  page?: string;
 };
 
 type OrderSort = "identifier" | "status";
@@ -71,10 +73,11 @@ export default async function OrdersDashboardPage({
     sort: sortRaw,
     dir: directionRaw,
     zohoAttention: zohoAttentionRaw,
+    page: pageRaw,
   } = await searchParams;
   const session = await requireSession();
   const q = (qRaw ?? "").trim();
-  const status = isStatus(statusRaw) ? statusRaw : undefined;
+  const status = statusRaw === "all" ? "all" : isStatus(statusRaw) ? statusRaw : undefined;
   const consultantId =
     typeof consultantRaw === "string" && consultantRaw.length > 0
       ? consultantRaw
@@ -158,9 +161,9 @@ export default async function OrdersDashboardPage({
       "profiles.email as consultant_email",
     ]);
 
-  if (status) {
+  if (status && status !== "all") {
     listQ = listQ.where("orders.current_status", "=", status);
-  } else {
+  } else if (status !== "all") {
     listQ = listQ.where("orders.current_status", "in", [
       ...DEFAULT_ORDER_LIST_STATUSES,
     ]);
@@ -178,22 +181,14 @@ export default async function OrdersDashboardPage({
   }
 
   if (q) {
-    const like = `%${q.replace(/[%_]/g, "")}%`;
-    listQ = listQ.where((eb) =>
-      eb.or([
-        eb("customers.name", "ilike", like),
-        eb("customers.mobile", "ilike", like),
-        eb("orders.development", "ilike", like),
-        eb("orders.display_id", "ilike", like),
-        eb("orders.order_reference", "ilike", like),
-        sql<boolean>`exists (
-          select 1 from public.order_shipments os
-          where os.order_id = orders.id
-            and os.overseas_freight_number ilike ${like}
-        )`,
-      ]),
-    );
+    listQ = listQ.where((eb) => orderSearch(eb, q));
   }
+
+  const totalRow = await listQ.clearSelect()
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow();
+  const totalOrders = Number(totalRow.count);
+  const pagination = orderPagination(pageRaw, totalOrders);
 
   if (sort === "identifier") {
     listQ = listQ.orderBy(
@@ -218,7 +213,9 @@ export default async function OrdersDashboardPage({
 
   const rows = await listQ
     .orderBy("orders.created_at", "desc")
-    .limit(50)
+    .orderBy("orders.id", "asc")
+    .limit(ORDER_PAGE_SIZE)
+    .offset(pagination.offset)
     .execute();
 
   let freightQuery = db.selectFrom("order_shipments")
@@ -368,13 +365,28 @@ export default async function OrdersDashboardPage({
     label: r.full_name?.trim() || r.email.split("@")[0],
   }));
 
-  function sortHref(column: OrderSort): string {
+  function listParams(): URLSearchParams {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (status) params.set("status", status);
     if (consultantId) params.set("consultant", consultantId);
     if (productLine) params.set("product", productLine);
     if (zohoAttention) params.set("zohoAttention", "1");
+    if (hasExplicitSort) {
+      params.set("sort", sort);
+      params.set("dir", direction);
+    }
+    return params;
+  }
+
+  function pageHref(page: number): string {
+    const params = listParams();
+    if (page > 1) params.set("page", String(page));
+    return `/orders?${params.toString()}`;
+  }
+
+  function sortHref(column: OrderSort): string {
+    const params = listParams();
     params.set("sort", column);
     params.set(
       "dir",
@@ -453,9 +465,22 @@ export default async function OrdersDashboardPage({
           // server still applies the default Order / PO ascending order.
           sort: hasExplicitSort ? sort : undefined,
           dir: hasExplicitSort ? direction : undefined,
+          zohoAttention,
         }}
         consultants={consultants}
       />
+
+      {orders.length === 0 && q && (status !== "all" || consultantId || productLine || zohoAttention) && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          Your search is limited by the selected filters. {" "}
+          <Link
+            href={`/orders?${new URLSearchParams({ q, status: "all" })}`}
+            className="inline-flex min-h-11 items-center font-medium text-teal-700 underline"
+          >
+            Search all orders
+          </Link>
+        </div>
+      )}
 
       {orders.length === 0 && !q && !status && !consultantId && !productLine && !zohoAttention ? (
         <EmptyState
@@ -476,6 +501,18 @@ export default async function OrdersDashboardPage({
             }}
           />
           <OrdersCards orders={orders} canDelete={session.profile.role === "admin"} />
+          <nav aria-label="Orders pagination" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+            <span>Showing {pagination.first}–{pagination.last} of {totalOrders} orders</span>
+            <div className="flex items-center gap-3">
+              {pagination.page > 1 && (
+                <Link href={pageHref(pagination.page - 1)} className="inline-flex min-h-11 items-center rounded border border-slate-200 bg-white px-3 font-medium text-teal-700 hover:bg-slate-50">Previous</Link>
+              )}
+              <span>Page {pagination.page} of {pagination.pages}</span>
+              {pagination.page < pagination.pages && (
+                <Link href={pageHref(pagination.page + 1)} className="inline-flex min-h-11 items-center rounded border border-slate-200 bg-white px-3 font-medium text-teal-700 hover:bg-slate-50">Next</Link>
+              )}
+            </div>
+          </nav>
         </>
       )}
     </main>

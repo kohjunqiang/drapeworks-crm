@@ -98,6 +98,7 @@ export async function loadPoInput(
   const [
     settings,
     assumptions,
+    rooms,
     roomLabelRows,
     typeLabelRows,
     openingRows,
@@ -113,6 +114,12 @@ export async function loadPoInput(
         .selectFrom("pricing_assumptions")
         .select("style_multiplier")
         .executeTakeFirst(),
+      // Query rooms directly so empty rooms retain their order-wide number.
+      db.selectFrom("rooms")
+        .select(["id", "type", "position"])
+        .where("order_id", "=", orderId)
+        .orderBy("position", "asc")
+        .execute(),
       db.selectFrom("room_type_labels").select(["room_type", "name_cn", "code"]).execute(),
       db.selectFrom("po_type_labels").select(["key", "label_cn"]).execute(),
       db.selectFrom("po_opening_labels").select(["draw", "label_cn"]).execute(),
@@ -243,6 +250,7 @@ export async function loadPoInput(
       fullnessBps: assumptions.style_multiplier,
       vendors,
       roomLabels,
+      rooms,
       lines,
       notesByDocument,
     },

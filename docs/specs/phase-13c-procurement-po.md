@@ -249,9 +249,13 @@ that the business must be able to correct without a deploy.
 > This is the existing "catalogue labels are stored verbatim" rule applied to
 > room names.
 
-Numbering (`BR1`, `BR2`) is derived at render time: within one PO, rooms sharing
-a `room_type` are numbered by `rooms.position`, and a type appearing once is
-**not** numbered — the samples show bare `LR` and `MB`, not `LR1`.
+Numbering (`BR1`, `BR2`) uses the complete order room roster before filtering by
+vendor or category. Rooms sharing a `room_type` are numbered by `rooms.position`,
+including rooms with no windows or coverings. A type appearing once in the order
+is **not** numbered — the samples show bare `LR` and `MB`, not `LR1`. Custom room
+labels do not determine numbering. Thus day curtains in Bedrooms 3/4 keep BR3/BR4
+even if Bedrooms 1/2 only have night curtains. (Order-wide numbering supersedes
+the original per-document rule, per the October 2026 bug fix.)
 
 ### 3.5 Per-PO notes
 

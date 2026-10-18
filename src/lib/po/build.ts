@@ -146,6 +146,13 @@ export function blindControlLabel(
   );
 }
 
+/** Complete order roster, including rooms without windows or coverings. */
+export type PoRoom = {
+  id: string;
+  type: RoomType;
+  position: number;
+};
+
 export type PoInput = {
   settings: PoSettings;
   /** orders.order_reference, snapshotted by the caller. */
@@ -163,6 +170,7 @@ export type PoInput = {
   fullnessBps: number;
   vendors: readonly PoVendor[];
   roomLabels: ReadonlyMap<string, PoRoomLabel>;
+  rooms: readonly PoRoom[];
   lines: readonly PoLine[];
   /** manufacture_pos.notes, per vendor — the Night sample's 都要绑带. */
   notesByDocument?: ReadonlyMap<string, string | null>;
@@ -359,32 +367,23 @@ function locate(line: PoLine): string {
 }
 
 /**
- * Numbers the rooms of ONE document: rooms sharing a room_type are numbered by
- * rooms.position, and a type appearing once is not numbered at all — the
- * samples show a bare 客厅 LR, never LR1.
- *
- * Per document rather than per order, per spec §3.4. Note the consequence: if
- * one bedroom's day curtain goes to a different vendor from the other's, each
- * vendor sees an unnumbered 次卧 BR. Each document is self-consistent, which is
- * what the vendor reading it needs.
+ * Number the complete order roster before splitting by vendor or category.
+ * Empty rooms count; singleton types remain unnumbered (for example 客厅 LR).
+ * Custom room labels are never parsed for numbering.
  */
-function numberRooms(lines: readonly PoLine[]): Map<string, number | null> {
-  const byType = new Map<RoomType, { roomId: string; position: number }[]>();
-  const seen = new Set<string>();
-
-  for (const line of lines) {
-    if (seen.has(line.roomId)) continue;
-    seen.add(line.roomId);
-    const rooms = byType.get(line.roomType) ?? [];
-    rooms.push({ roomId: line.roomId, position: line.roomPosition });
-    byType.set(line.roomType, rooms);
+function numberRooms(roster: readonly PoRoom[]): Map<string, number | null> {
+  const byType = new Map<RoomType, PoRoom[]>();
+  for (const room of roster) {
+    const rooms = byType.get(room.type) ?? [];
+    rooms.push(room);
+    byType.set(room.type, rooms);
   }
 
   const indexes = new Map<string, number | null>();
   for (const rooms of byType.values()) {
     rooms.sort((a, b) => a.position - b.position);
     for (const [i, room] of rooms.entries()) {
-      indexes.set(room.roomId, rooms.length > 1 ? i + 1 : null);
+      indexes.set(room.id, rooms.length > 1 ? i + 1 : null);
     }
   }
   return indexes;
@@ -558,9 +557,9 @@ export function buildPos(input: PoInput): {
   const problems: string[] = [];
   const vendorsById = new Map(input.vendors.map((v) => [v.id, v]));
 
-  // Room order, then window order within the room. Everything downstream —
-  // row order, room numbering, which vendor's document comes first — follows
-  // from this one sort, so two runs over the same order cannot differ.
+  const roomIndexes = numberRooms(input.rooms);
+
+  // Room order, then window order determines row and document ordering.
   const ordered = [...input.lines].sort(
     (a, b) => a.roomPosition - b.roomPosition || a.position - b.position,
   );
@@ -647,8 +646,6 @@ export function buildPos(input: PoInput): {
 
   const pos: PoDocData[] = [];
   for (const { vendorId, category, lines: ready } of groups.values()) {
-    const roomIndexes = numberRooms(ready.map((r) => r.line));
-
     const rowsFor = (kind: PoLine["kind"]): PoRow[] =>
       ready
         .filter((r) => r.line.kind === kind)

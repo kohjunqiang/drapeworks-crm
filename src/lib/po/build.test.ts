@@ -121,6 +121,9 @@ function input(over: Partial<PoInput> = {}): PoInput {
     fullnessBps: 20000,
     vendors: [RISING, ZHUYINGTAI, SHUNJIN],
     roomLabels: LABELS,
+    rooms: [...new Map((over.lines ?? []).map((line) => [line.roomId, {
+      id: line.roomId, type: line.roomType, position: line.roomPosition,
+    }])).values()],
     lines: [],
     ...over,
   };
@@ -1065,6 +1068,58 @@ describe("buildPos — blackout factory instruction", () => {
     expect(pos[0].tables[0].rows.map((row) => row.blackout)).toEqual([
       false,
       true,
+    ]);
+  });
+});
+
+describe("buildPos — order-wide room identity", () => {
+  const rooms: PoInput["rooms"] = [
+    { id: "br4", type: "Bedroom", position: 40 },
+    { id: "lr", type: "Living Room", position: 0 },
+    { id: "br2", type: "Bedroom", position: 20 },
+    { id: "br1", type: "Bedroom", position: 10 },
+    { id: "br3", type: "Bedroom", position: 30 },
+  ];
+  function bedroom(n: number, category: "day" | "night", extra: Partial<PoLine> = {}) {
+    return line({ lineId: `br${n}:${category}`, roomId: `br${n}`,
+      roomType: "Bedroom", roomLabel: "Custom 99", roomPosition: n * 10,
+      category, ...extra });
+  }
+
+  it("keeps day BR3/BR4 when BR1/BR2 are night-only, preserving manufacturing values", () => {
+    const { pos, problems } = buildPos(input({ rooms, lines: [
+      ...[1, 2, 3, 4].map((n) => bedroom(n, "night")),
+      bedroom(3, "day"), bedroom(4, "day"),
+      line({ lineId: "lr", roomId: "lr", category: "day" }),
+    ] }));
+    expect(problems).toEqual([]);
+    const day = pos.find((p) => p.category === "day")!.tables[0].rows;
+    expect(day.map((r) => r.room)).toEqual(["客厅 LR", "次卧 3 BR3", "次卧 4 BR4"]);
+    expect(pos.find((p) => p.category === "night")!.tables[0].rows.map((r) => r.room))
+      .toEqual(["次卧 1 BR1", "次卧 2 BR2", "次卧 3 BR3", "次卧 4 BR4"]);
+    for (const row of day) {
+      expect(row).toMatchObject({ widthM: "2.74", heightM: "2.55", derived: "5.48" });
+    }
+  });
+
+  it("counts empty rooms and keeps a bedroom's number when it is alone on a vendor PO", () => {
+    const { pos, problems } = buildPos(input({ rooms, lines: [
+      bedroom(3, "day"), bedroom(4, "day", { vendorId: ZHUYINGTAI.id }),
+    ] }));
+    expect(problems).toEqual([]);
+    expect(pos.map((p) => p.tables[0].rows.map((r) => r.room)))
+      .toEqual([["次卧 3 BR3"], ["次卧 4 BR4"]]);
+  });
+
+  it("uses one room number for multiple windows and asymmetric leaves", () => {
+    const { pos } = buildPos(input({ rooms, lines: [
+      bedroom(3, "day", { mfgWidthCm: 300, splitLeftCm: 100, splitRightCm: 200 }),
+      bedroom(3, "day", { lineId: "second-window", position: 1 }),
+    ] }));
+    const rows = pos[0].tables[0].rows;
+    expect(rows.map((r) => r.room)).toEqual(Array(3).fill("次卧 3 BR3"));
+    expect(rows.map((r) => [r.widthM, r.heightM, r.derived])).toEqual([
+      ["1.00", "2.55", "2.00"], ["2.00", "2.55", "4.00"], ["2.74", "2.55", "5.48"],
     ]);
   });
 });

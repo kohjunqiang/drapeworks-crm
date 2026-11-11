@@ -10,6 +10,7 @@ import { db } from "@/lib/db/kysely";
 import type { DB, Json, OrderQuotations } from "@/lib/db/schema";
 import { sql, type Selectable, type Transaction } from "kysely";
 import { leadMilestoneForOrderStatus } from "@/lib/status-flow";
+import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   confirmZohoCustomerSchema,
@@ -341,10 +342,10 @@ export async function recoverStaleQuotationClaim(quotationId: string) {
 // Keeps the order list and the lead funnel on the latest quoted total.
 async function applyQuotedPrice(trx: Transaction<DB>, input: { orderId: string; totalCents: number; lines: QuotationLineInput[] }) {
   const now = new Date();
-  const order = await trx.selectFrom("orders").select(["lead_id", "appointment_id"]).where("id", "=", input.orderId).executeTakeFirstOrThrow();
+  const order = await trx.selectFrom("orders").select(["lead_id", "appointment_id"]).where("id", "=", input.orderId).forUpdate().executeTakeFirstOrThrow();
   await trx.updateTable("orders").set({ price_quoted_cents: input.totalCents, updated_at: now }).where("id", "=", input.orderId).execute();
-  const leadId = order.lead_id ?? (order.appointment_id ? (await trx.selectFrom("appointments").select("lead_id").where("id", "=", order.appointment_id).executeTakeFirst())?.lead_id : null);
-  if (leadId) await trx.updateTable("leads").set({ latest_quote_cents: input.totalCents, quotation_breakdown: quotationBreakdown(input.lines), updated_at: now }).where("id", "=", leadId).execute();
+  const lead = await resolveLeadForOrderSync(trx, { lead_id: order.lead_id, appointment_id: order.appointment_id });
+  if (lead) await trx.updateTable("leads").set({ latest_quote_cents: input.totalCents, quotation_breakdown: quotationBreakdown(input.lines), updated_at: now }).where("id", "=", lead.id).execute();
 }
 
 export async function confirmQuotationSent(input: unknown) {
@@ -388,19 +389,18 @@ export async function confirmQuotationSent(input: unknown) {
       await trx.updateTable("orders").set({ price_quoted_cents: row.quoted_total_cents, updated_at: sentAt }).where("id", "=", row.order_id).execute();
     if (locked.current_status === "order_recorded") {
       await trx.insertInto("order_status_events").values({ order_id: row.order_id, status: "quotation_sent", note: `Quotation ${row.zoho_estimate_number ?? ""} sent via ${parsed.channel}`.trim(), created_by: session.user.id }).execute();
-      const leadId = locked.lead_id ?? (locked.appointment_id ? (await trx.selectFrom("appointments").select("lead_id").where("id", "=", locked.appointment_id).executeTakeFirst())?.lead_id : null);
-      if (leadId) {
-        const lead = await trx.selectFrom("leads").select("funnel_stage").where("id", "=", leadId).forUpdate().executeTakeFirst();
+      const lead = await resolveLeadForOrderSync(trx, { lead_id: locked.lead_id, appointment_id: locked.appointment_id });
+      if (lead) {
         const milestone = leadMilestoneForOrderStatus("quotation_sent");
-        if (lead && milestone) {
+        if (milestone) {
           const validityDays = row.expiry_date
             ? Math.max(1, Math.round((new Date(String(row.expiry_date)).getTime() - new Date(String(row.issue_date)).getTime()) / 86_400_000))
             : null;
           const breakdown = quotationBreakdown(linesOf(row));
           // A quotation without an expiry leaves leads.quote_valid_days at its
           // existing value so the funnel's quote-aged nudge keeps working.
-          await trx.updateTable("leads").set({ funnel_stage: milestone.stage, last_outcome: milestone.outcome, quotation_sent_at: sentAt, latest_quote_cents: row.quoted_total_cents, quotation_breakdown: breakdown, updated_at: sentAt, ...(validityDays === null ? {} : { quote_valid_days: validityDays }) }).where("id", "=", leadId).execute();
-          if (lead.funnel_stage !== milestone.stage) await trx.insertInto("lead_stage_events").values({ lead_id: leadId, from_stage: lead.funnel_stage, to_stage: milestone.stage, changed_at: sentAt, changed_by: session.user.id, source: "system" }).execute();
+          await trx.updateTable("leads").set({ funnel_stage: milestone.stage, last_outcome: milestone.outcome, quotation_sent_at: sentAt, latest_quote_cents: row.quoted_total_cents, quotation_breakdown: breakdown, updated_at: sentAt, ...(validityDays === null ? {} : { quote_valid_days: validityDays }) }).where("id", "=", lead.id).execute();
+          if (lead.funnel_stage !== milestone.stage) await trx.insertInto("lead_stage_events").values({ lead_id: lead.id, from_stage: lead.funnel_stage, to_stage: milestone.stage, changed_at: sentAt, changed_by: session.user.id, source: "system" }).execute();
         }
       }
     }

@@ -9,6 +9,7 @@ import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { normalizeFreightNumber } from "@/lib/logistics/freight";
+import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
 import { reconcileFulfilmentStatus } from "@/lib/logistics/reconcile";
 import { ensureZohoInvoiceForOrder } from "@/lib/actions/quotations";
@@ -102,24 +103,10 @@ export async function advanceOrderStatus(input: unknown) {
     }
 
     const next = STATUS_FLOW[idx + 1];
-    const fallbackLeadId = !order.lead_id && order.appointment_id
-      ? (
-          await trx
-            .selectFrom("appointments")
-            .select("lead_id")
-            .where("id", "=", order.appointment_id)
-            .executeTakeFirst()
-        )?.lead_id
-      : undefined;
-    const leadId = order.lead_id ?? fallbackLeadId;
-    const linkedLead = leadId
-      ? await trx
-          .selectFrom("leads")
-          .select(["id", "funnel_stage"])
-          .where("id", "=", leadId)
-          .forUpdate()
-          .executeTakeFirst()
-      : undefined;
+    const linkedLead = await resolveLeadForOrderSync(trx, {
+      lead_id: order.lead_id,
+      appointment_id: order.appointment_id,
+    });
 
     const trackingMode = order.current_status === "sent_to_vendor"
       ? "local" as const
@@ -397,17 +384,10 @@ export async function revertOrderStatus(input: unknown) {
       }
     }
 
-    const fallbackLeadId = !order.lead_id && order.appointment_id
-      ? (
-          await trx.selectFrom("appointments").select("lead_id")
-            .where("id", "=", order.appointment_id).executeTakeFirst()
-        )?.lead_id
-      : undefined;
-    const leadId = order.lead_id ?? fallbackLeadId;
-    const linkedLead = leadId
-      ? await trx.selectFrom("leads").select(["id", "funnel_stage"])
-          .where("id", "=", leadId).forUpdate().executeTakeFirst()
-      : undefined;
+    const linkedLead = await resolveLeadForOrderSync(trx, {
+      lead_id: order.lead_id,
+      appointment_id: order.appointment_id,
+    });
 
     await trx.insertInto("order_status_events").values({
       order_id: parsed.orderId,

@@ -83,6 +83,38 @@ export async function completeAppointmentForOrder(
   }
 }
 
+/**
+ * Resolve the lead an order workflow may synchronize. An explicit
+ * orders.lead_id is authoritative — the unique index makes it the canonical
+ * association. The appointment path is only a legacy fallback for orders
+ * created before the link existed: a detached order (unlinked by Mark as
+ * Won but still carrying appointment_id) must never move the lead its
+ * appointment still names. The canonical check runs after the lead row lock
+ * so a concurrent link swap cannot slip between the read and the write.
+ * Callers must already hold the order row lock so lock order stays
+ * orders → lead.
+ */
+export async function resolveLeadForOrderSync(
+  trx: Transaction<DB>,
+  order: { lead_id: string | null; appointment_id: string | null },
+) {
+  const candidateId = order.lead_id ?? (order.appointment_id
+    ? (await trx.selectFrom("appointments").select("lead_id")
+        .where("id", "=", order.appointment_id).executeTakeFirst())?.lead_id
+    : null);
+  if (!candidateId) return null;
+  const lead = await trx.selectFrom("leads")
+    .select(["id", "funnel_stage"])
+    .where("id", "=", candidateId).forUpdate().executeTakeFirst();
+  if (!lead) return null;
+  if (!order.lead_id) {
+    const canonical = await trx.selectFrom("orders").select("id")
+      .where("lead_id", "=", lead.id).executeTakeFirst();
+    if (canonical) return null;
+  }
+  return lead;
+}
+
 type SubmittedCustomer = {
   name: string;
   mobile: string;

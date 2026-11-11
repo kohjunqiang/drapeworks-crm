@@ -81,6 +81,7 @@ export function QuickEditLead({ lead: initialLead, consultants, fullWidth = fals
 
 export function NewLeadForm({ initialInitiatedDate }: { initialInitiatedDate: string }) {
   const router = useRouter();
+  const [stage, setStage] = useState<FunnelStage>("Qualify Lead");
   const state = useSubmit(
     createLead,
     ({ id }) => router.push(`/leads?view=work&created=${encodeURIComponent(id)}`),
@@ -98,6 +99,11 @@ export function NewLeadForm({ initialInitiatedDate }: { initialInitiatedDate: st
       <Field label="Primary product"><Select name="primary_product"><option value="">Select product</option>{options(SELECTABLE_PRIMARY_PRODUCTS)}</Select></Field>
       <Field label="Initiated date"><Input name="first_initiated_date" type="date" required defaultValue={initialInitiatedDate}/></Field>
     </div>
+    <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4"><legend className="px-1 text-sm font-semibold">Workflow</legend><div className="grid gap-4 sm:grid-cols-2">
+      <Field label="Lead category" hint={WON_HINT}><select name="funnel_stage" value={stage} onChange={event => setStage(event.target.value as FunnelStage)} className={controlClass}>{stageOptions(stage)}</select></Field>
+      <Field label="Next action date"><Input name="next_action_date" type="date"/></Field>
+      {(stage === "Lost" || stage === "Not Qualified") && <Field label="Closure reason"><Select name="closure_reason" required><option value="">Select reason</option>{options(CLOSURE_REASONS)}</Select></Field>}
+    </div></fieldset>
     <PriorityFields/>
     <Field label="Interaction summary" hint="A short handover note describing the conversation so far."><Textarea name="interaction_summary" placeholder="What does the customer need, and what has already happened?"/></Field>
     <div className="flex justify-end"><Button className="h-10 w-full px-5 sm:w-auto" type="submit" disabled={state.pending}>{state.pending ? "Creating…" : "Create lead"}</Button></div>

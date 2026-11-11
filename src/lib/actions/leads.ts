@@ -72,6 +72,7 @@ export async function createLead(input: unknown): Promise<{ ok: true; id: string
     development: p.development ?? null, contact_channel: p.contact_channel,
     source: p.source ?? null, inbound_outbound: p.inbound_outbound ?? null,
     primary_product: p.primary_product ?? null, funnel_stage: p.funnel_stage,
+    next_action_date: p.next_action_date ?? null,
     closure_reason: p.closure_reason ?? null,
     interaction_summary: p.interaction_summary ?? null, owner_id: session.user.id,
   }).returning("id").executeTakeFirstOrThrow();

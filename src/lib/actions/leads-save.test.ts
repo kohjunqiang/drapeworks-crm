@@ -53,7 +53,8 @@ beforeEach(() => {
   mocks.insertInto.mockImplementation((table: string) => ({
     values: (values: Record<string, unknown>) => {
       mocks.inserts.push({ table, values });
-      return { execute: vi.fn().mockResolvedValue([]) };
+      return { execute: vi.fn().mockResolvedValue([]),
+        returning: vi.fn().mockReturnThis(), executeTakeFirstOrThrow: vi.fn(async () => ({ id })) };
     },
   }));
   mocks.transaction.mockReturnValue({ execute: (callback: (trx: unknown) => Promise<void>) =>
@@ -167,6 +168,42 @@ describe("Versioned lead saves", () => {
       .resolves.toEqual({ ok: false, error: expect.stringContaining("Record the deposit on the linked order") });
     expect(mocks.insertInto).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe("Lead creation", () => {
+  const create = () => ({ name: "Customer", contact_channel: "Other", first_initiated_date: "2026-09-01" });
+
+  it("persists the supplied category and next action date", async () => {
+    await expect(createLead({ ...create(), funnel_stage: "Activate Lead – Short Term", next_action_date: "2026-11-05" }))
+      .resolves.toEqual({ ok: true, id });
+    expect(mocks.inserts[0]).toMatchObject({ table: "leads", values: {
+      funnel_stage: "Activate Lead – Short Term", next_action_date: "2026-11-05",
+    } });
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it("defaults the category and stores a blank next action date as null", async () => {
+    await expect(createLead({ ...create(), next_action_date: "" })).resolves.toEqual({ ok: true, id });
+    expect(mocks.inserts[0].values).toMatchObject({ funnel_stage: "Qualify Lead", next_action_date: null });
+  });
+
+  it.each(["2026-02-30", "2026-13-01", "31/12/2026", "not-a-date"])("rejects the invalid next action date %s before writing", async next_action_date => {
+    await expect(createLead({ ...create(), next_action_date })).rejects.toThrow();
+    expect(mocks.insertInto).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown category before writing", async () => {
+    await expect(createLead({ ...create(), funnel_stage: "Cold Lead" })).rejects.toThrow();
+    expect(mocks.insertInto).not.toHaveBeenCalled();
+  });
+
+  it.each(["Lost", "Not Qualified"])("requires a closure reason when creating a %s lead", async funnel_stage => {
+    await expect(createLead({ ...create(), funnel_stage })).rejects.toThrow();
+    expect(mocks.insertInto).not.toHaveBeenCalled();
+    await expect(createLead({ ...create(), funnel_stage, closure_reason: "Price / Budget" })).resolves.toEqual({ ok: true, id });
+    expect(mocks.inserts[0].values).toMatchObject({ funnel_stage, closure_reason: "Price / Budget" });
   });
 });
 

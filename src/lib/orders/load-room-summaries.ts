@@ -12,6 +12,13 @@ import {
 import { signRoomPhotoUrls } from "@/lib/db/photos";
 import type { FulfilmentStatus, ProductLine } from "@/lib/db/schema";
 import {
+  openingOverride,
+  parseInstallationDetails,
+  resolveInstallationNote,
+  resolveInstallationSize,
+  roomNote,
+} from "@/lib/fulfilment/installation-details";
+import {
   formatMmAsCm,
   resolveMeshDrop,
   resolveMeshSystem,
@@ -178,6 +185,24 @@ export async function loadRoomSummaries(order: {
     }),
   );
 
+  // Ops corrections to what the installer sees: general instructions, room
+  // notes and per-opening size/note overrides stored on the booking. They
+  // layer over the frozen PO sizes — never the measured or quoted values.
+  const arrangement = await db
+    .selectFrom("fulfilment_arrangements")
+    .select(["installation_details", "installation_details_version"])
+    .where("order_id", "=", order.id)
+    .executeTakeFirst();
+  const installationDetails = parseInstallationDetails(
+    arrangement?.installation_details,
+  );
+
+  const roomNotes = new Map<string, string>();
+  for (const room of rooms) {
+    const note = roomNote(installationDetails, room.id);
+    if (note) roomNotes.set(room.id, note);
+  }
+
   // The track system is derived, never stored (§5.9), so it is resolved here
   // for the factory sheet rather than read off the row.
   const [systemBands, systemSpecs, meshBook] = isMesh
@@ -215,12 +240,24 @@ export async function loadRoomSummaries(order: {
           meshBook,
         )
       : null;
+    const frozen = installationByLine.get(p.id);
+    const o = openingOverride(installationDetails, p.id);
+    const size = resolveInstallationSize(
+      {
+        widthCm: frozen?.mfg_width_cm ?? null,
+        heightCm: frozen?.mfg_height_cm ?? null,
+      },
+      { widthCm: p.width_cm, heightCm: p.height_cm },
+      o,
+    );
     list.push({
       ...p,
-      installation_width_cm:
-        installationByLine.get(p.id)?.mfg_width_cm ?? null,
-      installation_height_cm:
-        installationByLine.get(p.id)?.mfg_height_cm ?? null,
+      notes: resolveInstallationNote(p.notes, o),
+      installation_width_cm: size.widthCm,
+      installation_height_cm: size.heightCm,
+      installation_overridden: size.overridden,
+      frozen_width_cm: frozen?.mfg_width_cm ?? null,
+      frozen_height_cm: frozen?.mfg_height_cm ?? null,
       system: resolved.status === "resolved" ? resolved.system : null,
       trackCm:
         track.status === "resolved" ? formatMmAsCm(track.trackMm) : null,
@@ -294,15 +331,28 @@ export async function loadRoomSummaries(order: {
       ? formatCurtainOptionLabel({ series, index, page, label })
       : null;
 
-  const windowSummaries = windows.map((w) => ({
+  const windowSummaries = windows.map((w) => {
+    const frozen = installationByLine.get(w.id);
+    const o = openingOverride(installationDetails, w.id);
+    const size = resolveInstallationSize(
+      {
+        widthCm: frozen?.mfg_width_cm ?? null,
+        heightCm: frozen?.mfg_height_cm ?? null,
+      },
+      { widthCm: w.width_cm, heightCm: w.height_cm },
+      o,
+    );
+    return {
+    id: w.id,
     position: w.position,
     width_cm: w.width_cm,
     height_cm: w.height_cm,
-    installation_width_cm:
-      installationByLine.get(w.id)?.mfg_width_cm ?? null,
-    installation_height_cm:
-      installationByLine.get(w.id)?.mfg_height_cm ?? null,
-    notes: w.notes,
+    installation_width_cm: size.widthCm,
+    installation_height_cm: size.heightCm,
+    installation_overridden: size.overridden,
+    frozen_width_cm: frozen?.mfg_width_cm ?? null,
+    frozen_height_cm: frozen?.mfg_height_cm ?? null,
+    notes: resolveInstallationNote(w.notes, o),
     side_installation: w.side_installation,
     no_installation: w.no_installation,
     overlap_tracks_attachment: w.overlap_tracks_attachment,
@@ -336,7 +386,8 @@ export async function loadRoomSummaries(order: {
       w.blind_label,
     ),
     blind_photo_url: urlFor(w.blind_photo_path),
-  }));
+    };
+  });
 
   const windowsByRoom = new Map<string, typeof windowSummaries>();
   for (const w of windowSummaries) {
@@ -388,6 +439,14 @@ export async function loadRoomSummaries(order: {
     windowsByRoom,
     panelsByRoom,
     photosByRoom,
-    hasInstallationSizes: frozenMeasurements.length > 0,
+    installationDetails,
+    installationDetailsVersion:
+      arrangement?.installation_details_version ?? 0,
+    roomNotes,
+    hasInstallationSizes:
+      frozenMeasurements.length > 0 ||
+      Object.values(installationDetails.openings ?? {}).some(
+        (o) => o.width_cm != null || o.height_cm != null,
+      ),
   };
 }

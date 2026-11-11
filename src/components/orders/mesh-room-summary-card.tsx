@@ -9,6 +9,7 @@ import { PhotoStrip, type PhotoTile } from "./photo-strip";
 // columns, so this is a parallel component rather than a branch inside that one.
 
 export type MeshPanelSummary = {
+  id: string;
   position: number;
   category_name: string | null;
   colour_name: string | null;
@@ -16,6 +17,11 @@ export type MeshPanelSummary = {
   height_cm: number | null;
   installation_width_cm?: number | null;
   installation_height_cm?: number | null;
+  /** True when ops corrected the installation size on the booking. */
+  installation_overridden?: boolean;
+  /** Frozen PO size, kept beside the resolved installation size for hints. */
+  frozen_width_cm?: number | null;
+  frozen_height_cm?: number | null;
   has_window: boolean;
   has_inset_horizontal: boolean;
   has_inset_vertical: boolean;
@@ -37,6 +43,8 @@ type Props = {
   type: RoomType;
   panels: MeshPanelSummary[];
   photos: PhotoTile[];
+  /** Ops room-level installation note saved on the booking. */
+  roomNote?: string | null;
   orderControls?: ReactNode;
 };
 
@@ -79,7 +87,7 @@ function split(p: MeshPanelSummary): string {
   return `${cm(p.split_left_cm)} + ${cm(p.split_right_cm)}`;
 }
 
-export function MeshRoomSummaryCard({ label, type, panels, photos, orderControls }: Props) {
+export function MeshRoomSummaryCard({ label, type, panels, photos, roomNote, orderControls }: Props) {
   const hasInstallation = panels.some(
     (panel) =>
       panel.installation_width_cm != null ||
@@ -94,6 +102,13 @@ export function MeshRoomSummaryCard({ label, type, panels, photos, orderControls
           {orderControls}
         </div>
       </div>
+
+      {roomNote ? (
+        <p className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+          <span className="font-medium text-slate-700">Room note:</span>{" "}
+          {roomNote}
+        </p>
+      ) : null}
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[44rem]">
@@ -145,8 +160,17 @@ export function MeshRoomSummaryCard({ label, type, panels, photos, orderControls
                   </span>
                 </td>
                 {hasInstallation && (
-                  <td className="px-4 py-2 font-medium text-slate-900 tabular-nums">
-                    {installationDims(p)}
+                  <td
+                    className="px-4 py-2 font-medium text-slate-900 tabular-nums"
+                    title={
+                      p.installation_overridden
+                        ? "Installation correction — original measurement unchanged"
+                        : undefined
+                    }
+                  >
+                    <span className={p.installation_overridden ? "text-teal-700" : undefined}>
+                      {installationDims(p)}
+                    </span>
                   </td>
                 )}
                 <td className="px-4 py-2 text-slate-600 tabular-nums">

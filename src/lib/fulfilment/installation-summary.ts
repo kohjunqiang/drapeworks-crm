@@ -1,5 +1,7 @@
 export type InstallationOpening = {
   roomLabel: string;
+  /** Ops room-level note, rendered once on the room's first opening. */
+  roomNote?: string | null;
   openingNumber: number;
   openingsInRoom: number;
   covering: "Double" | "Single" | "Blinds" | "Mesh" | "Curtain";
@@ -25,6 +27,8 @@ export type InstallationSummaryInput = {
   address: string;
   customerName: string;
   customerMobile: string | null;
+  /** Ops general instructions for the whole job, when any were saved. */
+  generalInstructions?: string | null;
   openings: InstallationOpening[];
   /** Public installer page link, appended as a final block when present. */
   installerUrl?: string | null;
@@ -69,7 +73,10 @@ function timeLabel(value: Date): string {
 
 function metres(value: number | null): string {
   if (value == null) return "—";
-  return `${Number((value / 100).toFixed(2))}m`;
+  // Installation corrections can carry decimal centimetres (202.5cm). Render
+  // to a hundredth of a centimetre so the copied handoff keeps the precision,
+  // then strip trailing zeros so 205cm still reads "2.05m".
+  return `${(value / 100).toFixed(4).replace(/\.?0+$/, "")}m`;
 }
 
 export function buildInstallationSummary(input: InstallationSummaryInput): string {
@@ -114,6 +121,9 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
           : null;
     return [
       `${room}: ${opening.covering}`,
+      opening.openingNumber === 1 && opening.roomNote
+        ? `Room note: ${opening.roomNote}`
+        : null,
       opening.noInstallation ? "No installation — supply only" : null,
       `${metres(opening.widthCm)} Width ${metres(opening.heightCm)} Height`,
       drawDescription,
@@ -136,6 +146,9 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
   return [
     header.join("\n"),
     countLine,
+    input.generalInstructions
+      ? `Instructions: ${input.generalInstructions}`
+      : null,
     ...details,
     input.installerUrl ? `Photos & measurements: ${input.installerUrl}` : null,
   ]

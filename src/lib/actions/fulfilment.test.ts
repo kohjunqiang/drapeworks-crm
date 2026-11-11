@@ -17,7 +17,11 @@ vi.mock("@/lib/calendar/fulfilment-sync", () => ({
   syncFulfilmentArrangement: mocks.sync,
 }));
 
-import { resetInstallerLink, saveFulfilmentArrangement } from "./fulfilment";
+import {
+  resetInstallerLink,
+  saveFulfilmentArrangement,
+  saveInstallationDetails,
+} from "./fulfilment";
 
 const orderId = "a31fd642-0fe2-4066-9762-880b0e023471";
 const input = {
@@ -231,6 +235,294 @@ function updateChain(result: { id: string } | undefined) {
   };
   return chain;
 }
+
+const token = "b31fd642-0fe2-4066-9762-880b0e023471";
+const roomId = "c31fd642-0fe2-4066-9762-880b0e023471";
+const windowId = "d31fd642-0fe2-4066-9762-880b0e023471";
+const panelId = "e31fd642-0fe2-4066-9762-880b0e023471";
+const foreignId = "f31fd642-0fe2-4066-9762-880b0e023471";
+
+const detailsInput = (overrides: Record<string, unknown> = {}) => ({
+  token,
+  expected_version: 0,
+  general_instructions: "Bring a 3m ladder",
+  rooms: [{ room_id: roomId, note: "False ceiling" }],
+  openings: [
+    {
+      opening_id: windowId,
+      width_cm: 200,
+      height_cm: 250,
+      note: "Drill into concrete",
+    },
+  ],
+  ...overrides,
+});
+
+function setupDetails(
+  opts: {
+    status?: string;
+    productLine?: string;
+    cancelledAt?: Date | null;
+    version?: number;
+    missingBooking?: boolean;
+  } = {},
+) {
+  const events: { table: string; values: Record<string, unknown> }[] = [];
+  const captured: { updateSet?: Record<string, unknown> } = {};
+  const arrangement = opts.missingBooking
+    ? undefined
+    : {
+        id: "arr-1",
+        order_id: orderId,
+        cancelled_at: opts.cancelledAt ?? null,
+        installer_token: token,
+        installation_details_version: opts.version ?? 0,
+      };
+  const trx = {
+    selectFrom: (table: string) => {
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        where: () => chain,
+        forUpdate: () => chain,
+        execute: async () => [],
+        executeTakeFirst: async () => undefined,
+        executeTakeFirstOrThrow: async () => {
+          throw new Error("empty result");
+        },
+      };
+      if (table === "fulfilment_arrangements") {
+        chain.executeTakeFirst = async () => arrangement;
+        chain.executeTakeFirstOrThrow = async () => {
+          if (!arrangement) throw new Error("empty result");
+          return arrangement;
+        };
+      } else if (table === "orders") {
+        chain.executeTakeFirst = async () => ({
+          id: orderId,
+          current_status: opts.status ?? "fulfilment",
+          product_line: opts.productLine ?? "curtain",
+        });
+      } else if (table === "rooms") {
+        chain.execute = async () => [{ id: roomId }];
+      } else if (table === "windows") {
+        chain.execute = async () => [{ id: windowId }];
+      } else if (table === "mesh_panels") {
+        chain.execute = async () => [{ id: panelId }];
+      }
+      return chain;
+    },
+    updateTable: () => ({
+      set: (values: Record<string, unknown>) => {
+        captured.updateSet = values;
+        const next = { where: () => next, execute: async () => [] };
+        return next;
+      },
+    }),
+    insertInto: (table: string) => ({
+      values: (values: Record<string, unknown>) => {
+        events.push({ table, values });
+        return { execute: async () => [] };
+      },
+    }),
+  };
+  mocks.transaction.mockReturnValue({
+    execute: async (callback: (tx: typeof trx) => unknown) => callback(trx),
+  });
+  return { events, captured };
+}
+
+describe("saveInstallationDetails", () => {
+  it("saves bounded overrides, bumps the version and writes a same-status audit note", async () => {
+    const { events, captured } = setupDetails();
+    await saveInstallationDetails(detailsInput());
+    expect(captured.updateSet?.installation_details_version).toBe(1);
+    const stored = JSON.parse(
+      captured.updateSet?.installation_details as string,
+    );
+    expect(stored).toEqual({
+      general_instructions: "Bring a 3m ladder",
+      rooms: { [roomId]: { note: "False ceiling" } },
+      openings: {
+        [windowId]: {
+          width_cm: 200,
+          height_cm: 250,
+          note: "Drill into concrete",
+        },
+      },
+    });
+    expect(events).toContainEqual({
+      table: "order_status_events",
+      values: expect.objectContaining({
+        order_id: orderId,
+        status: "fulfilment",
+        created_by: "ops-user",
+      }),
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/install/${token}`);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(`/orders/${orderId}`);
+    expect(mocks.sync).not.toHaveBeenCalled();
+  });
+
+  it("rejects a consultant before touching the booking", async () => {
+    mocks.role.mockRejectedValueOnce(new Error("Forbidden"));
+    await expect(
+      saveInstallationDetails(detailsInput()),
+    ).rejects.toThrow("Forbidden");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale expected version without writing", async () => {
+    const { captured } = setupDetails({ version: 3 });
+    await expect(
+      saveInstallationDetails(detailsInput({ expected_version: 2 })),
+    ).rejects.toThrow("changed elsewhere");
+    expect(captured.updateSet).toBeUndefined();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cancelled booking", async () => {
+    const { captured } = setupDetails({ cancelledAt: new Date() });
+    await expect(saveInstallationDetails(detailsInput())).rejects.toThrow(
+      "no active installation booking",
+    );
+    expect(captured.updateSet).toBeUndefined();
+  });
+
+  it("rejects an unknown token before locking the order", async () => {
+    setupDetails({ missingBooking: true });
+    await expect(saveInstallationDetails(detailsInput())).rejects.toThrow(
+      "no active installation booking",
+    );
+  });
+
+  it("rejects writes on a completed order", async () => {
+    const { captured } = setupDetails({ status: "completed" });
+    await expect(saveInstallationDetails(detailsInput())).rejects.toThrow(
+      "before the order is completed",
+    );
+    expect(captured.updateSet).toBeUndefined();
+  });
+
+  it("rejects an opening that belongs to another order", async () => {
+    const { captured } = setupDetails();
+    await expect(
+      saveInstallationDetails(
+        detailsInput({
+          openings: [{ opening_id: foreignId, width_cm: 100 }],
+        }),
+      ),
+    ).rejects.toThrow("not on this order");
+    expect(captured.updateSet).toBeUndefined();
+  });
+
+  it("rejects a room note on a foreign room", async () => {
+    setupDetails();
+    await expect(
+      saveInstallationDetails(
+        detailsInput({ rooms: [{ room_id: foreignId, note: "x" }] }),
+      ),
+    ).rejects.toThrow("room that is not on this order");
+  });
+
+  it("rejects a window id against a mesh order", async () => {
+    setupDetails({ productLine: "mesh" });
+    await expect(
+      saveInstallationDetails(
+        detailsInput({ openings: [{ opening_id: windowId, width_cm: 100 }] }),
+      ),
+    ).rejects.toThrow("not on this order");
+  });
+
+  it("rejects a duplicated opening reference", async () => {
+    setupDetails();
+    await expect(
+      saveInstallationDetails(
+        detailsInput({
+          openings: [
+            { opening_id: windowId, width_cm: 100 },
+            { opening_id: windowId, height_cm: 100 },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("Duplicate installation correction");
+  });
+
+  it("saves a cleared note as an explicit empty string", async () => {
+    const { captured } = setupDetails();
+    await saveInstallationDetails(
+      detailsInput({
+        openings: [{ opening_id: windowId, note: "" }],
+      }),
+    );
+    const stored = JSON.parse(
+      captured.updateSet?.installation_details as string,
+    );
+    expect(stored.openings[windowId].note).toBe("");
+  });
+
+  it("keeps size overrides null on a note-only save so original data flows through", async () => {
+    const { captured } = setupDetails();
+    await saveInstallationDetails(
+      detailsInput({
+        openings: [{ opening_id: windowId, note: "Use the side gate" }],
+      }),
+    );
+    const stored = JSON.parse(
+      captured.updateSet?.installation_details as string,
+    );
+    expect(stored.openings[windowId]).toEqual({
+      width_cm: null,
+      height_cm: null,
+      note: "Use the side gate",
+    });
+  });
+
+  it("preserves a previously stored dimension when a later save only edits the room note", async () => {
+    const { captured } = setupDetails({ version: 1 });
+    await saveInstallationDetails(
+      detailsInput({
+        expected_version: 1,
+        general_instructions: null,
+        openings: [
+          { opening_id: windowId, width_cm: 199, height_cm: null, note: null },
+        ],
+      }),
+    );
+    const stored = JSON.parse(
+      captured.updateSet?.installation_details as string,
+    );
+    expect(stored.openings[windowId]).toEqual({
+      width_cm: 199,
+      height_cm: null,
+      note: null,
+    });
+    expect(captured.updateSet?.installation_details_version).toBe(2);
+  });
+
+  it("trims a whitespace-only opening note to an explicit clear", async () => {
+    const { captured } = setupDetails();
+    await saveInstallationDetails(
+      detailsInput({
+        openings: [{ opening_id: windowId, note: "   " }],
+      }),
+    );
+    const stored = JSON.parse(
+      captured.updateSet?.installation_details as string,
+    );
+    expect(stored.openings[windowId].note).toBe("");
+  });
+
+  it("drops an emptied room note from the stored document", async () => {
+    const { captured } = setupDetails();
+    await saveInstallationDetails(
+      detailsInput({ rooms: [{ room_id: roomId, note: "  " }] }),
+    );
+    const stored = JSON.parse(
+      captured.updateSet?.installation_details as string,
+    );
+    expect(stored.rooms).toEqual({});
+  });
+});
 
 describe("resetInstallerLink", () => {
   it("rejects a consultant before touching the booking", async () => {

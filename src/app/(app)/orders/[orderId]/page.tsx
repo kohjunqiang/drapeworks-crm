@@ -133,6 +133,7 @@ export default async function OrderDetailPage({
     panelsByRoom,
     photosByRoom,
     hasInstallationSizes,
+    roomNotes,
   } = await loadRoomSummaries(order);
 
   const roomLabels = new Map(rooms.map((room) => [room.id, room.label]));
@@ -540,7 +541,8 @@ export default async function OrderDetailPage({
             {hasInstallationSizes && (
               <p className="text-xs text-slate-500 -mt-2 mb-4">
                 Measured is the original site measurement. Installation is the
-                finalized size confirmed at PO Ready.
+                finalized size confirmed at PO Ready; highlighted values are
+                corrections that apply to this installation only.
               </p>
             )}
             {rooms.length === 0 && (
@@ -554,6 +556,7 @@ export default async function OrderDetailPage({
                   type={r.type}
                   panels={panelsByRoom.get(r.id) ?? []}
                   photos={photosByRoom.get(r.id) ?? []}
+                  roomNote={roomNotes.get(r.id) ?? null}
                   orderControls={canReorderRooms ? (
                     <RoomOrderControls
                       orderId={order.id}
@@ -571,6 +574,7 @@ export default async function OrderDetailPage({
                   type={r.type}
                   windows={windowsByRoom.get(r.id) ?? []}
                   photos={photosByRoom.get(r.id) ?? []}
+                  roomNote={roomNotes.get(r.id) ?? null}
                   orderControls={canReorderRooms ? (
                     <RoomOrderControls
                       orderId={order.id}

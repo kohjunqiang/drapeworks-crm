@@ -10,6 +10,8 @@ type WindowSummary = {
   height_cm: number | null;
   installation_width_cm?: number | null;
   installation_height_cm?: number | null;
+  /** True when ops corrected the installation size on the booking. */
+  installation_overridden?: boolean;
   notes: string | null;
   side_installation?: boolean;
   no_installation?: boolean;
@@ -39,6 +41,8 @@ type Props = {
   type: RoomType;
   windows: WindowSummary[];
   photos: PhotoTile[];
+  /** Ops room-level installation note saved on the booking. */
+  roomNote?: string | null;
   orderControls?: ReactNode;
 };
 
@@ -104,8 +108,17 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
             </td>
             <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
             {hasInstallation && (
-              <td className="px-4 py-2 font-medium text-slate-900">
-                {dim(w.installation_width_cm ?? null, w.installation_height_cm ?? null)}
+              <td
+                className="px-4 py-2 font-medium text-slate-900"
+                title={
+                  w.installation_overridden
+                    ? "Installation correction — original measurement unchanged"
+                    : undefined
+                }
+              >
+                <span className={w.installation_overridden ? "text-teal-700" : undefined}>
+                  {dim(w.installation_width_cm ?? null, w.installation_height_cm ?? null)}
+                </span>
               </td>
             )}
             <td className="px-4 py-2">
@@ -134,7 +147,7 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
   );
 }
 
-export function RoomSummaryCard({ label, windows, photos, orderControls }: Props) {
+export function RoomSummaryCard({ label, windows, photos, roomNote, orderControls }: Props) {
   // A room can mix the two — curtains on one window, a blind on the next — so
   // the split is per window, not per room.
   const blindWindows = windows.filter((w) => w.is_blind);
@@ -149,6 +162,12 @@ export function RoomSummaryCard({ label, windows, photos, orderControls }: Props
         <span className="break-words">{label}</span>
         {orderControls}
       </div>
+      {roomNote ? (
+        <p className="border-b border-slate-100 bg-slate-50 px-4 pb-2 text-xs text-slate-600">
+          <span className="font-medium text-slate-700">Room note:</span>{" "}
+          {roomNote}
+        </p>
+      ) : null}
       <div className="overflow-x-auto">
         {curtainWindows.length > 0 && (
           <table className="w-full text-xs min-w-[640px]">
@@ -200,11 +219,20 @@ export function RoomSummaryCard({ label, windows, photos, orderControls }: Props
                   </td>
                   <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
                   {hasCurtainInstallation && (
-                    <td className="px-4 py-2 font-medium text-slate-900">
-                      {dim(
-                        w.installation_width_cm ?? null,
-                        w.installation_height_cm ?? null,
-                      )}
+                    <td
+                      className="px-4 py-2 font-medium text-slate-900"
+                      title={
+                        w.installation_overridden
+                          ? "Installation correction — original measurement unchanged"
+                          : undefined
+                      }
+                    >
+                      <span className={w.installation_overridden ? "text-teal-700" : undefined}>
+                        {dim(
+                          w.installation_width_cm ?? null,
+                          w.installation_height_cm ?? null,
+                        )}
+                      </span>
                     </td>
                   )}
                   <td className="px-4 py-2">

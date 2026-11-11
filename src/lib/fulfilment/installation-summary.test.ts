@@ -110,6 +110,34 @@ describe("buildInstallationSummary", () => {
     expect(text).not.toContain("Mobile Number:");
   });
 
+  it("keeps decimal-centimetre corrections in the metre output", () => {
+    const base = {
+      roomLabel: "Living Room",
+      openingsInRoom: 3,
+      draw: null,
+      addonLabels: [],
+      sideInstallation: false,
+      installationNote: null,
+    } as const;
+    const text = buildInstallationSummary({
+      scheduledAt: "2026-09-03T02:30:00.000Z",
+      durationMins: 60,
+      address: "Address",
+      customerName: "Customer",
+      customerMobile: null,
+      openings: [
+        { ...base, openingNumber: 1, covering: "Double", widthCm: 202.5, heightCm: 255 },
+        { ...base, openingNumber: 2, covering: "Blinds", widthCm: 78.5, heightCm: 179.5 },
+        { ...base, openingNumber: 3, covering: "Single", widthCm: 205, heightCm: 210 },
+      ],
+    });
+
+    expect(text).toContain("2.025m Width 2.55m Height");
+    expect(text).toContain("0.785m Width 1.795m Height");
+    // Integer centimetres keep the existing two-decimal look.
+    expect(text).toContain("2.05m Width 2.1m Height");
+  });
+
   it("appends the installer page link as a final block when given", () => {
     const base = {
       scheduledAt: "2026-09-03T02:30:00.000Z",

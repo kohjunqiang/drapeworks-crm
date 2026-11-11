@@ -3,8 +3,14 @@ import { z } from "zod";
 
 import { MeshRoomSummaryCard } from "@/components/orders/mesh-room-summary-card";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
+import {
+  InstallationDetailsEditor,
+  type EditableOpening,
+} from "@/components/orders/installation-details-editor";
+import { getSession } from "@/lib/auth/get-session";
 import { db } from "@/lib/db/kysely";
 import { isInstallerLinkActive } from "@/lib/fulfilment/installer-link";
+import { canScheduleInstallation } from "@/lib/fulfilment/status";
 import { loadCompletedAt } from "@/lib/fulfilment/load-completed-at";
 import { loadRoomSummaries } from "@/lib/orders/load-room-summaries";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
@@ -72,6 +78,13 @@ export default async function InstallerPage({
     notFound();
   }
 
+  // Optional staff session on the public page: ops/admin get the edit dialog,
+  // consultants and anonymous installers stay read-only.
+  const session = await getSession();
+  const canEdit =
+    (session?.profile.role === "ops" || session?.profile.role === "admin") &&
+    canScheduleInstallation(arrangement.current_status);
+
   const {
     rooms,
     isMesh,
@@ -79,6 +92,9 @@ export default async function InstallerPage({
     panelsByRoom,
     photosByRoom,
     hasInstallationSizes,
+    installationDetails,
+    installationDetailsVersion,
+    roomNotes,
   } = await loadRoomSummaries({
     id: arrangement.order_id,
     product_line: arrangement.product_line,
@@ -88,6 +104,46 @@ export default async function InstallerPage({
   const reference = primaryOrderIdentifier(
     arrangement.order_reference,
     arrangement.display_id,
+  );
+
+  const editableRooms = rooms.map((room) => ({
+    id: room.id,
+    label: room.label,
+    note: roomNotes.get(room.id) ?? "",
+  }));
+  const editableOpenings: EditableOpening[] = rooms.flatMap((room) =>
+    isMesh
+      ? (panelsByRoom.get(room.id) ?? []).map((panel, index, panels) => ({
+          id: panel.id,
+          roomId: room.id,
+          subLabel: panels.length > 1 ? `Panel ${index + 1}` : null,
+          detail: panel.category_name ?? "Mesh",
+          widthCm: panel.installation_width_cm ?? panel.width_cm,
+          heightCm: panel.installation_height_cm ?? panel.height_cm,
+          originalWidthCm: panel.frozen_width_cm ?? panel.width_cm,
+          originalHeightCm: panel.frozen_height_cm ?? panel.height_cm,
+          overridden: panel.installation_overridden ?? false,
+          note: panel.notes ?? "",
+          stored: installationDetails.openings?.[panel.id],
+        }))
+      : (windowsByRoom.get(room.id) ?? []).map((w, index, windows) => ({
+          id: w.id,
+          roomId: room.id,
+          subLabel: windows.length > 1 ? `Window ${index + 1}` : null,
+          detail: w.is_blind
+            ? (w.blind_label ?? "Blinds")
+            : ([w.day_curtain_label, w.night_curtain_label]
+                  .filter(Boolean)
+                  .join(" + ") ||
+                null) ?? "Curtain",
+          widthCm: w.installation_width_cm ?? w.width_cm,
+          heightCm: w.installation_height_cm ?? w.height_cm,
+          originalWidthCm: w.frozen_width_cm ?? w.width_cm,
+          originalHeightCm: w.frozen_height_cm ?? w.height_cm,
+          overridden: w.installation_overridden ?? false,
+          note: w.notes ?? "",
+          stored: installationDetails.openings?.[w.id],
+        })),
   );
 
   return (
@@ -138,14 +194,34 @@ export default async function InstallerPage({
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
-        <h2 className="mb-4 text-base font-semibold text-slate-900">
-          Rooms &amp; measurements{" "}
-          <span className="text-xs font-normal text-slate-500">(cm)</span>
-        </h2>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold text-slate-900">
+            Rooms &amp; measurements{" "}
+            <span className="text-xs font-normal text-slate-500">(cm)</span>
+          </h2>
+          {canEdit ? (
+            <InstallationDetailsEditor
+              token={parsed.data}
+              expectedVersion={installationDetailsVersion}
+              generalInstructions={
+                installationDetails.general_instructions ?? ""
+              }
+              rooms={editableRooms}
+              openings={editableOpenings}
+            />
+          ) : null}
+        </div>
+        {installationDetails.general_instructions ? (
+          <p className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+            <span className="font-medium">Instructions:</span>{" "}
+            {installationDetails.general_instructions}
+          </p>
+        ) : null}
         {hasInstallationSizes && (
           <p className="-mt-2 mb-4 text-xs text-slate-500">
             Measured is the original site measurement. Installation is the
-            finalized size confirmed at PO Ready.
+            finalized size confirmed at PO Ready; highlighted values are
+            corrections that apply to this installation only.
           </p>
         )}
         {rooms.length === 0 && (
@@ -159,6 +235,7 @@ export default async function InstallerPage({
               type={r.type}
               panels={panelsByRoom.get(r.id) ?? []}
               photos={photosByRoom.get(r.id) ?? []}
+              roomNote={roomNotes.get(r.id) ?? null}
             />
           ) : (
             <RoomSummaryCard
@@ -167,6 +244,7 @@ export default async function InstallerPage({
               type={r.type}
               windows={windowsByRoom.get(r.id) ?? []}
               photos={photosByRoom.get(r.id) ?? []}
+              roomNote={roomNotes.get(r.id) ?? null}
             />
           ),
         )}

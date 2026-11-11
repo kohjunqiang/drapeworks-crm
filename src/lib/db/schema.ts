@@ -724,6 +724,8 @@ export interface FulfilmentArrangements {
   google_sync_error: string | null;
   google_sync_state: Generated<GoogleSyncState>;
   id: Generated<string>;
+  installation_details: Json | null;
+  installation_details_version: Generated<number>;
   installer_token: Generated<string>;
   order_id: string;
   scheduled_at: Timestamp;

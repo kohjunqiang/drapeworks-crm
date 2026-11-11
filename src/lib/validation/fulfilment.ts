@@ -45,3 +45,46 @@ export const fulfilmentArrangementCancellationSchema = z.object({
 export type FulfilmentArrangementInput = z.infer<
   typeof fulfilmentArrangementSchema
 >;
+
+/**
+ * Save payload for installation-detail overrides, shared by the edit dialog
+ * (client-side check) and the server action (authoritative). Identifiers are
+ * re-checked against the order inside the action — this schema only bounds
+ * shape, size and dimensions. A blank dimension input becomes null, which
+ * falls back to the original; an emptied note stays "" and explicitly clears.
+ * Notes are trimmed so whitespace-only input reads as empty.
+ */
+const installationDimensionCm = z.preprocess(
+  (value) => (value === "" || value == null ? null : value),
+  z.coerce.number().positive().finite().max(100_000).nullable(),
+);
+
+export const installationDetailsInputSchema = z.object({
+  token: z.string().uuid(),
+  expected_version: z.coerce.number().int().min(0).max(1_000_000),
+  general_instructions: z.string().trim().max(2000).nullable().optional(),
+  rooms: z
+    .array(
+      z.object({
+        room_id: z.string().uuid(),
+        note: z.string().trim().max(1000),
+      }),
+    )
+    .max(200)
+    .default([]),
+  openings: z
+    .array(
+      z.object({
+        opening_id: z.string().uuid(),
+        width_cm: installationDimensionCm.optional(),
+        height_cm: installationDimensionCm.optional(),
+        note: z.string().trim().max(1000).nullable().optional(),
+      }),
+    )
+    .max(1000)
+    .default([]),
+});
+
+export type InstallationDetailsInput = z.infer<
+  typeof installationDetailsInputSchema
+>;

@@ -4,6 +4,12 @@ import { db } from "@/lib/db/kysely";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 
 import {
+  openingOverride,
+  parseInstallationDetails,
+  resolveInstallationNote,
+  roomNote,
+} from "./installation-details";
+import {
   buildInstallationSummary,
   type InstallationOpening,
 } from "./installation-summary";
@@ -62,6 +68,15 @@ export async function loadInstallationSummary(
     }),
   );
 
+  // Ops installation corrections live on the booking; the copied summary must
+  // show the same overridden sizes and notes the installer page displays.
+  const arrangement = await db
+    .selectFrom("fulfilment_arrangements")
+    .select("installation_details")
+    .where("order_id", "=", orderId)
+    .executeTakeFirst();
+  const details = parseInstallationDetails(arrangement?.installation_details);
+
   const openings: InstallationOpening[] = [];
   if (roomIds.length > 0 && order.product_line !== "mesh") {
     const windows = await db
@@ -112,6 +127,7 @@ export async function loadInstallationSummary(
       for (let index = 0; index < roomWindows.length; index += 1) {
         const window = roomWindows[index];
         const size = frozenByLine.get(window.id);
+        const o = openingOverride(details, window.id);
         const layerCount = Number(Boolean(window.day_curtain_type_id)) + Number(Boolean(window.night_curtain_type_id));
         const covering: InstallationOpening["covering"] = window.blind_type_id
           ? "Blinds"
@@ -122,18 +138,19 @@ export async function loadInstallationSummary(
               : "Curtain";
         openings.push({
           roomLabel: room.label,
+          roomNote: roomNote(details, room.id),
           openingNumber: index + 1,
           openingsInRoom: roomWindows.length,
           covering,
-          widthCm: size?.mfg_width_cm ?? window.width_cm,
-          heightCm: size?.mfg_height_cm ?? window.height_cm,
+          widthCm: o?.width_cm ?? size?.mfg_width_cm ?? window.width_cm,
+          heightCm: o?.height_cm ?? size?.mfg_height_cm ?? window.height_cm,
           draw: window.draw,
           splitLeftCm: size?.mfg_split_left_cm,
           splitRightCm: size?.mfg_split_right_cm,
           addonLabels: addonsByWindow.get(window.id) ?? [],
           sideInstallation: window.side_installation,
           noInstallation: window.no_installation,
-          installationNote: window.notes,
+          installationNote: resolveInstallationNote(window.notes, o),
         });
       }
     }
@@ -161,19 +178,21 @@ export async function loadInstallationSummary(
       for (let index = 0; index < roomPanels.length; index += 1) {
         const panel = roomPanels[index];
         const size = frozenByLine.get(panel.id);
+        const o = openingOverride(details, panel.id);
         openings.push({
           roomLabel: room.label,
+          roomNote: roomNote(details, room.id),
           openingNumber: index + 1,
           openingsInRoom: roomPanels.length,
           covering: "Mesh",
-          widthCm: size?.mfg_width_cm ?? panel.width_cm,
-          heightCm: size?.mfg_height_cm ?? panel.height_cm,
+          widthCm: o?.width_cm ?? size?.mfg_width_cm ?? panel.width_cm,
+          heightCm: o?.height_cm ?? size?.mfg_height_cm ?? panel.height_cm,
           draw: panel.draw,
           splitLeftCm: size?.mfg_split_left_cm ?? panel.split_left_cm,
           splitRightCm: size?.mfg_split_right_cm ?? panel.split_right_cm,
           addonLabels: [],
           sideInstallation: false,
-          installationNote: panel.notes,
+          installationNote: resolveInstallationNote(panel.notes, o),
         });
       }
     }
@@ -191,6 +210,7 @@ export async function loadInstallationSummary(
       address,
       customerName: order.customer_name,
       customerMobile: order.customer_mobile,
+      generalInstructions: details.general_instructions ?? null,
       openings,
       installerUrl,
     }),

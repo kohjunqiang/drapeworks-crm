@@ -123,6 +123,7 @@ function input(over: Partial<PoInput> = {}): PoInput {
     roomLabels: LABELS,
     rooms: [...new Map((over.lines ?? []).map((line) => [line.roomId, {
       id: line.roomId, type: line.roomType, position: line.roomPosition,
+      label: line.roomLabel,
     }])).values()],
     lines: [],
     ...over,
@@ -1073,12 +1074,14 @@ describe("buildPos — blackout factory instruction", () => {
 });
 
 describe("buildPos — order-wide room identity", () => {
+  // Custom labels never parse into room numbers, so this roster still numbers
+  // bedrooms purely by room position.
   const rooms: PoInput["rooms"] = [
-    { id: "br4", type: "Bedroom", position: 40 },
-    { id: "lr", type: "Living Room", position: 0 },
-    { id: "br2", type: "Bedroom", position: 20 },
-    { id: "br1", type: "Bedroom", position: 10 },
-    { id: "br3", type: "Bedroom", position: 30 },
+    { id: "br4", type: "Bedroom", position: 40, label: "Custom 99" },
+    { id: "lr", type: "Living Room", position: 0, label: "Living Room" },
+    { id: "br2", type: "Bedroom", position: 20, label: "Custom 99" },
+    { id: "br1", type: "Bedroom", position: 10, label: "Custom 99" },
+    { id: "br3", type: "Bedroom", position: 30, label: "Custom 99" },
   ];
   function bedroom(n: number, category: "day" | "night", extra: Partial<PoLine> = {}) {
     return line({ lineId: `br${n}:${category}`, roomId: `br${n}`,
@@ -1122,4 +1125,219 @@ describe("buildPos — order-wide room identity", () => {
       ["1.00", "2.55", "2.00"], ["2.00", "2.55", "4.00"], ["2.74", "2.55", "5.48"],
     ]);
   });
+});
+
+describe("buildPos — preserved bedroom labels", () => {
+  // The roster's saved labels, not the rooms' positions, decide the printed
+  // BR number. A consultant who entered Bedroom 2 before Bedroom 1 still gets
+  // BR2 on Bedroom 2's rows — with Bedroom 2's own dimensions.
+  function bedroomRoom(id: string, label: string, position: number): PoInput["rooms"][number] {
+    return { id, type: "Bedroom", position, label };
+  }
+  function bedroomLine(
+    room: { id: string; label: string; position: number },
+    extra: Partial<PoLine> = {},
+  ): PoLine {
+    return line({
+      lineId: `${room.id}:night`,
+      roomId: room.id,
+      roomLabel: room.label,
+      roomType: "Bedroom",
+      roomPosition: room.position,
+      ...extra,
+    });
+  }
+
+  it("prints the saved bedroom number, not the entry order", () => {
+    const br2 = bedroomRoom("r2", "Bedroom 2", 0);
+    const br1 = bedroomRoom("r1", "Bedroom 1", 1);
+    const { pos, problems } = buildPos(input({
+      rooms: [br2, br1],
+      lines: [
+        bedroomLine(br2, { mfgWidthCm: 222 }),
+        bedroomLine(br1, { mfgWidthCm: 111 }),
+      ],
+    }));
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows.map((r) => [r.room, r.widthM])).toEqual([
+      ["次卧 2 BR2", "2.22"],
+      ["次卧 1 BR1", "1.11"],
+    ]);
+  });
+
+  it("keeps labels and dimensions together when positions are swapped", () => {
+    const br1 = bedroomRoom("r1", "Bedroom 1", 0);
+    const br2 = bedroomRoom("r2", "Bedroom 2", 1);
+    const { pos, problems } = buildPos(input({
+      rooms: [br1, br2],
+      lines: [
+        bedroomLine(br1, { mfgWidthCm: 111 }),
+        bedroomLine(br2, { mfgWidthCm: 222 }),
+      ],
+    }));
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows.map((r) => [r.room, r.widthM])).toEqual([
+      ["次卧 1 BR1", "1.11"],
+      ["次卧 2 BR2", "2.22"],
+    ]);
+  });
+
+  it("honours the saved number on a lone bedroom", () => {
+    const br2 = bedroomRoom("r2", "Bedroom 2", 0);
+    const { pos, problems } = buildPos(input({
+      rooms: [br2],
+      lines: [bedroomLine(br2)],
+    }));
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows[0].room).toBe("次卧 2 BR2");
+  });
+
+  it("reads the standard label variants — case, suffix, BR alias", () => {
+    const rooms = [
+      bedroomRoom("a", "bedroom 3", 0),
+      bedroomRoom("b", "Bedroom 2 (Nearest from Living)", 1),
+      bedroomRoom("c", "BR 4", 2),
+      bedroomRoom("d", "br5", 3),
+    ];
+    const { pos, problems } = buildPos(input({
+      rooms,
+      lines: rooms.map((r) => bedroomLine(r)),
+    }));
+
+    expect(problems).toEqual([]);
+    expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+      "次卧 3 BR3",
+      "次卧 2 BR2",
+      "次卧 4 BR4",
+      "次卧 5 BR5",
+    ]);
+  });
+
+  it("reserves an empty numbered bedroom before numbering the rest", () => {
+    const empty = bedroomRoom("empty", "Bedroom 3", 0);
+    const kids = bedroomRoom("kids", "Kids room", 1);
+    const guest = bedroomRoom("guest", "Guest", 2);
+    const { pos, problems } = buildPos(input({
+      rooms: [empty, kids, guest],
+      lines: [bedroomLine(kids), bedroomLine(guest)],
+    }));
+
+    expect(problems).toEqual([]);
+    // The unnamed bedrooms take the smallest numbers Bedroom 3 did not claim.
+    expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+      "次卧 1 BR1",
+      "次卧 2 BR2",
+    ]);
+  });
+
+  it("keeps the same saved code across vendor and category splits", () => {
+    const br2 = bedroomRoom("r2", "Bedroom 2", 0);
+    const br1 = bedroomRoom("r1", "Bedroom 1", 1);
+    const { pos, problems } = buildPos(input({
+      rooms: [br2, br1],
+      lines: [
+        bedroomLine(br2, { lineId: "r2:day", category: "day", typeLabel: "纱窗 Day", vendorId: ZHUYINGTAI.id }),
+        bedroomLine(br2, { lineId: "r2:night" }),
+        bedroomLine(br1),
+      ],
+    }));
+
+    expect(problems).toEqual([]);
+    const day = pos.find((p) => p.category === "day")!;
+    const night = pos.find((p) => p.category === "night")!;
+    expect(day.vendor.id).toBe(ZHUYINGTAI.id);
+    expect(day.tables[0].rows.map((r) => r.room)).toEqual(["次卧 2 BR2"]);
+    expect(night.tables[0].rows.map((r) => r.room)).toEqual([
+      "次卧 2 BR2",
+      "次卧 1 BR1",
+    ]);
+  });
+
+  it("puts the saved code on every window and split leaf of the room", () => {
+    const br2 = bedroomRoom("r2", "Bedroom 2", 0);
+    const { pos, problems } = buildPos(input({
+      rooms: [br2],
+      lines: [
+        bedroomLine(br2, { mfgWidthCm: 300, splitLeftCm: 100, splitRightCm: 200 }),
+        bedroomLine(br2, { lineId: "r2:w2", position: 1 }),
+      ],
+    }));
+
+    expect(problems).toEqual([]);
+    const rows = pos[0].tables[0].rows;
+    expect(rows.map((r) => r.room)).toEqual(Array(3).fill("次卧 2 BR2"));
+    expect(rows.map((r) => r.widthM)).toEqual(["1.00", "2.00", "2.74"]);
+  });
+
+  it("fills an unnamed bedroom around explicit numbers without colliding", () => {
+    const br2 = bedroomRoom("r2", "Bedroom 2", 0);
+    const custom = bedroomRoom("rc", "Custom 99", 1);
+    const { pos, problems } = buildPos(input({
+      rooms: [br2, custom],
+      lines: [bedroomLine(br2), bedroomLine(custom)],
+    }));
+
+    expect(problems).toEqual([]);
+    // Custom 99's digits are never parsed; it takes the smallest free number.
+    expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+      "次卧 2 BR2",
+      "次卧 1 BR1",
+    ]);
+  });
+
+  it.each(["Bedroom 12A", "Bedroom 2.5", "BR2x", "BR 3.5"])(
+    "treats an ambiguous numbered label as custom: %s",
+    (label) => {
+      const custom = bedroomRoom("rc", label, 0);
+      const br2 = bedroomRoom("r2", "Bedroom 2", 1);
+      const { pos, problems } = buildPos(input({
+        rooms: [custom, br2],
+        lines: [bedroomLine(custom), bedroomLine(br2)],
+      }));
+
+      expect(problems).toEqual([]);
+      // No fragment of the label's digits is parsed: it falls back to the
+      // smallest number Bedroom 2 did not claim.
+      expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+        "次卧 1 BR1",
+        "次卧 2 BR2",
+      ]);
+    },
+  );
+
+  it("refuses two bedrooms claiming the same number, and names both", () => {
+    const a = bedroomRoom("a", "Bedroom 2", 0);
+    const b = bedroomRoom("b", "Bedroom 2 (attic)", 1);
+    const { pos, problems } = buildPos(input({
+      rooms: [a, b],
+      lines: [bedroomLine(a), bedroomLine(b)],
+    }));
+
+    expect(problems).toHaveLength(2);
+    expect(problems.some((p) => p.includes('"Bedroom 2"'))).toBe(true);
+    expect(problems.some((p) => p.includes('"Bedroom 2 (attic)"'))).toBe(true);
+    // No silent renumber: the preview shows the collision it is reporting.
+    expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+      "次卧 2 BR2",
+      "次卧 2 BR2",
+    ]);
+  });
+
+  it.each(["Bedroom 0", "Bedroom 99999999999999999999"])(
+    "refuses an unusable saved number: %s",
+    (label) => {
+      const bad = bedroomRoom("bad", label, 0);
+      const ok = bedroomRoom("ok", "Bedroom 1", 1);
+      const { problems } = buildPos(input({
+        rooms: [bad, ok],
+        lines: [bedroomLine(bad), bedroomLine(ok)],
+      }));
+
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain(`"${label}"`);
+    },
+  );
 });

@@ -116,7 +116,7 @@ export async function loadPoInput(
         .executeTakeFirst(),
       // Query rooms directly so empty rooms retain their order-wide number.
       db.selectFrom("rooms")
-        .select(["id", "type", "position"])
+        .select(["id", "type", "position", "label"])
         .where("order_id", "=", orderId)
         .orderBy("position", "asc")
         .execute(),

@@ -151,6 +151,12 @@ export type PoRoom = {
   id: string;
   type: RoomType;
   position: number;
+  /**
+   * The consultant's own label — "Bedroom 2", "Custom 99". A standard
+   * numbered-bedroom label carries the room's saved number; anything else
+   * falls back to order-wide position numbering.
+   */
+  label: string;
 };
 
 export type PoInput = {
@@ -366,12 +372,41 @@ function locate(line: PoLine): string {
   return `${line.roomLabel} Window ${line.position + 1}`;
 }
 
+// The standard wordings a bedroom's label uses to carry its number — the
+// form's quick-add writes "Bedroom 2", and consultants save "Bedroom 2 (kids)"
+// or "BR2" themselves. The digits must end cleanly — at the label's end or
+// ahead of whitespace, a parenthesis or a dash — so a fragment like
+// "Bedroom 12A" or "Bedroom 2.5" can never lend half a number. Anything else
+// is a custom name and is never parsed into a room number at all.
+const BEDROOM_NUMBER_LABEL = /^bedroom\s+(\d+)(?=$|[\s(–—-])/i;
+const BR_NUMBER_LABEL = /^br\s*(\d+)(?=$|[\s(–—-])/i;
+
+/**
+ * The room number a label explicitly claims, or null when the label is not a
+ * standard numbered-bedroom wording. `raw` keeps the digits as written so a
+ * refusal can quote them back.
+ */
+function claimedRoomNumber(label: string): { raw: string; n: number } | null {
+  const match =
+    BEDROOM_NUMBER_LABEL.exec(label.trim()) ?? BR_NUMBER_LABEL.exec(label.trim());
+  return match ? { raw: match[1], n: Number(match[1]) } : null;
+}
+
 /**
  * Number the complete order roster before splitting by vendor or category.
  * Empty rooms count; singleton types remain unnumbered (for example 客厅 LR).
- * Custom room labels are never parsed for numbering.
+ *
+ * A bedroom keeps the number its label was saved with — "Bedroom 2" prints
+ * BR2 wherever it sits in room order. Explicit numbers are reserved first;
+ * bedrooms without one take the smallest free positive number in room order.
+ * A number two bedrooms claim, or one that is not a positive whole number, is
+ * a problem — an explicit label is never silently renumbered.
  */
-function numberRooms(roster: readonly PoRoom[]): Map<string, number | null> {
+function numberRooms(roster: readonly PoRoom[]): {
+  indexes: Map<string, number | null>;
+  problems: string[];
+} {
+  const problems: string[] = [];
   const byType = new Map<RoomType, PoRoom[]>();
   for (const room of roster) {
     const rooms = byType.get(room.type) ?? [];
@@ -380,13 +415,58 @@ function numberRooms(roster: readonly PoRoom[]): Map<string, number | null> {
   }
 
   const indexes = new Map<string, number | null>();
-  for (const rooms of byType.values()) {
+  for (const [type, rooms] of byType) {
     rooms.sort((a, b) => a.position - b.position);
-    for (const [i, room] of rooms.entries()) {
-      indexes.set(room.id, rooms.length > 1 ? i + 1 : null);
+    if (type !== "Bedroom") {
+      for (const [i, room] of rooms.entries()) {
+        indexes.set(room.id, rooms.length > 1 ? i + 1 : null);
+      }
+      continue;
+    }
+
+    const claimed = new Map<number, PoRoom[]>();
+    const unnamed: PoRoom[] = [];
+    for (const room of rooms) {
+      const claim = claimedRoomNumber(room.label);
+      if (claim == null) {
+        unnamed.push(room);
+        continue;
+      }
+      if (!Number.isSafeInteger(claim.n) || claim.n < 1) {
+        problems.push(
+          `The bedroom labelled "${room.label}" claims room number ${claim.raw}, which is not a usable number. Give it a positive whole number, or rename the room, before generating.`,
+        );
+        indexes.set(room.id, null);
+        continue;
+      }
+      const same = claimed.get(claim.n) ?? [];
+      same.push(room);
+      claimed.set(claim.n, same);
+      indexes.set(room.id, claim.n);
+    }
+
+    for (const [n, same] of claimed) {
+      if (same.length < 2) continue;
+      for (const room of same) {
+        problems.push(
+          `The bedroom labelled "${room.label}" claims room number ${n}, which another bedroom on this order also claims. Rename one of them so each bedroom keeps its own number before generating.`,
+        );
+      }
+    }
+
+    // A singleton bedroom stays unnumbered unless its own label carries one.
+    if (rooms.length === 1) {
+      for (const room of unnamed) indexes.set(room.id, null);
+      continue;
+    }
+    let next = 1;
+    for (const room of unnamed) {
+      while (claimed.has(next)) next++;
+      claimed.set(next, [room]);
+      indexes.set(room.id, next);
     }
   }
-  return indexes;
+  return { indexes, problems };
 }
 
 /**
@@ -557,7 +637,10 @@ export function buildPos(input: PoInput): {
   const problems: string[] = [];
   const vendorsById = new Map(input.vendors.map((v) => [v.id, v]));
 
-  const roomIndexes = numberRooms(input.rooms);
+  const { indexes: roomIndexes, problems: roomProblems } = numberRooms(
+    input.rooms,
+  );
+  problems.push(...roomProblems);
 
   // Room order, then window order determines row and document ordering.
   const ordered = [...input.lines].sort(

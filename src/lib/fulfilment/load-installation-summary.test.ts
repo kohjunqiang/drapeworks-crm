@@ -87,10 +87,15 @@ const blindWindow: WindowRow = {
   blind_type_id: "ct-blind",
 };
 
-function chain(result: unknown) {
+const queriedColumns: { table: string; columns: unknown }[] = [];
+
+function chain(result: unknown, table: string) {
   const node: Record<string, unknown> = {
     innerJoin: () => node,
-    select: () => node,
+    select: (columns: unknown) => {
+      queriedColumns.push({ table, columns });
+      return node;
+    },
     where: () => node,
     orderBy: () => node,
     execute: async () => result,
@@ -106,6 +111,7 @@ function setup(opts: {
   windows?: WindowRow[];
   frozen?: FrozenRow[];
   details?: unknown;
+  generalNotes?: string | null;
 }) {
   const rows: Record<string, unknown> = {
     orders: {
@@ -113,6 +119,7 @@ function setup(opts: {
       display_id: "DW-2026-0025",
       order_reference: "M25ABCDE",
       product_line: opts.productLine ?? "mesh",
+      general_notes: opts.generalNotes ?? null,
       customer_name: "Tan Ah Kow",
       customer_mobile: "9123 4567",
     },
@@ -126,7 +133,7 @@ function setup(opts: {
     },
   };
   mocks.selectFrom.mockImplementation((table: string) =>
-    chain(rows[table] ?? []),
+    chain(rows[table] ?? [], table),
   );
 }
 
@@ -142,6 +149,7 @@ const load = (installerToken?: string | null) =>
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
+  queriedColumns.length = 0;
 });
 
 describe("loadInstallationSummary mesh openings", () => {
@@ -333,5 +341,44 @@ describe("loadInstallationSummary installation-detail overrides", () => {
     const { text } = await load();
     expect(text).toContain("1.75m Width 2.05m Height");
     expect(text).toContain("Installation note: Trim on site");
+  });
+});
+
+describe("loadInstallationSummary general note", () => {
+  it("selects orders.general_notes and forwards the note for a curtain order", async () => {
+    setup({
+      productLine: "curtain",
+      windows: [curtainWindow],
+      generalNotes: "Beware of dog",
+    });
+    const { text } = await load();
+    const ordersSelect = queriedColumns.find((q) => q.table === "orders");
+    expect(ordersSelect?.columns).toEqual(
+      expect.arrayContaining(["orders.general_notes"]),
+    );
+    expect(text).toContain("General note: Beware of dog");
+  });
+
+  it("forwards the note for a mesh order", async () => {
+    setup({ panels: [splitPanel], generalNotes: "Call before arriving" });
+    const { text } = await load();
+    expect(text).toContain("General note: Call before arriving");
+  });
+
+  it("keeps the note separate from ops instructions when both exist", async () => {
+    setup({
+      panels: [splitPanel],
+      generalNotes: "Customer prefers afternoon",
+      details: { general_instructions: "Bring a 3m ladder" },
+    });
+    const { text } = await load();
+    expect(text).toContain("Instructions: Bring a 3m ladder");
+    expect(text).toContain("General note: Customer prefers afternoon");
+  });
+
+  it("omits the block when the order has no note", async () => {
+    setup({ panels: [splitPanel] });
+    const { text } = await load();
+    expect(text).not.toContain("General note");
   });
 });

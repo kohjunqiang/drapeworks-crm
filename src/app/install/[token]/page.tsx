@@ -53,6 +53,7 @@ export default async function InstallerPage({
       "orders.order_reference",
       "orders.product_line",
       "orders.current_status",
+      "orders.general_notes",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
     ])
@@ -215,6 +216,12 @@ export default async function InstallerPage({
           <p className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">
             <span className="font-medium">Instructions:</span>{" "}
             {installationDetails.general_instructions}
+          </p>
+        ) : null}
+        {arrangement.general_notes?.trim() ? (
+          <p className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 whitespace-pre-wrap break-words">
+            <span className="font-medium">General note:</span>{" "}
+            {arrangement.general_notes.trim()}
           </p>
         ) : null}
         {hasInstallationSizes && (

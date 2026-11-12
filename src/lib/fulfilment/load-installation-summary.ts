@@ -35,6 +35,7 @@ export async function loadInstallationSummary(
       "orders.display_id",
       "orders.order_reference",
       "orders.product_line",
+      "orders.general_notes",
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
     ])
@@ -211,6 +212,7 @@ export async function loadInstallationSummary(
       customerName: order.customer_name,
       customerMobile: order.customer_mobile,
       generalInstructions: details.general_instructions ?? null,
+      generalNotes: order.general_notes,
       openings,
       installerUrl,
     }),

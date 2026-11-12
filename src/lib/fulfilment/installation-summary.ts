@@ -29,6 +29,8 @@ export type InstallationSummaryInput = {
   customerMobile: string | null;
   /** Ops general instructions for the whole job, when any were saved. */
   generalInstructions?: string | null;
+  /** Order-level general note saved on the order, when any was recorded. */
+  generalNotes?: string | null;
   openings: InstallationOpening[];
   /** Public installer page link, appended as a final block when present. */
   installerUrl?: string | null;
@@ -148,6 +150,9 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
     countLine,
     input.generalInstructions
       ? `Instructions: ${input.generalInstructions}`
+      : null,
+    input.generalNotes?.trim()
+      ? `General note: ${input.generalNotes.trim()}`
       : null,
     ...details,
     input.installerUrl ? `Photos & measurements: ${input.installerUrl}` : null,

@@ -250,3 +250,48 @@ describe("buildInstallationSummary — supply-only windows", () => {
     expect(text).not.toContain("No installation — supply only");
   });
 });
+
+describe("buildInstallationSummary — general note", () => {
+  const base = {
+    scheduledAt: "2026-09-03T02:30:00.000Z",
+    durationMins: 60,
+    address: "Address",
+    customerName: "Customer",
+    customerMobile: null,
+    openings: [],
+  };
+
+  it("renders the note as its own labelled block", () => {
+    const text = buildInstallationSummary({
+      ...base,
+      generalNotes: "Cat at home — keep doors closed",
+    });
+    expect(text).toContain("General note: Cat at home — keep doors closed");
+    expect(text).not.toContain("Instructions:");
+  });
+
+  it("keeps ops instructions and the general note as separate blocks", () => {
+    const text = buildInstallationSummary({
+      ...base,
+      generalInstructions: "Bring a 3m ladder",
+      generalNotes: "Customer prefers afternoon slots",
+    });
+    expect(text).toContain("Instructions: Bring a 3m ladder");
+    expect(text).toContain("General note: Customer prefers afternoon slots");
+  });
+
+  it("omits the block for null, empty, and whitespace-only notes", () => {
+    for (const generalNotes of [null, "", "   \n\t  "]) {
+      const text = buildInstallationSummary({ ...base, generalNotes });
+      expect(text).not.toContain("General note");
+    }
+  });
+
+  it("preserves line breaks in a multiline note", () => {
+    const text = buildInstallationSummary({
+      ...base,
+      generalNotes: "Level 3\nUse the service lift",
+    });
+    expect(text).toContain("General note: Level 3\nUse the service lift");
+  });
+});

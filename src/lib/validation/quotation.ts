@@ -52,5 +52,11 @@ export const reviewedZohoQuotationSchema = z.object({
   remoteFingerprint: z.string().min(1).max(128),
 });
 
+export const reconcileInvoicedQuotationSchema = reviewedZohoQuotationSchema.extend({
+  invoiceFingerprint: z.string().min(1).max(128),
+  orderFingerprint: z.string().min(1).max(128),
+  confirmPriceChange: z.boolean().default(false),
+});
+
 export type QuotationLineInput = z.infer<typeof quotationLineSchema>;
 export type SaveQuotationInput = z.infer<typeof saveQuotationSchema>;

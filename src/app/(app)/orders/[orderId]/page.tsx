@@ -473,6 +473,7 @@ export default async function OrderDetailPage({
                 statusIndex(order.current_status) > statusIndex("quotation_sent")
               }
               canManage={(order.current_status === "order_recorded" || order.current_status === "quotation_sent") && (session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id))}
+              canReviewZoho={session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id)}
               canRepairDeposit={order.current_status === "deposit_received" && (session.profile.role === "admin" || session.profile.role === "ops")}
               configured={await isZohoBooksConfigured()}
             />

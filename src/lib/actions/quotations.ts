@@ -44,7 +44,7 @@ import {
   listZohoCustomerPayments,
 } from "@/lib/zoho/books";
 import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate, zohoAdoptionFingerprint } from "@/lib/quotations/hash";
-import { hasZohoInvoice, invoiceFingerprint, invoiceReconciliationIssues, optionalMoneyCents, orderReconciliationFingerprint } from "@/lib/quotations/invoice-reconciliation";
+import { hasZohoInvoice, invoiceFinancialDifferences, invoiceFingerprint, invoiceReconciliationIssues, optionalMoneyCents, orderReconciliationFingerprint } from "@/lib/quotations/invoice-reconciliation";
 import type { ZohoEstimate, ZohoInvoice } from "@/lib/zoho/books";
 import { ZohoEstimateConversionRejectedError } from "@/lib/zoho/conversion-error";
 import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, QUOTATION_INVOICED_MESSAGE, quotationBreakdown } from "@/lib/quotations/lifecycle";
@@ -403,19 +403,20 @@ async function inspectExistingInvoice(remote: ZohoEstimate, localInvoiceId: stri
 // cannot adopt. The returned fingerprints bind the follow-up apply call.
 export async function previewQuotationZohoDiff(quotationId: string) {
   const id = quotationIdSchema.parse(quotationId);
-  const { session, order, row, link } = await reviewedLinkedQuotation(id, true);
+  const { order, row, link } = await reviewedLinkedQuotation(id, true);
   const remote = await checkedLinkedRemote(row, link.zoho_contact_id, true);
   const invoiced = hasZohoInvoice(remote) || Boolean(row.zoho_invoice_id);
   const invoiceCheck = invoiced ? await inspectExistingInvoice(remote, row.zoho_invoice_id) : null;
   const operationIssues = quotationOperationIssues(row);
   const frozen = !["order_recorded", "quotation_sent"].includes(order.current_status);
-  const totalCents = zohoRemoteTotalCents(remote);
-  const priceChangeRequired = invoiced && frozen && order.price_quoted_cents !== totalCents;
   const adoptionIssues = invoiced ? [...(invoiceCheck?.issues ?? [])] : zohoAdoptionIssues(remote);
-  if (invoiced && totalCents < order.deposit_cents) adoptionIssues.push("The Zoho total is less than the recorded CRM deposit. Ask an admin to review the amounts.");
-  if (priceChangeRequired && session.profile.role !== "admin") adoptionIssues.push("The frozen CRM total differs. An admin must review and confirm the exact amount change.");
   if (!invoiced && frozen) adoptionIssues.push("This order is past the quotation stage. Only an existing invoiced document can be reconciled.");
   adoptionIssues.push(...operationIssues);
+  // Invoiced imports never repair money, so quote/invoice/order differences
+  // are non-blocking warnings — each one must be acknowledged before apply.
+  const financialDifferences = invoiced && invoiceCheck?.invoice
+    ? invoiceFinancialDifferences(remote, invoiceCheck.invoice, order.price_quoted_cents)
+    : [];
   const binding = await getZohoBooksBinding();
   const crmPayload = toZohoEstimatePayload({
     contactId: link.zoho_contact_id, referenceNumber: order.order_reference || order.display_id,
@@ -462,9 +463,9 @@ export async function previewQuotationZohoDiff(quotationId: string) {
     } : null,
     invoiceFingerprint: invoiceCheck?.invoice ? invoiceFingerprint(invoiceCheck.invoice) : null,
     orderFingerprint: orderReconciliationFingerprint(order),
-    priceChangeRequired,
+    financialDifferences,
+    requiresFinancialAcknowledgement: financialDifferences.length > 0,
     currentOrderTotalCents: order.price_quoted_cents,
-    canConfirmPriceChange: session.profile.role === "admin",
     crm: {
       issueDate: quotationDateOnly(row.issue_date), expiryDate: quotationDateOnly(row.expiry_date),
       notes: row.notes ?? "", terms: row.terms ?? "", totalCents: row.quoted_total_cents,
@@ -602,10 +603,15 @@ export async function reconcileInvoicedZohoQuotation(input: unknown) {
   if (invoiceFingerprint(invoice) !== parsed.invoiceFingerprint) throw new UserFacingError("The invoice or its payment information changed. Refresh the comparison.");
   const lines = zohoValidatedLines(remote);
   const totalCents = zohoRemoteTotalCents(remote);
-  const frozen = !["order_recorded", "quotation_sent"].includes(order.current_status);
-  const changesFrozenTotal = frozen && totalCents !== order.price_quoted_cents;
-  if (totalCents < order.deposit_cents) throw new UserFacingError("The Zoho total is less than the recorded CRM deposit. Ask an admin to review the amounts.");
-  if (changesFrozenTotal && (session.profile.role !== "admin" || !parsed.confirmPriceChange)) throw new UserFacingError("An admin must explicitly confirm the frozen CRM total change shown in the comparison.");
+  // This import never repairs money: the CRM order total/deposit, lead
+  // summaries, payment records and the Zoho invoice all stay as they are. Any
+  // financial difference is therefore a warning the reviewer must have
+  // acknowledged — the server recomputes the requirement from live data
+  // rather than trusting the preview.
+  const differences = invoiceFinancialDifferences(remote, invoice, order.price_quoted_cents);
+  if (differences.length && !parsed.acknowledgeFinancialDifference) {
+    throw new UserFacingError("The quotation, invoice or order financial details differ. Acknowledge the differences in the comparison, then apply again.");
+  }
   const claimToken = randomUUID();
   await db.transaction().execute(async (trx) => {
     const lockedOrder = await trx.selectFrom("orders").select(["current_status", "price_quoted_cents", "deposit_cents", "consultant_id"]).where("id", "=", seed.order_id).forUpdate().executeTakeFirstOrThrow();
@@ -630,6 +636,12 @@ export async function reconcileInvoicedZohoQuotation(input: unknown) {
       const lockedQuote = await trx.selectFrom("order_quotations").selectAll().where("id", "=", seed.id).forUpdate().executeTakeFirstOrThrow();
       if (lockedQuote.status !== "syncing" || lockedQuote.sync_claim_token !== claimToken || lockedQuote.superseded_at || lockedQuote.zoho_invoice_id !== seed.zoho_invoice_id
         || ["pending", "uncertain"].includes(lockedQuote.invoice_sync_state) || ["pending", "uncertain"].includes(lockedQuote.payment_sync_state)) throw new UserFacingError("The quotation or a financial operation changed. Refresh and reconcile again.");
+      // Recompute the acknowledgement requirement against the locked order;
+      // a flag sent for a preview that no longer applies must not slip through.
+      const lockedDifferences = invoiceFinancialDifferences(remote, invoice, lockedOrder.price_quoted_cents);
+      if (lockedDifferences.length && !parsed.acknowledgeFinancialDifference) {
+        throw new UserFacingError("The quotation, invoice or order financial details differ. Acknowledge the differences in the comparison, then apply again.");
+      }
       const createdTime = invoice.created_time ? new Date(invoice.created_time) : null;
       await trx.updateTable("order_quotations").set({
         status: seed.sent_at ? "sent" : "zoho_draft", issue_date: issueDate, expiry_date: expiryDate,
@@ -644,16 +656,12 @@ export async function reconcileInvoicedZohoQuotation(input: unknown) {
         invoice_sync_state: "created", invoice_sync_error: null, invoice_claim_token: null, invoice_claimed_at: null, invoice_uncertain_at: null,
         sync_claim_token: null, sync_claimed_at: null, sync_error: null, updated_by: session.user.id,
       }).where("id", "=", seed.id).where("sync_claim_token", "=", claimToken).executeTakeFirstOrThrow();
-      if (changesFrozenTotal) {
-        await sql`select public.amend_order_payment(${seed.order_id}::uuid, ${totalCents}::integer, ${lockedOrder.deposit_cents}::integer, ${session.user.id}::uuid)`.execute(trx);
-      }
-      // For matching frozen totals this is a no-op on order money. The helper
-      // also refreshes only the lead's quoted summary, never its funnel stage.
-      await applyQuotedPrice(trx, { orderId: seed.order_id, totalCents, lines });
+      // Snapshot-only semantics: no order/lead money update and no
+      // amend_order_payment call, whether the amounts matched or not.
       const latest = await trx.selectFrom("order_quotation_versions").select((eb) => eb.fn.max("version").as("max_version")).where("quotation_id", "=", seed.id).executeTakeFirst();
       await trx.insertInto("order_quotation_versions").values({ quotation_id: seed.id, version: Number(latest?.max_version ?? 0) + 1, lines: JSON.stringify(lines) as Json, quoted_total_cents: totalCents, pdf_storage_path: pdf.path, created_by: session.user.id }).execute();
       await trx.insertInto("order_status_events").values({ order_id: seed.order_id, status: lockedOrder.current_status, created_by: session.user.id,
-        note: `Reconciled quotation ${remote.estimate_number} from Zoho and linked existing invoice ${invoice.invoice_number ?? invoice.invoice_id}. Zoho invoice and payments, CRM deposit/payment records, order stage and original sent history were not changed. Invoice creation time ${createdTime && Number.isFinite(createdTime.getTime()) ? "from Zoho" : "unavailable; CRM linkage recorded now"}.`,
+        note: `Reconciled quotation ${remote.estimate_number} from Zoho and linked existing invoice ${invoice.invoice_number ?? invoice.invoice_id}. Only the CRM quotation and its PDF were replaced from the Zoho snapshot; the CRM order total, deposit, payment records, lead summaries, order stage, original sent history, and the Zoho invoice and its payments were not changed.${lockedDifferences.length ? ` Acknowledged financial differences: ${lockedDifferences.join(" ")}` : ""} Invoice creation time ${createdTime && Number.isFinite(createdTime.getTime()) ? "from Zoho" : "unavailable; CRM linkage recorded now"}.`,
       }).execute();
     });
     return { invoiceNumber: invoice.invoice_number ?? invoice.invoice_id };

@@ -55,7 +55,10 @@ export const reviewedZohoQuotationSchema = z.object({
 export const reconcileInvoicedQuotationSchema = reviewedZohoQuotationSchema.extend({
   invoiceFingerprint: z.string().min(1).max(128),
   orderFingerprint: z.string().min(1).max(128),
-  confirmPriceChange: z.boolean().default(false),
+  // The invoiced import never repairs money — financial differences the
+  // preview surfaced must be explicitly acknowledged, and the server
+  // recomputes whether this flag was required.
+  acknowledgeFinancialDifference: z.boolean().default(false),
 });
 
 export type QuotationLineInput = z.infer<typeof quotationLineSchema>;

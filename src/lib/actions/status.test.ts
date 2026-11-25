@@ -27,7 +27,7 @@ type RawShipmentRow = {
 
 function setupOrder(
   currentStatus = "installation_completed",
-  opts: { shipments?: RawShipmentRow[]; booking?: boolean } = {},
+  opts: { shipments?: RawShipmentRow[]; booking?: boolean; quotation?: Record<string, unknown> | null; total?: number; deposit?: number } = {},
 ) {
   const state = { status: currentStatus };
   const values = vi.fn();
@@ -47,10 +47,13 @@ function setupOrder(
       if (table === "orders") {
         chain.executeTakeFirst = async () => ({
           current_status: state.status,
+          price_quoted_cents: opts.total ?? 473000, deposit_cents: opts.deposit ?? 236500,
           is_draft: false,
           appointment_id: null,
           lead_id: null,
         });
+      } else if (table === "order_quotations") {
+        chain.executeTakeFirst = async () => opts.quotation ?? undefined;
       } else if (table === "order_shipments") {
         chain.execute = async () => opts.shipments ?? [];
       } else if (table === "fulfilment_arrangements") {
@@ -431,5 +434,30 @@ describe("advanceOrderStatusUi result wrapper", () => {
     expect(result.ok).toBe(false);
     expect(mocks.ensureZohoInvoiceForOrder).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("deposit stage verification receipt", () => {
+  const receipt = { quotationId: "quote-1", invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500 };
+  const quotation = { id: "quote-1", status: "conflict", zoho_invoice_id: "inv-1", zoho_payment_id: "pay-1", invoice_sync_state: "created", payment_sync_state: "created" };
+  it("advances with verified existing invoice/payment despite historical quotation conflict", async () => {
+    mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);
+    const { values, state } = setupOrder("quotation_sent", { quotation });
+    await advanceOrderStatus({ orderId, expectedStatus: "quotation_sent" });
+    expect(state.status).toBe("deposit_received");
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ status: "deposit_received" }));
+  });
+  it.each([null, { ...quotation, id: "new-quote" }, { ...quotation, status: "syncing" }, { ...quotation, status: "sending" }, { ...quotation, status: "superseded" }, { ...quotation, zoho_payment_id: "other" }, { ...quotation, zoho_invoice_id: "other" }, { ...quotation, payment_sync_state: "uncertain" }, { ...quotation, invoice_sync_state: "pending" }])("blocks changed or absent active invoice/payment state %j", async current => {
+    mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);
+    const { trx } = setupOrder("quotation_sent", { quotation: current });
+    await expect(advanceOrderStatus({ orderId, expectedStatus: "quotation_sent" })).rejects.toThrow("verified invoice/payment links changed");
+    expect(trx.insertInto).not.toHaveBeenCalled();
+  });
+  it.each([{ total: 500000 }, { deposit: 240000 }])("blocks amounts changed after remote verification %j", async amounts => {
+    mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);
+    const { trx } = setupOrder("quotation_sent", { quotation, ...amounts });
+    await expect(advanceOrderStatus({ orderId, expectedStatus: "quotation_sent" })).rejects.toThrow("order amounts");
+    expect(trx.insertInto).not.toHaveBeenCalled();
   });
 });

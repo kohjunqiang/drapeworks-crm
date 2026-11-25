@@ -222,6 +222,7 @@ export default async function OrderDetailPage({
   // second event at the same status, and "locked on" means when it happened,
   // not when it was last touched.
   const locked = isLocked(order.current_status);
+  const isAdvancer = session.profile.role === "ops" || session.profile.role === "admin";
   const canReorderRooms =
     !locked &&
     (session.profile.role === "admin" ||
@@ -303,9 +304,6 @@ export default async function OrderDetailPage({
             !locked &&
             (session.profile.role === "admin" ||
               order.consultant_id === session.user.id);
-          const isAdvancer =
-            session.profile.role === "ops" ||
-            session.profile.role === "admin";
           const currentIdx = statusIndex(order.current_status);
           const atEnd = currentIdx === STATUS_FLOW.length - 1;
           const nextLabel = atEnd
@@ -473,7 +471,9 @@ export default async function OrderDetailPage({
                 statusIndex(order.current_status) > statusIndex("quotation_sent")
               }
               canManage={(order.current_status === "order_recorded" || order.current_status === "quotation_sent") && (session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id))}
-              canReviewZoho={session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id)}
+              currentOrderStatus={order.current_status}
+              canConfirmDeposit={isAdvancer && !order.is_draft && order.current_status === "quotation_sent"}
+              canReviewZoho={(order.current_status === "order_recorded" || order.current_status === "quotation_sent") && !currentQuotation?.zoho_invoice_id && (session.profile.role === "admin" || (session.profile.role === "consultant" && order.consultant_id === session.user.id))}
               canRepairDeposit={order.current_status === "deposit_received" && (session.profile.role === "admin" || session.profile.role === "ops")}
               configured={await isZohoBooksConfigured()}
             />

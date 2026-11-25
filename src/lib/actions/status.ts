@@ -55,14 +55,13 @@ export async function advanceOrderStatus(input: unknown) {
   // while a Postgres row lock is held. The helper reconciles an invoice already
   // linked by Zoho before creating one, making a retry safe if the later local
   // status transaction loses a race or fails.
-  if (parsed.expectedStatus === "quotation_sent") {
-    await ensureZohoInvoiceForOrder(parsed.orderId);
-  }
+  const receipt = parsed.expectedStatus === "quotation_sent"
+    ? await ensureZohoInvoiceForOrder(parsed.orderId) : null;
 
   const linkedLeadId = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
-      .select(["current_status", "appointment_id", "lead_id", "is_draft"])
+      .select(["current_status", "appointment_id", "lead_id", "is_draft", "price_quoted_cents", "deposit_cents"])
       .where("id", "=", parsed.orderId)
       .forUpdate()
       .executeTakeFirst();
@@ -79,9 +78,9 @@ export async function advanceOrderStatus(input: unknown) {
       throw new UserFacingError("Confirm that the remaining balance has been received before completing this order.");
     }
     if (parsed.expectedStatus === "quotation_sent") {
-      const quotation = await trx.selectFrom("order_quotations").select(["status", "zoho_invoice_id", "zoho_payment_id"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
-      if (quotation && (quotation.status !== "sent" || !quotation.zoho_invoice_id || !quotation.zoho_payment_id)) {
-        throw new UserFacingError("The current sent quotation must own the Zoho invoice and matching deposit payment before the deposit can be recorded");
+      const quotation = await trx.selectFrom("order_quotations").select(["id", "status", "zoho_invoice_id", "zoho_payment_id", "invoice_sync_state", "payment_sync_state"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+      if (!receipt || !quotation || quotation.id !== receipt.quotationId || ["syncing", "sending", "superseded"].includes(quotation.status) || quotation.zoho_invoice_id !== receipt.invoiceId || quotation.zoho_payment_id !== receipt.paymentId || quotation.invoice_sync_state !== "created" || quotation.payment_sync_state !== "created" || order.price_quoted_cents !== receipt.orderTotalCents || order.deposit_cents !== receipt.depositCents) {
+        throw new UserFacingError("The order amounts or verified invoice/payment links changed. Refresh and verify the deposit again before advancing.");
       }
     }
 

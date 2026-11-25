@@ -215,6 +215,7 @@ export function AdvanceStatusButton({
   return (
     <>
       <button
+        id="advance-order-status"
         type="button"
         onClick={() => {
           resetShipmentNumbers();
@@ -226,7 +227,7 @@ export function AdvanceStatusButton({
         className="px-3 py-1.5 text-xs sm:text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
       >
         {pending
-          ? "Saving…"
+          ? currentStatus === "quotation_sent" ? "Verifying invoice & payment…" : "Saving…"
           : manifestMissing
             ? "No shipment orders found"
             : trackingIncomplete
@@ -292,14 +293,14 @@ export function AdvanceStatusButton({
             )}
             {currentStatus === "quotation_sent" && (
               <div className="space-y-3">
-                <p className="text-sm text-slate-600">Zoho Books will create the full invoice and apply the deposit as a customer payment before this order advances.</p>
+                <p className="text-sm text-slate-600">The existing Zoho invoice is checked against the CRM order total. A matching deposit payment is reused. An invoice or payment is created only when none exists and the checks pass.</p>
                 <dl className="divide-y rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm">
                   <div className="flex justify-between py-2"><dt className="text-slate-600">Deposit received</dt><dd className="font-semibold text-slate-900">{formatMoney(depositCents)}</dd></div>
-                  <div className="flex justify-between py-2"><dt className="text-slate-600">Full invoice total</dt><dd className="font-semibold text-slate-900">{formatMoney(invoiceTotalCents)}</dd></div>
-                  <div className="flex justify-between py-2"><dt className="text-slate-600">Balance remaining</dt><dd className="font-semibold text-slate-900">{formatMoney(Math.max(invoiceTotalCents - depositCents, 0))}</dd></div>
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">CRM order total</dt><dd className="font-semibold text-slate-900">{formatMoney(invoiceTotalCents)}</dd></div>
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">CRM total less deposit</dt><dd className="font-semibold text-slate-900">{formatMoney(Math.max(invoiceTotalCents - depositCents, 0))}</dd></div>
                 </dl>
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
-                  Payment method: PayNow · Deposit account: Drapeworks – MariBank. The invoice will retain the balance shown above.
+                  Payment method: PayNow · Deposit account: Drapeworks – MariBank. The figures shown use the CRM order total and recorded deposit; current Zoho payments are verified before advancing.
                 </div>
               </div>
             )}
@@ -463,7 +464,7 @@ export function AdvanceStatusButton({
                 {photoUploading
                   ? "Uploading photos…"
                   : pending
-                    ? "Saving…"
+                    ? currentStatus === "quotation_sent" ? "Verifying invoice & payment…" : "Saving…"
                     : completingInstallation
                       ? "Confirm installation completed"
                       : completingOrder
@@ -475,7 +476,7 @@ export function AdvanceStatusButton({
                       : trackingMode === "overseas"
                         ? "Save numbers & mark shipping"
                         : currentStatus === "quotation_sent"
-                          ? "Create invoice & record deposit"
+                          ? "Verify invoice & confirm deposit"
                         : (ctaLabel ?? "Advance")}
               </button>
             </div>

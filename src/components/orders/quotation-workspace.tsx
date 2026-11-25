@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import {
   adoptZohoQuotationUi,
-  reconcileInvoicedZohoQuotationUi,
   confirmQuotationSentUi,
   confirmZohoCustomerUi,
   createAndConfirmZohoCustomerUi,
@@ -44,8 +43,8 @@ type Props = {
   depositCents: number; defaultNotes: string;
   quote: Quote | null; history: Array<{ id: string; revision: number; estimateNumber: string | null; sentAt: string | null; supersededAt: string | null; totalCents: number; hasPdf: boolean }>;
   versions: Array<{ id: string; version: number; totalCents: number; createdAt: string; hasPdf: boolean }>;
-  linkedContactId: string | null; canManage: boolean; canReviewZoho: boolean; canRepairDeposit: boolean; configured: boolean;
-  quotationStageComplete: boolean;
+  linkedContactId: string | null; canManage: boolean; canReviewZoho: boolean; canConfirmDeposit: boolean; canRepairDeposit: boolean; configured: boolean;
+  quotationStageComplete: boolean; currentOrderStatus: string;
 };
 
 type Options = Extract<Awaited<ReturnType<typeof getZohoQuotationOptionsUi>>, { ok: true }>["data"];
@@ -101,7 +100,6 @@ export function QuotationWorkspace(props: Props) {
   const [reviewError, setReviewError] = useState<string | null>(null);
   const reviewSeq = useRef(0);
   const [reviewChoice, setReviewChoice] = useState<"adopt" | "overwrite" | null>(null);
-  const [acknowledgeFinancialDifference, setAcknowledgeFinancialDifference] = useState(false);
   const [paymentRepairOpen, setPaymentRepairOpen] = useState(false);
   const [quotationDetailsOpen, setQuotationDetailsOpen] = useState(
     !props.quotationStageComplete && props.quote?.status !== "sent",
@@ -204,7 +202,6 @@ export function QuotationWorkspace(props: Props) {
     setReview(null);
     setReviewError(null);
     setReviewChoice(null);
-    setAcknowledgeFinancialDifference(false);
     try {
       const data = unwrap(await previewQuotationZohoDiffUi(props.quote.id));
       if (reviewSeq.current === seq) setReview(data);
@@ -214,15 +211,14 @@ export function QuotationWorkspace(props: Props) {
   }
 
   function applyZohoReview(choice: "adopt" | "overwrite") {
-    if (!review) return;
+    if (!review || review.invoiced) return;
     const input = { quotationId: review.quotationId, expectedUpdatedAt: review.crmRevision, remoteFingerprint: review.remoteFingerprint };
     run(async () => {
-      if (choice === "adopt" && review.invoiced) unwrap(await reconcileInvoicedZohoQuotationUi({ ...input, invoiceFingerprint: review.invoiceFingerprint, orderFingerprint: review.orderFingerprint, acknowledgeFinancialDifference }));
-      else if (choice === "adopt") unwrap(await adoptZohoQuotationUi(input));
+      if (choice === "adopt") unwrap(await adoptZohoQuotationUi(input));
       else unwrap(await overwriteZohoWithCrmQuotationUi(input));
       setReviewOpen(false);
       setReview(null);
-    }, choice === "adopt" ? review.invoiced ? `CRM quotation details updated and existing invoice ${review.invoice?.number ?? ""} linked. Zoho invoice and payments were not changed.` : "Zoho details applied to this quotation" : "Zoho quotation updated from the CRM", true);
+    }, choice === "adopt" ? "Zoho details applied to this quotation" : "Zoho quotation updated from the CRM", true);
   }
 
   const sent = props.quote?.status === "sent";
@@ -298,7 +294,7 @@ export function QuotationWorkspace(props: Props) {
         {props.quote?.hasPdf && !dirty && synced && <><Button className="h-11" variant="outline" onClick={() => openPdf(false)}><ExternalLink /> Preview official quotation</Button><Button aria-label="Download official quotation" className="h-11 w-11" variant="outline" onClick={() => openPdf(true)}><Download /></Button><Button aria-label="Share official quotation" className="h-11 w-11" variant="outline" onClick={sharePdf}><Share2 /></Button></>}
         {props.canManage && !invoiced && props.quote?.status === "zoho_draft" && !dirty && !previouslySent && <Button className="h-11" onClick={() => setSendOpen(true)}>Confirm quotation sent</Button>}
         {props.canManage && props.quote?.status === "conflict" && !props.quote.hasZohoEstimate && <Button className="h-11" variant="destructive" onClick={() => run(async () => unwrap(await reconcileUncertainQuotationUi(props.quote!.id)), "Zoho checked for the interrupted quotation")}>Check Zoho before retrying creation</Button>}
-        {props.canReviewZoho && props.quote?.hasZohoEstimate && <Button className="h-11" variant="outline" disabled={pending || dirty || !props.configured} title={dirty ? "Save or discard your draft changes before reviewing" : undefined} onClick={openZohoReview}>Use Zoho details or update Zoho</Button>}
+        {props.canReviewZoho && !invoiced && !props.quotationStageComplete && props.quote?.hasZohoEstimate && <Button className="h-11" variant="outline" disabled={pending || dirty || !props.configured} title={dirty ? "Save or discard your draft changes before reviewing" : undefined} onClick={openZohoReview}>Use Zoho details or update Zoho</Button>}
         {dirty && props.quote?.hasZohoEstimate && !processing && !invoiced && <p className="w-full text-xs text-amber-700">Save or discard your draft changes before reviewing the Zoho quotation.</p>}
         {props.canManage && processing && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(async () => unwrap(await recoverStaleQuotationClaimUi(props.quote!.id)), "Zoho operation checked")}>Check Zoho status / resume reconciliation</Button>}
       </div>
@@ -315,11 +311,11 @@ export function QuotationWorkspace(props: Props) {
         </div>
       </div>}
       {props.quote?.invoiceSyncState === "pending" && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Zoho invoice creation is still pending. Wait a moment, then use the deposit action above to check and continue.</p>}
-      {props.quote?.invoiceSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have created the invoice</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The conversion response was interrupted."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a></div>}
-      {props.quote?.invoiceSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho invoice needs attention</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The last invoice attempt could not be confirmed."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry or reconcile with the deposit action above</a></div>}
+      {props.quote?.invoiceSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have created the invoice</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The conversion response was interrupted."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
+      {props.quote?.invoiceSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho invoice needs attention</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The last invoice attempt could not be confirmed."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry or reconcile with the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
       {props.quote?.paymentSyncState === "pending" && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">The Zoho deposit payment is still pending. Wait a moment, then use the deposit action above to check and continue.</p>}
-      {props.quote?.paymentSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have recorded the deposit</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The payment response was interrupted."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a></div>}
-      {props.quote?.paymentSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho deposit payment needs attention</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The invoice exists, but the matching deposit payment was not confirmed."}</p><a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry the deposit action above</a></div>}
+      {props.quote?.paymentSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have recorded the deposit</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The payment response was interrupted."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
+      {props.quote?.paymentSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho deposit payment needs attention</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The invoice exists, but the matching deposit payment was not confirmed."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
       {props.canRepairDeposit && props.quote?.invoiceNumber && props.quote.paymentSyncState !== "created" && <div className="mt-3 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium text-amber-950">No payment linked in CRM</p><p className="text-xs text-amber-800">This does not mean payment is missing in Zoho. Check existing payments in Zoho before recording a payment.</p></div><Button className="h-9 shrink-0" disabled={pending} onClick={() => setPaymentRepairOpen(true)}>Record payment in Zoho</Button></div>}
       {props.versions.length > 1 && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium text-slate-700">Saved versions ({props.versions.length})</summary><ul className="mt-2 space-y-2 text-slate-500">{props.versions.map((item) => <li key={item.id} className="rounded border p-2">Version {item.version} · {money(item.totalCents)} · {new Date(item.createdAt).toLocaleString("en-SG")}</li>)}</ul></details>}
       {props.history.length > 0 && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium text-slate-700">Earlier versions ({props.history.length})</summary><ul className="mt-2 space-y-2 text-slate-500">{props.history.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2"><span>Version {item.revision} · {item.estimateNumber ?? "local"} · {money(item.totalCents)} · superseded {item.supersededAt ? new Date(item.supersededAt).toLocaleString("en-SG") : "—"}</span>{item.hasPdf && <span className="flex gap-1"><Button size="sm" variant="outline" onClick={() => openPdf(false, item.id)}>Preview</Button><Button size="sm" variant="outline" onClick={() => openPdf(true, item.id)}>Download</Button></span>}</li>)}</ul></details>}
@@ -334,8 +330,8 @@ export function QuotationWorkspace(props: Props) {
       }}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-4xl">
           <DialogHeader className="border-b p-4 pr-12 text-left">
-            <DialogTitle>Which quotation details should be used?</DialogTitle>
-            <DialogDescription>Choose where to copy the details. Review your choice, then confirm.</DialogDescription>
+            <DialogTitle>{review?.invoiced ? "Existing invoice found" : "Which quotation details should be used?"}</DialogTitle>
+            <DialogDescription>{review?.invoiced ? "Quotation syncing is closed. Verify the invoice and payment through the order deposit flow." : "Choose where to copy the details. Review your choice, then confirm."}</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto p-4">
           {!review && !reviewError && <p className="py-6 text-center text-sm text-slate-500">Loading the current Zoho quotation…</p>}
@@ -365,26 +361,16 @@ export function QuotationWorkspace(props: Props) {
             return (
               <div className="space-y-4">
                 <p className="text-sm text-slate-600">{review.zoho.estimateNumber} · Zoho status: <strong>{review.zoho.status}</strong></p>
-                <div className="grid gap-3 sm:grid-cols-2">
+                {review.invoiced && <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950"><h4 className="font-semibold">This quotation already has an invoice</h4><p className="mt-2">Quotation syncing is now closed. The existing invoice is checked against the CRM order total, and an existing matching deposit payment is reused. Nothing changes from this review.</p>{props.canConfirmDeposit ? <a className="mt-3 inline-block font-semibold underline" href="#advance-order-status" onClick={() => { reviewSeq.current += 1; setReviewOpen(false); }}>Use Confirm deposit received on the order</a> : <p className="mt-3 font-medium">{props.currentOrderStatus === "quotation_sent" ? "Ask an operations user or admin to verify the existing invoice and confirm the deposit on this order." : "Ask an admin to review the order stage and existing invoice. This order is not at Quotation Sent; the deposit action is not available yet."}</p>}</div>}
+                {!review.invoiced && <div className="grid gap-3 sm:grid-cols-2">
                   <button type="button" aria-pressed={reviewChoice === "adopt"} disabled={pending || review.adoptIssues.length > 0} onClick={() => setReviewChoice("adopt")} className={`rounded-lg border-2 p-3 text-left disabled:opacity-60 ${reviewChoice === "adopt" ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}>
-                    <span className="block font-semibold">Use Zoho details in CRM</span><span className="mt-1 block text-sm">Copy {money(review.zoho.totalCents)} and quotation details into CRM.{review.invoiced ? " Only the CRM quotation and PDF will be updated. CRM order total, deposit, Zoho invoice and payments stay unchanged." : " Nothing is written back to Zoho."}</span>
+                    <span className="block font-semibold">Use Zoho details in CRM</span><span className="mt-1 block text-sm">Copy {money(review.zoho.totalCents)} and quotation details into CRM.{" Nothing is written back to Zoho."}</span>
                     {review.adoptIssues.length > 0 && <span className="mt-2 block text-sm font-medium text-red-800">This option is unavailable: {review.adoptIssues.join(" ")}</span>}
                   </button>
                   <button type="button" aria-pressed={reviewChoice === "overwrite"} disabled={pending || Boolean(review.overwriteBlockedReason)} onClick={() => setReviewChoice("overwrite")} className={`rounded-lg border-2 p-3 text-left disabled:opacity-60 ${reviewChoice === "overwrite" ? "border-red-600 bg-red-50" : "border-slate-200"}`}>
                     <span className="block font-semibold">Overwrite Zoho with CRM</span><span className="mt-1 block text-sm">Replace the Zoho quotation with the saved CRM details ({money(review.crm.totalCents)}). Zoho-only changes will be lost.</span>
                     {review.overwriteBlockedReason && <span className="mt-2 block text-sm font-medium text-red-800">{review.overwriteBlockedReason}</span>}
                   </button>
-                </div>
-                {review.invoiced && review.financialDifferences.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-                  <p className="font-medium text-amber-950">Quotation and financial records differ</p>
-                  <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <div><dt className="text-amber-800">Zoho quotation</dt><dd className="font-semibold text-amber-950">{money(review.zoho.totalCents)}</dd></div>
-                    <div><dt className="text-amber-800">Zoho invoice{review.invoice ? ` · ${review.invoice.number}` : ""}</dt><dd className="font-semibold text-amber-950">{typeof review.invoice?.totalCents === "number" ? money(review.invoice.totalCents) : "Unknown"}</dd></div>
-                    <div><dt className="text-amber-800">CRM order total</dt><dd className="font-semibold text-amber-950">{money(review.currentOrderTotalCents)}</dd></div>
-                  </dl>
-                  <ul className="mt-2 list-inside list-disc space-y-0.5 text-amber-900">{review.financialDifferences.map((difference) => <li key={difference}>{difference}</li>)}</ul>
-                  <p className="mt-2">Only the CRM quotation and PDF will be updated. CRM order total, deposit, Zoho invoice and payments stay unchanged.</p>
-                  <label className="mt-2 flex items-start gap-2"><input type="checkbox" className="mt-1 size-4" checked={acknowledgeFinancialDifference} onChange={(event) => setAcknowledgeFinancialDifference(event.target.checked)} /><span>I acknowledge these differences. Import the Zoho quotation snapshot and leave the order, deposit, invoice and payments as they are.</span></label>
                 </div>}
                 {review.invoice && <div className="rounded-lg border bg-slate-50 p-3 text-sm"><h4 className="font-semibold">Current in Zoho · {review.invoice.number}</h4><p className="mt-1">Invoice status: {review.invoice.status}</p><dl className="mt-2 grid grid-cols-2 gap-2">{[["Invoice total", review.invoice.totalCents], ["Paid", review.invoice.paidCents], ["Balance", review.invoice.balanceCents], ["Credits", review.invoice.creditsCents]].map(([label, value]) => <div key={String(label)}><dt className="text-slate-500">{label}</dt><dd>{typeof value === "number" ? money(value) : "Unknown"}</dd></div>)}</dl><p className="mt-2 text-xs">These amounts are read-only. CRM deposit and payment records, order stage and sent history stay unchanged.</p></div>}
                 {review.identical && review.adoptIssues.length === 0 && <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">The saved CRM quotation and Zoho currently match.</p>}
@@ -417,11 +403,11 @@ export function QuotationWorkspace(props: Props) {
                     </ul>
                   </div>
                 </div></details>
-                <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                {!review.invoiced && <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
                   <strong>Use Zoho details</strong> replaces the saved CRM draft with this Zoho document and refreshes the stored PDF — nothing is sent and nothing is written back to Zoho.{" "}
                   <strong>Overwrite Zoho with CRM</strong> pushes the saved CRM draft to this Zoho quotation and regenerates its PDF — the Zoho-only differences shown above will be lost.
-                </p>
-                {review.warnings.map((warning) => (
+                </p>}
+                {!review.invoiced && review.warnings.map((warning) => (
                   <div key={warning} role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{warning}</div>
                 ))}
               </div>
@@ -431,7 +417,7 @@ export function QuotationWorkspace(props: Props) {
           <DialogFooter className="m-0 flex-col gap-2 rounded-none border-t bg-white p-4 sm:flex-row">
             <Button className="h-11" variant="outline" disabled={pending} onClick={() => { reviewSeq.current += 1; setReviewOpen(false); }}>Close</Button>
             <Button className="h-11" variant="outline" disabled={pending} onClick={openZohoReview}>Refresh</Button>
-            {review && <Button className="h-11 whitespace-normal" variant={reviewChoice === "overwrite" ? "destructive" : "default"} disabled={pending || !reviewChoice || (reviewChoice === "adopt" && (review.adoptIssues.length > 0 || (review.invoiced && review.financialDifferences.length > 0 && !acknowledgeFinancialDifference))) || (reviewChoice === "overwrite" && Boolean(review.overwriteBlockedReason))} onClick={() => reviewChoice && applyZohoReview(reviewChoice)}>{pending ? "Applying…" : reviewChoice === "adopt" ? "Confirm: use Zoho details" : reviewChoice === "overwrite" ? "Confirm: overwrite Zoho" : "Choose an option above"}</Button>}
+            {review && !review.invoiced && <Button className="h-11 whitespace-normal" variant={reviewChoice === "overwrite" ? "destructive" : "default"} disabled={pending || !reviewChoice || (reviewChoice === "adopt" && (review.adoptIssues.length > 0)) || (reviewChoice === "overwrite" && Boolean(review.overwriteBlockedReason))} onClick={() => reviewChoice && applyZohoReview(reviewChoice)}>{pending ? "Applying…" : reviewChoice === "adopt" ? "Confirm: use Zoho details" : reviewChoice === "overwrite" ? "Confirm: overwrite Zoho" : "Choose an option above"}</Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>

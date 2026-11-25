@@ -63,7 +63,6 @@ import { estimateSnapshotHash, quotePayloadHash, zohoAdoptionFingerprint } from 
 import { QUOTATION_INVOICED_MESSAGE } from "@/lib/quotations/lifecycle";
 import { defaultCustomerMessage, toLegacyZohoEstimatePayload } from "@/lib/quotations/model";
 import { ZohoEstimateConversionRejectedError } from "@/lib/zoho/conversion-error";
-import { invoiceFingerprint, orderReconciliationFingerprint } from "@/lib/quotations/invoice-reconciliation";
 import { acknowledgeZohoConflict, reconcileInvoicedZohoQuotation, adoptZohoQuotation, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, overwriteZohoWithCrmQuotation, previewQuotationZohoDiff, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
@@ -202,20 +201,27 @@ function setup({ quote, remote }: { quote: ReturnType<typeof makeQuote>; remote:
   const order = {
     current_status: "quotation_sent",
     deposit_cents: 100_000,
+    price_quoted_cents: 201000,
     display_id: "DW-1",
     order_reference: "DW-1",
     consultant_id: "consult-1",
   };
   const trx = {
     selectFrom: (table: string) =>
-      builder(table === "orders" ? order : table === "order_quotations" ? quote : undefined),
-    updateTable: () => builder({ id: QUOTE_ID }),
+      builder(table === "orders" ? { ...order } : table === "order_quotations" ? { ...quote } : undefined),
+    updateTable: () => persistentUpdate(),
     insertInto: () => builder({}),
   };
+  function persistentUpdate() {
+    const chain = builder({ id: QUOTE_ID });
+    const originalSet = chain.set;
+    chain.set = (values: Record<string, unknown>) => { Object.assign(quote, values); return originalSet(values); };
+    return chain;
+  }
   mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
   mocks.selectFrom.mockImplementation((table: string) =>
     builder(table === "profiles" ? { full_name: "Kenny" } : undefined));
-  mocks.updateTable.mockImplementation(() => builder({ id: QUOTE_ID }));
+  mocks.updateTable.mockImplementation(() => persistentUpdate());
   mocks.getZohoEstimate.mockResolvedValue(remote);
   mocks.getZohoBooksBinding.mockResolvedValue({
     crmKeyFieldId: "cf-1",
@@ -226,6 +232,7 @@ function setup({ quote, remote }: { quote: ReturnType<typeof makeQuote>; remote:
   mocks.assertZohoInvoiceNumberingReady.mockResolvedValue(undefined);
   mocks.listZohoCustomerPayments.mockResolvedValue([]);
   mocks.getZohoDepositPaymentConfig.mockReturnValue({ accountId: "acc-1", paymentMode: "PayNow" });
+  return { order, quote };
 }
 
 beforeEach(() => {
@@ -304,7 +311,7 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
   // for verification.
   const unlinkedRemote = () => makeRemote({ estimate_number: "QT-677816", invoice_ids: [] });
   const linkedRemote = () => makeRemote({ estimate_number: "QT-677816", invoice_ids: ["inv-1"] });
-  const zohoInvoice = () => ({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010 });
+  const zohoInvoice = () => ({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010, payment_made: 0, credits_applied: 0, balance: 2010 });
   const recordedPayment = () => {
     mocks.createZohoCustomerPayment.mockResolvedValue({ payment_id: "pay-1", payment_number: "91" });
     mocks.getZohoCustomerPayment.mockResolvedValue({
@@ -321,13 +328,13 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
     mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
     recordedPayment();
 
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toMatchObject({ invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 201000, depositCents: 100000 });
 
     expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledWith("est-1");
     expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
     expect(mocks.renameZohoInvoice).not.toHaveBeenCalled();
     expect(mocks.assertZohoInvoiceNumberingReady).not.toHaveBeenCalled();
-    expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(1);
+    expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(2);
     expect(mocks.createZohoCustomerPayment).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "inv-1" }));
     const finalized = setCalls.find((values) => values.invoice_sync_state === "created");
     expect(finalized).toMatchObject({ zoho_invoice_id: "inv-1", zoho_invoice_number: "INV-900001" });
@@ -338,7 +345,7 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
     mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
     recordedPayment();
 
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toMatchObject({ invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 201000, depositCents: 100000 });
 
     expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
     expect(mocks.renameZohoInvoice).not.toHaveBeenCalled();
@@ -382,7 +389,7 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
     mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
     recordedPayment();
 
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toMatchObject({ invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 201000, depositCents: 100000 });
 
     expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
     expect(mocks.createZohoCustomerPayment).toHaveBeenCalled();
@@ -420,7 +427,7 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
     mocks.getZohoInvoice.mockResolvedValue(zohoInvoice());
     recordedPayment();
 
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toBeUndefined();
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toMatchObject({ invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 201000, depositCents: 100000 });
 
     expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
     expect(mocks.createZohoCustomerPayment).toHaveBeenCalled();
@@ -479,7 +486,7 @@ describe("deposit payment raw-error sanitization", () => {
       status: "sent",
       customer_id: "contact-1",
       currency_code: "SGD",
-      total: 2010,
+      total: 2010, payment_made: 0, credits_applied: 0, balance: 2010,
     });
     mocks.createZohoCustomerPayment.mockRejectedValue(new Error("RAW-SECRET-401 oauth_token=abc123"));
 
@@ -753,6 +760,13 @@ describe("saveQuotation on a sent quotation", () => {
     mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
   }
 
+  it.each([{ invoice_sync_state: "pending" }, { invoice_sync_state: "uncertain" }, { payment_sync_state: "pending" }, { payment_sync_state: "uncertain" }])("does not edit during a financial claim %j", async patch => {
+    const current = { ...makeQuote(CANONICAL_HASH), ...patch };
+    setupSave("quotation_sent", current);
+    await expect(saveQuotation(saveInput(QUOTE_ID, current.updated_at.toISOString()))).rejects.toThrow("operation is in progress");
+    expect(setCalls).toEqual([]);
+  });
+
   it("moves a sent quotation back to local_draft and keeps its sent fields", async () => {
     const updatedAt = new Date("2026-09-22T04:03:36.347Z");
     setupSave("quotation_sent", { ...makeQuote(CANONICAL_HASH), status: "sent", sent_at: updatedAt, updated_at: updatedAt });
@@ -1007,7 +1021,7 @@ describe("reconcile and deposit with editable quotations", () => {
   it("asks to sync unsynced edits before the deposit", async () => {
     // Reuse setup(...) from the ensureZohoInvoiceForOrder tests with a previously-sent local_draft quote.
     setup({ quote: { ...makeQuote(CANONICAL_HASH), status: "local_draft", sent_at: new Date() }, remote: makeRemote() });
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Sync the latest quotation changes to Zoho before recording the deposit");
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Sync and send the official quotation before creating a new invoice.");
   });
 });
 
@@ -1454,169 +1468,157 @@ describe("UI action wrappers", () => {
   });
 });
 
-const reconciliationSqlCalls: Array<{ sql: string; parameters: unknown[] }> = [];
-function setupInvoiced(patch: Record<string, unknown> = {}, orderPatch: Record<string, unknown> = {}, remotePatch: Record<string, unknown> = {}, invoicePatch: Record<string, unknown> = {}) {
-  const row = reviewRow({ status: "zoho_draft", zoho_payment_id: "existing-payment", payment_sync_state: "created", ...patch });
-  const remote = reviewRemote({ status: "invoiced", invoice_ids: ["inv-existing"], ...remotePatch });
-  const invoice = { invoice_id: "inv-existing", invoice_number: "INV-42", customer_id: "contact-1", currency_code: "SGD", status: "paid", total: 810, line_items: remote.line_items, payment_made: 810, balance: 0, ...invoicePatch };
-  const order = { ...REVIEW_ORDER, current_status: "deposit_received", price_quoted_cents: 81000, deposit_cents: 40000, lead_id: "lead-1", appointment_id: null, ...orderPatch };
-  setupReview(row, remote);
-  const results: Record<string, unknown[]> = { order_quotations: [row], orders: [order], customer_zoho_links: [{ zoho_contact_id: "contact-1" }] };
-  mocks.selectFrom.mockImplementation((table: string) => builder(results[table]?.shift()));
-  let quoteReads = 0;
-  reconciliationSqlCalls.length = 0;
-  const tx = {
-    getExecutor: () => ({
-      transformQuery: (node: unknown) => node,
-      compileQuery: (node: { sqlFragments: string[]; parameters: Array<{ value: unknown }> }) => ({ sql: node.sqlFragments.join("?"), parameters: node.parameters.map(param => param.value) }),
-      executeQuery: async (query: { sql: string; parameters: unknown[] }) => { reconciliationSqlCalls.push(query); return { rows: [] }; },
-    }),
-    selectFrom: (table: string) => {
-      if (table === "orders") return builder(order);
-      if (table === "order_quotations") return builder(quoteReads++ === 0 ? row : { ...row, status: "syncing", sync_claim_token: setCalls.find(v => v.sync_claim_token)?.sync_claim_token });
-      return builder(table === "order_quotation_versions" ? { max_version: 1 } : { id: "lead-1" });
-    },
-    updateTable: () => builder({ id: QUOTE_ID }), insertInto: () => builder({}),
-  };
-  mocks.transaction.mockReturnValue({ execute: async (cb: (trx: typeof tx) => unknown) => cb(tx) });
+
+function setupInvoiceStage(localLink = false, quotePatch: Record<string, unknown> = {}) {
+  const row = { ...makeQuote("stale-quotation-hash"), status: "conflict", quoted_total_cents: 439000, ...quotePatch };
+  if (localLink) Object.assign(row, { zoho_invoice_id: "inv-1", invoice_sync_state: "created" });
+  const remote = makeRemote({ status: "invoiced", invoice_ids: ["inv-1"], total: 4390, line_items: [{ name: "Old quotation", quantity: 1, rate: 4390 }] });
+  const { order, quote } = setup({ quote: row, remote });
+  Object.assign(order, { price_quoted_cents: 473000, deposit_cents: 236500 });
+  const invoice = { invoice_id: "inv-1", invoice_number: "INV-4730", status: "partially_paid", customer_id: "contact-1", currency_code: "SGD", total: 4730, payment_made: 2365, balance: 2365, credits_applied: 0 };
+  const payment = { payment_id: "pay-1", payment_number: "PAY-1", customer_id: "contact-1", payment_mode: "PayNow", amount: 2365, account_id: "acc-1", invoices: [{ invoice_id: "inv-1", amount_applied: 2365 }] };
   mocks.getZohoInvoice.mockResolvedValue(invoice);
-  return { row, remote, invoice, order, input: { ...reviewInput(row, remote), invoiceFingerprint: invoiceFingerprint(invoice), orderFingerprint: orderReconciliationFingerprint(order) } };
+  // Deliberately no invoice fields in this summary: details must be fetched.
+  mocks.listZohoCustomerPayments.mockResolvedValue([{ payment_id: "pay-1" }]);
+  mocks.getZohoCustomerPayment.mockResolvedValue(payment);
+  return { order, quote, remote, invoice, payment };
 }
 
-describe("existing invoiced quotation reconciliation", () => {
-  it("previews invoiced details with visible overwrite blocker and unknown missing payment facts", async () => {
-    const { invoice } = setupInvoiced();
-    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, payment_made: undefined, balance: undefined });
-    const preview = await previewQuotationZohoDiff(QUOTE_ID);
-    expect(preview.adoptIssues).toEqual([]);
-    expect(preview.overwriteBlockedReason).toContain("invoice");
-    expect(preview.invoice).toMatchObject({ paidCents: null, balanceCents: null, creditsCents: null });
-    expect(preview.financialDifferences).toEqual([]);
-    expect(preview.requiresFinancialAcknowledgement).toBe(false);
+describe("invoice phase uses order amounts and existing payments", () => {
+  it.each([false, true])("reuses invoice 4730/payment 2365 despite quote4390/conflict (local link %s)", async localLink => {
+    setupInvoiceStage(localLink);
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toEqual({ quotationId: QUOTE_ID, invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500 });
+    expect(mocks.getZohoCustomerPayment).toHaveBeenCalledWith("pay-1");
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    for (const values of setCalls) for (const key of ["quoted_total_cents", "price_quoted_cents", "deposit_cents", "sent_at", "sent_by", "sent_channel", "status"]) expect(values).not.toHaveProperty(key);
   });
-  it("previews financial differences as non-blocking warnings with exact totals", async () => {
-    setupInvoiced({}, { price_quoted_cents: 473000, deposit_cents: 236500 }, { total: 4390, line_items: [{ name: "Curtain", quantity: 1, rate: 4390, discount: "0%" }] }, { total: 4730, payment_made: 2365, balance: 2365 });
-    const preview = await previewQuotationZohoDiff(QUOTE_ID);
-    expect(preview.adoptIssues).toEqual([]);
-    expect(preview.requiresFinancialAcknowledgement).toBe(true);
-    expect(preview.financialDifferences.join(" ")).toContain("S$4,730.00");
-    expect(preview.financialDifferences.join(" ")).toContain("S$4,390.00");
-    expect(preview.invoice).toMatchObject({ totalCents: 473000, paidCents: 236500, balanceCents: 236500 });
-    expect(preview.currentOrderTotalCents).toBe(473000);
+  it("reuses a verified stored payment even when the invoice is fully paid", async () => {
+    const { invoice } = setupInvoiceStage(true, { zoho_payment_id: "pay-1", payment_sync_state: "created" });
+    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, status: "paid", payment_made: 4730, balance: 0 });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toMatchObject({ paymentId: "pay-1" });
+    expect(mocks.getZohoCustomerPayment).toHaveBeenCalledWith("pay-1");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
   });
-  it.each([false, true])("links the same invoice and preserves payment/stage/sent attribution (previously sent %s)", async sent => {
-    const { input } = setupInvoiced(sent ? { sent_at: new Date("2026-10-01"), sent_by: "original", sent_channel: "WhatsApp", zoho_invoice_id: "inv-existing" } : {});
-    await expect(reconcileInvoicedZohoQuotation(input)).resolves.toEqual({ invoiceNumber: "INV-42" });
-    const saved = setCalls.find(value => value.zoho_invoice_id === "inv-existing");
-    expect(saved).toMatchObject({ status: sent ? "sent" : "zoho_draft", quoted_total_cents: 81000, invoice_sync_state: "created" });
-    for (const values of setCalls) for (const key of ["zoho_payment_id", "payment_sync_state", "deposit_cents", "current_status", "sent_at", "sent_by", "sent_channel", "price_quoted_cents", "latest_quote_cents"]) expect(values).not.toHaveProperty(key);
-    expect(reconciliationSqlCalls).toEqual([]);
-    expect(insertCalls.some(value => value.quotation_id === QUOTE_ID)).toBe(true);
-    for (const fn of [mocks.syncZohoEstimate, mocks.markZohoEstimateSent, mocks.convertZohoEstimateToInvoice, mocks.renameZohoInvoice, mocks.createZohoCustomerPayment]) expect(fn).not.toHaveBeenCalled();
+  it("reports invoice and order amounts, never a quotation drift error", async () => {
+    const { invoice } = setupInvoiceStage();
+    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, total: 4390 });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Invoice INV-4730 total SGD 4390.00 differs from CRM order total SGD 4730.00");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+    expect(setCalls.some(values => values.zoho_invoice_id)).toBe(false);
   });
-  it.each([{ zoho_invoice_id: "other" }, { invoice_sync_state: "pending" }, { payment_sync_state: "uncertain" }])("rejects incompatible local financial state %j before storage", async patch => {
-    const { input } = setupInvoiced(patch);
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow();
-    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
+  it.each([{ customer_id: "wrong" }, { currency_code: "USD" }, { status: "void" }, { invoice_id: "wrong" }])("rejects an unverified invoice %j", async patch => {
+    const { invoice } = setupInvoiceStage();
+    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, ...patch });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow();
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+  });
+  it.each([["inv-1", "inv-2"], []])("does not convert invoiced quotations with ambiguous or missing links %j", async (...invoice_ids) => {
+    const { remote } = setupInvoiceStage();
+    mocks.getZohoEstimate.mockResolvedValue({ ...remote, invoice_ids });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow();
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+  });
+  it("rejects a different local invoice link", async () => {
+    setupInvoiceStage(true, { zoho_invoice_id: "wrong" });
+    // Set after setup since localLink intentionally assigns inv-1.
+    mocks.getZohoEstimate.mockResolvedValue(makeRemote({ invoice_ids: ["other"] }));
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("stored Zoho invoice");
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+  });
+  it.each([{ payment_id: "wrong" }, { customer_id: "wrong" }, { amount: 2000 }, { invoices: [{ invoice_id: "other", amount_applied: 2365 }] }, { payment_mode: "Cash" }, { account_id: "other" }])("GET-verifies stored payment and refuses mismatches %j", async patch => {
+    const { payment } = setupInvoiceStage(true, { zoho_payment_id: "pay-1", payment_sync_state: "created" });
+    mocks.getZohoCustomerPayment.mockResolvedValue({ ...payment, ...patch });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow();
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+  });
+  it("blocks multiple invoice payments", async () => {
+    const { payment } = setupInvoiceStage();
+    mocks.listZohoCustomerPayments.mockResolvedValue([{ payment_id: "pay-1" }, { payment_id: "pay-2" }]);
+    mocks.getZohoCustomerPayment.mockImplementation(async id => ({ ...payment, payment_id: id }));
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Multiple Zoho payments");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+  });
+  it.each([{ payment_made: 2365, balance: 2365 }, { payment_made: undefined }, { credits_applied: 10 }, { status: "paid", balance: 0 }, { balance: undefined }])("does not create after unaccounted-for payment/credit activity %j", async patch => {
+    const { invoice } = setupInvoiceStage();
+    mocks.listZohoCustomerPayments.mockResolvedValue([]);
+    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, status: "sent", payment_made: 0, credits_applied: 0, balance: 4730, ...patch });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Existing payments or credits");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+  });
+  it("checks a fresh invoice after payment lookup before creating anything", async () => {
+    const { invoice } = setupInvoiceStage();
+    mocks.listZohoCustomerPayments.mockResolvedValue([]);
+    mocks.getZohoInvoice.mockResolvedValueOnce({ ...invoice, status: "sent", payment_made: 0, balance: 4730 }).mockResolvedValueOnce(invoice);
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Existing payments or credits");
+    const liveRead = mocks.getZohoInvoice.mock.invocationCallOrder.at(-1)!;
+    expect(liveRead).toBeGreaterThan(mocks.listZohoCustomerPayments.mock.invocationCallOrder.at(-1)!);
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+  });
+  it("does not create from stale CRM amounts changed during the payment lookup", async () => {
+    const { invoice, order } = setupInvoiceStage();
+    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, status: "sent", payment_made: 0, balance: 4730 });
+    let lookups = 0;
+    mocks.listZohoCustomerPayments.mockImplementation(async () => { if (++lookups === 2) order.deposit_cents = 240000; return []; });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("order amounts");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+  });
+  it("does not convert a new invoice when the order amount differs from the quotation", async () => {
+    const { order } = setup({ quote: makeQuote(CANONICAL_HASH), remote: makeRemote() });
+    order.price_quoted_cents = 473000;
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("quotation total must match");
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+  });
+  it("does not convert if the CRM amounts change during remote preflight", async () => {
+    const { order } = setup({ quote: makeQuote(CANONICAL_HASH), remote: makeRemote() });
+    mocks.listZohoCustomerPayments.mockImplementation(async () => { order.deposit_cents = 110000; return []; });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("order amounts");
+    expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
+  });
+  it("retired snapshot entry authenticates then refuses without a write", async () => {
+    await expect(reconcileInvoicedZohoQuotation({})).rejects.toThrow("Quotation imports stop");
+    expect(mocks.requireSession).toHaveBeenCalled();
+    expect(mocks.selectFrom).not.toHaveBeenCalled();
     expect(setCalls).toEqual([]);
   });
-  it("requires explicit acknowledgement when the quotation total differs from the order", async () => {
-    const { input } = setupInvoiced({}, { price_quoted_cents: 90000 });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow("Acknowledge the differences");
-    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
-    expect(setCalls).toEqual([]);
-  });
-  it("requires acknowledgement when invoice lines differ although the totals match", async () => {
-    const { input } = setupInvoiced({}, {}, {}, { line_items: [{ name: "Other", quantity: 1, rate: 810 }] });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow("Acknowledge the differences");
-    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
-  });
-  it("imports the exact 4390/4730/2365 mismatch with acknowledgement and changes no money", async () => {
-    const { input } = setupInvoiced(
-      {},
-      { price_quoted_cents: 473000, deposit_cents: 236500 },
-      { total: 4390, line_items: [{ name: "Curtain", quantity: 1, rate: 4390, discount: "0%" }] },
-      { total: 4730, payment_made: 2365, balance: 2365 },
-    );
-    await expect(reconcileInvoicedZohoQuotation({ ...input, acknowledgeFinancialDifference: true })).resolves.toEqual({ invoiceNumber: "INV-42" });
-    const saved = setCalls.find(value => value.zoho_invoice_id === "inv-existing");
-    expect(saved).toMatchObject({ quoted_total_cents: 439000, invoice_sync_state: "created" });
-    expect(reconciliationSqlCalls).toEqual([]);
-    for (const values of setCalls) for (const key of ["price_quoted_cents", "latest_quote_cents", "deposit_cents", "zoho_payment_id", "payment_sync_state"]) expect(values).not.toHaveProperty(key);
-    const audit = insertCalls.find(value => "note" in value);
-    expect(String(audit?.note)).toContain("Acknowledged financial differences");
-    expect(String(audit?.note)).toContain("S$4,730.00");
-    for (const fn of [mocks.convertZohoEstimateToInvoice, mocks.renameZohoInvoice, mocks.createZohoCustomerPayment]) expect(fn).not.toHaveBeenCalled();
-  });
-  it("rejects a different consultant before touching Zoho", async () => {
-    const { input } = setupInvoiced();
-    mocks.requireSession.mockResolvedValue({ user: { id: "stranger" }, profile: { role: "consultant" } });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow();
+  it("operations role is required before remote lookup", async () => {
+    setupInvoiceStage();
+    mocks.requireRole.mockRejectedValue(new Error("Forbidden"));
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Forbidden");
     expect(mocks.getZohoEstimate).not.toHaveBeenCalled();
-  });
-  it.each(["order", "invoice", "quote", "estimate"])("rejects stale %s snapshot before storage", async target => {
-    const { input } = setupInvoiced();
-    const key = { order: "orderFingerprint", invoice: "invoiceFingerprint", quote: "expectedUpdatedAt", estimate: "remoteFingerprint" }[target]!;
-    await expect(reconcileInvoicedZohoQuotation({ ...input, [key]: target === "quote" ? "2026-01-01T00:00:00.000Z" : "stale" })).rejects.toThrow();
-    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
-  });
-  it("detects payment changes during PDF download without linking invoice", async () => {
-    const { input, invoice } = setupInvoiced();
-    mocks.getZohoInvoice.mockResolvedValueOnce(invoice).mockResolvedValueOnce({ ...invoice, payment_made: 811 });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow("while the PDF");
-    expect(setCalls.some(value => value.zoho_invoice_id)).toBe(false);
-    expect(insertCalls).toEqual([]);
-    expect(setCalls.at(-1)).toMatchObject({ status: "zoho_draft", sync_claim_token: null });
-  });
-  it("does not link or change totals when PDF storage fails", async () => {
-    const { input } = setupInvoiced();
-    mocks.adminClient.mockReturnValue({ storage: { from: () => ({ upload: async () => ({ error: new Error("storage failed") }) }) } });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow();
-    expect(setCalls.some(value => value.zoho_invoice_id || value.price_quoted_cents)).toBe(false);
-    expect(insertCalls).toEqual([]);
   });
 });
 
 
-describe("invoiced reconciliation authorization and final snapshot checks", () => {
-  it("allows the assigned consultant when the frozen total already matches", async () => {
-    const { input } = setupInvoiced();
-    mocks.requireSession.mockResolvedValue({ user: { id: "consult-1" }, profile: { role: "consultant" } });
-    await expect(reconcileInvoicedZohoQuotation(input)).resolves.toMatchObject({ invoiceNumber: "INV-42" });
-    expect(reconciliationSqlCalls).toEqual([]);
+describe("invoice payment retry and final identity", () => {
+  it("does not create another payment during an uncertain retry", async () => {
+    const { invoice } = setupInvoiceStage(false, { payment_sync_state: "uncertain", payment_uncertain_at: new Date() });
+    mocks.listZohoCustomerPayments.mockResolvedValue([]);
+    mocks.getZohoInvoice.mockResolvedValue({ ...invoice, status: "sent", payment_made: 0, balance: 4730 });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("still uncertain");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
+    expect(setCalls.at(-1)).toMatchObject({ payment_sync_state: "uncertain" });
   });
-  it("lets the assigned consultant acknowledge differences on an owned order without any money edit", async () => {
-    const { input } = setupInvoiced({}, { price_quoted_cents: 90000 });
-    mocks.requireSession.mockResolvedValue({ user: { id: "consult-1" }, profile: { role: "consultant" } });
-    await expect(reconcileInvoicedZohoQuotation({ ...input, acknowledgeFinancialDifference: true })).resolves.toMatchObject({ invoiceNumber: "INV-42" });
-    expect(reconciliationSqlCalls).toEqual([]);
-    for (const values of setCalls) for (const key of ["price_quoted_cents", "latest_quote_cents", "deposit_cents"]) expect(values).not.toHaveProperty(key);
+  it("reuses a payment discovered on an uncertain retry", async () => {
+    setupInvoiceStage(false, { payment_sync_state: "uncertain", payment_uncertain_at: new Date() });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toMatchObject({ paymentId: "pay-1" });
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
   });
-  it("never calls the order-payment repair even for an admin on a mismatched total", async () => {
-    const { input } = setupInvoiced({}, { price_quoted_cents: 90000 });
-    await reconcileInvoicedZohoQuotation({ ...input, acknowledgeFinancialDifference: true });
-    expect(reconciliationSqlCalls).toEqual([]);
-    for (const values of setCalls) for (const key of ["price_quoted_cents", "latest_quote_cents", "deposit_cents"]) expect(values).not.toHaveProperty(key);
-    const audit = insertCalls.find(value => "note" in value);
-    expect(String(audit?.note)).toContain("Acknowledged financial differences");
-    expect(String(audit?.note)).toContain("S$900.00");
+  it("rejects final payment GET returning another ID", async () => {
+    const { payment } = setupInvoiceStage();
+    mocks.getZohoCustomerPayment.mockResolvedValueOnce(payment).mockResolvedValueOnce({ ...payment, payment_id: "wrong" });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("does not match");
+    expect(setCalls.some(values => values.payment_sync_state === "created")).toBe(false);
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
   });
-  it("rejects an order stage change during PDF storage before committing invoice or history", async () => {
-    const { input, order } = setupInvoiced();
-    mocks.getZohoEstimatePdf.mockImplementation(async () => { order.current_status = "sent_to_vendor"; return new Uint8Array([37, 80, 68, 70]); });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow("order amounts or stage changed");
-    expect(setCalls.some(value => value.zoho_invoice_id)).toBe(false);
-    expect(insertCalls).toEqual([]);
-  });
-  it("rejects a changed estimate during PDF storage", async () => {
-    const { input, remote } = setupInvoiced();
-    mocks.getZohoEstimate.mockResolvedValueOnce(remote).mockResolvedValueOnce({ ...remote, notes: "new remote notes" });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow("while the PDF");
-    expect(setCalls.some(value => value.zoho_invoice_id)).toBe(false);
-  });
-  it("rejects a quote already claimed by another process", async () => {
-    const { input } = setupInvoiced({ status: "syncing" });
-    await expect(reconcileInvoicedZohoQuotation(input)).rejects.toThrow("still in progress");
-    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
+  it("blocks unknown payment allocations instead of assuming absence", async () => {
+    const { payment } = setupInvoiceStage();
+    mocks.getZohoCustomerPayment.mockResolvedValue({ ...payment, invoices: undefined });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("could not be verified");
+    expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();
   });
 });

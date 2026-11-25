@@ -30,6 +30,60 @@ export function estimateSnapshotHash(value: Record<string, unknown>): string {
   return quotePayloadHash(comparableEstimate(value));
 }
 
+// Fingerprint binding a review-and-apply preview to one remote state. Unlike
+// the synced snapshot hash, this covers everything the reviewer saw or that a
+// guard relies on — identity, status, invoice linkage, customer, currency,
+// totals, dates, notes, terms, reference/template, every discount/tax/
+// adjustment/shipping field, the raw CRM-key custom fields, and each line's
+// raw name, description and discount metadata — so a materially changed
+// remote can never slip through with an unchanged timestamp or total.
+export function zohoAdoptionFingerprint(value: Record<string, unknown>): string {
+  const lines = Array.isArray(value.line_items) ? value.line_items as Array<Record<string, unknown>> : [];
+  const customFields = Array.isArray(value.custom_fields) ? value.custom_fields as Array<Record<string, unknown>> : [];
+  return quotePayloadHash({
+    estimate_id: String(value.estimate_id ?? ""),
+    estimate_number: String(value.estimate_number ?? ""),
+    status: String(value.status ?? ""),
+    customer_id: String(value.customer_id ?? ""),
+    currency_code: String(value.currency_code ?? ""),
+    total: String(value.total ?? ""),
+    sub_total: String(value.sub_total ?? ""),
+    date: String(value.date ?? ""),
+    expiry_date: String(value.expiry_date ?? ""),
+    reference_number: String(value.reference_number ?? ""),
+    template_id: String(value.template_id ?? ""),
+    notes: String(value.notes ?? ""),
+    terms: String(value.terms ?? ""),
+    discount: String(value.discount ?? ""),
+    discount_type: String(value.discount_type ?? ""),
+    is_inclusive_tax: Boolean(value.is_inclusive_tax),
+    tax_total: String(value.tax_total ?? ""),
+    taxes: value.taxes ?? null,
+    adjustment: String(value.adjustment ?? ""),
+    shipping_charge: String(value.shipping_charge ?? ""),
+    last_modified_time: String(value.last_modified_time ?? ""),
+    invoice_ids: Array.isArray(value.invoice_ids) ? [...value.invoice_ids].map(String).sort() : [],
+    custom_fields: customFields.map((field) => ({
+      customfield_id: String(field.customfield_id ?? ""),
+      api_name: String(field.api_name ?? ""),
+      label: String(field.label ?? ""),
+      value: field.value ?? null,
+    })),
+    line_items: lines.map((line) => ({
+      item_id: String(line.item_id ?? ""),
+      name: String(line.name ?? ""),
+      description: String(line.description ?? ""),
+      quantity: String(line.quantity ?? ""),
+      rate: String(line.rate ?? ""),
+      discount: String(line.discount ?? ""),
+      discount_amount: String(line.discount_amount ?? ""),
+      tax_id: String(line.tax_id ?? ""),
+      tax_percentage: String(line.tax_percentage ?? ""),
+      item_total: String(line.item_total ?? ""),
+    })),
+  });
+}
+
 // Quotations synced before the canonical fingerprint stored
 // hash(full Zoho request payload) in synced_payload_hash. That legacy value is
 // only acceptable when it EXACTLY equals the hash of a payload reconstructed

@@ -31,6 +31,7 @@ export type ZohoEstimate = {
   estimate_number: string;
   status: string;
   total: number;
+  sub_total?: number;
   last_modified_time?: string;
   invoice_ids?: string[];
   customer_id?: string;
@@ -41,7 +42,14 @@ export type ZohoEstimate = {
   currency_code?: string;
   notes?: string;
   terms?: string;
-  line_items?: Array<{ item_id?: string; name?: string; description?: string; quantity: number; rate: number; discount?: number | string }>;
+  line_items?: Array<{ item_id?: string; name?: string; description?: string; quantity: number; rate: number; discount?: number | string; discount_amount?: number; tax_id?: string; tax_percentage?: number; item_total?: number }>;
+  discount?: number | string;
+  discount_type?: string;
+  is_inclusive_tax?: boolean;
+  tax_total?: number;
+  taxes?: Array<{ tax_id?: string; tax_name?: string; tax_percentage?: number; tax_amount?: number }>;
+  adjustment?: number;
+  shipping_charge?: number;
   custom_fields?: Array<{ customfield_id?: string; api_name?: string; value?: unknown; label?: string }>;
 };
 

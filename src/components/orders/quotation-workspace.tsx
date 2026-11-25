@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Download, ExternalLink, FileText, Plus, RefreshCw, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
-  acknowledgeZohoConflictUi,
+  adoptZohoQuotationUi,
   confirmQuotationSentUi,
   confirmZohoCustomerUi,
   createAndConfirmZohoCustomerUi,
@@ -14,6 +14,8 @@ import {
   getQuotationPdfUrlUi,
   getZohoQuotationOptionsUi,
   importExistingZohoQuotation,
+  overwriteZohoWithCrmQuotationUi,
+  previewQuotationZohoDiffUi,
   recoverStaleQuotationClaimUi,
   reconcileUncertainQuotationUi,
   saveQuotationUi,
@@ -46,6 +48,7 @@ type Props = {
 };
 
 type Options = Extract<Awaited<ReturnType<typeof getZohoQuotationOptionsUi>>, { ok: true }>["data"];
+type ZohoReview = Extract<Awaited<ReturnType<typeof previewQuotationZohoDiffUi>>, { ok: true }>["data"];
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const money = (cents: number) => new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" }).format(cents / 100);
@@ -92,6 +95,10 @@ export function QuotationWorkspace(props: Props) {
   const [channel, setChannel] = useState("WhatsApp");
   const [sendNote, setSendNote] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [review, setReview] = useState<ZohoReview | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const reviewSeq = useRef(0);
   const [paymentRepairOpen, setPaymentRepairOpen] = useState(false);
   const [quotationDetailsOpen, setQuotationDetailsOpen] = useState(
     !props.quotationStageComplete && props.quote?.status !== "sent",
@@ -187,6 +194,31 @@ export function QuotationWorkspace(props: Props) {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not share quotation"); }
   }
 
+  async function openZohoReview() {
+    if (!props.quote) return;
+    const seq = ++reviewSeq.current;
+    setReviewOpen(true);
+    setReview(null);
+    setReviewError(null);
+    try {
+      const data = unwrap(await previewQuotationZohoDiffUi(props.quote.id));
+      if (reviewSeq.current === seq) setReview(data);
+    } catch (error) {
+      if (reviewSeq.current === seq) setReviewError(error instanceof Error ? error.message : "Could not load the Zoho quotation");
+    }
+  }
+
+  function applyZohoReview(choice: "adopt" | "overwrite") {
+    if (!review) return;
+    const input = { quotationId: review.quotationId, expectedUpdatedAt: review.crmRevision, remoteFingerprint: review.remoteFingerprint };
+    run(async () => {
+      if (choice === "adopt") unwrap(await adoptZohoQuotationUi(input));
+      else unwrap(await overwriteZohoWithCrmQuotationUi(input));
+      setReviewOpen(false);
+      setReview(null);
+    }, choice === "adopt" ? "Zoho details applied to this quotation" : "Zoho quotation updated from the CRM", true);
+  }
+
   const sent = props.quote?.status === "sent";
   const previouslySent = Boolean(props.quote?.sentAt);
   const synced = (props.quote?.status === "zoho_draft" || sent) && !dirty;
@@ -259,7 +291,9 @@ export function QuotationWorkspace(props: Props) {
         {props.canManage && props.quote && !props.quote.hasZohoEstimate && !sent && !previouslySent && !processing && !invoiced && <Button className="h-11" variant="outline" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => setImportOpen(true)}>Use existing Zoho quote</Button>}
         {props.quote?.hasPdf && !dirty && synced && <><Button className="h-11" variant="outline" onClick={() => openPdf(false)}><ExternalLink /> Preview official quotation</Button><Button aria-label="Download official quotation" className="h-11 w-11" variant="outline" onClick={() => openPdf(true)}><Download /></Button><Button aria-label="Share official quotation" className="h-11 w-11" variant="outline" onClick={sharePdf}><Share2 /></Button></>}
         {props.canManage && props.quote?.status === "zoho_draft" && !dirty && !previouslySent && <Button className="h-11" onClick={() => setSendOpen(true)}>Confirm quotation sent</Button>}
-        {props.canManage && props.quote?.status === "conflict" && (props.quote.hasZohoEstimate ? <Button className="h-11" variant="destructive" onClick={() => { if (window.confirm("Reconcile now? The Zoho quotation will be overwritten with the CRM version and its PDF regenerated. Any changes made directly in Zoho will be lost.")) run(async () => unwrap(await acknowledgeZohoConflictUi(props.quote!.id)), "Zoho quotation reconciled"); }}>Reconcile with Zoho</Button> : <Button className="h-11" variant="destructive" onClick={() => run(async () => unwrap(await reconcileUncertainQuotationUi(props.quote!.id)), "Zoho checked for the interrupted quotation")}>Check Zoho before retrying creation</Button>)}
+        {props.canManage && props.quote?.status === "conflict" && !props.quote.hasZohoEstimate && <Button className="h-11" variant="destructive" onClick={() => run(async () => unwrap(await reconcileUncertainQuotationUi(props.quote!.id)), "Zoho checked for the interrupted quotation")}>Check Zoho before retrying creation</Button>}
+        {props.canManage && props.quote?.hasZohoEstimate && !processing && !invoiced && <Button className="h-11" variant="outline" disabled={pending || dirty || !props.configured} title={dirty ? "Save or discard your draft changes before reviewing" : undefined} onClick={openZohoReview}>{props.quote.status === "conflict" ? "Review Zoho details" : "Review quotation differences"}</Button>}
+        {dirty && props.quote?.hasZohoEstimate && !processing && !invoiced && <p className="w-full text-xs text-amber-700">Save or discard your draft changes before reviewing the Zoho quotation.</p>}
         {props.canManage && processing && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(async () => unwrap(await recoverStaleQuotationClaimUi(props.quote!.id)), "Zoho operation checked")}>Check Zoho status / resume reconciliation</Button>}
       </div>
 
@@ -287,6 +321,95 @@ export function QuotationWorkspace(props: Props) {
       <Dialog open={sendOpen} onOpenChange={setSendOpen}><DialogContent><DialogHeader><DialogTitle>Confirm quotation sent</DialogTitle><DialogDescription>This records that you sent the already-reviewed PDF. It does not send a message from Zoho.</DialogDescription></DialogHeader><label className="text-sm font-medium">Channel<select className="mt-1 h-11 w-full rounded-md border px-3" value={channel} onChange={(e) => setChannel(e.target.value)}><option>WhatsApp</option><option>Telegram</option><option>Email</option><option>In person</option><option>Other</option></select></label><label className="text-sm font-medium">Note (optional)<Textarea className="mt-1" value={sendNote} onChange={(e) => setSendNote(e.target.value)} /></label><DialogFooter><Button className="h-11" disabled={pending} onClick={() => run(async () => { unwrap(await confirmQuotationSentUi({ quotationId: props.quote!.id, channel, note: sendNote })); setSendOpen(false); }, "Quotation marked as sent")}>I have sent this quotation</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={importOpen} onOpenChange={setImportOpen}><DialogContent><DialogHeader><DialogTitle>Use existing Zoho quotation</DialogTitle><DialogDescription>The Zoho quotation will replace this local draft, its official PDF will be stored, and the order will move to Quotation Sent. The customer and currency must match.</DialogDescription></DialogHeader><label className="text-sm font-medium">Zoho quote number<Input className="mt-1 h-11" placeholder="QT-000001" value={importNumber} onChange={(e) => setImportNumber(e.target.value)} /></label><label className="text-sm font-medium">Sent via<select className="mt-1 h-11 w-full rounded-md border px-3" value={importChannel} onChange={(e) => setImportChannel(e.target.value)}><option>WhatsApp</option><option>Telegram</option><option>Email</option><option>In person</option><option>Other</option></select></label><DialogFooter><Button className="h-11" disabled={pending || !importNumber.trim()} onClick={() => run(async () => { const result = await importExistingZohoQuotation({ quotationId: props.quote!.id, estimateNumber: importNumber, channel: importChannel, note: "Imported existing Zoho quotation" }); if (!result.ok) throw new Error(result.error); setImportOpen(false); }, "Existing Zoho quotation imported and marked sent")}>Import and mark sent</Button></DialogFooter></DialogContent></Dialog>
       <Dialog open={paymentRepairOpen} onOpenChange={setPaymentRepairOpen}><DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Record deposit in Zoho Books?</DialogTitle><DialogDescription>This repairs an order already marked Deposit Received. It will not create a second invoice.</DialogDescription></DialogHeader><dl className="divide-y rounded-lg border bg-slate-50 px-3 text-sm"><div className="flex justify-between py-2"><dt>Invoice</dt><dd className="font-semibold">{props.quote?.invoiceNumber}</dd></div><div className="flex justify-between py-2"><dt>PayNow payment</dt><dd className="font-semibold">{money(props.depositCents)}</dd></div><div className="flex justify-between py-2"><dt>Deposit account</dt><dd className="font-semibold">Drapeworks – MariBank</dd></div><div className="flex justify-between py-2"><dt>Balance after payment</dt><dd className="font-semibold">{money(Math.max((props.quote?.totalCents ?? 0) - props.depositCents, 0))}</dd></div></dl><DialogFooter><Button variant="outline" onClick={() => setPaymentRepairOpen(false)}>Cancel</Button><Button disabled={pending} onClick={() => run(async () => { const result = await ensureZohoInvoiceForOrderUi(props.orderId); if (!result.ok) throw new Error(result.error); setPaymentRepairOpen(false); }, "Zoho deposit payment recorded")}>Record {money(props.depositCents)} payment</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={reviewOpen} onOpenChange={(open) => {
+        if (!open && pending) return; // don't dismiss mid-apply
+        if (!open) reviewSeq.current += 1; // a late preview response must not repopulate
+        setReviewOpen(open);
+      }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{props.quote?.status === "conflict" ? "Review Zoho details" : "Review quotation differences"}</DialogTitle>
+            <DialogDescription>Compare the saved CRM quotation with the current Zoho document, then choose which side to keep. Nothing changes until you pick one.</DialogDescription>
+          </DialogHeader>
+          {!review && !reviewError && <p className="py-6 text-center text-sm text-slate-500">Loading the current Zoho quotation…</p>}
+          {reviewError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{reviewError}</p>}
+          {review && (() => {
+            const differs = (a: string | number | null, b: string | number | null) => String(a ?? "") !== String(b ?? "");
+            const field = (label: string, value: ReactNode, changed: boolean) => (
+              <div key={label} className="flex justify-between gap-3 py-1.5 text-sm">
+                <dt className="shrink-0 text-slate-500">{label}</dt>
+                <dd className={`min-w-0 text-right ${changed ? "font-medium text-amber-800" : "text-slate-800"}`}>{value}</dd>
+              </div>
+            );
+            // Rendered text and a normalized comparison key are built from the
+            // same fields (incl. description and a canonical discount string)
+            // so equal lines don't highlight as changed.
+            const crmLine = (line: QuotationLineInput) => ({
+              text: `${line.name}${line.description ? ` — ${line.description}` : ""} · ${line.quantity} × ${money(line.rateCents)} · ${line.discountPercent}% off`,
+              key: [line.name, line.description, line.quantity, line.rateCents, `${line.discountPercent}%`].join("\u0001"),
+            });
+            const zohoLine = (line: ZohoReview["zoho"]["lines"][number]) => ({
+              text: `${line.name}${line.description ? ` — ${line.description}` : ""} · ${line.quantity} × ${money(line.rateCents)} · ${line.discountText} off`,
+              key: [line.name, line.description, line.quantity, line.rateCents, line.discountText].join("\u0001"),
+            });
+            const crmLines = review.crm.lines.map(crmLine);
+            const zohoLines = review.zoho.lines.map(zohoLine);
+            const linesDiffer = crmLines.map((line) => line.key).join("\n") !== zohoLines.map((line) => line.key).join("\n");
+            return (
+              <div className="space-y-4">
+                {review.identical && review.adoptIssues.length === 0 && <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">The saved CRM quotation and Zoho currently match.</p>}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <h4 className="text-sm font-semibold text-slate-900">Saved in CRM</h4>
+                    <dl className="mt-2 divide-y divide-slate-100">
+                      {field("Issue date", review.crm.issueDate, differs(review.crm.issueDate, review.zoho.issueDate))}
+                      {field("Valid until", review.crm.expiryDate ?? "No expiry", differs(review.crm.expiryDate, review.zoho.expiryDate))}
+                      {field("Total", money(review.crm.totalCents), differs(review.crm.totalCents, review.zoho.totalCents))}
+                      {field("Notes", <span className="whitespace-pre-wrap">{review.crm.notes || "—"}</span>, differs(review.crm.notes, review.zoho.notes))}
+                      {field("Terms", <span className="whitespace-pre-wrap">{review.crm.terms || "—"}</span>, differs(review.crm.terms, review.zoho.terms))}
+                    </dl>
+                    <ul className={`mt-2 space-y-1 border-t pt-2 text-sm ${linesDiffer ? "text-amber-800" : "text-slate-600"}`}>
+                      {crmLines.map((line, index) => <li key={index}>{line.text}</li>)}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-3">
+                    <h4 className="text-sm font-semibold text-slate-900">Zoho · {review.zoho.estimateNumber} <span className="font-normal text-slate-500">({review.zoho.status})</span></h4>
+                    {review.zoho.referenceNumber && <p className="mt-0.5 text-xs text-slate-400">Ref: {review.zoho.referenceNumber}</p>}
+                    <dl className="mt-2 divide-y divide-slate-100">
+                      {field("Issue date", review.zoho.issueDate ?? "—", differs(review.zoho.issueDate, review.crm.issueDate))}
+                      {field("Valid until", review.zoho.expiryDate ?? "No expiry", differs(review.zoho.expiryDate, review.crm.expiryDate))}
+                      {field("Total", money(review.zoho.totalCents), differs(review.zoho.totalCents, review.crm.totalCents))}
+                      {field("Notes", <span className="whitespace-pre-wrap">{review.zoho.notes || "—"}</span>, differs(review.zoho.notes, review.crm.notes))}
+                      {field("Terms", <span className="whitespace-pre-wrap">{review.zoho.terms || "—"}</span>, differs(review.zoho.terms, review.crm.terms))}
+                    </dl>
+                    <ul className={`mt-2 space-y-1 border-t pt-2 text-sm ${linesDiffer ? "text-amber-800" : "text-slate-600"}`}>
+                      {zohoLines.map((line, index) => <li key={index}>{line.text}</li>)}
+                    </ul>
+                  </div>
+                </div>
+                <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                  <strong>Use Zoho details</strong> replaces the saved CRM draft with this Zoho document and refreshes the stored PDF — nothing is sent and nothing is written back to Zoho.{" "}
+                  <strong>Overwrite Zoho with CRM</strong> pushes the saved CRM draft to this Zoho quotation and regenerates its PDF — the Zoho-only differences shown above will be lost.
+                </p>
+                {review.warnings.map((warning) => (
+                  <div key={warning} role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{warning}</div>
+                ))}
+                {review.adoptIssues.length > 0 && (
+                  <div role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <p className="font-medium">The Zoho quotation cannot be adopted because:</p>
+                    <ul className="mt-1 list-inside list-disc">{review.adoptIssues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+                  </div>
+                )}
+                <DialogFooter className="flex-col gap-2 sm:flex-row">
+                  <Button className="h-11" variant="outline" disabled={pending} onClick={() => setReviewOpen(false)}>Cancel</Button>
+                  <Button className="h-11" variant="outline" disabled={pending || review.adoptIssues.length > 0} title={review.adoptIssues.length > 0 ? "Fix these in Zoho Books first" : "Replace the CRM draft with the Zoho details. Nothing is sent or written back to Zoho."} onClick={() => applyZohoReview("adopt")}>Use Zoho details</Button>
+                  <Button className="h-11" variant="destructive" disabled={pending} title="Overwrite the Zoho quotation with the saved CRM version and regenerate its PDF. Changes made in Zoho will be lost." onClick={() => applyZohoReview("overwrite")}>Overwrite Zoho with CRM</Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}>
         <DialogContent className="h-[94dvh] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,90rem)]">
           <DialogHeader className="border-b px-5 py-4 pr-14">

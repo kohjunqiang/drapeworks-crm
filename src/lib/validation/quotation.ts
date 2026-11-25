@@ -43,5 +43,14 @@ export const importZohoQuotationSchema = sendQuotationSchema.extend({
   estimateNumber: z.string().trim().min(1).max(64),
 });
 
+// Binds a review-and-apply choice to what the reviewer actually saw: the CRM
+// row's updated_at (its revision fingerprint) and the remote estimate
+// fingerprint computed at preview time. Both are re-verified before applying.
+export const reviewedZohoQuotationSchema = z.object({
+  quotationId: quotationIdSchema,
+  expectedUpdatedAt: z.string().datetime(),
+  remoteFingerprint: z.string().min(1).max(128),
+});
+
 export type QuotationLineInput = z.infer<typeof quotationLineSchema>;
 export type SaveQuotationInput = z.infer<typeof saveQuotationSchema>;

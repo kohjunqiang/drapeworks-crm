@@ -59,11 +59,11 @@ vi.mock("@/lib/zoho/books", () => ({
   getZohoDepositPaymentConfig: mocks.getZohoDepositPaymentConfig,
 }));
 
-import { estimateSnapshotHash, quotePayloadHash } from "@/lib/quotations/hash";
+import { estimateSnapshotHash, quotePayloadHash, zohoAdoptionFingerprint } from "@/lib/quotations/hash";
 import { QUOTATION_INVOICED_MESSAGE } from "@/lib/quotations/lifecycle";
-import { toLegacyZohoEstimatePayload } from "@/lib/quotations/model";
+import { defaultCustomerMessage, toLegacyZohoEstimatePayload } from "@/lib/quotations/model";
 import { ZohoEstimateConversionRejectedError } from "@/lib/zoho/conversion-error";
-import { acknowledgeZohoConflict, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
+import { acknowledgeZohoConflict, adoptZohoQuotation, confirmQuotationSent, createQuotationRevision, ensureZohoInvoiceForOrder, ensureZohoInvoiceForOrderUi, importExistingZohoQuotation, overwriteZohoWithCrmQuotation, previewQuotationZohoDiff, saveQuotation, saveQuotationUi, syncQuotation, syncQuotationUi } from "./quotations";
 
 const ORDER_ID = "a31fd642-0fe2-4066-9762-880b0e023471";
 const QUOTE_ID = "b31fd642-0fe2-4066-9762-880b0e023472";
@@ -914,18 +914,17 @@ describe("syncQuotation for a previously-sent quotation", () => {
     expect(setCalls.find((values) => values.status === "conflict")).toBeTruthy();
   });
 
-  it("reconciles a conflict row when the remote never had a CRM Quote Key", async () => {
+  it("refuses the legacy one-way reconcile and points at the review dialog", async () => {
     setupSync(
       { ...editedSentRow(), status: "conflict" },
       makeRemote({ status: "sent", last_modified_time: "t5", custom_fields: [] }),
       [],
     );
 
-    const rejection = await acknowledgeZohoConflict(QUOTE_ID).catch((error: unknown) => error);
+    await expect(acknowledgeZohoConflict(QUOTE_ID)).rejects.toThrow("Review Zoho details");
 
-    expect(setCalls[0]).toMatchObject({ status: "local_draft", zoho_last_modified_time: "t5" });
-    expect(rejection).toBeInstanceOf(Error);
-    expect((rejection as Error).message).not.toContain("CRM Quote Key");
+    expect(setCalls).toHaveLength(0);
+    expect(mocks.getZohoEstimate).not.toHaveBeenCalled();
   });
 
   it("accepts an already-sent remote for a never-sent quotation and stays zoho_draft", async () => {
@@ -993,21 +992,451 @@ describe("invoice numbers owned by Zoho before the quote goes to the customer", 
 });
 
 describe("reconcile and deposit with editable quotations", () => {
-  it("reconciles a sent Zoho estimate by overwriting it from the CRM", async () => {
+  it("does not overwrite Zoho from the deprecated acknowledge action", async () => {
     const row = { ...makeQuote(CANONICAL_HASH), status: "conflict", zoho_estimate_id: "est-1", sent_at: new Date(), updated_at: new Date() };
-    mocks.selectFrom.mockImplementation((table: string) => builder(table === "order_quotations" ? row : table === "orders" ? { id: ORDER_ID, current_status: "quotation_sent", consultant_id: "consult-1", customer_id: "cust-1" } : undefined));
-    mocks.getZohoEstimate.mockResolvedValue(makeRemote({ status: "sent", last_modified_time: "t5" }));
-    mocks.getZohoBooksBinding.mockResolvedValue({ crmKeyFieldId: "cf-1", crmKeyApiName: "cf_crm_quote_key", estimateTemplateId: "tmpl-1" });
-    mocks.updateTable.mockImplementation(() => builder(undefined)); // no Zoho customer link, so the follow-up sync stops right after the reset
+    const order = { id: ORDER_ID, display_id: "DW-1", order_reference: "DW-1", current_status: "quotation_sent", consultant_id: "consult-1", customer_id: "cust-1", customer_name: "Jamie Tan", customer_email: null, customer_mobile: null, consultant_name: "Kenny" };
+    mocks.selectFrom.mockImplementation((table: string) => builder(table === "order_quotations" ? row : table === "orders" ? order : undefined));
 
-    await expect(acknowledgeZohoConflict(QUOTE_ID)).rejects.toThrow();
-    expect(setCalls[0]).toMatchObject({ status: "local_draft", zoho_last_modified_time: "t5" });
+    await expect(acknowledgeZohoConflict(QUOTE_ID)).rejects.toThrow("Review Zoho details");
+
+    expect(setCalls).toHaveLength(0);
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
   });
 
   it("asks to sync unsynced edits before the deposit", async () => {
     // Reuse setup(...) from the ensureZohoInvoiceForOrder tests with a previously-sent local_draft quote.
     setup({ quote: { ...makeQuote(CANONICAL_HASH), status: "local_draft", sent_at: new Date() }, remote: makeRemote() });
     await expect(ensureZohoInvoiceForOrder(ORDER_ID)).rejects.toThrow("Sync the latest quotation changes to Zoho before recording the deposit");
+  });
+});
+
+// Review-and-apply flow: the comparison preview binds an apply call to the
+// exact CRM revision and remote snapshot the reviewer saw.
+const REVIEW_ORDER = {
+  id: ORDER_ID,
+  display_id: "DW-1",
+  order_reference: "DW-1",
+  current_status: "quotation_sent",
+  consultant_id: "consult-1",
+  customer_id: "cust-1",
+  customer_name: "Jamie Tan",
+  customer_email: null,
+  customer_mobile: null,
+  consultant_name: "Kenny",
+};
+const REVIEW_LOCKED_ORDER = { current_status: "quotation_sent", lead_id: "lead-1", appointment_id: null };
+
+function reviewRow(patch: Record<string, unknown> = {}) {
+  return {
+    ...makeQuote(CANONICAL_HASH),
+    status: "conflict",
+    sent_at: null,
+    sent_by: null,
+    sent_channel: null,
+    customer_message: "local draft",
+    zoho_estimate_id: "est-1",
+    zoho_estimate_number: "QT-677816",
+    zoho_last_modified_time: "t9",
+    updated_at: new Date("2026-10-01T00:00:00Z"),
+    ...patch,
+  };
+}
+
+// A remote with explicit percentage discounts: 2 × S$450 − 10% = S$810.
+function reviewRemote(patch: Record<string, unknown> = {}) {
+  return makeRemote({
+    date: "2026-10-05",
+    expiry_date: "2026-10-12",
+    notes: "remote notes",
+    terms: "remote terms",
+    total: 810,
+    last_modified_time: "t9",
+    line_items: [{ item_id: "item-9", name: "Sheer", description: "day", quantity: 2, rate: 450, discount: "10%" }],
+    ...patch,
+  });
+}
+
+function setupReview(row: Record<string, unknown>, remote: Record<string, unknown>) {
+  const dbResults: Record<string, unknown[]> = {
+    order_quotations: [row],
+    orders: [REVIEW_ORDER],
+    customer_zoho_links: [{ zoho_contact_id: "contact-1" }],
+  };
+  mocks.selectFrom.mockImplementation((table: string) => builder(dbResults[table]?.shift()));
+  const trxResults: Record<string, unknown[]> = {
+    orders: [REVIEW_LOCKED_ORDER, REVIEW_LOCKED_ORDER, REVIEW_LOCKED_ORDER],
+    order_quotation_versions: [{ max_version: 1 }],
+    leads: [{ id: "lead-1", funnel_stage: "Decision Pending" }],
+  };
+  const trx = {
+    selectFrom: (table: string) => builder(trxResults[table]?.shift()),
+    updateTable: () => builder({ id: QUOTE_ID }),
+    insertInto: () => builder({}),
+  };
+  mocks.transaction.mockReturnValue({ execute: async (cb: (tx: typeof trx) => unknown) => cb(trx) });
+  mocks.updateTable.mockImplementation(() => builder({ id: QUOTE_ID }));
+  mocks.getZohoEstimate.mockResolvedValue(remote);
+  mocks.getZohoEstimatePdf.mockResolvedValue(new Uint8Array([37, 80, 68, 70, 45]));
+  mocks.adminClient.mockReturnValue({ storage: { from: () => ({ upload: async () => ({ error: null }) }) } });
+  mocks.getZohoBooksBinding.mockResolvedValue({ crmKeyFieldId: "cf-1", crmKeyApiName: "cf_crm_quote_key", estimateTemplateId: "tmpl-1" });
+}
+
+function reviewInput(row: Record<string, unknown>, remote: Record<string, unknown>) {
+  return {
+    quotationId: QUOTE_ID,
+    expectedUpdatedAt: new Date(row.updated_at as Date).toISOString(),
+    remoteFingerprint: zohoAdoptionFingerprint(remote as Record<string, unknown>),
+  };
+}
+
+describe("previewQuotationZohoDiff", () => {
+  it("returns both sides, the binding fingerprints and adopt issues", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    const preview = await previewQuotationZohoDiff(QUOTE_ID);
+
+    expect(preview.quotationId).toBe(QUOTE_ID);
+    expect(preview.crmRevision).toBe(new Date("2026-10-01T00:00:00Z").toISOString());
+    expect(preview.remoteFingerprint).toBe(zohoAdoptionFingerprint(remote as Record<string, unknown>));
+    expect(preview.crm).toMatchObject({ totalCents: 201_000, previouslySent: false, issueDate: "2026-09-10" });
+    expect(preview.zoho).toMatchObject({ estimateNumber: "QT-677812", totalCents: 81_000, issueDate: "2026-10-05" });
+    expect(preview.identical).toBe(false);
+    expect(preview.adoptIssues).toEqual([]);
+  });
+
+  it("refuses a quotation with a pending invoice operation", async () => {
+    setupReview(reviewRow({ invoice_sync_state: "pending" }), reviewRemote());
+    await expect(previewQuotationZohoDiff(QUOTE_ID)).rejects.toThrow("still in progress");
+    expect(mocks.getZohoEstimate).not.toHaveBeenCalled();
+  });
+
+  it("reports identical only when every compared field actually matches", async () => {
+    const row = reviewRow();
+    // Same content as the saved CRM draft, expressed the way Zoho echoes it.
+    const remote = reviewRemote({
+      date: "2026-09-10", expiry_date: "2026-09-17", notes: "leave with maid", terms: "50% deposit", total: 2010,
+      line_items: [
+        { name: "Curtains and blinds", description: "", quantity: 1, rate: 1200, discount: "0%" },
+        { item_id: "item-9", name: "Sheer", description: "day curtain", quantity: 2, rate: 450, discount: "10%" },
+      ],
+    });
+    setupReview(row, remote);
+
+    const preview = await previewQuotationZohoDiff(QUOTE_ID);
+    expect(preview.identical).toBe(true);
+    expect(preview.warnings).toEqual([]);
+  });
+
+  it("does not claim a match when a catalog item was renamed on the same item_id", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote({
+      date: "2026-09-10", expiry_date: "2026-09-17", notes: "leave with maid", terms: "50% deposit", total: 2010,
+      line_items: [
+        { name: "Curtains and blinds", description: "", quantity: 1, rate: 1200, discount: "0%" },
+        { item_id: "item-9", name: "Renamed sheer", description: "day curtain", quantity: 2, rate: 450, discount: "10%" },
+      ],
+    });
+    setupReview(row, remote);
+
+    const preview = await previewQuotationZohoDiff(QUOTE_ID);
+    expect(preview.identical).toBe(false);
+  });
+
+  it("warns when a previously-sent quotation's Zoho copy is not in a sent state", async () => {
+    const row = reviewRow({ sent_at: new Date("2026-09-20T00:00:00Z") });
+    setupReview(row, reviewRemote({ status: "draft" }));
+
+    const preview = await previewQuotationZohoDiff(QUOTE_ID);
+    expect(preview.warnings).toHaveLength(1);
+    expect(preview.warnings[0]).toContain("draft");
+    expect(preview.warnings[0]).toContain("sent or accepted");
+  });
+});
+
+describe("adoptZohoQuotation", () => {
+  it("adopts the remote document into the same row without any Zoho write", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    await adoptZohoQuotation(reviewInput(row, remote));
+
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    expect(mocks.markZohoEstimateSent).not.toHaveBeenCalled();
+    const adopted = setCalls.find((values) => values.status === "zoho_draft");
+    expect(adopted).toMatchObject({
+      issue_date: "2026-10-05",
+      expiry_date: "2026-10-12",
+      quoted_total_cents: 81_000,
+      notes: "remote notes",
+      terms: "remote terms",
+      zoho_estimate_number: "QT-677812",
+      zoho_status: "sent",
+      synced_payload_hash: estimateSnapshotHash(remote as Record<string, unknown>),
+    });
+    // Sent attribution is preserved: never written, never cleared.
+    expect(adopted).not.toHaveProperty("sent_at");
+    expect(adopted).not.toHaveProperty("sent_by");
+    // The choice is recorded on the order timeline at the unchanged status.
+    const audit = insertCalls.find((values) => "note" in values);
+    expect(audit).toMatchObject({ order_id: ORDER_ID, status: "quotation_sent", created_by: "ops-user" });
+    expect(String(audit?.note)).toContain("used the Zoho details");
+    // A plain (non-generated) message is preserved verbatim.
+    expect(adopted?.customer_message).toBe("local draft");
+    // The unsent quote is not marked sent — Confirm quotation sent is still required.
+    expect(setCalls.find((values) => values.status === "sent")).toBeUndefined();
+    expect(insertCalls.find((values) => "version" in values)).toBeUndefined();
+  });
+
+  it("refreshes a generated customer message when price and dates change", async () => {
+    const row = reviewRow({
+      customer_message: defaultCustomerMessage({ customerName: "Jamie Tan", displayId: "QT-677816", totalCents: 201_000, expiryDate: "2026-09-17" }),
+    });
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    await adoptZohoQuotation(reviewInput(row, remote));
+
+    const adopted = setCalls.find((values) => values.status === "zoho_draft");
+    expect(String(adopted?.customer_message)).toContain("QT-677812");
+    expect(String(adopted?.customer_message)).toContain("valid until 2026-10-12");
+  });
+
+  it("returns a previously-sent quotation to sent with a version snapshot and price propagation", async () => {
+    const row = reviewRow({ sent_at: new Date("2026-09-20T00:00:00Z"), sent_by: "consult-1", sent_channel: "WhatsApp" });
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    await adoptZohoQuotation(reviewInput(row, remote));
+
+    const adopted = setCalls.find((values) => values.status === "sent");
+    expect(adopted).toBeTruthy();
+    expect(adopted).not.toHaveProperty("sent_at");
+    const version = insertCalls.find((values) => "version" in values);
+    expect(version).toMatchObject({ quotation_id: QUOTE_ID, version: 2, quoted_total_cents: 81_000 });
+    expect(setCalls.find((values) => "price_quoted_cents" in values)).toMatchObject({ price_quoted_cents: 81_000 });
+    expect(setCalls.find((values) => "latest_quote_cents" in values)).toMatchObject({ latest_quote_cents: 81_000 });
+  });
+
+  it("rejects when Zoho moved since the preview and restores the prior status", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    await expect(adoptZohoQuotation({ ...reviewInput(row, remote), remoteFingerprint: "stale" }))
+      .rejects.toThrow("changed since it was previewed");
+
+    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
+    expect(setCalls.find((values) => values.status === "conflict" && "sync_error" in values)).toBeTruthy();
+    expect(setCalls.find((values) => "lines" in values)).toBeUndefined();
+  });
+
+  it("rejects when the CRM row moved since the preview without claiming", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    await expect(adoptZohoQuotation({ ...reviewInput(row, remote), expectedUpdatedAt: new Date("2026-10-02T00:00:00Z").toISOString() }))
+      .rejects.toThrow("changed since it was previewed");
+
+    expect(setCalls).toHaveLength(0);
+    expect(mocks.getZohoEstimate).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported remote financial structures instead of reinterpreting them", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote({ line_items: [{ name: "Sheer", quantity: 2, rate: 450, discount: 50 }] });
+    setupReview(row, remote);
+
+    await expect(adoptZohoQuotation(reviewInput(row, remote))).rejects.toThrow("cannot be adopted");
+
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
+    expect(setCalls.find((values) => values.status === "conflict" && "sync_error" in values)).toBeTruthy();
+  });
+
+  it("refuses a duplicate apply when the claim was already taken", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReview(row, remote);
+    mocks.updateTable.mockImplementation(() => builder(undefined)); // racing apply won the claim
+
+    await expect(adoptZohoQuotation(reviewInput(row, remote))).rejects.toThrow("already being processed");
+    expect(mocks.getZohoEstimate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a remote with no customer identity as unverified", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote({ customer_id: null });
+    setupReview(row, remote);
+
+    await expect(adoptZohoQuotation(reviewInput(row, remote))).rejects.toThrow("different customer");
+    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
+  });
+
+  it("rejects lines the CRM schema cannot hold even when the remote parses", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote({ line_items: [{ name: "Sheer", quantity: -2, rate: 450 }], total: -900 });
+    setupReview(row, remote);
+
+    await expect(adoptZohoQuotation(reviewInput(row, remote))).rejects.toThrow("cannot be represented");
+    expect(setCalls.find((values) => "lines" in values)).toBeUndefined();
+  });
+
+  it("adopts an explicit percentage with Zoho's consistent derived amounts", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote({
+      total: 180,
+      line_items: [{ item_id: "item-9", name: "Sheer", description: "day", quantity: 2, rate: 100, discount: "10%", discount_amount: 20, item_total: 180 }],
+    });
+    setupReview(row, remote);
+
+    await adoptZohoQuotation(reviewInput(row, remote));
+
+    const adopted = setCalls.find((values) => values.status === "zoho_draft");
+    expect(adopted).toMatchObject({ quoted_total_cents: 18_000 });
+    const lines = JSON.parse(String(adopted?.lines)) as Array<{ discountPercent: number }>;
+    expect(lines[0].discountPercent).toBe(10);
+  });
+
+  it("adopts a draft remote onto a previously-sent row without touching Zoho or sent attribution", async () => {
+    // Product behavior with explicit visibility: the CRM keeps its original
+    // sent record, nothing is written or marked in Zoho, and the audit note
+    // records the remote status the reviewer saw.
+    const row = reviewRow({ sent_at: new Date("2026-09-20T00:00:00Z"), sent_by: "consult-1", sent_channel: "WhatsApp" });
+    const remote = reviewRemote({ status: "draft" });
+    setupReview(row, remote);
+
+    await adoptZohoQuotation(reviewInput(row, remote));
+
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+    expect(mocks.markZohoEstimateSent).not.toHaveBeenCalled();
+    const adopted = setCalls.find((values) => values.status === "sent");
+    expect(adopted).toBeTruthy();
+    expect(adopted).toMatchObject({ zoho_status: "draft" });
+    expect(adopted).not.toHaveProperty("sent_at");
+    const audit = insertCalls.find((values) => "note" in values);
+    expect(String(audit?.note)).toContain("draft");
+  });
+
+  it("rejects a remote with a non-calendar date before any storage write", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote({ date: "2026-02-30" });
+    setupReview(row, remote);
+
+    await expect(adoptZohoQuotation(reviewInput(row, remote))).rejects.toThrow("dates");
+    expect(mocks.getZohoEstimatePdf).not.toHaveBeenCalled();
+    expect(setCalls.find((values) => "issue_date" in values)).toBeUndefined();
+  });
+});
+
+describe("overwriteZohoWithCrmQuotation", () => {
+  // The reviewed overwrite claims the previewed row once, straight to
+  // syncing: the guard reads the row/order/link, then syncQuotationInternal
+  // reads them again as its seed. Remote fetches: guard check, pre-push
+  // fingerprint, post-write verify, post-PDF check.
+  function setupReviewedSync(row: Record<string, unknown>, remote: Record<string, unknown>, remoteMatchesCrm: Record<string, unknown>) {
+    setupReview(row, remote);
+    mocks.selectFrom.mockImplementation((table: string) => {
+      const results: Record<string, unknown[]> = {
+        order_quotations: [row, row],
+        orders: [REVIEW_ORDER, REVIEW_ORDER],
+        customer_zoho_links: [{ zoho_contact_id: "contact-1" }, { zoho_contact_id: "contact-1" }],
+      };
+      return builder(results[table]?.shift());
+    });
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate
+      .mockResolvedValueOnce(remote)
+      .mockResolvedValueOnce(remote)
+      .mockResolvedValue(remoteMatchesCrm);
+    mocks.syncZohoEstimate.mockResolvedValue({ estimate_id: "est-1", estimate_number: "QT-677816" });
+  }
+
+  it("claims the previewed conflict row once and pushes the saved CRM version to the same estimate", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReviewedSync(row, remote, makeRemote({ status: "sent", last_modified_time: "t9" }));
+
+    await overwriteZohoWithCrmQuotation(reviewInput(row, remote));
+
+    // One claim straight to syncing — no reset-to-local_draft window that an
+    // unpreviewed save could slip through.
+    expect(setCalls[0]).toMatchObject({ status: "syncing" });
+    expect(setCalls.find((values) => values.status === "local_draft")).toBeUndefined();
+    expect(mocks.syncZohoEstimate).toHaveBeenCalledWith(expect.objectContaining({ estimateId: "est-1" }));
+    expect(setCalls.find((values) => values.status === "zoho_draft")).toBeTruthy();
+    const audit = insertCalls.find((values) => "note" in values);
+    expect(String(audit?.note)).toContain("overwrote Zoho Books");
+  });
+
+  it("pushes a previously-sent quotation whose Zoho copy was edited", async () => {
+    // A plain sync refuses a sent row outright; the reviewed binding is the
+    // approval to push the CRM side back over the remote edit.
+    const row = reviewRow({ status: "sent", sent_at: new Date("2026-09-20T00:00:00Z"), sent_by: "consult-1", sent_channel: "WhatsApp" });
+    const remote = reviewRemote({ last_modified_time: "t10" });
+    setupReviewedSync(row, remote, makeRemote({ status: "sent", last_modified_time: "t10" }));
+
+    await overwriteZohoWithCrmQuotation(reviewInput(row, remote));
+
+    expect(mocks.syncZohoEstimate).toHaveBeenCalledWith(expect.objectContaining({ estimateId: "est-1" }));
+    expect(setCalls.find((values) => values.status === "sent")).toBeTruthy();
+    expect(insertCalls.find((values) => "version" in values)).toBeTruthy();
+  });
+
+  it("pushes a zoho_draft quotation whose remote drifted — the review approves that exact drift", async () => {
+    const row = reviewRow({ status: "zoho_draft" });
+    // Remote moved (t10 vs stored t9) and carries different lines, so a plain
+    // sync would report drift; the reviewed fingerprint is what authorizes it.
+    const remote = reviewRemote({ last_modified_time: "t10" });
+    setupReviewedSync(row, remote, makeRemote({ status: "sent", last_modified_time: "t10" }));
+
+    await overwriteZohoWithCrmQuotation(reviewInput(row, remote));
+
+    expect(mocks.syncZohoEstimate).toHaveBeenCalled();
+    expect(setCalls.find((values) => values.status === "zoho_draft")).toBeTruthy();
+  });
+
+  it("loses the atomic claim when the row was saved after the preview", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReviewedSync(row, remote, makeRemote({ status: "sent", last_modified_time: "t9" }));
+    mocks.updateTable.mockImplementation(() => builder(undefined)); // another save won the claim
+
+    await expect(overwriteZohoWithCrmQuotation(reviewInput(row, remote))).rejects.toThrow("changed or is already syncing");
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
+  });
+
+  it("rejects when Zoho changed while its PDF was downloading", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    const remoteMatchesCrm = makeRemote({ status: "sent", last_modified_time: "t9" });
+    setupReviewedSync(row, remote, remoteMatchesCrm);
+    mocks.getZohoEstimate.mockReset();
+    mocks.getZohoEstimate
+      .mockResolvedValueOnce(remote)
+      .mockResolvedValueOnce(remote)
+      .mockResolvedValueOnce(remoteMatchesCrm)
+      .mockResolvedValue({ ...remoteMatchesCrm, notes: "changed during download", last_modified_time: "t11" });
+
+    await expect(overwriteZohoWithCrmQuotation(reviewInput(row, remote))).rejects.toThrow("while its PDF was being fetched");
+    // Recoverable failure — the row lands back on sync_failed, not a false success.
+    expect(setCalls.find((values) => values.status === "sync_failed")).toBeTruthy();
+    expect(setCalls.find((values) => values.status === "zoho_draft")).toBeUndefined();
+  });
+
+  it("rejects when Zoho moved since the preview before any write", async () => {
+    const row = reviewRow();
+    const remote = reviewRemote();
+    setupReview(row, remote);
+
+    await expect(overwriteZohoWithCrmQuotation({ ...reviewInput(row, remote), remoteFingerprint: "stale" }))
+      .rejects.toThrow("changed since it was previewed");
+
+    expect(setCalls).toHaveLength(0);
+    expect(mocks.syncZohoEstimate).not.toHaveBeenCalled();
   });
 });
 

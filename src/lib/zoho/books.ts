@@ -54,6 +54,9 @@ export type ZohoEstimate = {
 };
 
 export type ZohoInvoice = {
+  write_off_amount?: number;
+  tax_amount_withheld?: number;
+  ach_payment_initiated?: boolean;
   invoice_id: string;
   invoice_number?: string;
   invoiced_estimate_id?: string;
@@ -142,7 +145,7 @@ const RETRYABLE_CODES = new Set([1070]);
 
 let requestTail: Promise<unknown> = Promise.resolve();
 
-async function requestRaw<T extends ZohoEnvelope>(path: string, init: RequestInit = {}, attempt = 0, forceRefresh = false): Promise<T> {
+async function requestRaw<T extends ZohoEnvelope>(path: string, init: RequestInit = {}, attempt = 0, forceRefresh = false, noRetry = false): Promise<T> {
   const context = await getZohoAccessContext(forceRefresh);
   const url = new URL(`${context.apiBaseUrl}${path}`);
   url.searchParams.set("organization_id", context.organizationId);
@@ -156,7 +159,7 @@ async function requestRaw<T extends ZohoEnvelope>(path: string, init: RequestIni
     cache: "no-store",
     signal: init.signal ?? AbortSignal.timeout(15_000),
   });
-  if (response.status === 401 && attempt === 0) {
+  if (!noRetry && response.status === 401 && attempt === 0) {
     return requestRaw<T>(path, init, 1, true);
   }
   const json = await response.json() as T;
@@ -166,7 +169,7 @@ async function requestRaw<T extends ZohoEnvelope>(path: string, init: RequestIni
   // workflows reconcile explicitly instead.
   const retryableMethod = method === "GET" || method === "PUT";
   const retryable = retryableMethod && (response.status === 429 || response.status >= 500 || RETRYABLE_CODES.has(json.code ?? 0));
-  if (retryable && attempt < 3) {
+  if (!noRetry && retryable && attempt < 3) {
     await new Promise((resolve) => setTimeout(resolve, 300 * 2 ** attempt));
     return requestRaw<T>(path, init, attempt + 1, false);
   }
@@ -386,6 +389,16 @@ export async function getZohoInvoice(id: string): Promise<ZohoInvoice> {
   const json = await request<ZohoEnvelope & { invoice?: ZohoInvoice }>(`/invoices/${encodeURIComponent(id)}`);
   if (!json.invoice) throw new Error("Zoho invoice not found");
   return json.invoice;
+}
+
+// A commercial PUT must never retry blindly: payment activity can change
+// between attempts. The caller re-reads and reconciles any uncertain response.
+export async function updateZohoInvoiceCommercial(id: string, lines: Array<{ item_id?: string; name: string; description: string; quantity: number; rate: number; discount: string }>, customerId: string): Promise<void> {
+  const context = await getZohoAccessContext();
+  requireScope(context, "ZohoBooks.invoices.UPDATE", "Reconnect Zoho Books with invoice update permission.");
+  const operation = requestTail.then(() => requestRaw<ZohoEnvelope>(`/invoices/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ customer_id: customerId, line_items: lines, discount_type: "item_level", is_inclusive_tax: false }) }, 0, false, true));
+  requestTail = operation.catch(() => undefined);
+  await operation;
 }
 
 // Zoho numbers a converted invoice on its own sequence; the CRM renames it to

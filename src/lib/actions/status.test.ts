@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
+  loadCommercialSnapshot: vi.fn(),
   requireRole: vi.fn(),
   revalidatePath: vi.fn(),
   load: vi.fn(),
   ensureZohoInvoiceForOrder: vi.fn(),
 }));
+vi.mock("@/lib/quotations/commercial-store", () => ({ loadCommercialSnapshot: mocks.loadCommercialSnapshot }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: mocks.requireRole, requireSession: vi.fn() }));
@@ -120,6 +122,7 @@ const arrivedShipmentState = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.loadCommercialSnapshot.mockResolvedValue({ state: "synced", synced_fingerprint: "commercial-fingerprint", invoice_id: "inv-1" });
   mocks.requireRole.mockResolvedValue({ user: { id: "ops-user" } });
 });
 
@@ -439,7 +442,7 @@ describe("advanceOrderStatusUi result wrapper", () => {
 
 
 describe("deposit stage verification receipt", () => {
-  const receipt = { quotationId: "quote-1", invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500 };
+  const receipt = { commercialFingerprint: "commercial-fingerprint", quotationId: "quote-1", invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500 };
   const quotation = { id: "quote-1", status: "conflict", zoho_invoice_id: "inv-1", zoho_payment_id: "pay-1", invoice_sync_state: "created", payment_sync_state: "created" };
   it("advances with verified existing invoice/payment despite historical quotation conflict", async () => {
     mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);

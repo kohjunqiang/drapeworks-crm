@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
+  verifyCommercialForDeposit: vi.fn(),
+  loadCommercialSnapshot: vi.fn(),
   selectFrom: vi.fn(),
   updateTable: vi.fn(),
   requireRole: vi.fn(),
@@ -26,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   getZohoDepositPaymentConfig: vi.fn(),
 }));
 
+vi.mock("@/lib/quotations/commercial-store", () => ({ verifyCommercialForDeposit: mocks.verifyCommercialForDeposit, loadCommercialSnapshot: mocks.loadCommercialSnapshot }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/auth/require-role", () => ({
@@ -59,6 +62,7 @@ vi.mock("@/lib/zoho/books", () => ({
   getZohoDepositPaymentConfig: mocks.getZohoDepositPaymentConfig,
 }));
 
+import { commercialFingerprint, normalizeCommercialInvoice } from "@/lib/quotations/commercial-invoice";
 import { estimateSnapshotHash, quotePayloadHash, zohoAdoptionFingerprint } from "@/lib/quotations/hash";
 import { QUOTATION_INVOICED_MESSAGE } from "@/lib/quotations/lifecycle";
 import { defaultCustomerMessage, toLegacyZohoEstimatePayload } from "@/lib/quotations/model";
@@ -72,6 +76,8 @@ const LINES = [
   { zohoItemId: null, name: "Curtains and blinds", description: "", quantity: 1, rateCents: 120_000, discountPercent: 0 },
   { zohoItemId: "item-9", name: "Sheer", description: "day curtain", quantity: 2, rateCents: 45_000, discountPercent: 10 },
 ];
+
+const INVOICE_LINES = LINES.map(line => ({ item_id: line.zohoItemId ?? undefined, name: line.name, description: line.description, quantity: line.quantity, rate: line.rateCents / 100, discount: `${line.discountPercent}%` }));
 
 // What the action rebuilds for a legacy raw-hash quotation: the exact payload
 // syncQuotation sent, reconstructed from persisted quote + order + consultant
@@ -237,6 +243,7 @@ function setup({ quote, remote }: { quote: ReturnType<typeof makeQuote>; remote:
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.verifyCommercialForDeposit.mockImplementation(async input => { const fingerprint = commercialFingerprint(normalizeCommercialInvoice(input.invoice)); mocks.loadCommercialSnapshot.mockResolvedValue({ state: "synced", invoice_id: input.invoice.invoice_id, synced_fingerprint: fingerprint }); return fingerprint; });
   setCalls.length = 0;
   insertCalls.length = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -311,7 +318,7 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
   // for verification.
   const unlinkedRemote = () => makeRemote({ estimate_number: "QT-677816", invoice_ids: [] });
   const linkedRemote = () => makeRemote({ estimate_number: "QT-677816", invoice_ids: ["inv-1"] });
-  const zohoInvoice = () => ({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010, payment_made: 0, credits_applied: 0, balance: 2010 });
+  const zohoInvoice = () => ({ invoice_id: "inv-1", invoice_number: "INV-900001", status: "sent", customer_id: "contact-1", currency_code: "SGD", total: 2010, line_items: INVOICE_LINES, payment_made: 0, credits_applied: 0, balance: 2010 });
   const recordedPayment = () => {
     mocks.createZohoCustomerPayment.mockResolvedValue({ payment_id: "pay-1", payment_number: "91" });
     mocks.getZohoCustomerPayment.mockResolvedValue({
@@ -334,7 +341,7 @@ describe("Zoho-owned invoice numbering and conversion outcomes", () => {
     expect(mocks.convertZohoEstimateToInvoice).toHaveBeenCalledTimes(1);
     expect(mocks.renameZohoInvoice).not.toHaveBeenCalled();
     expect(mocks.assertZohoInvoiceNumberingReady).not.toHaveBeenCalled();
-    expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(2);
+    expect(mocks.getZohoInvoice).toHaveBeenCalledTimes(3);
     expect(mocks.createZohoCustomerPayment).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "inv-1" }));
     const finalized = setCalls.find((values) => values.invoice_sync_state === "created");
     expect(finalized).toMatchObject({ zoho_invoice_id: "inv-1", zoho_invoice_number: "INV-900001" });
@@ -486,7 +493,7 @@ describe("deposit payment raw-error sanitization", () => {
       status: "sent",
       customer_id: "contact-1",
       currency_code: "SGD",
-      total: 2010, payment_made: 0, credits_applied: 0, balance: 2010,
+      total: 2010, line_items: INVOICE_LINES, payment_made: 0, credits_applied: 0, balance: 2010,
     });
     mocks.createZohoCustomerPayment.mockRejectedValue(new Error("RAW-SECRET-401 oauth_token=abc123"));
 
@@ -1475,7 +1482,7 @@ function setupInvoiceStage(localLink = false, quotePatch: Record<string, unknown
   const remote = makeRemote({ status: "invoiced", invoice_ids: ["inv-1"], total: 4390, line_items: [{ name: "Old quotation", quantity: 1, rate: 4390 }] });
   const { order, quote } = setup({ quote: row, remote });
   Object.assign(order, { price_quoted_cents: 473000, deposit_cents: 236500 });
-  const invoice = { invoice_id: "inv-1", invoice_number: "INV-4730", status: "partially_paid", customer_id: "contact-1", currency_code: "SGD", total: 4730, payment_made: 2365, balance: 2365, credits_applied: 0 };
+  const invoice = { invoice_id: "inv-1", invoice_number: "INV-4730", status: "partially_paid", customer_id: "contact-1", currency_code: "SGD", total: 4730, line_items: [{ name: "Current commercial curtain", quantity: 1, rate: 4730, discount: "0%" }], payment_made: 2365, balance: 2365, credits_applied: 0 };
   const payment = { payment_id: "pay-1", payment_number: "PAY-1", customer_id: "contact-1", payment_mode: "PayNow", amount: 2365, account_id: "acc-1", invoices: [{ invoice_id: "inv-1", amount_applied: 2365 }] };
   mocks.getZohoInvoice.mockResolvedValue(invoice);
   // Deliberately no invoice fields in this summary: details must be fetched.
@@ -1487,7 +1494,7 @@ function setupInvoiceStage(localLink = false, quotePatch: Record<string, unknown
 describe("invoice phase uses order amounts and existing payments", () => {
   it.each([false, true])("reuses invoice 4730/payment 2365 despite quote4390/conflict (local link %s)", async localLink => {
     setupInvoiceStage(localLink);
-    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toEqual({ quotationId: QUOTE_ID, invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500 });
+    await expect(ensureZohoInvoiceForOrder(ORDER_ID)).resolves.toEqual({ quotationId: QUOTE_ID, invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500, commercialFingerprint: expect.any(String) });
     expect(mocks.getZohoCustomerPayment).toHaveBeenCalledWith("pay-1");
     expect(mocks.convertZohoEstimateToInvoice).not.toHaveBeenCalled();
     expect(mocks.createZohoCustomerPayment).not.toHaveBeenCalled();

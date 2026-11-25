@@ -12,6 +12,7 @@ import { normalizeFreightNumber } from "@/lib/logistics/freight";
 import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
 import { reconcileFulfilmentStatus } from "@/lib/logistics/reconcile";
+import { loadCommercialSnapshot } from "@/lib/quotations/commercial-store";
 import { ensureZohoInvoiceForOrder } from "@/lib/actions/quotations";
 import {
   requiresLocalDelivery,
@@ -79,6 +80,8 @@ export async function advanceOrderStatus(input: unknown) {
     }
     if (parsed.expectedStatus === "quotation_sent") {
       const quotation = await trx.selectFrom("order_quotations").select(["id", "status", "zoho_invoice_id", "zoho_payment_id", "invoice_sync_state", "payment_sync_state"]).where("order_id", "=", parsed.orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
+      const commercial = await loadCommercialSnapshot(parsed.orderId, trx, true);
+      if (!commercial || commercial.state !== "synced" || commercial.synced_fingerprint !== receipt?.commercialFingerprint || commercial.invoice_id !== receipt?.invoiceId) throw new UserFacingError("The reviewed invoice commercial details changed. Reconcile before advancing.");
       if (!receipt || !quotation || quotation.id !== receipt.quotationId || ["syncing", "sending", "superseded"].includes(quotation.status) || quotation.zoho_invoice_id !== receipt.invoiceId || quotation.zoho_payment_id !== receipt.paymentId || quotation.invoice_sync_state !== "created" || quotation.payment_sync_state !== "created" || order.price_quoted_cents !== receipt.orderTotalCents || order.deposit_cents !== receipt.depositCents) {
         throw new UserFacingError("The order amounts or verified invoice/payment links changed. Refresh and verify the deposit again before advancing.");
       }

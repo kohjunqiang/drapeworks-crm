@@ -9,6 +9,8 @@ import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { DB, Json, OrderQuotations } from "@/lib/db/schema";
 import { sql, type Selectable, type Transaction } from "kysely";
+import { commercialFingerprint as fingerprintCommercial, normalizeCommercialInvoice } from "@/lib/quotations/commercial-invoice";
+import { loadCommercialSnapshot, verifyCommercialForDeposit } from "@/lib/quotations/commercial-store";
 import { leadMilestoneForOrderStatus } from "@/lib/status-flow";
 import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
 import { adminClient } from "@/lib/supabase/admin";
@@ -831,10 +833,14 @@ export async function createQuotationRevision(quotationId: string) {
   return { id: nextId };
 }
 
-async function assertFinancialOperationCurrent(input: { orderId: string; quotationId: string; totalCents: number; depositCents: number; stage: string; invoiceId?: string; claimToken: string; kind: "invoice" | "payment" }) {
+async function assertFinancialOperationCurrent(input: { orderId: string; quotationId: string; totalCents: number; depositCents: number; stage: string; invoiceId?: string; commercialFingerprint?: string; claimToken: string; kind: "invoice" | "payment" }) {
   await db.transaction().execute(async trx => {
     const order = await trx.selectFrom("orders").select(["current_status", "price_quoted_cents", "deposit_cents"]).where("id", "=", input.orderId).forUpdate().executeTakeFirstOrThrow();
     const quote = await trx.selectFrom("order_quotations").selectAll().where("id", "=", input.quotationId).forUpdate().executeTakeFirstOrThrow();
+    if (input.kind === "payment") {
+      const commercial = await loadCommercialSnapshot(input.orderId, trx, true);
+      if (!commercial || commercial.state !== "synced" || commercial.invoice_id !== input.invoiceId || commercial.synced_fingerprint !== input.commercialFingerprint) throw new UserFacingError("Commercial invoice details changed. Review them before recording a payment.");
+    }
     if (order.current_status !== input.stage || order.price_quoted_cents !== input.totalCents || order.deposit_cents !== input.depositCents || quote.superseded_at || ["syncing", "sending"].includes(quote.status) || (input.invoiceId && quote.zoho_invoice_id !== input.invoiceId) || (input.kind === "invoice" ? quote.status !== "sent" || quote.quoted_total_cents !== input.totalCents || quote.invoice_claim_token !== input.claimToken || quote.invoice_sync_state !== "pending" : quote.payment_claim_token !== input.claimToken || quote.payment_sync_state !== "pending")) throw new UserFacingError("The order amounts, stage or financial operation changed. Refresh before continuing; no new financial record was created.");
   });
 }
@@ -883,7 +889,7 @@ async function findDepositPayment(input: {
 }
 
 async function ensureZohoDepositPaymentForQuote(input: {
-  orderId: string; orderTotalCents: number; orderStage: string;
+  orderId: string; orderTotalCents: number; orderStage: string; commercialFingerprint: string;
   quotationId: string;
   displayId: string;
   customerId: string;
@@ -897,7 +903,7 @@ async function ensureZohoDepositPaymentForQuote(input: {
   const claimToken = randomUUID();
   const operation = await db.transaction().execute(async (trx) => {
     const currentOrder = await trx.selectFrom("orders").select(["current_status", "price_quoted_cents", "deposit_cents"]).where("id", "=", input.orderId).forUpdate().executeTakeFirstOrThrow();
-    if (!["quotation_sent", "deposit_received"].includes(currentOrder.current_status) || currentOrder.price_quoted_cents !== input.orderTotalCents || currentOrder.deposit_cents !== input.depositCents) throw new UserFacingError("The CRM order amounts or stage changed. Refresh before recording a payment.");
+    if (!["quotation_sent", "deposit_received", "order_recorded"].includes(currentOrder.current_status) || currentOrder.price_quoted_cents !== input.orderTotalCents || currentOrder.deposit_cents !== input.depositCents) throw new UserFacingError("The CRM order amounts or stage changed. Refresh before recording a payment.");
     const quote = await trx.selectFrom("order_quotations").selectAll().where("id", "=", input.quotationId).forUpdate().executeTakeFirstOrThrow();
     if (quote.superseded_at || ["syncing", "sending"].includes(quote.status) || quote.zoho_invoice_id !== input.invoiceId) throw new UserFacingError("The active quotation or invoice link changed. Refresh before recording a payment.");
     if (quote.zoho_payment_id && quote.payment_sync_state === "created") return { quote, claimed: false, reconcileOnly: false };
@@ -936,7 +942,9 @@ async function ensureZohoDepositPaymentForQuote(input: {
       // the customer list was being paginated. Unknown is never proof of absence.
       const liveInvoice = await getZohoInvoice(input.invoiceId);
       if (liveInvoice.invoice_id !== input.invoiceId || liveInvoice.customer_id !== input.customerId || liveInvoice.currency_code !== "SGD" || !["draft", "sent", "overdue"].includes(liveInvoice.status ?? "") || optionalMoneyCents(liveInvoice.total) !== input.orderTotalCents || optionalMoneyCents(liveInvoice.payment_made) !== 0 || optionalMoneyCents(liveInvoice.credits_applied) !== 0 || optionalMoneyCents(liveInvoice.balance) !== input.orderTotalCents || Number(liveInvoice.balance) * 100 < input.depositCents) throw new UserFacingError("Existing payments or credits cannot be ruled out, or the invoice balance changed. Reconcile payments in Zoho before recording a deposit; no new payment was created.");
-      await assertFinancialOperationCurrent({ orderId: input.orderId, quotationId: input.quotationId, totalCents: input.orderTotalCents, depositCents: input.depositCents, stage: input.orderStage, invoiceId: input.invoiceId, claimToken, kind: "payment" });
+      try { if (fingerprintCommercial(normalizeCommercialInvoice(liveInvoice)) !== input.commercialFingerprint) throw new Error("changed"); }
+      catch { throw new UserFacingError("Invoice commercial items changed during payment verification. Reconcile them before recording any payment."); }
+      await assertFinancialOperationCurrent({ orderId: input.orderId, quotationId: input.quotationId, totalCents: input.orderTotalCents, depositCents: input.depositCents, stage: input.orderStage, invoiceId: input.invoiceId, commercialFingerprint: input.commercialFingerprint, claimToken, kind: "payment" });
       paymentUncertain = true;
       const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
       try {
@@ -982,15 +990,15 @@ async function ensureZohoDepositPaymentForQuote(input: {
 }
 
 export type InvoicePaymentReceipt = {
-  quotationId: string; invoiceId: string; paymentId: string; orderTotalCents: number; depositCents: number;
+  quotationId: string; invoiceId: string; paymentId: string; orderTotalCents: number; depositCents: number; commercialFingerprint: string;
 };
 
-export async function ensureZohoInvoiceForOrder(orderId: string): Promise<InvoicePaymentReceipt> {
-  await requireRole(["ops", "admin"]);
+export async function ensureZohoInvoiceForOrder(orderId: string, options?: { recoverExistingInvoice?: boolean }): Promise<InvoicePaymentReceipt> {
+  const session = await requireRole(["ops", "admin"]);
   const invoiceClaimToken = randomUUID();
   const operation = await db.transaction().execute(async (trx) => {
-    const order = await trx.selectFrom("orders").select(["current_status", "price_quoted_cents", "deposit_cents", "display_id", "order_reference", "consultant_id"]).where("id", "=", orderId).forUpdate().executeTakeFirst();
-    if (!order || !["quotation_sent", "deposit_received"].includes(order.current_status)) {
+    const order = await trx.selectFrom("orders").select(["current_status", "is_draft", "price_quoted_cents", "deposit_cents", "display_id", "order_reference", "consultant_id"]).where("id", "=", orderId).forUpdate().executeTakeFirst();
+    if (!order || order.is_draft || !["quotation_sent", "deposit_received", ...(options?.recoverExistingInvoice ? ["order_recorded"] : [])].includes(order.current_status)) {
       throw new UserFacingError("The order must be at Quotation Sent or Deposit Received before reconciling its Zoho invoice and payment");
     }
     const quote = await trx.selectFrom("order_quotations").selectAll().where("order_id", "=", orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
@@ -1025,6 +1033,7 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<Invoic
     if ((remote.invoice_ids?.length ?? 0) > 1) throw new UserFacingError("Multiple invoices are linked to this quotation. Reconcile the invoice links in Zoho before continuing.");
     if (quote.zoho_invoice_id && remote.invoice_ids?.[0] !== quote.zoho_invoice_id) throw new UserFacingError("The stored Zoho invoice is no longer the single invoice linked to this quotation.");
     const existingInvoiceId = quote.zoho_invoice_id ?? remote.invoice_ids?.[0];
+    if (!existingInvoiceId && order.current_status === "order_recorded") throw new UserFacingError("Stage recovery requires an existing invoice; no new invoice will be created.");
     if (!existingInvoiceId && remote.status === "invoiced" && !reconcileOnly) throw new UserFacingError("Zoho says this quotation is invoiced but its invoice link is unavailable. Check its existing invoice in Zoho; no new invoice will be created.");
     if (!existingInvoiceId && !reconcileOnly) {
       if (quote.status !== "sent") throw new UserFacingError("Sync and send the official quotation before creating a new invoice.");
@@ -1142,6 +1151,7 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<Invoic
     if (invoice.invoice_id !== created.invoice_id || !invoice.status || !usableInvoiceStatuses.has(invoice.status) || linkedInvoiceId !== invoice.invoice_id || invoice.customer_id !== quote.zoho_contact_id || invoice.currency_code !== "SGD") throw new UserFacingError("The Zoho invoice is void, unusable, or its identity, customer or currency does not match this order. Reconcile it before recording the deposit.");
     const invoiceTotalCents = optionalMoneyCents(invoice.total);
     if (invoiceTotalCents !== order.price_quoted_cents) throw new UserFacingError(`Invoice ${invoice.invoice_number ?? invoice.invoice_id} total ${invoiceTotalCents === null ? "Unknown" : `SGD ${(invoiceTotalCents / 100).toFixed(2)}`} differs from CRM order total SGD ${(order.price_quoted_cents / 100).toFixed(2)}. Resolve the order/invoice discrepancy before recording the deposit; neither amount was changed.`);
+    const commercialFingerprint = await verifyCommercialForDeposit({ orderId, quotationId: quote.id, lines: linesOf(quote), quotationTotalCents: quote.quoted_total_cents, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents, invoice, actorId: session.user.id });
     // Zoho Books owns the invoice number on its own sequence; the CRM keeps
     // whatever Zoho assigned and never renames it.
     if (claimed) {
@@ -1150,12 +1160,16 @@ export async function ensureZohoInvoiceForOrder(orderId: string): Promise<Invoic
       invoiceFinalized = true;
     }
     const paymentId = await ensureZohoDepositPaymentForQuote({
-      orderId, orderTotalCents: order.price_quoted_cents, orderStage: order.current_status,
+      orderId, orderTotalCents: order.price_quoted_cents, orderStage: order.current_status, commercialFingerprint,
       quotationId: quote.id, displayId: order.display_id, customerId: quote.zoho_contact_id,
       invoiceId: invoice.invoice_id, invoiceNumber: invoice.invoice_number ?? quote.zoho_invoice_number,
       depositCents: order.deposit_cents,
     });
-    const receipt = { quotationId: quote.id, invoiceId: invoice.invoice_id, paymentId, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents };
+    const finalInvoice = await getZohoInvoice(invoice.invoice_id);
+    const finalEstimate = await getZohoEstimate(estimateId);
+    if (finalInvoice.invoice_id !== invoice.invoice_id || finalInvoice.customer_id !== quote.zoho_contact_id || finalInvoice.currency_code !== "SGD" || !["draft", "sent", "overdue", "paid", "partially_paid"].includes(finalInvoice.status ?? "") || finalEstimate.estimate_id !== estimateId || finalEstimate.customer_id !== quote.zoho_contact_id || finalEstimate.currency_code !== "SGD" || finalEstimate.invoice_ids?.length !== 1 || finalEstimate.invoice_ids[0] !== invoice.invoice_id || crmKeyConflicts(await crmKeyOf(finalEstimate), quote.crm_quote_key)) throw new UserFacingError("Invoice identity, status or quotation link changed while verifying the deposit. Refresh and reconcile before advancing.");
+    await verifyCommercialForDeposit({ orderId, quotationId: quote.id, lines: linesOf(quote), quotationTotalCents: quote.quoted_total_cents, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents, invoice: finalInvoice, actorId: session.user.id });
+    const receipt = { quotationId: quote.id, invoiceId: invoice.invoice_id, paymentId, commercialFingerprint, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents };
     revalidatePath(`/orders/${orderId}`);
     return receipt;
   } catch (error) {

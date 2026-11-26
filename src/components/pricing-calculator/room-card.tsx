@@ -1,12 +1,14 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { AppSelect } from "@/components/ui/app-select";
 import { Button } from "@/components/ui/button";
 import { resolveWindowAddons } from "@/lib/orders/window-addons";
 import { changeCovering, measurement, type QuickQuoteData, type QuoteIssue } from "@/lib/pricing/quick-quote";
 import { newCalculatorWindow, type CalculatorRoom, type CalculatorWindow } from "@/lib/validation/pricing-calculator";
 
-export const FIELD = "mt-1 min-h-11 w-full min-w-0 rounded border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100";
+export const FIELD = "mt-1 min-h-11 w-full min-w-0 rounded border border-slate-200 bg-white px-2.5 py-2 text-base sm:text-sm focus:outline-none focus:border-teal-500";
+export const SELECT_FIELD = "mt-1 min-h-11 w-full min-w-0";
 const COVERINGS = [{ value: "day", label: "Day" }, { value: "night", label: "Night" }, { value: "both", label: "Day & night" }, { value: "blind", label: "Blind" }] as const;
 
 export function RoomCard({ room, data, issues, onChange, onRemove }: {
@@ -49,11 +51,11 @@ function WindowFields({ window, index, room, data, onChange, remove }: {
   const hasNight = window.covering === "night" || window.covering === "both";
   const addons = resolveWindowAddons(isBlind ? "blind" : "curtain", measurement(window.width), window.addonIds, [], data.config.addonCatalogue);
   const options = (kind: "day" | "night" | "blind") => data.options.filter((p) => kind === "blind" ? p.productLine === "blind" : p.productLine === "curtain" && p.category === (kind === "day" ? "Day" : "Night"));
-  const fabric = (kind: "day" | "night" | "blind", value: string, key: "dayId" | "nightId" | "blindId") => <label className="block min-w-0 text-sm font-medium" htmlFor={`${kind}-${window.id}`}>
-    {kind === "blind" ? "Blind type" : kind === "day" ? "Day fabric" : "Night fabric"}
-    <select id={`${kind}-${window.id}`} className={FIELD} value={value} onChange={(e) => patch({ [key]: e.target.value })}><option value="">Select {kind === "blind" ? "blind" : "fabric tier"}</option>{options(kind).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+  const fabric = (kind: "day" | "night" | "blind", value: string, key: "dayId" | "nightId" | "blindId") => <div className="min-w-0">
+    <label className="block text-sm font-medium" htmlFor={`${kind}-${window.id}`}>{kind === "blind" ? "Blind type" : kind === "day" ? "Day fabric" : "Night fabric"}</label>
+    <AppSelect id={`${kind}-${window.id}`} triggerClassName={SELECT_FIELD} value={value} onChange={(selected) => patch({ [key]: selected })} noneLabel={`Select ${kind === "blind" ? "blind" : "fabric tier"}`} options={options(kind).map((p) => ({ value: p.id, label: p.name }))} />
     {options(kind).length === 0 && <span className="mt-1 block text-xs text-red-600">No priced {kind} options are available.</span>}
-  </label>;
+  </div>;
   return <fieldset className="min-w-0 space-y-3 rounded border border-slate-200 p-3">
     <legend className="px-1 text-sm font-semibold">Window {index + 1}</legend>
     <div className="flex items-center justify-between gap-2"><span className="text-xs text-slate-500">Covering</span>{room.windows.length > 1 && <Button type="button" variant="ghost" className="min-h-11" aria-label={`Remove Window ${index + 1} from ${room.label}`} onClick={remove}><Trash2 className="size-4" /></Button>}</div>
@@ -68,7 +70,7 @@ function WindowFields({ window, index, room, data, onChange, remove }: {
       {hasDay && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-teal-600" checked={window.dayTrack} onChange={(e) => patch({ dayTrack: e.target.checked })} />New day track required</label>}
       {hasNight && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-teal-600" checked={window.nightTrack} onChange={(e) => patch({ nightTrack: e.target.checked })} />New night track required</label>}
       <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="size-4 accent-teal-600" checked={window.noInstallation} onChange={(e) => patch({ noInstallation: e.target.checked })} />No installation needed</label>
-      {!isBlind && data.combos.length > 0 && <label className="block text-sm font-medium">Combo<select className={FIELD} value={window.comboId} onChange={(e) => patch({ comboId: e.target.value })}><option value="">No combo</option>{data.combos.map((combo) => <option key={combo.id} value={combo.id}>{combo.name}</option>)}</select></label>}
+      {!isBlind && data.combos.length > 0 && <div><label htmlFor={`combo-${window.id}`} className="block text-sm font-medium">Combo</label><AppSelect id={`combo-${window.id}`} triggerClassName={SELECT_FIELD} value={window.comboId} onChange={(comboId) => patch({ comboId })} noneLabel="No combo" options={data.combos.map((combo) => ({ value: combo.id, label: combo.name }))} /></div>}
     </div></details>
   </fieldset>;
 }

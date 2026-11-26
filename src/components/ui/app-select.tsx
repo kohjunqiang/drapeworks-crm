@@ -23,6 +23,8 @@ export type SelectOption = { value: string; label: string };
 const NONE = "__none__";
 
 type AppSelectProps = {
+  /** Associates an external label with the shared trigger. */
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
@@ -34,6 +36,7 @@ type AppSelectProps = {
 };
 
 export function AppSelect({
+  id,
   value,
   onChange,
   options,
@@ -52,7 +55,7 @@ export function AppSelect({
       onValueChange={(v) => onChange(v === NONE || v == null ? "" : v)}
       disabled={disabled}
     >
-      <SelectTrigger className={triggerClassName}>
+      <SelectTrigger id={id} className={triggerClassName}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

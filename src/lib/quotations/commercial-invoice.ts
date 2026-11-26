@@ -74,9 +74,18 @@ export function commercialFromQuotation(lines: QuotationLineInput[], totalCents:
   return normalizeCommercialInvoice({ invoice_id: "", total: totalCents / 100, line_items: lines.map(line => ({ item_id: line.zohoItemId ?? undefined, name: line.name, description: line.description, quantity: line.quantity, rate: line.rateCents / 100, discount: `${line.discountPercent}%` })) });
 }
 export function commercialFingerprint(document: CommercialInvoice): string {
-  return quotePayloadHash({ ...document, lines: document.lines.map(({ discountInput: _discountInput, ...line }) => { void _discountInput; return stableJson(line); }).sort(), taxes: document.taxes.map(tax => stableJson(tax)).sort() });
+  return quotePayloadHash({ ...document, lines: document.lines.map(({ discountInput: _discountInput, ...line }) => { void _discountInput; return stableJson({ ...line, description: line.description.trim().replace(/\s+/g, " ") }); }).sort(), taxes: document.taxes.map(tax => stableJson(tax)).sort() });
 }
-export const commercialEqual = (a: CommercialInvoice, b: CommercialInvoice) => commercialFingerprint(a) === commercialFingerprint(b);
+export function commercialEqual(a:CommercialInvoice,b:CommercialInvoice) {
+  if(a.lines.length!==b.lines.length||commercialFingerprint({...a,lines:[]})!==commercialFingerprint({...b,lines:[]}))return false;
+  const remaining=[...b.lines];
+  for(const left of [...a.lines].sort((x,y)=>Number(Boolean(y.itemId))-Number(Boolean(x.itemId)))) {
+    const key=commercialFingerprint({...a,lines:[{...left,itemId:null}]});
+    const index=remaining.findIndex(right=>(!left.itemId||!right.itemId||left.itemId===right.itemId)&&commercialFingerprint({...a,lines:[{...right,itemId:null}]})===key);
+    if(index<0)return false;remaining.splice(index,1);
+  }
+  return true;
+}
 export function invoiceUpdateIssues(invoice: ZohoInvoice): string[] {
   if (!["draft", "sent", "overdue"].includes(invoice.status ?? "")) return ["Only a verified unpaid draft, sent or overdue invoice can be updated."];
   try {

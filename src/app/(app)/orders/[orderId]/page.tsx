@@ -10,6 +10,8 @@ import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrang
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
 import { QuoteCard } from "@/components/orders/quote-card";
+import { OrderInvoiceWorkspace } from "@/components/orders/order-invoice-workspace";
+import { usesInvoiceWorkspace } from "@/lib/invoices/service";
 import { QuotationWorkspace } from "@/components/orders/quotation-workspace";
 import { RoomOrderControls } from "@/components/orders/room-order-controls";
 import { RoomSummaryCard } from "@/components/orders/room-summary-card";
@@ -99,7 +101,8 @@ export default async function OrderDetailPage({
 
   if (!order) notFound();
 
-  const currentQuotation = await db
+  const invoiceStage = !order.is_draft && await usesInvoiceWorkspace(order.id);
+  const currentQuotation = invoiceStage ? undefined : await db
     .selectFrom("order_quotations")
     .selectAll()
     .where("order_id", "=", order.id)
@@ -107,7 +110,7 @@ export default async function OrderDetailPage({
     .executeTakeFirst();
 
   const [quotationHistory, quotationVersions, zohoCustomerLink] = await Promise.all([
-    db.selectFrom("order_quotations").select(["id", "revision", "zoho_estimate_number", "sent_at", "superseded_at", "quoted_total_cents", "pdf_storage_path"]).where("order_id", "=", order.id).where("superseded_at", "is not", null).orderBy("revision", "desc").execute(),
+    invoiceStage ? Promise.resolve([]) : db.selectFrom("order_quotations").select(["id", "revision", "zoho_estimate_number", "sent_at", "superseded_at", "quoted_total_cents", "pdf_storage_path"]).where("order_id", "=", order.id).where("superseded_at", "is not", null).orderBy("revision", "desc").execute(),
     currentQuotation
       ? db.selectFrom("order_quotation_versions").select(["id", "version", "quoted_total_cents", "pdf_storage_path", "created_at"]).where("quotation_id", "=", currentQuotation.id).orderBy("version", "desc").execute()
       : Promise.resolve([]),
@@ -423,7 +426,7 @@ export default async function OrderDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
         <div className="lg:col-span-2 space-y-4 order-1">
 
-          {!order.is_draft && (
+          {!order.is_draft && (invoiceStage ? <OrderInvoiceWorkspace orderId={order.id} /> :
             <QuotationWorkspace
               key={`${currentQuotation ? `${currentQuotation.id}:${new Date(currentQuotation.updated_at).toISOString()}` : "new"}:${order.current_status}`}
               orderId={order.id}
@@ -682,7 +685,7 @@ export default async function OrderDetailPage({
             </dl>
           </section>
 
-          {quote && (<>
+          {!invoiceStage && quote && (<>
             <div className="mb-2 text-sm font-medium text-slate-600">Manufacturing / historical quotation calculation{!order.is_draft && currentQuotation?.zoho_estimate_id ? " — current invoice status is checked in the quotation workspace" : ""}</div>
             <QuoteCard
               quote={quote}

@@ -21,8 +21,6 @@ import {
   searchZohoCustomersUi,
   syncQuotationUi,
 } from "@/lib/actions/quotations";
-import { previewInvoiceReconciliationUi } from "@/lib/actions/invoice-reconciliation";
-import { InvoiceReconciliationControls, type InvoiceCheck } from "@/components/orders/invoice-reconciliation-panel";
 import type { ActionResult } from "@/lib/user-facing-error";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -101,7 +99,6 @@ export function QuotationWorkspace(props: Props) {
   const [reviewError, setReviewError] = useState<string | null>(null);
   const reviewSeq = useRef(0);
   const checkSeq = useRef(0);
-  const [invoiceCheck, setInvoiceCheck] = useState<InvoiceCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [checkingZoho, setCheckingZoho] = useState(Boolean(props.configured && props.quote?.hasZohoEstimate));
   const [quoteCheck, setQuoteCheck] = useState<ZohoReview | null>(null);
@@ -110,12 +107,7 @@ export function QuotationWorkspace(props: Props) {
     const sequence = ++checkSeq.current;
     setCheckingZoho(true); setCheckError(null);
     try {
-      const response = await previewInvoiceReconciliationUi(props.orderId);
-      if (!response.ok) throw new Error(response.error);
-      if (sequence !== checkSeq.current) return;
-      setInvoiceCheck(response.data);
-      if (response.data.hasInvoice) { setQuotationDetailsOpen(false); setQuoteCheck(null); }
-      else if (props.canReviewZoho && props.quote?.id) {
+      if (props.canReviewZoho && props.quote?.id) {
         const comparison = await previewQuotationZohoDiffUi(props.quote.id);
         if (sequence !== checkSeq.current) return;
         if (!comparison.ok) throw new Error(comparison.error);
@@ -123,7 +115,7 @@ export function QuotationWorkspace(props: Props) {
       }
     } catch (error) { if (sequence === checkSeq.current) { setCheckError(error instanceof Error ? error.message : "Could not check Zoho. Retry."); setQuoteCheck(null); } }
     finally { if (sequence === checkSeq.current) setCheckingZoho(false); }
-  }, [props.configured, props.orderId, props.quote?.hasZohoEstimate, props.quote?.id, props.canReviewZoho]);
+  }, [props.configured, props.quote?.hasZohoEstimate, props.quote?.id, props.canReviewZoho]);
   useEffect(() => { const timer = setTimeout(() => void refreshZohoCheck(), 0); return () => { clearTimeout(timer); checkSeq.current += 1; }; }, [refreshZohoCheck, props.quote?.updatedAt, props.currentOrderStatus]);
   const [reviewChoice, setReviewChoice] = useState<"adopt" | "overwrite" | null>(null);
   const [quotationDetailsOpen, setQuotationDetailsOpen] = useState(
@@ -179,36 +171,6 @@ export function QuotationWorkspace(props: Props) {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not open quotation"); }
   }
 
-  function openInvoicePdf() {
-    if (!props.quote?.invoiceNumber) return;
-    setPreview({
-      url: `/api/orders/${props.orderId}/invoice/pdf`,
-      fileName: `${props.quote.invoiceNumber}.pdf`,
-      kind: "invoice",
-    });
-  }
-
-  function downloadInvoicePdf() {
-    if (!props.quote?.invoiceNumber) return;
-    const link = document.createElement("a");
-    link.href = `/api/orders/${props.orderId}/invoice/pdf?download=1`;
-    link.download = `${props.quote.invoiceNumber}.pdf`;
-    link.click();
-  }
-
-  async function shareInvoicePdf() {
-    if (!props.quote?.invoiceNumber) return;
-    try {
-      const url = `/api/orders/${props.orderId}/invoice/pdf`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(await response.text() || "Could not load invoice");
-      const fileName = `${props.quote.invoiceNumber}.pdf`;
-      const file = new File([await response.blob()], fileName, { type: "application/pdf" });
-      if (!navigator.share || !navigator.canShare?.({ files: [file] })) throw new Error("Sharing files is not supported on this device");
-      await navigator.share({ files: [file], title: fileName });
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not share invoice"); }
-  }
-
   async function sharePdf() {
     if (!props.quote) return;
     try {
@@ -250,9 +212,9 @@ export function QuotationWorkspace(props: Props) {
   const previouslySent = Boolean(props.quote?.sentAt);
   const synced = (props.quote?.status === "zoho_draft" || sent) && !dirty;
   const processing = props.quote?.status === "syncing" || props.quote?.status === "sending";
-  const invoiced = Boolean(props.quote?.hasZohoInvoice || invoiceCheck?.hasInvoice);
+  const invoiced = Boolean(props.quote?.hasZohoInvoice || quoteCheck?.invoiced);
   const unsynced = dirty || (previouslySent && props.quote?.status === "local_draft") || props.quote?.status === "sync_failed";
-  const statusText = checkError ? "Zoho check failed" : checkingZoho ? "Checking Zoho…" : invoiceCheck?.hasInvoice ? invoiceCheck.equal ? "Invoice synced" : "Invoice differences found" : quoteCheck?.identical ? "Quotation synced" : invoiced ? processing ? "Checking invoiced quotation…" : "Invoiced in Zoho · editing locked" : sent && !dirty ? "Sent quotation"
+  const statusText = checkError ? "Zoho check failed" : checkingZoho ? "Checking Zoho…" : quoteCheck?.identical ? "Quotation synced" : invoiced ? processing ? "Checking invoiced quotation…" : "Invoiced in Zoho · editing locked" : sent && !dirty ? "Sent quotation"
     : previouslySent && unsynced ? "Sent · changes not synced to Zoho"
     : props.quote?.status === "zoho_draft" && !dirty ? "Zoho draft ready"
     : props.quote?.status === "syncing" ? "Syncing with Zoho"
@@ -264,13 +226,12 @@ export function QuotationWorkspace(props: Props) {
     <section id="quotation-workspace" className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h2 className="text-base font-semibold text-slate-900">{invoiced ? "Customer invoice" : "Customer quotation"}</h2><p className="mt-1 text-sm text-slate-500">{!invoiced && <>Version {props.quote?.revision ?? 1} · </>}{statusText}</p></div>
-        {(invoiced ? invoiceCheck?.invoiceNumber ?? props.quote?.invoiceNumber : props.quote?.estimateNumber) && <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">{invoiced ? invoiceCheck?.invoiceNumber ?? props.quote?.invoiceNumber : props.quote?.estimateNumber}</span>}
+        {(invoiced ? props.quote?.invoiceNumber : props.quote?.estimateNumber) && <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">{invoiced ? props.quote?.invoiceNumber : props.quote?.estimateNumber}</span>}
       </div>
       {!props.configured && <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">Zoho Books is not ready. Local quote editing remains available, but an admin must reconnect Zoho Books before customer matching or official quotation generation.</p>}
       {!invoiced && !checkingZoho && props.quote?.syncError && <p role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{props.quote.syncError}</p>}
       {!invoiced && dirty && props.quote?.estimateNumber && <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">Changes not synced. Update the Zoho draft and refresh the PDF before sending.</p>}
 
-      {props.quote?.hasZohoEstimate && props.configured && <InvoiceReconciliationControls orderId={props.orderId} review={invoiceCheck} checking={checkingZoho} error={checkError} onRefresh={refreshZohoCheck} invoiceActions={props.quote?.hasZohoInvoice ? <div className="mt-3 flex flex-wrap gap-2"><Button className="h-11" variant="outline" onClick={openInvoicePdf}><ExternalLink /> Preview invoice</Button><Button aria-label="Download official invoice" className="h-11 w-11" variant="outline" onClick={downloadInvoicePdf}><Download /></Button><Button aria-label="Share official invoice" className="h-11 w-11" variant="outline" onClick={shareInvoicePdf}><Share2 /></Button></div> : null} />}
       {!invoiced && !checkingZoho && quoteCheck?.identical && <p className="mt-3 text-sm text-emerald-700">The saved quotation matches Zoho.</p>}
       <div className="mt-5 border-t pt-5">
         <h3 className="text-sm font-semibold text-slate-900">Zoho customer</h3>

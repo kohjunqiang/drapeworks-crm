@@ -54,6 +54,7 @@ export type ZohoEstimate = {
 };
 
 export type ZohoInvoice = {
+  reference_number?: string;
   write_off_amount?: number;
   tax_amount_withheld?: number;
   ach_payment_initiated?: boolean;
@@ -110,7 +111,7 @@ export function getZohoDepositPaymentConfig() {
 }
 
 export async function assertZohoCustomerPaymentsReady(): Promise<void> {
-  const context = await getZohoAccessContext();
+  const context = await getZohoAccessContext(false, true);
   requireScope(context, "ZohoBooks.customerpayments.READ", PAYMENTS_SCOPE_MESSAGE);
   requireScope(context, "ZohoBooks.customerpayments.CREATE", PAYMENTS_SCOPE_MESSAGE);
   getZohoDepositPaymentConfig();
@@ -146,7 +147,7 @@ const RETRYABLE_CODES = new Set([1070]);
 let requestTail: Promise<unknown> = Promise.resolve();
 
 async function requestRaw<T extends ZohoEnvelope>(path: string, init: RequestInit = {}, attempt = 0, forceRefresh = false, noRetry = false): Promise<T> {
-  const context = await getZohoAccessContext(forceRefresh);
+  const context = await getZohoAccessContext(forceRefresh, path.startsWith("/invoices") || path.startsWith("/customerpayments") || path.startsWith("/contacts"));
   const url = new URL(`${context.apiBaseUrl}${path}`);
   url.searchParams.set("organization_id", context.organizationId);
   const response = await fetch(url, {
@@ -159,7 +160,7 @@ async function requestRaw<T extends ZohoEnvelope>(path: string, init: RequestIni
     cache: "no-store",
     signal: init.signal ?? AbortSignal.timeout(15_000),
   });
-  if (!noRetry && response.status === 401 && attempt === 0) {
+  if (!noRetry && (init.method ?? "GET").toUpperCase() !== "POST" && response.status === 401 && attempt === 0) {
     return requestRaw<T>(path, init, 1, true);
   }
   const json = await response.json() as T;
@@ -394,7 +395,7 @@ export async function getZohoInvoice(id: string): Promise<ZohoInvoice> {
 // A commercial PUT must never retry blindly: payment activity can change
 // between attempts. The caller re-reads and reconciles any uncertain response.
 export async function updateZohoInvoiceCommercial(id: string, lines: Array<{ item_id?: string; name: string; description: string; quantity: number; rate: number; discount: string }>, customerId: string): Promise<void> {
-  const context = await getZohoAccessContext();
+  const context = await getZohoAccessContext(false, true);
   requireScope(context, "ZohoBooks.invoices.UPDATE", "Reconnect Zoho Books with invoice update permission.");
   const operation = requestTail.then(() => requestRaw<ZohoEnvelope>(`/invoices/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ customer_id: customerId, line_items: lines, discount_type: "item_level", is_inclusive_tax: false }) }, 0, false, true));
   requestTail = operation.catch(() => undefined);
@@ -417,7 +418,7 @@ export async function renameZohoInvoice(id: string, invoiceNumber: string): Prom
 }
 
 export async function listZohoCustomerPayments(customerId: string): Promise<ZohoCustomerPayment[]> {
-  const context = await getZohoAccessContext();
+  const context = await getZohoAccessContext(false, true);
   requireScope(context, "ZohoBooks.customerpayments.READ", PAYMENTS_SCOPE_MESSAGE);
   const payments: ZohoCustomerPayment[] = [];
   let page = 1;
@@ -434,7 +435,7 @@ export async function listZohoCustomerPayments(customerId: string): Promise<Zoho
 }
 
 export async function getZohoCustomerPayment(id: string): Promise<ZohoCustomerPayment> {
-  const context = await getZohoAccessContext();
+  const context = await getZohoAccessContext(false, true);
   requireScope(context, "ZohoBooks.customerpayments.READ", PAYMENTS_SCOPE_MESSAGE);
   const json = await request<ZohoEnvelope & { payment?: ZohoCustomerPayment }>(`/customerpayments/${encodeURIComponent(id)}`);
   if (!json.payment) throw new Error("Zoho customer payment not found");
@@ -450,7 +451,7 @@ export async function createZohoCustomerPayment(input: {
   accountId: string;
   paymentMode: string;
 }): Promise<ZohoCustomerPayment> {
-  const context = await getZohoAccessContext();
+  const context = await getZohoAccessContext(false, true);
   requireScope(context, "ZohoBooks.customerpayments.CREATE", PAYMENTS_SCOPE_MESSAGE);
   const amount = input.amountCents / 100;
   const json = await request<ZohoEnvelope & { payment?: ZohoCustomerPayment }>("/customerpayments", {
@@ -489,4 +490,36 @@ export async function getZohoInvoicePdf(id: string): Promise<Uint8Array> {
   const magic = new TextDecoder().decode(bytes.slice(0, 5));
   if (!type.includes("application/pdf") || bytes.length < 100 || magic !== "%PDF-") throw new Error("Zoho returned an invalid invoice PDF");
   return bytes;
+}
+
+// Invoice configuration deliberately does not depend on estimate templates/fields.
+export async function getZohoInvoiceBinding() {
+  const context = await getZohoAccessContext(false, true);
+  requireScope(context, "ZohoBooks.invoices.READ", "Reconnect Zoho Books with invoice read permission.");
+  return { organizationId: context.organizationId };
+}
+export async function listZohoCustomerInvoices(customerId: string): Promise<ZohoInvoice[]> {
+  await getZohoInvoiceBinding();
+  const invoices: ZohoInvoice[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const query = new URLSearchParams({customer_id:customerId,page:String(page),per_page:"200"});
+    const response = await request<ZohoEnvelope & { invoices?: ZohoInvoice[]; page_context?: { has_more_page?: boolean } }>(`/invoices?${query}`);
+    if (!Array.isArray(response.invoices) || typeof response.page_context?.has_more_page !== "boolean") throw new Error("Invoice search was incomplete. Retry before creating an invoice.");
+    for (const summary of response.invoices) {
+      const invoice = await getZohoInvoice(summary.invoice_id);
+      if (invoice.invoice_id !== summary.invoice_id || invoice.customer_id !== customerId) throw new Error("Invoice search identity mismatch");
+      invoices.push(invoice);
+    }
+    if (!response.page_context.has_more_page) return invoices;
+  }
+  throw new Error("Invoice search exceeded the safe page limit");
+}
+export async function createZohoOrderInvoice(input: { customerId: string; orderId: string; lines: Parameters<typeof updateZohoInvoiceCommercial>[1]; date: string }): Promise<ZohoInvoice> {
+  const context = await getZohoAccessContext(false, true);
+  requireScope(context,"ZohoBooks.invoices.CREATE","Reconnect Zoho Books with invoice create permission.");
+  const operation=requestTail.then(()=>requestRaw<ZohoEnvelope & {invoice?:ZohoInvoice}>("/invoices",{method:"POST",body:JSON.stringify({customer_id:input.customerId,reference_number:`CRM-ORDER-${input.orderId}`,date:input.date,line_items:input.lines,discount_type:"item_level",is_inclusive_tax:false})},0,false,true));
+  requestTail=operation.catch(()=>undefined);
+  const response=await operation;
+  if(!response.invoice?.invoice_id) throw new Error("Invoice creation acknowledgement did not contain an ID. Reconcile before retrying.");
+  return response.invoice;
 }

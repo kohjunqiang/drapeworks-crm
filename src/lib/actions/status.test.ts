@@ -16,7 +16,6 @@ vi.mock("@/lib/db/kysely", () => ({ db: { transaction: mocks.transaction } }));
 vi.mock("@/lib/actions/quotations", () => ({ ensureZohoInvoiceForOrder: mocks.ensureZohoInvoiceForOrder }));
 vi.mock("@/lib/logistics/load", () => ({ loadOrderShipmentState: mocks.load }));
 
-import { UserFacingError } from "@/lib/user-facing-error";
 import { advanceOrderStatus, advanceOrderStatusUi } from "./status";
 
 const orderId = "a31fd642-0fe2-4066-9762-880b0e023471";
@@ -392,75 +391,11 @@ describe("tracking numbers on arrived shipments during a manual advance", () => 
   });
 });
 
-describe("advanceOrderStatusUi result wrapper", () => {
-  const invoiceInput = { orderId, expectedStatus: "quotation_sent" };
-
-  it("returns the deliberate invoice message without opening the status transaction", async () => {
-    const deliberate = new UserFacingError(
-      "The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice",
-    );
-    mocks.ensureZohoInvoiceForOrder.mockRejectedValue(deliberate);
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await advanceOrderStatusUi(invoiceInput);
-
-    expect(result).toEqual({
-      ok: false,
-      error: "The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice",
-    });
-    expect(mocks.transaction).not.toHaveBeenCalled();
-    expect(consoleSpy).not.toHaveBeenCalled();
-  });
-
-  it("returns a generic fallback for an unexpected raw error and never leaks it", async () => {
-    mocks.ensureZohoInvoiceForOrder.mockRejectedValue(
-      new Error("RAW-SECRET-401 oauth_token=abc123"),
-    );
-    vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await advanceOrderStatusUi(invoiceInput);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("The order status could not be updated. Refresh and try again.");
-      expect(result.error).not.toContain("RAW-SECRET");
-    }
-    expect(mocks.transaction).not.toHaveBeenCalled();
-  });
-
-  it("still enforces the ops/admin role guard", async () => {
-    mocks.requireRole.mockRejectedValue(new Error("Forbidden"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const result = await advanceOrderStatusUi(invoiceInput);
-
-    expect(result.ok).toBe(false);
+describe("retired generic deposit transition", () => {
+  it("requires the invoice-owned verified flow and never touches estimates", async () => {
+    const result=await advanceOrderStatusUi({orderId,expectedStatus:"quotation_sent"});
+    expect(result).toEqual({ok:false,error:"Verify the current order invoice and deposit in the invoice workspace."});
     expect(mocks.ensureZohoInvoiceForOrder).not.toHaveBeenCalled();
     expect(mocks.transaction).not.toHaveBeenCalled();
-  });
-});
-
-
-describe("deposit stage verification receipt", () => {
-  const receipt = { commercialFingerprint: "commercial-fingerprint", quotationId: "quote-1", invoiceId: "inv-1", paymentId: "pay-1", orderTotalCents: 473000, depositCents: 236500 };
-  const quotation = { id: "quote-1", status: "conflict", zoho_invoice_id: "inv-1", zoho_payment_id: "pay-1", invoice_sync_state: "created", payment_sync_state: "created" };
-  it("advances with verified existing invoice/payment despite historical quotation conflict", async () => {
-    mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);
-    const { values, state } = setupOrder("quotation_sent", { quotation });
-    await advanceOrderStatus({ orderId, expectedStatus: "quotation_sent" });
-    expect(state.status).toBe("deposit_received");
-    expect(values).toHaveBeenCalledWith(expect.objectContaining({ status: "deposit_received" }));
-  });
-  it.each([null, { ...quotation, id: "new-quote" }, { ...quotation, status: "syncing" }, { ...quotation, status: "sending" }, { ...quotation, status: "superseded" }, { ...quotation, zoho_payment_id: "other" }, { ...quotation, zoho_invoice_id: "other" }, { ...quotation, payment_sync_state: "uncertain" }, { ...quotation, invoice_sync_state: "pending" }])("blocks changed or absent active invoice/payment state %j", async current => {
-    mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);
-    const { trx } = setupOrder("quotation_sent", { quotation: current });
-    await expect(advanceOrderStatus({ orderId, expectedStatus: "quotation_sent" })).rejects.toThrow("verified invoice/payment links changed");
-    expect(trx.insertInto).not.toHaveBeenCalled();
-  });
-  it.each([{ total: 500000 }, { deposit: 240000 }])("blocks amounts changed after remote verification %j", async amounts => {
-    mocks.ensureZohoInvoiceForOrder.mockResolvedValue(receipt);
-    const { trx } = setupOrder("quotation_sent", { quotation, ...amounts });
-    await expect(advanceOrderStatus({ orderId, expectedStatus: "quotation_sent" })).rejects.toThrow("order amounts");
-    expect(trx.insertInto).not.toHaveBeenCalled();
   });
 });

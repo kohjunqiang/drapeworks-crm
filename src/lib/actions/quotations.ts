@@ -9,9 +9,6 @@ import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { DB, Json, OrderQuotations } from "@/lib/db/schema";
 import { sql, type Selectable, type Transaction } from "kysely";
-import { commercialFingerprint as fingerprintCommercial, normalizeCommercialInvoice } from "@/lib/quotations/commercial-invoice";
-import { findDepositPayment } from "@/lib/quotations/deposit-verification";
-import { loadCommercialSnapshot, verifyCommercialForDeposit } from "@/lib/quotations/commercial-store";
 import { leadMilestoneForOrderStatus } from "@/lib/status-flow";
 import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
 import { adminClient } from "@/lib/supabase/admin";
@@ -38,20 +35,13 @@ import {
   listZohoItems,
   markZohoEstimateSent,
   syncZohoEstimate,
-  convertZohoEstimateToInvoice,
-  createZohoCustomerPayment,
-  assertZohoCustomerPaymentsReady,
-  getZohoCustomerPayment,
-  getZohoDepositPaymentConfig,
-  listZohoCustomerPayments,
 } from "@/lib/zoho/books";
-import { decideEstimateSnapshot, estimateSnapshotHash, matchesStoredZohoEstimate, zohoAdoptionFingerprint } from "@/lib/quotations/hash";
+import { estimateSnapshotHash, zohoAdoptionFingerprint } from "@/lib/quotations/hash";
 import { hasZohoInvoice, invoiceFinancialDifferences, invoiceFingerprint, invoiceReconciliationIssues, optionalMoneyCents, orderReconciliationFingerprint } from "@/lib/quotations/invoice-reconciliation";
 import type { ZohoEstimate, ZohoInvoice } from "@/lib/zoho/books";
-import { ZohoEstimateConversionRejectedError } from "@/lib/zoho/conversion-error";
 import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, QUOTATION_INVOICED_MESSAGE, quotationBreakdown } from "@/lib/quotations/lifecycle";
 import { adoptedTotalMatches, isValidZohoDate, zohoAdoptionIssues, zohoLineForDisplay, zohoRemoteTotalCents, zohoValidatedLines } from "@/lib/quotations/zoho-adoption";
-import { defaultCustomerMessage, isGeneratedCustomerMessage, quotationDateOnly, quotationTotalCents, toLegacyZohoEstimatePayload, toZohoEstimatePayload } from "@/lib/quotations/model";
+import { defaultCustomerMessage, isGeneratedCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 import { actionErrorMessage, toActionResult, UserFacingError } from "@/lib/user-facing-error";
 
 const BUCKET = "customer-quotations";
@@ -834,325 +824,15 @@ export async function createQuotationRevision(quotationId: string) {
   return { id: nextId };
 }
 
-async function assertFinancialOperationCurrent(input: { orderId: string; quotationId: string; totalCents: number; depositCents: number; stage: string; invoiceId?: string; commercialFingerprint?: string; claimToken: string; kind: "invoice" | "payment" }) {
-  await db.transaction().execute(async trx => {
-    const order = await trx.selectFrom("orders").select(["current_status", "price_quoted_cents", "deposit_cents"]).where("id", "=", input.orderId).forUpdate().executeTakeFirstOrThrow();
-    const quote = await trx.selectFrom("order_quotations").selectAll().where("id", "=", input.quotationId).forUpdate().executeTakeFirstOrThrow();
-    if (input.kind === "payment") {
-      const commercial = await loadCommercialSnapshot(input.orderId, trx, true);
-      if (!commercial || commercial.state !== "synced" || commercial.invoice_id !== input.invoiceId || commercial.synced_fingerprint !== input.commercialFingerprint) throw new UserFacingError("Commercial invoice details changed. Review them before recording a payment.");
-    }
-    if (order.current_status !== input.stage || order.price_quoted_cents !== input.totalCents || order.deposit_cents !== input.depositCents || quote.superseded_at || ["syncing", "sending"].includes(quote.status) || (input.invoiceId && quote.zoho_invoice_id !== input.invoiceId) || (input.kind === "invoice" ? quote.status !== "sent" || quote.quoted_total_cents !== input.totalCents || quote.invoice_claim_token !== input.claimToken || quote.invoice_sync_state !== "pending" : quote.payment_claim_token !== input.claimToken || quote.payment_sync_state !== "pending")) throw new UserFacingError("The order amounts, stage or financial operation changed. Refresh before continuing; no new financial record was created.");
-  });
-}
-
-/** Idempotent remote prerequisite for quotation_sent -> deposit_received. */
-async function findConvertedInvoiceId(estimateId: string): Promise<string | null> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
-    const estimate = await getZohoEstimate(estimateId);
-    if ((estimate.invoice_ids?.length ?? 0) > 1) throw new UserFacingError("Multiple invoices are linked to this quotation. Reconcile the invoice links in Zoho before continuing.");
-    if (estimate.invoice_ids?.length === 1) return estimate.invoice_ids[0];
-  }
-  return null;
-}
-
-
-async function ensureZohoDepositPaymentForQuote(input: {
-  orderId: string; orderTotalCents: number; orderStage: string; commercialFingerprint: string;
-  reuseOnly?: boolean; expectedPaymentId?: string;
-  quotationId: string;
-  displayId: string;
-  customerId: string;
-  invoiceId: string;
-  invoiceNumber: string | null;
-  depositCents: number;
-}) {
-  if (input.depositCents <= 0) throw new UserFacingError("A positive deposit is required before recording a Zoho payment");
-  const config = getZohoDepositPaymentConfig();
-  const referenceNumber = `CRM-${input.displayId}-DEPOSIT`;
-  const claimToken = randomUUID();
-  const operation = await db.transaction().execute(async (trx) => {
-    const currentOrder = await trx.selectFrom("orders").select(["current_status", "price_quoted_cents", "deposit_cents"]).where("id", "=", input.orderId).forUpdate().executeTakeFirstOrThrow();
-    if (!["quotation_sent", "deposit_received", "order_recorded"].includes(currentOrder.current_status) || currentOrder.price_quoted_cents !== input.orderTotalCents || currentOrder.deposit_cents !== input.depositCents) throw new UserFacingError("The CRM order amounts or stage changed. Refresh before recording a payment.");
-    const quote = await trx.selectFrom("order_quotations").selectAll().where("id", "=", input.quotationId).forUpdate().executeTakeFirstOrThrow();
-    if (quote.superseded_at || ["syncing", "sending"].includes(quote.status) || quote.zoho_invoice_id !== input.invoiceId) throw new UserFacingError("The active quotation or invoice link changed. Refresh before recording a payment.");
-    if (quote.zoho_payment_id && quote.payment_sync_state === "created") return { quote, claimed: false, reconcileOnly: false };
-    const staleBefore = new Date(Date.now() - 2 * 60_000);
-    const reconcileOnly = quote.payment_sync_state === "uncertain" || quote.payment_sync_state === "pending";
-    const claim = await trx.updateTable("order_quotations").set({
-      payment_sync_state: "pending", payment_claimed_at: new Date(), payment_claim_token: claimToken,
-      payment_sync_error: null, payment_uncertain_at: reconcileOnly ? (quote.payment_uncertain_at ?? quote.payment_claimed_at ?? new Date()) : null,
-    }).where("id", "=", quote.id)
-      .where((eb) => eb.or([eb("payment_sync_state", "in", ["not_started", "failed", "uncertain"]), eb("payment_claimed_at", "<", staleBefore)]))
-      .returning("id").executeTakeFirst();
-    if (!claim) throw new UserFacingError("The Zoho deposit payment is already being recorded. Wait a moment and try again.");
-    return { quote, claimed: true, reconcileOnly };
-  });
-  let paymentUncertain = false;
-  try {
-    const storedPayment = operation.quote.zoho_payment_id ? await getZohoCustomerPayment(operation.quote.zoho_payment_id) : null;
-    if (storedPayment && (storedPayment.payment_id !== operation.quote.zoho_payment_id || storedPayment.customer_id !== input.customerId || storedPayment.payment_mode?.toLowerCase() !== "paynow" || Math.round(Number(storedPayment.amount) * 100) !== input.depositCents || Math.round(Number(storedPayment.invoices?.find(invoice => invoice.invoice_id === input.invoiceId)?.amount_applied) * 100) !== input.depositCents || (storedPayment.account_id && storedPayment.account_id !== config.accountId))) throw new UserFacingError("The linked Zoho payment no longer matches this invoice, CRM deposit, PayNow mode or MariBank account. Reconcile it before continuing.");
-    let payment = await findDepositPayment({
-      customerId: input.customerId, invoiceId: input.invoiceId, invoiceNumber: input.invoiceNumber,
-      amountCents: input.depositCents, referenceNumber, accountId: config.accountId,
-    });
-    if (storedPayment) {
-      if (payment && payment.payment_id !== storedPayment.payment_id) throw new UserFacingError("Multiple matching payments were found. Reconcile them in Zoho before continuing.");
-      payment = storedPayment;
-    }
-    if (input.reuseOnly && (!payment || payment.payment_id !== input.expectedPaymentId)) throw new UserFacingError("The previously verified payment is no longer available. Refresh the Zoho check; no new payment was created.");
-    if (!payment && operation.reconcileOnly) {
-      const uncertainSince = operation.quote.payment_uncertain_at ?? operation.quote.payment_claimed_at ?? new Date();
-      if (new Date(uncertainSince).getTime() > Date.now() - 5 * 60_000) {
-        paymentUncertain = true;
-        throw new UserFacingError("Zoho payment creation is still uncertain. Wait five minutes, then check again; no second payment will be created meanwhile.");
-      }
-    }
-    if (!payment) {
-      // Re-read after the full payment search: a payment may have arrived while
-      // the customer list was being paginated. Unknown is never proof of absence.
-      const liveInvoice = await getZohoInvoice(input.invoiceId);
-      if (liveInvoice.invoice_id !== input.invoiceId || liveInvoice.customer_id !== input.customerId || liveInvoice.currency_code !== "SGD" || !["draft", "sent", "overdue"].includes(liveInvoice.status ?? "") || optionalMoneyCents(liveInvoice.total) !== input.orderTotalCents || optionalMoneyCents(liveInvoice.payment_made) !== 0 || optionalMoneyCents(liveInvoice.credits_applied) !== 0 || optionalMoneyCents(liveInvoice.balance) !== input.orderTotalCents || Number(liveInvoice.balance) * 100 < input.depositCents) throw new UserFacingError("Existing payments or credits cannot be ruled out, or the invoice balance changed. Reconcile payments in Zoho before recording a deposit; no new payment was created.");
-      try { if (fingerprintCommercial(normalizeCommercialInvoice(liveInvoice)) !== input.commercialFingerprint) throw new Error("changed"); }
-      catch { throw new UserFacingError("Invoice commercial items changed during payment verification. Reconcile them before recording any payment."); }
-      await assertFinancialOperationCurrent({ orderId: input.orderId, quotationId: input.quotationId, totalCents: input.orderTotalCents, depositCents: input.depositCents, stage: input.orderStage, invoiceId: input.invoiceId, commercialFingerprint: input.commercialFingerprint, claimToken, kind: "payment" });
-      paymentUncertain = true;
-      const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-      try {
-        payment = await createZohoCustomerPayment({
-          customerId: input.customerId, invoiceId: input.invoiceId, amountCents: input.depositCents,
-          date, referenceNumber, accountId: config.accountId, paymentMode: config.paymentMode,
-        });
-      } catch (error) {
-        for (let attempt = 0; attempt < 3 && !payment; attempt += 1) {
-          if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
-          payment = await findDepositPayment({
-            customerId: input.customerId, invoiceId: input.invoiceId, invoiceNumber: input.invoiceNumber,
-            amountCents: input.depositCents, referenceNumber, accountId: config.accountId,
-          });
-        }
-        if (!payment) {
-          console.error("Zoho deposit payment creation response was lost", error);
-          throw new UserFacingError("Zoho may have recorded the deposit payment but its response was lost. Wait five minutes, then check again; payment creation is locked meanwhile.");
-        }
-      }
-    }
-    const verified = await getZohoCustomerPayment(payment.payment_id);
-    const applied = verified.invoices?.find((invoice) => invoice.invoice_id === input.invoiceId);
-    if (verified.payment_id !== payment.payment_id || verified.customer_id !== input.customerId || verified.payment_mode?.toLowerCase() !== "paynow" || Math.round(Number(verified.amount) * 100) !== input.depositCents || Math.round(Number(applied?.amount_applied) * 100) !== input.depositCents || (verified.account_id && verified.account_id !== config.accountId)) {
-      throw new UserFacingError("Zoho returned a deposit payment that does not match the CRM order");
-    }
-    if (!operation.claimed) return verified.payment_id;
-    const finalized = await db.updateTable("order_quotations").set({
-      zoho_payment_id: verified.payment_id, zoho_payment_number: verified.payment_number ?? null,
-      payment_created_at: new Date(), payment_sync_state: "created", payment_claim_token: null,
-      payment_claimed_at: null, payment_uncertain_at: null, payment_sync_error: null,
-    }).where("id", "=", input.quotationId).where("payment_sync_state", "=", "pending").where("payment_claim_token", "=", claimToken).returning("id").executeTakeFirst();
-    if (!finalized) throw new UserFacingError("The deposit was recorded in Zoho but its CRM claim changed; reconcile before continuing");
-    return verified.payment_id;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Zoho deposit payment failed";
-    if (operation.claimed) await db.updateTable("order_quotations").set({
-      payment_sync_state: paymentUncertain ? "uncertain" : "failed", payment_claim_token: null, payment_claimed_at: null,
-      payment_uncertain_at: paymentUncertain ? (operation.quote.payment_uncertain_at ?? new Date()) : null, payment_sync_error: message,
-    }).where("id", "=", input.quotationId).where("payment_sync_state", "=", "pending").where("payment_claim_token", "=", claimToken).execute();
-    throw error;
-  }
-}
-
 export type InvoicePaymentReceipt = {
   quotationId: string; invoiceId: string; paymentId: string; orderTotalCents: number; depositCents: number; commercialFingerprint: string;
 };
 
+// Retired financial entry point: stale clients cannot convert estimates or write
+// invoice/payment links in historical quotation storage.
 export async function ensureZohoInvoiceForOrder(orderId: string, options?: { recoverExistingInvoice?: boolean; reuseOnly?: boolean; expectedPaymentId?: string }): Promise<InvoicePaymentReceipt> {
-  const session = await requireRole(["ops", "admin"]);
-  const invoiceClaimToken = randomUUID();
-  const operation = await db.transaction().execute(async (trx) => {
-    const order = await trx.selectFrom("orders").select(["current_status", "is_draft", "price_quoted_cents", "deposit_cents", "display_id", "order_reference", "consultant_id"]).where("id", "=", orderId).forUpdate().executeTakeFirst();
-    if (!order || order.is_draft || !["quotation_sent", "deposit_received", ...(options?.recoverExistingInvoice ? ["order_recorded"] : [])].includes(order.current_status)) {
-      throw new UserFacingError("The order must be at Quotation Sent or Deposit Received before reconciling its Zoho invoice and payment");
-    }
-    const quote = await trx.selectFrom("order_quotations").selectAll().where("order_id", "=", orderId).where("superseded_at", "is", null).forUpdate().executeTakeFirst();
-    if (!quote) throw new UserFacingError("Create and send the official Zoho quotation before recording the deposit");
-    if (!quote.zoho_estimate_id) throw new UserFacingError("The quotation has no linked Zoho estimate. Ask an admin to verify the order's document links.");
-    if (["syncing", "sending"].includes(quote.status)) throw new UserFacingError("The quotation is being processed. Wait and refresh before recording the deposit.");
-    if (quote.zoho_invoice_id && quote.invoice_sync_state === "created") return { quote, order, claimed: false, reconcileOnly: false };
-    const staleBefore = new Date(Date.now() - 2 * 60_000);
-    const reconcileOnly = quote.invoice_sync_state === "uncertain" || quote.invoice_sync_state === "pending";
-    const claim = await trx.updateTable("order_quotations").set({
-      invoice_sync_state: "pending", invoice_claimed_at: new Date(), invoice_claim_token: invoiceClaimToken,
-      invoice_sync_error: null, invoice_uncertain_at: reconcileOnly ? (quote.invoice_uncertain_at ?? quote.invoice_claimed_at ?? new Date()) : null,
-    })
-      .where("id", "=", quote.id).where("superseded_at", "is", null).where("status", "not in", ["syncing", "sending"])
-      .where((eb) => eb.or([eb("invoice_sync_state", "in", ["not_started", "failed", "uncertain"]), eb("invoice_claimed_at", "<", staleBefore)]))
-      .returning("id").executeTakeFirst();
-    if (!claim) throw new UserFacingError("The Zoho invoice is already being created. Wait a moment and try again.");
-    return { quote, order, claimed: true, reconcileOnly };
-  });
-  const { quote, order, claimed, reconcileOnly } = operation;
-  let conversionUncertain = false;
-  let invoiceFinalized = !claimed;
-  try {
-    const estimateId = quote.zoho_estimate_id;
-    if (!estimateId) throw new UserFacingError("The official Zoho quotation is missing its Estimate ID");
-    const remote = await getZohoEstimate(estimateId);
-    if (!quote.zoho_contact_id) throw new UserFacingError("The sent quotation has no confirmed Zoho customer");
-    if (order.deposit_cents <= 0 || order.deposit_cents > order.price_quoted_cents) {
-      throw new UserFacingError("The CRM deposit must be greater than zero and no more than the CRM order total");
-    }
-    if (remote.estimate_id !== estimateId || remote.customer_id !== quote.zoho_contact_id || remote.currency_code !== "SGD" || crmKeyConflicts(await crmKeyOf(remote), quote.crm_quote_key)) throw new UserFacingError("The Zoho quotation identity, customer or currency does not match this order.");
-    if ((remote.invoice_ids?.length ?? 0) > 1) throw new UserFacingError("Multiple invoices are linked to this quotation. Reconcile the invoice links in Zoho before continuing.");
-    if (quote.zoho_invoice_id && remote.invoice_ids?.[0] !== quote.zoho_invoice_id) throw new UserFacingError("The stored Zoho invoice is no longer the single invoice linked to this quotation.");
-    const existingInvoiceId = quote.zoho_invoice_id ?? remote.invoice_ids?.[0];
-    if (!existingInvoiceId && options?.reuseOnly) throw new UserFacingError("The existing invoice is no longer available. Refresh the Zoho check; no invoice or payment was created.");
-    if (!existingInvoiceId && order.current_status === "order_recorded") throw new UserFacingError("Stage recovery requires an existing invoice; no new invoice will be created.");
-    if (!existingInvoiceId && remote.status === "invoiced" && !reconcileOnly) throw new UserFacingError("Zoho says this quotation is invoiced but its invoice link is unavailable. Check its existing invoice in Zoho; no new invoice will be created.");
-    if (!existingInvoiceId && !reconcileOnly) {
-      if (quote.status !== "sent") throw new UserFacingError("Sync and send the official quotation before creating a new invoice.");
-      if (quote.quoted_total_cents !== order.price_quoted_cents || Math.round(Number(remote.total) * 100) !== order.price_quoted_cents) throw new UserFacingError("The quotation total must match the CRM order total before creating a new invoice. Resolve the quotation and order amounts first.");
-      const remoteKey = await crmKeyOf(remote);
-      const remoteSnapshotHash = estimateSnapshotHash(remote as unknown as Record<string, unknown>);
-      const matchInput = {
-        remoteKey,
-        expectedKey: quote.crm_quote_key,
-        remoteCustomerId: remote.customer_id,
-        expectedCustomerId: quote.zoho_contact_id,
-        remoteCurrency: remote.currency_code,
-        remoteTotalCents: Math.round(Number(remote.total) * 100),
-        expectedTotalCents: quote.quoted_total_cents,
-        remoteStatus: remote.status,
-        remoteSnapshotHash,
-      };
-      let decision = decideEstimateSnapshot({ ...matchInput, storedSnapshotHash: quote.synced_payload_hash });
-      if (decision === "reject" && matchesStoredZohoEstimate({ ...matchInput, storedSnapshotHash: remoteSnapshotHash })) {
-        // Quotations synced before the canonical fingerprint stored
-        // hash(full Zoho request payload) instead of hash(comparable snapshot).
-        // Rebuild that exact payload from the persisted quotation; the legacy
-        // hash is accepted only when it matches byte-for-byte AND its canonical
-        // form equals the live remote snapshot, so any drift still rejects.
-        // Those payloads predate the percentage-discount fix and serialized the
-        // discount as a bare number, so the reconstruction must too.
-        const consultant = order.consultant_id
-          ? await db.selectFrom("profiles").select("full_name").where("id", "=", order.consultant_id).executeTakeFirst()
-          : null;
-        const binding = await getZohoBooksBinding();
-        const legacyPayload = toLegacyZohoEstimatePayload({
-          contactId: quote.zoho_contact_id,
-          referenceNumber: order.order_reference || order.display_id,
-          issueDate: quotationDateOnly(quote.issue_date),
-          expiryDate: quotationDateOnly(quote.expiry_date),
-          lines: linesOf(quote),
-          notes: quote.notes ?? "",
-          terms: quote.terms ?? "",
-          salespersonName: consultant?.full_name ?? null,
-          templateId: binding.estimateTemplateId,
-        });
-        decision = decideEstimateSnapshot({
-          ...matchInput,
-          storedSnapshotHash: quote.synced_payload_hash,
-          legacyPayload: legacyPayload as Record<string, unknown>,
-        });
-      }
-      if (decision === "reject") throw new UserFacingError("The sent Zoho quotation no longer matches the CRM snapshot; reconcile it before creating an invoice");
-    }
-    // Fail before converting the quotation if the payment destination or a
-    // newly-required OAuth permission is missing. This avoids leaving a new
-    // invoice behind when the second half of the operation cannot start.
-    await assertZohoCustomerPaymentsReady();
-    await listZohoCustomerPayments(quote.zoho_contact_id);
-    let created: { invoice_id: string; invoice_number?: string };
-    if (existingInvoiceId) {
-      created = { invoice_id: existingInvoiceId };
-    } else if (reconcileOnly) {
-      const reconciledId = await findConvertedInvoiceId(estimateId);
-      if (!reconciledId) {
-        const uncertainSince = quote.invoice_uncertain_at ?? quote.invoice_claimed_at ?? new Date();
-        if (new Date(uncertainSince).getTime() > Date.now() - 5 * 60_000) conversionUncertain = true;
-        throw new UserFacingError(conversionUncertain
-          ? "Zoho invoice creation is still uncertain. Wait five minutes, then check again; no second invoice will be created meanwhile."
-          : "Zoho was checked after the safety wait and no linked invoice was found. Run the deposit action again to create it.");
-      }
-      created = { invoice_id: reconciledId };
-    } else {
-      await assertFinancialOperationCurrent({ orderId, quotationId: quote.id, totalCents: order.price_quoted_cents, depositCents: order.deposit_cents, stage: order.current_status, claimToken: invoiceClaimToken, kind: "invoice" });
-      conversionUncertain = true;
-      let conversion: { invoice_id: string; invoice_number?: string } | null = null;
-      let conversionError: unknown = null;
-      try {
-        conversion = await convertZohoEstimateToInvoice(estimateId);
-      } catch (error) {
-        conversionError = error;
-      }
-      if (conversion?.invoice_id) {
-        created = conversion;
-      } else {
-        // Whether the POST was acknowledged without an invoice object (the
-        // documented success shape), explicitly refused, or its response was
-        // lost, the estimate's invoice_ids is the authoritative link. A failed
-        // lookup propagates with the claim still uncertain — reconciliation
-        // trouble can never mark the state definitively.
-        const reconciledId = await findConvertedInvoiceId(estimateId);
-        if (reconciledId) {
-          created = { invoice_id: reconciledId };
-        } else if (conversionError instanceof ZohoEstimateConversionRejectedError) {
-          // A typed refusal is safe to fail hard: the POST reached Zoho and
-          // nothing was created, so there is no uncertainty and no reason to
-          // hold the five-minute safety lock.
-          conversionUncertain = false;
-          throw new UserFacingError(`Zoho rejected the invoice conversion (code ${conversionError.code}). Check the quotation and invoice numbering in Zoho Books, then try again.`);
-        } else if (conversionError) {
-          console.error("Zoho invoice conversion response was lost", conversionError);
-          throw new UserFacingError("Zoho may have created the invoice but its response was lost. Wait five minutes, then check again; creation is locked meanwhile.");
-        } else {
-          throw new UserFacingError("Zoho confirmed the quotation conversion but no invoice is linked to it yet. Wait five minutes, then check again; creation is locked meanwhile.");
-        }
-      }
-    }
-    if (claimed && !quote.zoho_invoice_id && !existingInvoiceId) {
-      await db.updateTable("order_quotations").set({ zoho_invoice_id: created.invoice_id, zoho_invoice_number: created.invoice_number ?? null })
-        .where("id", "=", quote.id).where("invoice_sync_state", "=", "pending").where("invoice_claim_token", "=", invoiceClaimToken).executeTakeFirstOrThrow();
-      conversionUncertain = false;
-    }
-    const invoice = await getZohoInvoice(created.invoice_id);
-    // Zoho's live Invoice response does not consistently include an
-    // `invoiced_estimate_id`, even for invoices created from an Estimate. The
-    // Estimate's `invoice_ids` relationship is the authoritative link and is
-    // also what the retry/reconciliation path uses to prevent duplicates.
-    const linkedInvoiceId = await findConvertedInvoiceId(estimateId);
-    const usableInvoiceStatuses = new Set(["draft", "sent", "overdue", "paid", "partially_paid"]);
-    if (invoice.invoice_id !== created.invoice_id || !invoice.status || !usableInvoiceStatuses.has(invoice.status) || linkedInvoiceId !== invoice.invoice_id || invoice.customer_id !== quote.zoho_contact_id || invoice.currency_code !== "SGD") throw new UserFacingError("The Zoho invoice is void, unusable, or its identity, customer or currency does not match this order. Reconcile it before recording the deposit.");
-    const invoiceTotalCents = optionalMoneyCents(invoice.total);
-    if (invoiceTotalCents !== order.price_quoted_cents) throw new UserFacingError(`Invoice ${invoice.invoice_number ?? invoice.invoice_id} total ${invoiceTotalCents === null ? "Unknown" : `SGD ${(invoiceTotalCents / 100).toFixed(2)}`} differs from CRM order total SGD ${(order.price_quoted_cents / 100).toFixed(2)}. Resolve the order/invoice discrepancy before recording the deposit; neither amount was changed.`);
-    const commercialFingerprint = await verifyCommercialForDeposit({ orderId, quotationId: quote.id, lines: linesOf(quote), quotationTotalCents: quote.quoted_total_cents, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents, invoice, actorId: session.user.id });
-    // Zoho Books owns the invoice number on its own sequence; the CRM keeps
-    // whatever Zoho assigned and never renames it.
-    if (claimed) {
-      const finalized = await db.updateTable("order_quotations").set({ zoho_invoice_id: invoice.invoice_id, zoho_invoice_number: invoice.invoice_number ?? null, invoice_created_at: new Date(), invoice_sync_state: "created", invoice_claim_token: null, invoice_claimed_at: null, invoice_uncertain_at: null, invoice_sync_error: null, zoho_status: "invoiced" }).where("id", "=", quote.id).where("invoice_claim_token", "=", invoiceClaimToken).returning("id").executeTakeFirst();
-      if (!finalized) throw new UserFacingError("The invoice was created in Zoho but its CRM claim changed; reconcile before recording the deposit");
-      invoiceFinalized = true;
-    }
-    const paymentId = await ensureZohoDepositPaymentForQuote({
-      orderId, orderTotalCents: order.price_quoted_cents, orderStage: order.current_status, commercialFingerprint, reuseOnly: options?.reuseOnly, expectedPaymentId: options?.expectedPaymentId,
-      quotationId: quote.id, displayId: order.display_id, customerId: quote.zoho_contact_id,
-      invoiceId: invoice.invoice_id, invoiceNumber: invoice.invoice_number ?? quote.zoho_invoice_number,
-      depositCents: order.deposit_cents,
-    });
-    const finalInvoice = await getZohoInvoice(invoice.invoice_id);
-    const finalEstimate = await getZohoEstimate(estimateId);
-    if (finalInvoice.invoice_id !== invoice.invoice_id || finalInvoice.customer_id !== quote.zoho_contact_id || finalInvoice.currency_code !== "SGD" || !["draft", "sent", "overdue", "paid", "partially_paid"].includes(finalInvoice.status ?? "") || finalEstimate.estimate_id !== estimateId || finalEstimate.customer_id !== quote.zoho_contact_id || finalEstimate.currency_code !== "SGD" || finalEstimate.invoice_ids?.length !== 1 || finalEstimate.invoice_ids[0] !== invoice.invoice_id || crmKeyConflicts(await crmKeyOf(finalEstimate), quote.crm_quote_key)) throw new UserFacingError("Invoice identity, status or quotation link changed while verifying the deposit. Refresh and reconcile before advancing.");
-    await verifyCommercialForDeposit({ orderId, quotationId: quote.id, lines: linesOf(quote), quotationTotalCents: quote.quoted_total_cents, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents, invoice: finalInvoice, actorId: session.user.id });
-    const receipt = { quotationId: quote.id, invoiceId: invoice.invoice_id, paymentId, commercialFingerprint, orderTotalCents: order.price_quoted_cents, depositCents: order.deposit_cents };
-    revalidatePath(`/orders/${orderId}`);
-    return receipt;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Zoho invoice creation failed";
-    if (claimed && !invoiceFinalized) await db.updateTable("order_quotations").set({
-      invoice_sync_state: conversionUncertain ? "uncertain" : "failed", invoice_claim_token: null, invoice_claimed_at: null,
-      invoice_uncertain_at: conversionUncertain ? (quote.invoice_uncertain_at ?? new Date()) : null, invoice_sync_error: message,
-    }).where("id", "=", quote.id).where("invoice_sync_state", "=", "pending").where("invoice_claim_token", "=", invoiceClaimToken).execute();
-    throw error;
-  }
+  await requireRole(["ops", "admin"]);void orderId;void options;
+  throw new UserFacingError("Open the current order invoice workspace to verify invoice items and deposit.");
 }
 
 // Server Action errors are redacted to a digest in production, so the deposit

@@ -14,6 +14,11 @@ describe("commercial invoice authority", () => {
     expect(normalizeCommercialInvoice({ invoice_id: "i", total: 0.98, line_items: [{ name: "Base", quantity: 1, rate: 1 }, { name: "Waiver", quantity: 0.5, rate: -0.03, item_total: -0.02 }] }).lines[1].totalCents).toBe(-2);
     expect(() => normalizeCommercialInvoice({ invoice_id: "i", total: 99, line_items: [{ name: "Base", quantity: 1, rate: 100 }, { name: "Invalid", quantity: 1, rate: 1, discount: 2 }] })).toThrow();
   });
+  it("matches a manual CRM item when Zoho assigns a catalogue ID without ignoring conflicting explicit IDs",()=>{
+    const manual=normalizeCommercialInvoice({...invoice,line_items:[{...line,item_id:undefined}]});
+    expect(commercialEqual(manual,normalizeCommercialInvoice(invoice))).toBe(true);
+    expect(commercialEqual(normalizeCommercialInvoice(invoice),normalizeCommercialInvoice({...invoice,line_items:[{...line,item_id:"other"}]}))).toBe(false);
+  });
   it("compares order-insensitively while preserving duplicate multiplicity", () => {
     const a = { ...line, name: "A" }, b = { ...line, name: "B" };
     expect(commercialEqual(normalizeCommercialInvoice({ ...invoice, total: 200, line_items: [a, b] }), normalizeCommercialInvoice({ ...invoice, total: 200, line_items: [b, a] }))).toBe(true);

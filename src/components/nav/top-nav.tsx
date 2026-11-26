@@ -29,7 +29,7 @@ export function TopNav({ profile }: Props) {
               Drapeworks CRM
             </span>
           </Link>
-          <div className="hidden md:flex items-center gap-1 text-sm">
+          <div className="hidden xl:flex items-center gap-1 text-sm">
             {links.map((l) => {
               const active = l.match(pathname);
               return (

@@ -28,6 +28,12 @@ export const NAV_LINKS: NavLink[] = [
       p === "/orders" || (p.startsWith("/orders/") && !p.startsWith("/orders/new")),
   },
   {
+    href: "/pricing-calculator",
+    label: "Pricing Calculator",
+    roles: ["consultant", "admin"],
+    match: (p) => p.startsWith("/pricing-calculator"),
+  },
+  {
     // Curtains, blinds and mesh all live here — one section, three tabs.
     href: "/admin/product",
     label: "Product",

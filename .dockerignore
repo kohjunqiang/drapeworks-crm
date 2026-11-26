@@ -21,3 +21,5 @@ scripts/seed-arrival-reconcile-local.ts
 scripts/repair-order-fulfilment-status.ts
 
 .next-priority
+scripts/seed-pricing-calculator-local.ts
+scripts/set-pricing-calculator-role-local.ts

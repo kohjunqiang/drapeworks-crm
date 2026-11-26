@@ -32,7 +32,7 @@ export function MobileMenu({ role }: Props) {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger
         aria-label="Open menu"
-        className="md:hidden p-1.5 text-slate-600 hover:bg-slate-100 rounded"
+        className="xl:hidden min-h-11 min-w-11 p-1.5 text-slate-600 hover:bg-slate-100 rounded"
       >
         <Menu className="w-5 h-5" />
       </SheetTrigger>

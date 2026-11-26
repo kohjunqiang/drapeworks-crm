@@ -146,7 +146,11 @@ export async function invoicePreview(orderId:string) {
   let auditFingerprint:string|null=null;
   try {auditFingerprint=latest?.after_document?commercialFingerprint(latest.after_document):null;} catch {auditFingerprint=null;}
   const syncComplete=Boolean(c.equal&&currentFingerprint&&c.invoice&&c.ledger?.invoice_id===c.invoice.invoice_id&&c.ledger.invoice_state==="linked"&&!unresolvedInvoiceOperation(c.ledger)&&c.ledger.source_fingerprint===c.sourceFingerprint&&c.ledger.verified_fingerprint===currentFingerprint&&latest?.action==="invoice_sync_verified"&&auditFingerprint===currentFingerprint);
-  return {orderId,fingerprint:c.fingerprint,mutationFingerprint:c.mutationFingerprint,stage:c.order.current_status,totalCents:c.order.price_quoted_cents,itemEditorIssue:itemEditorIssue(c.crm),sourceContext:c.sourceContext,customerLinked:Boolean(c.customerId),sourceCurrent:c.sourceCurrent,crm:c.crm,zoho:c.zoho,equal:c.equal,syncComplete,invoiceId:c.invoice?.invoice_id??null,invoiceNumber:c.invoice?.invoice_number??null,invoiceStatus:c.invoice?.status??null,issue:c.issue,operator:c.operator,admin:c.admin,editable:editableStages.includes(c.order.current_status)&&!c.order.is_draft,canCreate:Boolean(c.customerId&&c.crm&&c.sourceCurrent&&!c.invoice&&!unresolvedInvoiceOperation(c.ledger)),canReconcile:Boolean(c.invoice&&c.ledger?.claim_token&&["create","update"].includes(c.ledger.claim_kind??"")),uncertain:unresolvedInvoiceOperation(c.ledger),candidates:c.invoice?[]:c.candidates.map(i=>({id:i.invoice_id,number:i.invoice_number??i.invoice_id,total:i.total??null,status:i.status??"unknown"})),updateIssues:c.invoice?[...invoiceUpdateIssues(c.invoice),...commercialWriteIssues(c.crm),...commercialWriteIssues(c.zoho)]:[]};
+  // One explicit next action once the invoice matches: confirm the recorded CRM
+  // deposit and open manufacturing. Already-verified orders stay eligible — the
+  // handoff is the stage transition, not another verification.
+  const canContinueToManufacturing=Boolean(c.equal&&c.operator&&!c.order.is_draft&&["order_recorded","quotation_sent"].includes(c.order.current_status)&&c.invoice&&c.ledger?.invoice_id===c.invoice.invoice_id&&c.ledger.invoice_state==="linked"&&!unresolvedInvoiceOperation(c.ledger)&&c.order.deposit_cents>0&&c.order.deposit_cents<=c.order.price_quoted_cents);
+  return {orderId,fingerprint:c.fingerprint,mutationFingerprint:c.mutationFingerprint,stage:c.order.current_status,totalCents:c.order.price_quoted_cents,depositCents:c.order.deposit_cents,canContinueToManufacturing,itemEditorIssue:itemEditorIssue(c.crm),sourceContext:c.sourceContext,customerLinked:Boolean(c.customerId),sourceCurrent:c.sourceCurrent,crm:c.crm,zoho:c.zoho,equal:c.equal,syncComplete,invoiceId:c.invoice?.invoice_id??null,invoiceNumber:c.invoice?.invoice_number??null,invoiceStatus:c.invoice?.status??null,issue:c.issue,operator:c.operator,admin:c.admin,editable:editableStages.includes(c.order.current_status)&&!c.order.is_draft,canCreate:Boolean(c.customerId&&c.crm&&c.sourceCurrent&&!c.invoice&&!unresolvedInvoiceOperation(c.ledger)),canReconcile:Boolean(c.invoice&&c.ledger?.claim_token&&["create","update"].includes(c.ledger.claim_kind??"")),uncertain:unresolvedInvoiceOperation(c.ledger),candidates:c.invoice?[]:c.candidates.map(i=>({id:i.invoice_id,number:i.invoice_number??i.invoice_id,total:i.total??null,status:i.status??"unknown"})),updateIssues:c.invoice?[...invoiceUpdateIssues(c.invoice),...commercialWriteIssues(c.crm),...commercialWriteIssues(c.zoho)]:[]};
 }
 export async function saveInvoiceDocument(orderId:string,fingerprint:string,document:CommercialInvoice) {
   await requireRole(["admin","ops"]);const c=await invoiceContext(orderId);editable(c);
@@ -267,6 +271,27 @@ export async function confirmOrderInvoiceDeposit(input:{orderId:string;fingerpri
     if(lead){await trx.updateTable("leads").set({funnel_stage:milestone.stage,last_outcome:milestone.outcome,updated_at:new Date()}).where("id","=",lead.id).execute();if(lead.funnel_stage!==milestone.stage)await trx.insertInto("lead_stage_events").values({lead_id:lead.id,from_stage:lead.funnel_stage,to_stage:milestone.stage,changed_at:new Date(),changed_by:c.session.user.id,source:"system"}).execute();}
     await audit(trx,c,"deposit_verified",c.crm);
   });
+}
+// The invoice-verified deposit handoff reuses this verified comparison, narrowed
+// to what a status advance may rely on. The remote invoice is read here, before
+// the caller's status transaction; assertInvoiceDepositReview re-checks the same
+// snapshot under the order row lock inside that transaction. Payment APIs are
+// deliberately untouched — this path confirms the recorded CRM deposit, not a
+// Zoho payment.
+export async function prepareInvoiceDepositReview(orderId:string,fingerprint:string) {
+  const c=await invoiceContext(orderId);
+  if(c.fingerprint!==fingerprint) throw new UserFacingError("The invoice review changed. Refresh first.");
+  if(!c.operator) throw new UserFacingError("Forbidden");
+  if(c.order.is_draft||!["order_recorded","quotation_sent"].includes(c.order.current_status)) throw new UserFacingError("The recorded-deposit handoff is only available before the deposit stage.");
+  if(!c.customerId||!c.invoice||!c.zoho||!c.crm||!c.sourceCurrent||!c.equal||c.crm.totalCents!==c.order.price_quoted_cents) throw new UserFacingError("Resolve the current invoice comparison before confirming the deposit.");
+  if(!c.ledger?.invoice_id||c.ledger.invoice_id!==c.invoice.invoice_id||c.ledger.invoice_state!=="linked"||unresolvedInvoiceOperation(c.ledger)) throw new UserFacingError("Reconcile the pending invoice operation before continuing.");
+  if(c.order.deposit_cents<=0||c.order.deposit_cents>c.order.price_quoted_cents) throw new UserFacingError("A positive recorded deposit no greater than the order total is required before continuing to manufacturing.");
+  return c;
+}
+export async function assertInvoiceDepositReview(c:Context,trx:Transaction<DB>) {
+  const now=await assertInvoiceCurrent(c,trx);
+  if(!now.ledger?.invoice_id||now.ledger.invoice_id!==c.invoice!.invoice_id||now.ledger.invoice_state!=="linked"||unresolvedInvoiceOperation(now.ledger)||!now.ledger.document||commercialFingerprint(now.ledger.document)!==commercialFingerprint(c.crm!)||now.ledger.source_fingerprint!==now.sourceFingerprint) throw new UserFacingError("The linked invoice changed while it was being verified. Refresh first.");
+  return now;
 }
 export async function usesInvoiceWorkspace(orderId:string) {
   const c=await local(orderId);

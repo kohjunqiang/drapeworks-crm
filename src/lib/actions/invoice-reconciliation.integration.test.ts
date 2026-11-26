@@ -5,8 +5,11 @@ const mocks=vi.hoisted(()=>({session:vi.fn(),role:vi.fn(),invoice:vi.fn(),list:v
 vi.mock("server-only",()=>({}));vi.mock("next/cache",()=>({revalidatePath:vi.fn()}));
 vi.mock("@/lib/auth/require-role",()=>({requireSession:mocks.session,requireRole:mocks.role}));
 vi.mock("@/lib/zoho/books",async original=>({...await original<typeof import("@/lib/zoho/books")>(),getZohoInvoiceBinding:async()=>({organizationId:"org-test"}),getZohoInvoice:mocks.invoice,listZohoCustomerInvoices:mocks.list,createZohoOrderInvoice:mocks.create,updateZohoInvoiceCommercial:mocks.put,listZohoCustomerPayments:mocks.payments,getZohoCustomerPayment:mocks.payment,createZohoCustomerPayment:mocks.createPayment,getZohoDepositPaymentConfig:mocks.paymentConfig,getZohoEstimate:mocks.estimate,getZohoContact:mocks.contact,listZohoContacts:mocks.contacts}));
+vi.mock("./procurement",()=>({generateOrderPos:vi.fn()}));
 import { db } from "@/lib/db/kysely";
 import { previewOrderInvoice,saveOrderInvoiceItems,createInvoiceFromOrder,selectInvoiceSource,linkExistingOrderInvoice,continueOrderInvoice,confirmCurrentInvoiceItems,reconcileOrderInvoiceUi,searchInvoiceCustomersUi,confirmInvoiceCustomerUi } from "./order-invoice";
+import { advanceOrderStatus } from "./status";
+import { confirmManufactureMeasurements } from "./manufacture";
 import { confirmOrderInvoiceDeposit, loadInvoiceLedger } from "@/lib/invoices/service";
 import type { ZohoInvoice,ZohoCustomerPayment } from "@/lib/zoho/books";
 const url=process.env.INVOICE_FLOW_TEST_DATABASE_URL,actor="00000000-0000-4000-8000-000000000099";
@@ -99,6 +102,121 @@ describe.skipIf(!url)("invoice-only actual Postgres actions",()=>{
    const q=randomUUID();await sql`insert into public.order_quotations(id,order_id,revision,crm_quote_key,status,issue_date,lines,quoted_total_cents,zoho_status,payment_sync_state,payment_claim_token,payment_claimed_at,superseded_at,superseded_by,created_by,updated_by) values(${q}::uuid,${orderId}::uuid,1,${q},'superseded','2026-11-01','[]',1,'invoiced','pending',${token}::uuid,now(),now(),${actor}::uuid,${actor}::uuid,${actor}::uuid)`.execute(trx);
    await up(trx as unknown as Kysely<unknown>);const row=(await sql<{legacy_unresolved:boolean;legacy_operations:Array<{payment_claim_token:string}>}>`select legacy_unresolved,legacy_operations from public.order_invoice_ledger where order_id=${orderId}::uuid`.execute(trx)).rows[0];expect(row.legacy_unresolved).toBe(true);expect(row.legacy_operations[0].payment_claim_token).toBe(token);throw sentinel;
   });}catch(error){if(error!==sentinel)throw error;}
+ });
+ const depositEventRows=async()=>(await sql<{status:string;note:string|null}>`select status,note from public.order_status_events where order_id=${orderId}::uuid order by created_at,id`.execute(db)).rows;
+ const permitCount=async()=>Number((await sql<{n:string}>`select count(*)::text as n from public.order_invoice_recovery_permits where order_id=${orderId}::uuid`.execute(db)).rows[0].n);
+ const advanceDeposit=async(expectedStatus:"order_recorded"|"quotation_sent"="order_recorded")=>{const r=await preview();return advanceOrderStatus({orderId,expectedStatus,invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint});};
+ it("a matched invoice at order_recorded advances to deposit_received with one event and the lead milestone",async()=>{
+  await create();const r=await preview();expect(r.equal).toBe(true);expect(r.canContinueToManufacturing).toBe(true);expect(r.depositCents).toBe(236500);
+  await advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint});
+  const state=await protectedState();
+  expect(state.order.current_status).toBe("deposit_received");
+  expect(state.events.map(e=>e.status)).toEqual(["order_recorded","deposit_received"]);
+  expect(state.lead.funnel_stage).toBe("Won");expect(state.lead.last_outcome).toBe("Customer Confirmed");
+  expect(state.leadEvents.map(e=>e.to_stage)).toEqual(["Won"]);
+  expect(state.ledger).toEqual({payment_id:null,payment_number:null,payment_state:"idle",claim_token:null,claim_kind:null});
+  const rows=await depositEventRows();expect(rows[1].note).toContain("recorded CRM deposit");expect(rows[1].note).toContain("No Zoho payment");
+  expect(await permitCount()).toBe(0);
+  expectNoPaymentUse();expect(mocks.put).not.toHaveBeenCalled();
+ });
+ it("a matched invoice at quotation_sent advances the same way without a synthetic history",async()=>{
+  await create();
+  await sql`insert into public.order_status_events(order_id,status,note,created_by) values(${orderId}::uuid,'quotation_sent','Customer quotation sent',${actor}::uuid)`.execute(db);
+  await advanceDeposit("quotation_sent");
+  const state=await protectedState();
+  expect(state.order.current_status).toBe("deposit_received");
+  expect(state.events.map(e=>e.status)).toEqual(["order_recorded","quotation_sent","deposit_received"]);
+  expect(state.lead.funnel_stage).toBe("Won");
+  expect(await permitCount()).toBe(0);
+  expectNoPaymentUse();
+ });
+ it("an already verified matched invoice stays eligible for the same handoff",async()=>{
+  await create();let r=await preview();await continueOrderInvoice({orderId,fingerprint:r.fingerprint});r=await preview();expect(r.syncComplete).toBe(true);expect(r.canContinueToManufacturing).toBe(true);
+  await advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint});
+  expect((await protectedState()).events.map(e=>e.status)).toEqual(["order_recorded","deposit_received"]);
+  expectNoPaymentUse();
+ });
+ it("invoice sync verification alone never advances the stage",async()=>{
+  await create();const r=await preview();await continueOrderInvoice({orderId,fingerprint:r.fingerprint});
+  const state=await protectedState();
+  expect(state.order.current_status).toBe("order_recorded");
+  expect(state.events.map(e=>e.status)).toEqual(["order_recorded"]);
+ });
+ it("a pending or uncertain payment claim does not block the handoff and stays untouched",async()=>{
+  await create();const claim=randomUUID();
+  await sql`update public.order_invoice_ledger set payment_id='local-claim',payment_number='LOCAL-1',payment_state='uncertain',claim_token=${claim}::uuid,claim_kind='payment' where order_id=${orderId}::uuid`.execute(db);
+  const r=await preview();expect(r.canContinueToManufacturing).toBe(true);
+  await advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint});
+  const state=await protectedState();
+  expect(state.order.current_status).toBe("deposit_received");
+  expect(state.ledger).toEqual({payment_id:"local-claim",payment_number:"LOCAL-1",payment_state:"uncertain",claim_token:claim,claim_kind:"payment"});
+  expect(state.events.map(e=>e.status)).toEqual(["order_recorded","deposit_received"]);
+  expectNoPaymentUse();
+ });
+ it("rejects a confirm whose displayed fingerprint is stale after the deposit changed",async()=>{
+  await create();const r=await preview();
+  await sql`update public.orders set deposit_cents=100000 where id=${orderId}::uuid`.execute(db);
+  await expect(advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint})).rejects.toThrow("Refresh");
+  expect((await protectedState()).events.map(e=>e.status)).toEqual(["order_recorded"]);
+ });
+ it("re-checks the local snapshot under the row lock for in-flight changes",async()=>{
+  await create();const r=await preview();
+  const real=mocks.invoice.getMockImplementation()!;let changed=false;
+  mocks.invoice.mockImplementation(async(id:string)=>{const doc=await real(id);await sql`update public.orders set deposit_cents=100000 where id=${orderId}::uuid`.execute(db);changed=true;return doc;});
+  await expect(advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint})).rejects.toThrow("changed");
+  expect(changed).toBe(true);
+  expect((await protectedState()).events.map(e=>e.status)).toEqual(["order_recorded"]);
+ });
+ it("fails closed when items, customer, source or the deposit differ from the verified review",async()=>{
+  await create();
+  invoice!.line_items![0].description="Changed after match";await expect(advanceDeposit()).rejects.toThrow("comparison");
+  invoice!.line_items![0].description="Living room\nSheer curtains";
+  await sql`update public.customer_zoho_links set zoho_contact_id='other-contact' where customer_id=${customerId}::uuid`.execute(db);await expect(advanceDeposit()).rejects.toThrow();
+  await sql`update public.customer_zoho_links set zoho_contact_id=${`contact-${customerId}`} where customer_id=${customerId}::uuid`.execute(db);
+  await sql`update public.orders set extra_install_sgd_cents=100 where id=${orderId}::uuid`.execute(db);await expect(advanceDeposit()).rejects.toThrow("comparison");
+  await sql`update public.orders set extra_install_sgd_cents=0,deposit_cents=0 where id=${orderId}::uuid`.execute(db);
+  expect((await preview()).canContinueToManufacturing).toBe(false);await expect(advanceDeposit()).rejects.toThrow("deposit");
+  await sql`update public.orders set deposit_cents=473001 where id=${orderId}::uuid`.execute(db);await expect(advanceDeposit()).rejects.toThrow("deposit");
+  expect((await protectedState()).events.map(e=>e.status)).toEqual(["order_recorded"]);
+  expectNoPaymentUse();
+ });
+ it("rejects drafts and non-operations roles before any write",async()=>{
+  await create();
+  mocks.session.mockResolvedValue({user:{id:actor},profile:{role:"consultant"}});
+  const denied=await preview();expect(denied.operator).toBe(false);expect(denied.canContinueToManufacturing).toBe(false);
+  await expect(advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:denied.fingerprint})).rejects.toThrow("Forbidden");
+  mocks.session.mockResolvedValue({user:{id:actor},profile:{role:"admin"}});
+  await sql`update public.orders set is_draft=true where id=${orderId}::uuid`.execute(db);await expect(advanceDeposit()).rejects.toThrow();
+  expect((await protectedState()).events.map(e=>e.status)).toEqual(["order_recorded"]);
+  expectNoPaymentUse();
+ });
+ it("repeat, stale-stage and concurrent confirms produce exactly one deposit event",async()=>{
+  await create();const r=await preview();
+  const results=await Promise.allSettled([advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint}),advanceOrderStatus({orderId,expectedStatus:"order_recorded",invoiceReviewedDeposit:true,invoiceFingerprint:r.fingerprint})]);
+  expect(results.filter(result=>result.status==="fulfilled")).toHaveLength(1);
+  await expect(advanceDeposit()).rejects.toThrow();
+  const fresh=await preview();expect(fresh.canContinueToManufacturing).toBe(false);
+  await expect(advanceOrderStatus({orderId,expectedStatus:"deposit_received",invoiceReviewedDeposit:true,invoiceFingerprint:fresh.fingerprint})).rejects.toThrow("before the deposit stage");
+  const state=await protectedState();
+  expect(state.order.current_status).toBe("deposit_received");
+  expect(state.events.map(e=>e.status)).toEqual(["order_recorded","deposit_received"]);
+  expect(await permitCount()).toBe(0);
+ });
+ it("the existing manufacture confirm still advances the handoff order to po_ready",async()=>{
+  await create();await advanceDeposit();
+  const roomId=randomUUID(),windowId=randomUUID();
+  await sql`insert into public.rooms(id,order_id,label,position,type) values(${roomId}::uuid,${orderId}::uuid,'Living Room',0,'Living Room'::public.room_type)`.execute(db);
+  await sql`insert into public.windows(id,room_id,position,width_cm,height_cm,draw) values(${windowId}::uuid,${roomId}::uuid,0,200,250,'Double'::public.draw_direction)`.execute(db);
+  const previous=(await sql<{width_delta_cm:number|null;height_delta_cm:number|null}>`select width_delta_cm,height_delta_cm from public.manufacture_allowances where product_line='curtain'`.execute(db)).rows[0];
+  await sql`update public.manufacture_allowances set width_delta_cm=10,height_delta_cm=10 where product_line='curtain'`.execute(db);
+  try{
+   await confirmManufactureMeasurements({orderId,lines:[{lineId:windowId,kind:"window"}]});
+   const state=await protectedState();
+   expect(state.order.current_status).toBe("po_ready");
+   expect(state.events.map(e=>e.status)).toEqual(["order_recorded","deposit_received","po_ready"]);
+  }finally{
+   if(previous)await sql`update public.manufacture_allowances set width_delta_cm=${previous.width_delta_cm},height_delta_cm=${previous.height_delta_cm} where product_line='curtain'`.execute(db);
+  }
  });
  it.skipIf(process.env.INVOICE_FLOW_UI!=="1")("serves actual invoice-only workspace on a same-order local route",async()=>{
   await create();let scenario="matched with payment lookup failure";

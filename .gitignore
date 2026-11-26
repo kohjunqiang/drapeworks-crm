@@ -53,3 +53,4 @@ resource/*
 /zoho.json
 
 /.next-priority/
+/.next-invoice-journey/

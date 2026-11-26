@@ -38,6 +38,15 @@ type Props = {
   manifestRecoveryHref?: string;
   invoiceTotalCents?: number;
   depositCents?: number;
+  /** Invoice-workspace handoff: confirm the recorded CRM deposit explicitly. */
+  invoiceReviewedDeposit?: boolean;
+  /** Fingerprint of the invoice review shown to the user (invoiceReviewedDeposit mode). */
+  invoiceFingerprint?: string;
+  /**
+   * Invoice-workspace handoff: reloads the parent review after a failed
+   * confirm so the user reviews fresh amounts before reopening the dialog.
+   */
+  onRefreshReview?: () => void;
 };
 
 const formatMoney = (cents: number) => new Intl.NumberFormat("en-SG", {
@@ -57,6 +66,9 @@ export function AdvanceStatusButton({
   manifestRecoveryHref,
   invoiceTotalCents = 0,
   depositCents = 0,
+  invoiceReviewedDeposit = false,
+  invoiceFingerprint,
+  onRefreshReview,
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -154,6 +166,8 @@ export function AdvanceStatusButton({
           expectedStatus: currentStatus,
           note: note || undefined,
           balanceReceivedConfirmed: completingOrder ? balanceReceivedConfirmed : undefined,
+          invoiceReviewedDeposit: invoiceReviewedDeposit || undefined,
+          invoiceFingerprint: invoiceReviewedDeposit ? invoiceFingerprint : undefined,
           shipmentNumbers: trackingMode
               ? shipments.map((shipment) => ({
                 category: shipment.category,
@@ -224,10 +238,10 @@ export function AdvanceStatusButton({
           setOpen(true);
         }}
         disabled={pending || trackingIncomplete || manifestMissing}
-        className="px-3 py-1.5 text-xs sm:text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
+        className={`${invoiceReviewedDeposit ? "h-11 whitespace-normal px-4 leading-snug" : "px-3 py-1.5"} text-xs sm:text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium`}
       >
         {pending
-          ? currentStatus === "quotation_sent" ? "Verifying invoice & payment…" : "Saving…"
+          ? invoiceReviewedDeposit ? "Confirming deposit…" : currentStatus === "quotation_sent" ? "Verifying invoice & payment…" : "Saving…"
           : manifestMissing
             ? "No shipment orders found"
             : trackingIncomplete
@@ -244,7 +258,9 @@ export function AdvanceStatusButton({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {completingInstallation
+              {invoiceReviewedDeposit
+                ? "Confirm deposit received"
+                : completingInstallation
                 ? "Mark installation completed"
                 : completingOrder
                 ? "Confirm remaining balance received"
@@ -291,7 +307,18 @@ export function AdvanceStatusButton({
                 </label>
               </div>
             )}
-            {currentStatus === "quotation_sent" && (
+            {invoiceReviewedDeposit && (
+              <div className="space-y-3">
+                <dl className="divide-y rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm">
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">Recorded CRM deposit</dt><dd className="font-semibold text-slate-900">{formatMoney(depositCents)}</dd></div>
+                  <div className="flex justify-between py-2"><dt className="text-slate-600">CRM order total</dt><dd className="font-semibold text-slate-900">{formatMoney(invoiceTotalCents)}</dd></div>
+                </dl>
+                <p className="text-sm text-slate-600">
+                  The invoice matched this order. Confirming marks it as Deposit Received using the recorded CRM deposit, then opens manufacturing measurements. No Zoho payment is created or verified.
+                </p>
+              </div>
+            )}
+            {currentStatus === "quotation_sent" && !invoiceReviewedDeposit && (
               <div className="space-y-3">
                 <a href="#order-invoice-workspace" onClick={() => setOpen(false)} className="block py-2 text-sm font-medium text-teal-800 underline">Check the current order invoice and deposit</a>
                 <p className="text-sm text-slate-600">The existing Zoho invoice is checked against the CRM order total. A matching deposit payment is reused. Invoice creation and receipt confirmation are separate actions in that workspace.</p>
@@ -447,25 +474,37 @@ export function AdvanceStatusButton({
               placeholder={trackingMode ? "Optional handover note" : undefined}
               className="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
             />
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className={invoiceReviewedDeposit ? "flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end" : "flex items-center justify-end gap-2 pt-2"}>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 disabled={pending || photoUploading}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900"
+                className={invoiceReviewedDeposit ? "h-11 w-full px-4 text-sm text-slate-600 hover:text-slate-900 sm:w-auto" : "px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900"}
               >
                 Cancel
               </button>
+              {invoiceReviewedDeposit && actionError ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    onRefreshReview?.();
+                  }}
+                  className="h-11 w-full whitespace-normal rounded border border-teal-300 bg-teal-50 px-4 text-sm leading-snug font-medium text-teal-700 hover:bg-teal-100 sm:w-auto"
+                >
+                  Refresh invoice review
+                </button>
+              ) : (
               <button
                 type="button"
                 onClick={submit}
                 disabled={pending || photoUploading || (completingOrder && !balanceReceivedConfirmed)}
-                className="px-4 py-1.5 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"
+                className={invoiceReviewedDeposit ? "h-11 w-full whitespace-normal px-4 text-sm leading-snug bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium sm:w-auto" : "px-4 py-1.5 text-sm bg-orange-600 hover:bg-orange-700 disabled:bg-slate-300 text-white rounded font-medium"}
               >
                 {photoUploading
                   ? "Uploading photos…"
                   : pending
-                    ? currentStatus === "quotation_sent" ? "Verifying invoice & payment…" : "Saving…"
+                    ? invoiceReviewedDeposit ? "Confirming deposit…" : currentStatus === "quotation_sent" ? "Verifying invoice & payment…" : "Saving…"
                     : completingInstallation
                       ? "Confirm installation completed"
                       : completingOrder
@@ -476,10 +515,13 @@ export function AdvanceStatusButton({
                         ? "Save numbers & mark sent"
                       : trackingMode === "overseas"
                         ? "Save numbers & mark shipping"
-                        : currentStatus === "quotation_sent"
-                          ? "Verify invoice & confirm deposit"
-                        : (ctaLabel ?? "Advance")}
+                        : invoiceReviewedDeposit
+                          ? "Mark deposit received and open manufacturing"
+                          : currentStatus === "quotation_sent"
+                            ? "Verify invoice & confirm deposit"
+                          : (ctaLabel ?? "Advance")}
               </button>
+              )}
             </div>
           </div>
         </DialogContent>

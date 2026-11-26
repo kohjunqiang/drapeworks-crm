@@ -1,0 +1,40 @@
+{
+  "environment": "local-fixture",
+  "apiDomain": "https://www.zohoapis.com",
+  "accountsServer": "https://accounts.zoho.com",
+  "organizationId": "fixture-org",
+  "organizationName": "Fixture Books Org",
+  "aad": "drapeworks:zoho-books:v1:local-fixture",
+  "tokenEncryptionKeyBase64": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+  "orderId": "00000000-0000-4000-8000-0000000000f1",
+  "contactId": "fixture-contact-001",
+  "contacts": [
+    {
+      "contact_id": "fixture-contact-001",
+      "contact_name": "QA Invoice Journey",
+      "email": "qa.invoice@example.invalid",
+      "phone": "90000000",
+      "status": "active",
+      "contact_type": "customer"
+    }
+  ],
+  "invoice": {
+    "invoice_id": "fixture-inv-0001",
+    "invoice_number": "INV-FIXTURE-001",
+    "reference_number": "CRM-ORDER-00000000-0000-4000-8000-0000000000f1",
+    "customer_id": "fixture-contact-001",
+    "currency_code": "SGD",
+    "status": "sent",
+    "total": 4730,
+    "payment_made": 0,
+    "balance": 4730,
+    "credits_applied": 0,
+    "write_off_amount": 0,
+    "ach_payment_initiated": false,
+    "line_items": [
+      { "name": "Curtains", "description": "Living room\nSheer curtains", "quantity": 1, "rate": 4730 },
+      { "name": "Installation", "description": "23 units", "quantity": 23, "rate": 10 },
+      { "name": "Installation waiver", "description": "Agreed waiver", "quantity": 1, "rate": -230 }
+    ]
+  }
+}

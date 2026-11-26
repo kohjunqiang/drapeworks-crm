@@ -3,10 +3,15 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
+import { sql } from "kysely";
 import { z } from "zod";
 
 import { requireRole, requireSession } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
+import {
+  assertInvoiceDepositReview,
+  prepareInvoiceDepositReview,
+} from "@/lib/invoices/service";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { normalizeFreightNumber } from "@/lib/logistics/freight";
 import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
@@ -36,6 +41,11 @@ const advanceSchema = z.object({
   ),
   note: z.string().max(2000).optional(),
   balanceReceivedConfirmed: z.boolean().optional(),
+  invoiceReviewedDeposit: z.boolean().optional(),
+  // The invoice-review fingerprint the user saw in the confirmation dialog.
+  // Required in invoiceReviewedDeposit mode so a deposit that changed after
+  // the dialog opened can never be confirmed unseen.
+  invoiceFingerprint: z.string().min(1).max(200).optional(),
   reuseExistingPaymentId: z.string().min(1).max(200).optional(),
   shipmentNumbers: z.array(z.object({
     category: z.enum(SHIPMENT_CATEGORIES),
@@ -47,6 +57,17 @@ const advanceSchema = z.object({
 export async function advanceOrderStatus(input: unknown) {
   const session = await requireRole(["ops", "admin"]);
   const parsed = advanceSchema.parse(input);
+
+  if (parsed.invoiceReviewedDeposit === true) {
+    const linkedLeadId = await advanceInvoiceReviewedDeposit(parsed, session.user.id);
+    revalidatePath(`/orders/${parsed.orderId}`);
+    revalidatePath("/orders");
+    if (linkedLeadId) {
+      revalidatePath("/leads");
+      revalidatePath(`/leads/${linkedLeadId}`);
+    }
+    return;
+  }
 
   if (parsed.expectedStatus === "order_recorded") {
     throw new UserFacingError("Create, preview, and confirm the official quotation from the quotation workspace.");
@@ -256,6 +277,96 @@ export async function advanceOrderStatus(input: unknown) {
     revalidatePath("/leads");
     revalidatePath(`/leads/${linkedLeadId}`);
   }
+}
+
+// The invoice-workspace handoff: the linked invoice was matched against this
+// order, and the operator explicitly confirms the recorded CRM deposit. No Zoho
+// payment is created, linked or verified — the event note says exactly what
+// happened. The remote invoice was read before this transaction; the same
+// snapshot is re-verified under the order row lock inside it.
+async function advanceInvoiceReviewedDeposit(
+  parsed: z.infer<typeof advanceSchema>,
+  userId: string,
+) {
+  if (
+    parsed.expectedStatus !== "order_recorded" &&
+    parsed.expectedStatus !== "quotation_sent"
+  ) {
+    throw new UserFacingError(
+      "The recorded-deposit handoff is only available before the deposit stage.",
+    );
+  }
+  if (!parsed.invoiceFingerprint) {
+    throw new UserFacingError("The invoice review changed. Refresh first.");
+  }
+  const review = await prepareInvoiceDepositReview(
+    parsed.orderId,
+    parsed.invoiceFingerprint,
+  );
+  return db.transaction().execute(async (trx) => {
+    const order = await trx
+      .selectFrom("orders")
+      .select(["current_status", "appointment_id", "lead_id", "is_draft", "price_quoted_cents", "deposit_cents"])
+      .where("id", "=", parsed.orderId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!order) throw new UserFacingError("Order not found");
+    if (order.is_draft) {
+      throw new UserFacingError(
+        "Finish the consultation before advancing this order",
+      );
+    }
+    if (order.current_status !== parsed.expectedStatus) {
+      throw new UserFacingError("Order status already changed. Refresh and try again.");
+    }
+    if (order.deposit_cents <= 0 || order.deposit_cents > order.price_quoted_cents) {
+      throw new UserFacingError(
+        "A positive recorded deposit no greater than the order total is required before continuing to manufacturing.",
+      );
+    }
+    await assertInvoiceDepositReview(review, trx);
+    const linkedLead = await resolveLeadForOrderSync(trx, {
+      lead_id: order.lead_id,
+      appointment_id: order.appointment_id,
+    });
+    // The scoped recovery permit is what lets a matched invoice at Order
+    // Recorded record its deposit without fabricating a quotation-sent event.
+    // It lives only inside this transaction, scoped to this actor.
+    if (order.current_status === "order_recorded") {
+      await sql`insert into public.order_invoice_recovery_permits(order_id,transaction_id,actor_id) values(${parsed.orderId}::uuid,txid_current(),${userId}::uuid)`.execute(trx);
+    }
+    await trx.insertInto("order_status_events").values({
+      order_id: parsed.orderId,
+      status: "deposit_received",
+      note: [
+        "Confirmed the recorded CRM deposit after the linked invoice matched this order. No Zoho payment was created or verified.",
+        parsed.note?.trim(),
+      ].filter(Boolean).join("\n\n"),
+      created_by: userId,
+    }).execute();
+    if (order.current_status === "order_recorded") {
+      await sql`delete from public.order_invoice_recovery_permits where order_id=${parsed.orderId}::uuid`.execute(trx);
+    }
+    const milestone = leadMilestoneForOrderStatus("deposit_received")!;
+    if (linkedLead) {
+      await trx.updateTable("leads").set({
+        funnel_stage: milestone.stage,
+        last_outcome: milestone.outcome,
+        updated_at: new Date(),
+      }).where("id", "=", linkedLead.id).execute();
+      if (linkedLead.funnel_stage !== milestone.stage) {
+        await trx.insertInto("lead_stage_events").values({
+          lead_id: linkedLead.id,
+          from_stage: linkedLead.funnel_stage,
+          to_stage: milestone.stage,
+          changed_at: new Date(),
+          changed_by: userId,
+          source: "system",
+        }).execute();
+      }
+    }
+    return linkedLead?.id ?? null;
+  });
 }
 
 // Server Action errors are redacted to a digest in production, so the advance

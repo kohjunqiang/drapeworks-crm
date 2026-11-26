@@ -16,7 +16,7 @@ export type SummaryProps = {
 const pct = (bps: number) => `${(bps / 100).toFixed(1)}%`;
 // No rooms is a neutral starting state, not an error. Keep all entered-input
 // and pricing errors, including any that exist before a room has been added.
-const visibleIssues = (result: Result, values: CalculatorValues) => result.issues.filter((issue) => values.rooms.length > 0 || issue.message !== "Add a room to start your quote.");
+const visibleIssues = (result: Result) => result.issues.filter((issue) => issue.kind !== "empty_rooms");
 
 export function FinalPrice({ result, values, data, override, onOverride, id, compact = false }: Omit<SummaryProps, "onDiscount"> & { compact?: boolean }) {
   const metrics = finalQuoteMetrics(result.quote.discountedSaleSgdCents, result.quote.netCostSgdCents, override, result.complete);
@@ -24,10 +24,13 @@ export function FinalPrice({ result, values, data, override, onOverride, id, com
   const belowFloor = metrics.margin !== null && metrics.margin < floor;
   const value = override ?? (result.complete ? (result.quote.discountedSaleSgdCents / 100).toFixed(2) : "");
   const invalidMessage = override !== null && !metrics.valid ? "Enter a final price greater than S$0, with at most two decimal places." : "";
-  const issues = visibleIssues(result, values);
-  const incompleteMessage = issues.length > 0 ? `Estimate incomplete · ${issues[0].message}` : "";
+  const issues = visibleIssues(result);
+  const firstError = issues.find((issue) => issue.severity === "error");
+  const incompleteMessage = firstError ? `Estimate incomplete · ${firstError.message}` : "";
+  const pendingMessage = issues.find((issue) => issue.severity === "pending")?.message ?? "";
   const floorMessage = belowFloor ? `Below the ${values.channel === "carousell" ? "Carousell " : ""}${pct(floor)} margin floor — review before quoting.` : "";
-  const compactFeedback = [invalidMessage, incompleteMessage, floorMessage].filter(Boolean).join(" ");
+  const compactErrors = [invalidMessage, incompleteMessage, floorMessage].filter(Boolean).join(" ");
+  const compactFeedback = compactErrors || pendingMessage;
   return <div className={`rounded-lg bg-teal-50 ${compact ? "p-2" : "p-4"}`}>
     <div className="flex items-center justify-between gap-2"><label htmlFor={`final-${id}`} className="text-sm font-semibold text-slate-900">Final quote (SGD)</label>{override !== null && <span className="text-xs text-teal-700">Manually adjusted</span>}</div>
     <div className={`grid items-center ${compact ? "mt-1 grid-cols-[minmax(0,1fr)_auto] gap-2" : "mt-2 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"}`}>
@@ -37,8 +40,8 @@ export function FinalPrice({ result, values, data, override, onOverride, id, com
         <div><dt className="text-slate-600">Margin</dt><dd className={`font-semibold ${belowFloor ? "text-red-600" : "text-teal-800"}`}>{metrics.margin === null ? "—" : pct(metrics.margin)}</dd></div>
       </dl>
     </div>
-    {compact ? <p id={`final-help-${id}`} className={compactFeedback ? "mt-1 line-clamp-2 text-xs font-medium text-red-600" : "sr-only"}>{compactFeedback || "Profit and margin update as you type. Open pricing to use the calculated price."}</p> : <>
-      <p id={`final-help-${id}`} className={`mt-2 text-xs ${invalidMessage ? "text-red-600" : "text-slate-600"}`}>{invalidMessage || "Profit and margin update as you type."}</p>
+    {compact ? <p id={`final-help-${id}`} className={compactFeedback ? `mt-1 line-clamp-2 text-xs font-medium ${compactErrors ? "text-red-600" : "text-slate-500"}` : "sr-only"}>{compactFeedback || "Profit and margin update as you type. Open pricing to use the calculated price."}</p> : <>
+      <p id={`final-help-${id}`} className={`mt-2 text-xs ${invalidMessage ? "text-red-600" : "text-slate-600"}`}>{invalidMessage || pendingMessage || "Profit and margin update as you type."}</p>
       {override !== null && <Button type="button" variant="ghost" className="mt-1 min-h-11 px-0 text-teal-700" onClick={() => onOverride(null)}>Use calculated price</Button>}
       {incompleteMessage && <p className="mt-2 text-xs font-medium text-red-600">{incompleteMessage}</p>}
       {floorMessage && <p className="mt-2 text-xs font-medium text-red-600">{floorMessage}</p>}
@@ -48,11 +51,14 @@ export function FinalPrice({ result, values, data, override, onOverride, id, com
 export function QuoteSummary(props: SummaryProps) {
   const { result, values, override, onOverride, onDiscount, data, id } = props;
   const { quote, complete } = result;
-  const issues = visibleIssues(result, values);
+  const issues = visibleIssues(result);
+  const errors = issues.filter((issue) => issue.severity === "error");
+  const pending = issues.filter((issue) => issue.severity === "pending");
   const rows = [["Standard", quote.saleSgdCents], ["Groupbuy", quote.groupbuySgdCents], ["Discounted", quote.discountedSaleSgdCents]] as const;
   return <div className="min-w-0 space-y-4">
     <div><h2 className="text-lg font-semibold">Quote summary</h2><p className="mt-1 text-sm text-slate-500">{values.rooms.length} rooms · {values.rooms.reduce((n, r) => n + r.windows.length, 0)} coverings</p></div>
-    {issues.length > 0 && <div role="status" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"><p className="font-medium">Estimate incomplete</p><ul className="mt-1 space-y-1">{issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul></div>}
+    {errors.length > 0 && <div role="status" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"><p className="font-medium">Estimate incomplete</p><ul className="mt-1 space-y-1">{errors.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul></div>}
+    {pending.length > 0 && <ul className="space-y-1 text-sm text-slate-500" aria-label="Inputs needed to calculate">{pending.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>}
     {values.rooms.length === 0 && issues.length === 0 && <p className="text-sm text-slate-500">Start with a room to see your quote.</p>}
     <div><h3 className="mb-2 text-sm font-semibold">Price comparison</h3><table className="w-full table-fixed text-right text-xs sm:text-sm"><thead><tr className="border-b border-slate-200 bg-slate-50"><th className="w-[28%] py-2 text-left"><span className="sr-only">Price type</span></th><th className="py-2">Price (S$)</th><th className="py-2">Profit (S$)</th><th className="py-2">Margin</th></tr></thead><tbody>{rows.map(([label, sale]) => <tr key={label} className="border-b border-slate-100"><th scope="row" className="py-3 text-left font-medium">{label}</th><td>{complete ? (sale / 100).toFixed(2) : "—"}</td><td>{complete ? ((sale - quote.netCostSgdCents) / 100).toFixed(2) : "—"}</td><td>{complete ? pct(marginBps(quote.netCostSgdCents, sale)) : "—"}</td></tr>)}</tbody></table>{values.packageId && <p className="mt-2 text-xs text-slate-500">Package pricing already includes its groupbuy offer; no additional groupbuy discount applies.</p>}</div>
     <label htmlFor={`discount-${id}`} className="block text-sm font-medium">Discount (%)<input id={`discount-${id}`} className={FIELD} inputMode="decimal" value={values.discount} onChange={(e) => onDiscount(e.target.value)} /></label>

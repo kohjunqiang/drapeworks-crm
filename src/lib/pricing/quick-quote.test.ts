@@ -3,7 +3,7 @@ import { linksForRole } from "@/components/nav/links";
 import { calculatorDefaults, newCalculatorWindow, type CalculatorValues } from "@/lib/validation/pricing-calculator";
 import { computeQuote, type CalcAssumptions } from "./calculator";
 import { CURTAIN_RATE_KEYS, makePackageContext, type CurtainRates } from "./curtain-package-rules";
-import { changeCovering, decimalCents, finalQuoteMetrics, quickQuote, type QuickQuoteData } from "./quick-quote";
+import { changeCovering, decimalCents, essentialOptionId, finalQuoteMetrics, newQuickQuoteWindow, quickQuote, type QuickQuoteData } from "./quick-quote";
 const assumptions: CalcAssumptions = {
   fxSgdToRmb: 53000, gstBps: 900, otherCostBps: 1000, groupbuyDiscountBps: 1500, styleMultiplier: 20000,
   handymanSingleSgdCents: 6000, handymanDoubleSgdCents: 10000, handymanBlindsSgdCents: 8000,
@@ -111,5 +111,67 @@ describe("editable final quote", () => {
   it("remains reachable in consultant/admin menus, never ops", () => {
     for (const role of ["admin", "consultant"] as const) expect(linksForRole(role).some((l) => l.href === "/pricing-calculator")).toBe(true);
     expect(linksForRole("ops").some((l) => l.href === "/pricing-calculator")).toBe(false);
+  });
+});
+
+
+describe("quick-entry defaults and neutral pending inputs", () => {
+  const options = [
+    { ...data.options[0], id: "essential-day", name: "Essential (Day)" },
+    { ...data.options[1], id: "essential-night", name: "Essential" },
+    data.options[1], data.options[2],
+  ];
+  it("shares Essential defaults for new rooms and added coverings while dimensions stay blank", () => {
+    for (const id of ["new-room-window", "added-covering"]) {
+      expect(newQuickQuoteWindow(id, options)).toMatchObject({ id, dayId: "essential-day", nightId: "essential-night", width: "", height: "" });
+    }
+    expect(newQuickQuoteWindow("day", options, "day")).toMatchObject({ dayId: "essential-day", nightId: "" });
+    expect(newQuickQuoteWindow("night", options, "night")).toMatchObject({ dayId: "", nightId: "essential-night" });
+    expect(newQuickQuoteWindow("blind", options, "blind")).toMatchObject({ dayId: "", nightId: "", blindId: "", width: "", height: "" });
+  });
+  it("matches only clear priced Essential labels in the right category and leaves ambiguity blank", () => {
+    expect(essentialOptionId(options, "Day")).toBe("essential-day");
+    expect(essentialOptionId(options, "Night")).toBe("essential-night");
+    expect(essentialOptionId([...options, { ...options[0], id: "other-essential" }], "Day")).toBe("");
+    expect(essentialOptionId([{ ...options[0], name: "Essential Plus" }], "Day")).toBe("");
+    expect(essentialOptionId([{ ...options[0], name: "Essential (Night)" }], "Day")).toBe("");
+    expect(essentialOptionId([{ ...options[0], saleSgdCents: Number.NaN }], "Day")).toBe("");
+    expect(essentialOptionId([data.options[2]], "Day")).toBe("");
+  });
+  it("defaults only newly introduced blank layers without overwriting active choices or intentional clearing", () => {
+    const window = { ...newCalculatorWindow("w", "night"), nightId: "night", width: "321", height: "250" };
+    const both = changeCovering(window, "both", options);
+    expect(both).toMatchObject({ dayId: "essential-day", nightId: "night", width: "321", height: "250" });
+    expect(changeCovering({ ...both, dayId: "" }, "day", options).dayId).toBe("");
+    expect(changeCovering({ ...both, nightId: "" }, "both", options).nightId).toBe("");
+    expect(window).toMatchObject({ dayId: "", nightId: "night", width: "321" });
+  });
+  it("classifies blank/cleared width and required selections as pending and withholds totals", () => {
+    const input = values(); input.rooms[0].windows[0] = newQuickQuoteWindow("w", options);
+    const fresh = quickQuote(input, { ...data, options });
+    expect(fresh.complete).toBe(false); expect(fresh.issues).toEqual([expect.objectContaining({ kind: "missing_width", severity: "pending" })]);
+    expect(finalQuoteMetrics(fresh.quote.discountedSaleSgdCents, fresh.quote.netCostSgdCents, "2200", fresh.complete)).toMatchObject({ profitCents: null, margin: null });
+    input.rooms[0].windows[0].dayId = "";
+    expect(quickQuote(input, { ...data, options }).issues).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "missing_selection", severity: "pending" })]));
+    input.rooms[0].windows[0] = { ...newQuickQuoteWindow("b", options, "blind"), width: "300" };
+    expect(quickQuote(input, { ...data, options }).issues).toEqual([expect.objectContaining({ kind: "missing_selection", severity: "pending", message: expect.stringContaining("Select blind type to calculate") })]);
+  });
+  it.each(["0", "-1", "abc", "300.5", "1001"])("keeps nonblank invalid width %s an error", (width) => {
+    const input = values(); input.rooms[0].windows[0].width = width;
+    expect(quickQuote(input, data).issues).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "invalid_measurement", severity: "error" })]));
+  });
+  it("keeps invalid height, missing cost and stale selections as errors", () => {
+    const input = values(); input.rooms[0].windows[0].height = "0"; input.rooms[0].windows[0].dayId = "removed";
+    const missingCost = { ...data, options: data.options.map((p) => p.id === "night" ? { ...p, costRmbCents: null } : p) };
+    expect(quickQuote(input, missingCost).issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "invalid_measurement", severity: "error" }),
+      expect.objectContaining({ kind: "unavailable_selection", severity: "error" }),
+      expect.objectContaining({ kind: "missing_cost", severity: "error" }),
+    ]));
+  });
+  it("does not duplicate blank package width as a red engine diagnostic", () => {
+    const input = values(); input.packageId = data.packages[0].id; input.rooms[0].windows[0].width = "";
+    const result = quickQuote(input, data); expect(result.complete).toBe(false);
+    expect(result.issues.every((issue) => issue.severity === "pending")).toBe(true);
   });
 });

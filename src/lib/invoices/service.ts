@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Selectable, type Transaction } from "kysely";
 import { db } from "@/lib/db/kysely";
 import type { DB } from "@/lib/db/schema";
-import type { OrderInvoiceLedger } from "@/lib/db/invoice-ledger-schema";
+import type { JsonObject, OrderInvoiceLedger } from "@/lib/db/invoice-ledger-schema";
 import { requireSession, requireRole } from "@/lib/auth/require-role";
 import { UserFacingError } from "@/lib/user-facing-error";
 import { commercialEqual, commercialFingerprint, commercialUpdateLines, commercialWriteIssues, invoiceUpdateIssues, normalizeCommercialInvoice, type CommercialInvoice } from "@/lib/quotations/commercial-invoice";
@@ -21,6 +21,22 @@ export async function loadInvoiceLedger(orderId: string, trx: Connection = db, l
 const editableStages = ["order_recorded", "quotation_sent", "deposit_received"];
 const marker = (orderId: string) => `CRM-ORDER-${orderId}`;
 const financial = (invoice: ZohoInvoice) => ({ id:invoice.invoice_id, customer:invoice.customer_id,currency:invoice.currency_code,status:invoice.status,total:invoice.total,paid:invoice.payment_made,balance:invoice.balance,credits:invoice.credits_applied,writeOff:invoice.write_off_amount,withheld:invoice.tax_amount_withheld,ach:invoice.ach_payment_initiated });
+function unresolvedInvoiceOperation(ledger:Ledger|null) {
+  if(!ledger)return false;
+  if(["pending","uncertain"].includes(ledger.invoice_state)||(ledger.claim_token&&ledger.claim_kind!=="payment"))return true;
+  if(!ledger.legacy_unresolved)return false;
+  const operations=(Array.isArray(ledger.legacy_operations)?ledger.legacy_operations:[]).filter((operation):operation is JsonObject=>typeof operation==="object"&&operation!==null&&!Array.isArray(operation));
+  const invoiceUnresolved=operations.some(operation=>["pending","uncertain"].includes(String(operation.invoice_state??""))||Boolean(operation.invoice_claim_token));
+  const paymentEvidence=operations.some(operation=>Boolean(operation.payment_id)||Boolean(operation.payment_claim_token)||!["","not_started"].includes(String(operation.payment_state??"")));
+  const invoiceIds=new Set(operations.map(operation=>typeof operation.invoice_id==="string"&&operation.invoice_id?operation.invoice_id:null).filter((id):id is string=>Boolean(id)));
+  return invoiceUnresolved||invoiceIds.size>1||!paymentEvidence;
+}
+function invoiceLedgerForComparison(ledger:Ledger|null) {
+  if(!ledger)return null;
+  const {payment_id:paymentId,payment_number:paymentNumber,payment_state:paymentState,claim_token:claimToken,claim_kind:claimKind,legacy_unresolved:legacyUnresolved,legacy_operations:legacyOperations,revision:revision,updated_at:updatedAt,updated_by:updatedBy,verified_fingerprint:verifiedFingerprint,...invoice}=ledger;
+  void paymentId;void paymentNumber;void paymentState;void legacyUnresolved;void legacyOperations;void revision;void updatedAt;void updatedBy;void verifiedFingerprint;
+  return {...invoice,claim_token:claimKind==="payment"?null:claimToken,claim_kind:claimKind==="payment"?null:claimKind,legacy_unresolved:unresolvedInvoiceOperation(ledger)};
+}
 function validInvoice(invoice: ZohoInvoice, id: string, customer: string) {
   if(invoice.invoice_id!==id || invoice.customer_id!==customer || invoice.currency_code!=="SGD" || !["draft","sent","overdue","partially_paid","paid"].includes(invoice.status??"")) throw new UserFacingError("The invoice identity, customer, currency or status cannot be verified.");
 }
@@ -42,6 +58,7 @@ async function local(orderId: string, trx: Connection = db, lock = false) {
   return {order,ledger,customerId,sourceFingerprint:quotePayloadHash(source),sourceContext:[`Product: ${source.order.product}`, ...(source.order.package?[`Package: ${source.order.package}`]:[]),`Rooms: ${source.rooms.map(room=>room.label).join(", ")||"None recorded"}`,`${source.windows.length} windows · ${source.mesh.length} mesh panels`,...source.windows.map((window,index)=>`Window ${index+1}: ${window.width_cm??"?"} × ${window.height_cm??"?"} cm`)]};
 }
 const localHash = (c: Awaited<ReturnType<typeof local>>) => quotePayloadHash({order:c.order,customer:c.customerId,ledger:c.ledger,source:c.sourceFingerprint});
+const invoiceLocalHash = (c: Awaited<ReturnType<typeof local>>) => quotePayloadHash({order:c.order,customer:c.customerId,ledger:invoiceLedgerForComparison(c.ledger),source:c.sourceFingerprint});
 export async function invoiceContext(orderId:string) {
   const session=await requireSession();
   const c=await local(orderId);
@@ -67,13 +84,21 @@ export async function invoiceContext(orderId:string) {
   const crm=c.ledger?.document??null;
   const sourceCurrent=c.ledger?.source_fingerprint===c.sourceFingerprint;
   const equal=Boolean(sourceCurrent&&crm&&zoho&&crm.totalCents===c.order.price_quoted_cents&&commercialEqual(crm,zoho));
-  const fingerprint=quotePayloadHash({local:localHash(c),invoice:invoice?financial(invoice):null,commercial:zoho?commercialFingerprint(zoho):issue,candidates:candidates.map(i=>({id:i.invoice_id,customer:i.customer_id,status:i.status})).sort((a,b)=>a.id.localeCompare(b.id))});
-  return {...c,session,operator,admin:session.profile.role==="admin",organizationId:binding.organizationId,invoice,candidates,crm,zoho,equal,sourceCurrent,issue,fingerprint,localFingerprint:localHash(c)};
+  const compared=invoice?{id:invoice.invoice_id,customer:invoice.customer_id,currency:invoice.currency_code,number:invoice.invoice_number??null,commercial:zoho?commercialFingerprint(zoho):issue}:null;
+  const candidatesFingerprint=candidates.map(i=>({id:i.invoice_id,customer:i.customer_id,status:i.status})).sort((a,b)=>a.id.localeCompare(b.id));
+  const fingerprint=quotePayloadHash({local:invoiceLocalHash(c),invoice:compared,candidates:candidatesFingerprint});
+  const mutationFingerprint=quotePayloadHash({local:localHash(c),invoice:invoice?financial(invoice):null,commercial:zoho?commercialFingerprint(zoho):issue,candidates:candidatesFingerprint});
+  return {...c,session,operator,admin:session.profile.role==="admin",organizationId:binding.organizationId,invoice,candidates,crm,zoho,equal,sourceCurrent,issue,fingerprint,mutationFingerprint,localFingerprint:localHash(c),invoiceLocalFingerprint:invoiceLocalHash(c)};
 }
 type Context=Awaited<ReturnType<typeof invoiceContext>>;
 async function assertCurrent(c:Context,trx:Connection=db) {
   const now=await local(c.order.id,trx,trx!==db);
   if(localHash(now)!==c.localFingerprint) throw new UserFacingError("The CRM order changed. Refresh its invoice details.");
+  return now;
+}
+async function assertInvoiceCurrent(c:Context,trx:Connection=db) {
+  const now=await local(c.order.id,trx,trx!==db);
+  if(invoiceLocalHash(now)!==c.invoiceLocalFingerprint) throw new UserFacingError("The CRM order changed. Refresh its invoice details.");
   return now;
 }
 function editable(c:Context) { if(c.order.is_draft||!editableStages.includes(c.order.current_status)) throw new UserFacingError("Invoice details are read-only at this order stage."); }
@@ -116,10 +141,7 @@ function itemEditorIssue(document:CommercialInvoice|null) {
 }
 export async function invoicePreview(orderId:string) {
   const c=await invoiceContext(orderId);
-  let paymentId:string|null=null,paymentError:string|null=null;
-  if(c.invoice) try { paymentId=(await verifyExistingDepositPayment(paymentInput(c)))?.payment_id??null; if(!paymentId&&invoiceUpdateIssues(c.invoice).length) paymentError="Existing payment activity or incomplete payment information prevents recording another deposit. Retry after reviewing Zoho payments."; } catch(error) { paymentError=error instanceof UserFacingError?error.message:"Deposit verification failed. Retry the Zoho check."; }
-  if(c.invoice&&!paymentId&&!paymentError&&(c.ledger?.legacy_unresolved||["pending","uncertain"].includes(c.ledger?.payment_state??"")))paymentError="An earlier deposit operation is unresolved. Retry verification; do not record another payment.";
-  return {orderId,fingerprint:c.fingerprint,stage:c.order.current_status,totalCents:c.order.price_quoted_cents,depositCents:c.order.deposit_cents,itemEditorIssue:itemEditorIssue(c.crm),sourceContext:c.sourceContext,customerLinked:Boolean(c.customerId),sourceCurrent:c.sourceCurrent,crm:c.crm,zoho:c.zoho,equal:c.equal,invoiceId:c.invoice?.invoice_id??null,invoiceNumber:c.invoice?.invoice_number??null,invoiceStatus:c.invoice?.status??null,issue:c.issue,operator:c.operator,admin:c.admin,editable:editableStages.includes(c.order.current_status)&&!c.order.is_draft,paymentId,paymentError,canRecordPayment:Boolean(c.invoice&&!paymentId&&!paymentError&&!c.ledger?.legacy_unresolved&&(!c.ledger||c.ledger.payment_state==="idle")),canCreate:Boolean(c.customerId&&c.crm&&c.sourceCurrent&&!c.invoice&&!c.ledger?.legacy_unresolved&&(!c.ledger||c.ledger.invoice_state==="idle")),canReconcile:Boolean(c.invoice&&c.ledger?.claim_token&&["create","update"].includes(c.ledger.claim_kind??"")),uncertain:Boolean(c.ledger?.legacy_unresolved||["pending","uncertain"].includes(c.ledger?.invoice_state??"")),candidates:c.invoice?[]:c.candidates.map(i=>({id:i.invoice_id,number:i.invoice_number??i.invoice_id,total:i.total??null,status:i.status??"unknown"})),updateIssues:c.invoice?[...invoiceUpdateIssues(c.invoice),...commercialWriteIssues(c.crm),...commercialWriteIssues(c.zoho)]:[]};
+  return {orderId,fingerprint:c.fingerprint,mutationFingerprint:c.mutationFingerprint,stage:c.order.current_status,totalCents:c.order.price_quoted_cents,itemEditorIssue:itemEditorIssue(c.crm),sourceContext:c.sourceContext,customerLinked:Boolean(c.customerId),sourceCurrent:c.sourceCurrent,crm:c.crm,zoho:c.zoho,equal:c.equal,invoiceId:c.invoice?.invoice_id??null,invoiceNumber:c.invoice?.invoice_number??null,invoiceStatus:c.invoice?.status??null,issue:c.issue,operator:c.operator,admin:c.admin,editable:editableStages.includes(c.order.current_status)&&!c.order.is_draft,canCreate:Boolean(c.customerId&&c.crm&&c.sourceCurrent&&!c.invoice&&!unresolvedInvoiceOperation(c.ledger)),canReconcile:Boolean(c.invoice&&c.ledger?.claim_token&&["create","update"].includes(c.ledger.claim_kind??"")),uncertain:unresolvedInvoiceOperation(c.ledger),candidates:c.invoice?[]:c.candidates.map(i=>({id:i.invoice_id,number:i.invoice_number??i.invoice_id,total:i.total??null,status:i.status??"unknown"})),updateIssues:c.invoice?[...invoiceUpdateIssues(c.invoice),...commercialWriteIssues(c.crm),...commercialWriteIssues(c.zoho)]:[]};
 }
 export async function saveInvoiceDocument(orderId:string,fingerprint:string,document:CommercialInvoice) {
   await requireRole(["admin","ops"]);const c=await invoiceContext(orderId);editable(c);
@@ -135,6 +157,19 @@ export async function linkOrderInvoice(orderId:string,fingerprint:string,invoice
   const invoice=await getZohoInvoice(invoiceId);if(!c.customerId) throw new UserFacingError("Confirm the CRM customer's Zoho link first.");validInvoice(invoice,invoiceId,c.customerId);
   if(!c.candidates.some(i=>i.invoice_id===invoiceId)) throw new UserFacingError("Select a verified invoice for this customer.");
   await db.transaction().execute(async trx=>{await assertCurrent(c,trx);await setLink(trx,c,invoice);await audit(trx,c,"existing_invoice_linked",c.crm);});
+}
+export async function completeOrderInvoiceSync(orderId:string,fingerprint:string) {
+  await requireRole(["admin","ops"]);const c=await invoiceContext(orderId);editable(c);
+  if(c.fingerprint!==fingerprint) throw new UserFacingError("The invoice review changed. Refresh first.");
+  if(!c.customerId||!c.invoice||!c.zoho||!c.crm||!c.sourceCurrent||!c.equal||c.crm.totalCents!==c.order.price_quoted_cents) throw new UserFacingError("Resolve the current invoice comparison before continuing.");
+  if(!c.ledger?.invoice_id||c.ledger.invoice_id!==c.invoice.invoice_id||c.ledger.invoice_state!=="linked"||unresolvedInvoiceOperation(c.ledger)) throw new UserFacingError("Reconcile the linked invoice operation before continuing.");
+  await db.transaction().execute(async trx=>{
+    const now=await assertInvoiceCurrent(c,trx);
+    if(!now.ledger?.invoice_id||now.ledger.invoice_id!==c.invoice!.invoice_id||now.ledger.invoice_state!=="linked"||unresolvedInvoiceOperation(now.ledger)||!now.ledger.document||commercialFingerprint(now.ledger.document)!==commercialFingerprint(c.crm!)||now.ledger.source_fingerprint!==now.sourceFingerprint) throw new UserFacingError("The linked invoice changed while it was being verified. Refresh first.");
+    await setLink(trx,c,c.invoice!);
+    await sql`update public.order_invoice_ledger set verified_fingerprint=${commercialFingerprint(c.crm!)},source_fingerprint=${now.sourceFingerprint},updated_at=now(),updated_by=${c.session.user.id}::uuid where order_id=${orderId}::uuid`.execute(trx);
+    await audit(trx,c,"invoice_sync_verified",c.crm);
+  });
 }
 export async function createOrderInvoice(orderId:string,fingerprint:string,confirmNoCandidateMatch=false) {
   await requireRole(["admin","ops"]);const c=await invoiceContext(orderId);editable(c);
@@ -163,12 +198,12 @@ async function noAllocations(invoice:ZohoInvoice,customer:string) {
 }
 export async function chooseInvoiceSource(orderId:string,fingerprint:string,choice:"zoho"|"crm") {
   await requireRole(["admin"]);const c=await invoiceContext(orderId);editable(c);
-  if(c.fingerprint!==fingerprint||!c.invoice||!c.zoho) throw new UserFacingError("Refresh the current invoice comparison first.");
+  if((choice==="zoho"?c.fingerprint:c.mutationFingerprint)!==fingerprint||!c.invoice||!c.zoho) throw new UserFacingError("Refresh the current invoice comparison first.");
   const target=choice==="zoho"?c.zoho:c.crm;
   if(!target||target.totalCents<c.order.deposit_cents) throw new UserFacingError("Invoice total cannot be below the recorded deposit.");
   if(choice==="zoho") {
     // CRM-only adoption preserves unresolved payment claims and every Zoho record.
-    if(c.ledger?.claim_token&&c.ledger.invoice_state==="pending") throw new UserFacingError("Reconcile the pending invoice operation before adopting items.");
+    if(unresolvedInvoiceOperation(c.ledger)) throw new UserFacingError("Reconcile the pending invoice operation before adopting items.");
     await db.transaction().execute(async trx=>{
       await assertCurrent(c,trx);await setLink(trx,c,c.invoice!);
       if(target.totalCents!==c.order.price_quoted_cents) await sql`select public.amend_order_payment(${orderId}::uuid,${target.totalCents}::integer,${c.order.deposit_cents}::integer,${c.session.user.id}::uuid)`.execute(trx);
@@ -193,7 +228,7 @@ export async function chooseInvoiceSource(orderId:string,fingerprint:string,choi
 }
 export async function confirmOrderInvoiceDeposit(input:{orderId:string;fingerprint:string;paymentId?:string;confirmReceipt?:boolean}) {
   await requireRole(["admin","ops"]);const c=await invoiceContext(input.orderId);editable(c);
-  if(c.fingerprint!==input.fingerprint||!c.invoice||!c.customerId||!c.equal||!c.crm||c.order.deposit_cents<=0) throw new UserFacingError("Refresh and resolve current invoice details before confirming the deposit.");
+  if(c.mutationFingerprint!==input.fingerprint||!c.invoice||!c.customerId||!c.equal||!c.crm||c.order.deposit_cents<=0) throw new UserFacingError("Refresh and resolve current invoice details before confirming the deposit.");
   let payment=await verifyExistingDepositPayment(paymentInput(c));
   let token:string|null=null;
   if(input.paymentId && payment?.payment_id!==input.paymentId) throw new UserFacingError("The previously verified deposit is no longer available. No new payment was created.");

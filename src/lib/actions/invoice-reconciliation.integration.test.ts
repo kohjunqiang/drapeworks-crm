@@ -25,7 +25,7 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
     if (parsed.hostname !== "127.0.0.1" || parsed.port !== "55439" || parsed.pathname !== "/drapeworks_priority_local") throw new Error("Refusing non-disposable database");
     process.env.DATABASE_URL = url;
   });
-  beforeEach(async () => {
+  const seedFixture = async () => {
     vi.clearAllMocks();
     orderId = randomUUID(); quoteId = randomUUID(); customerId = randomUUID();
     mocks.session.mockResolvedValue({ user: { id: actor }, profile: { role: "admin" } });
@@ -41,8 +41,9 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
     await sql`insert into public.order_status_events(order_id,status,note,created_by) values(${orderId}::uuid,'order_recorded','Synthetic invoice test',${actor}::uuid)`.execute(db);
     await sql`insert into public.order_quotations(id,order_id,revision,crm_quote_key,status,issue_date,lines,quoted_total_cents,zoho_contact_id,zoho_estimate_id,zoho_estimate_number,pdf_storage_path,pdf_sha256,created_by,updated_by)
       values(${quoteId}::uuid,${orderId}::uuid,1,${`test:${quoteId}`},'conflict','2026-11-01',${JSON.stringify([{ zohoItemId: "curtain", name: "Old curtain", description: "Historical", quantity: 1, rateCents: 439000, discountPercent: 0 }])}::jsonb,439000,${invoice.customer_id},${`estimate-${quoteId}`},'QT-HISTORICAL','historical.pdf','historical-hash',${actor}::uuid,${actor}::uuid)`.execute(db);
-  });
-  afterEach(async () => {
+  };
+  beforeEach(seedFixture);
+  const cleanupFixture = async () => {
     if (orderId) await db.transaction().execute(async trx => {
       // Isolated, opt-in DB only; delete exactly this test's generated order.
       // Match the existing confirmed-admin cleanup mechanism for locked rows.
@@ -50,7 +51,8 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
       await sql`delete from public.orders where id=${orderId}::uuid and customer_id=${customerId}::uuid`.execute(trx);
     });
     if (customerId) await sql`delete from public.customers where id=${customerId}::uuid`.execute(db);
-  });
+  };
+  afterEach(cleanupFixture);
   afterAll(async () => { await db.destroy(); });
   const review = () => previewInvoiceReconciliation(orderId);
   const adopt = async () => { const r = await review(); await applyInvoiceReconciliation({ orderId, fingerprint: r.fingerprint, choice: "zoho", confirm: true }); };
@@ -71,6 +73,29 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
     const retry = await review(); await confirmInvoiceDeposit({ orderId, fingerprint: retry.fingerprint, confirm: true });
     expect((await db.selectFrom("order_status_events").select("status").where("order_id", "=", orderId).execute()).filter(e => e.status === "deposit_received")).toHaveLength(1);
     expect(mocks.convert).not.toHaveBeenCalled(); expect(mocks.createPayment).not.toHaveBeenCalled(); expect(mocks.put).not.toHaveBeenCalled();
+  });
+  it("automatic matching preview writes nothing and reuse-only continue persists once", async () => {
+    await sql`update public.order_quotations set lines=${JSON.stringify([{zohoItemId:"curtain",name:"Current curtain",description:"Approved invoice",quantity:1,rateCents:473000,discountPercent:0}])}::jsonb,quoted_total_cents=473000 where id=${quoteId}::uuid`.execute(db);
+    const before=await db.selectFrom("order_quotations").selectAll().where("id","=",quoteId).executeTakeFirstOrThrow();
+    const r=await review();expect(r.synced).toBe(true);expect(r.paymentVerified).toBe(true);
+    expect(await loadCommercialSnapshot(orderId)).toBeNull();
+    expect(await db.selectFrom("order_quotations").selectAll().where("id","=",quoteId).executeTakeFirstOrThrow()).toEqual(before);
+    expect((await sql<{count:string}>`select count(*)::text as count from public.order_invoice_commercial_events where order_id=${orderId}::uuid`.execute(db)).rows[0].count).toBe("0");
+    await confirmInvoiceDeposit({orderId,fingerprint:r.fingerprint,reuseOnly:true,paymentId:r.verifiedPaymentId});
+    const after=await review();await confirmInvoiceDeposit({orderId,fingerprint:after.fingerprint,reuseOnly:true,paymentId:after.verifiedPaymentId});
+    expect((await db.selectFrom("order_status_events").select("status").where("order_id","=",orderId).execute()).map(e=>e.status)).toEqual(["order_recorded","deposit_received"]);
+    expect(mocks.createPayment).not.toHaveBeenCalled();expect(mocks.convert).not.toHaveBeenCalled();expect(mocks.put).not.toHaveBeenCalled();
+  });
+  it("reuse-only continue fails closed when verified payment disappears", async () => {
+    await adopt();const r=await review();mocks.payments.mockResolvedValue([]);
+    await expect(confirmInvoiceDeposit({orderId,fingerprint:r.fingerprint,reuseOnly:true,paymentId:r.verifiedPaymentId})).rejects.toThrow("payment");
+    expect(mocks.createPayment).not.toHaveBeenCalled();expect(mocks.convert).not.toHaveBeenCalled();
+    expect((await db.selectFrom("orders").select("current_status").where("id","=",orderId).executeTakeFirstOrThrow()).current_status).toBe("order_recorded");
+  });
+  it("empty payment lookup with paid activity remains unknown instead of permitting creation", async () => {
+    mocks.payments.mockResolvedValue([]);const r=await review();
+    expect(r.paymentVerified).toBe(false);expect(r.paymentCheckError).toBeTruthy();expect(r.canRecordDeposit).toBe(false);
+    expect(mocks.createPayment).not.toHaveBeenCalled();expect(await loadCommercialSnapshot(orderId)).toBeNull();
   });
   it("shared legacy ensure gate rejects equal total different commercial items", async () => {
     await adopt(); invoice.line_items![0].name = "Different same-total item";
@@ -120,8 +145,8 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
     await expect(applyInvoiceReconciliation({orderId,fingerprint:r.fingerprint,choice:"crm",confirm:true})).rejects.toThrow("allocations");
     expect(mocks.put).not.toHaveBeenCalled();
     await adopt(); invoice.line_items=[{name:"Another",quantity:1,rate:4730}];
-    mocks.payments.mockImplementation(async()=>{await sql`update public.orders set deposit_cents=240000 where id=${orderId}::uuid`.execute(db);return [];});
     r=await review();
+    mocks.payments.mockImplementation(async()=>{await sql`update public.orders set deposit_cents=240000 where id=${orderId}::uuid`.execute(db);return [];});
     await expect(applyInvoiceReconciliation({orderId,fingerprint:r.fingerprint,choice:"crm",confirm:true})).rejects.toThrow("CRM changed");
     expect(mocks.put).not.toHaveBeenCalled();
   });
@@ -160,15 +185,16 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
     expect(mocks.createPayment).not.toHaveBeenCalled();expect(mocks.put).not.toHaveBeenCalled();
   });
   it.each(["void","link"])('rejects final invoice status/link change after payment verification (%s)',async change=>{
-    await adopt();let reads=0;
+    await adopt();const r=await review();let reads=0;
     mocks.payment.mockImplementation(async()=>{if(++reads>=2){if(change==="void")invoice.status="void";else mocks.estimate.mockResolvedValue({estimate_id:`estimate-${quoteId}`,status:"invoiced",customer_id:invoice.customer_id,currency_code:"SGD",invoice_ids:["different"]});}return {payment_id:`payment-${quoteId}`,customer_id:invoice.customer_id,payment_mode:"PayNow",account_id:"bank",amount:2365,invoices:[{invoice_id:invoice.invoice_id,amount_applied:2365}]};});
-    const r=await review();await expect(confirmInvoiceDeposit({orderId,fingerprint:r.fingerprint,confirm:true})).rejects.toThrow("status or quotation link changed");
+    await expect(confirmInvoiceDeposit({orderId,fingerprint:r.fingerprint,confirm:true})).rejects.toThrow("status or quotation link changed");
     expect((await db.selectFrom("orders").select("current_status").where("id","=",orderId).executeTakeFirstOrThrow()).current_status).toBe("order_recorded");
   });
   it("same-total item drift during payment lookup prevents payment creation", async () => {
     await adopt();invoice={...invoice,status:"sent",payment_made:0,balance:4730};
+    mocks.payments.mockResolvedValue([]);const r=await review();
     let lookups=0;mocks.payments.mockImplementation(async()=>{if(++lookups===2)invoice.line_items![0].name="Changed while looking up payment";return [];});
-    const r=await review();await expect(confirmInvoiceDeposit({orderId,fingerprint:r.fingerprint,confirm:true})).rejects.toThrow("commercial items changed");
+    await expect(confirmInvoiceDeposit({orderId,fingerprint:r.fingerprint,confirm:true})).rejects.toThrow("commercial items changed");
     expect(mocks.createPayment).not.toHaveBeenCalled();
   });
   it.skipIf(process.env.INVOICE_FLOW_UI !== "1")("serves actual invoice panel and database actions for browser QA", async () => {
@@ -176,21 +202,57 @@ describe.skipIf(!enabled)("real Postgres invoice reconciliation transactions", (
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const { build } = await import("esbuild");
-    const directory = "/tmp/drapeworks-full-invoice-flow/browser";
+    const directory = "/tmp/drapeworks-simple-invoice/browser";
     await fs.mkdir(directory, { recursive: true });
+    const signedLines = [{ item_id: "curtain", name: "Curtains", quantity: 1, rate: 4730, discount: "0%" }, { item_id: "install", name: "Installation", quantity: 23, rate: 10, discount: "0%" }, { item_id: "waiver", name: "Installation waiver", quantity: 1, rate: -230, discount: "0%" }];
+    invoice.line_items = structuredClone(signedLines);
+    await adopt();
+    let scenario = "matched";
+    let payment = await mocks.payment();
+    const setScenario = async (name: string) => {
+      await cleanupFixture(); await seedFixture(); invoice.line_items = structuredClone(signedLines); await adopt(); payment = await mocks.payment();
+      scenario = name; invoice.line_items = structuredClone(signedLines);
+      invoice.status = "partially_paid"; invoice.payment_made = 2365; invoice.balance = 2365;
+      mocks.invoice.mockImplementation(async () => { if (scenario === "check failed") throw new Error("Synthetic Zoho connection failed"); return structuredClone(invoice); });
+      mocks.payments.mockResolvedValue([{ payment_id: payment.payment_id }]); mocks.payment.mockResolvedValue(payment);
+      mocks.estimate.mockImplementation(async () => ({ estimate_id: `estimate-${quoteId}`, estimate_number: "QT-HISTORICAL", status: "invoiced", customer_id: invoice.customer_id, currency_code: "SGD", invoice_ids: [invoice.invoice_id], total: 4390 }));
+      if (name === "difference") invoice.line_items![0].description = "Changed in Zoho";
+      if (name === "payment missing") { mocks.payments.mockResolvedValue([]); invoice.status = "sent"; invoice.payment_made = 0; invoice.balance = 4730; }
+      if (name === "no invoice") {
+        await sql`delete from public.order_invoice_commercial where order_id=${orderId}::uuid`.execute(db);
+        const lines = [{ zohoItemId: "curtain", name: "Curtains", description: "", quantity: 1, rateCents: 473000, discountPercent: 0 }];
+        const remote = { estimate_id: `estimate-${quoteId}`, estimate_number: "QT-HISTORICAL", status: "sent", customer_id: invoice.customer_id, currency_code: "SGD", invoice_ids: [] as string[], total: 4730, date: "2026-11-01", line_items: [{ item_id: "curtain", name: "Curtains", description: "", quantity: 1, rate: 4730, discount: "0%" }] };
+        await sql`update public.order_quotations set status='sent',sent_at=now(),sent_by=${actor}::uuid,sent_channel='Synthetic test',lines=${JSON.stringify(lines)}::jsonb,quoted_total_cents=473000,zoho_invoice_id=null,zoho_invoice_number=null,invoice_sync_state='not_started',zoho_payment_id=null,zoho_payment_number=null,payment_sync_state='not_started',synced_payload_hash=${estimateSnapshotHash(remote as unknown as Record<string, unknown>)} where id=${quoteId}::uuid`.execute(db);
+        const order=await db.selectFrom("orders").select("current_status").where("id","=",orderId).executeTakeFirstOrThrow();
+        if(order.current_status==="order_recorded") await sql`insert into public.order_status_events(order_id,status,created_by) values(${orderId}::uuid,'quotation_sent',${actor}::uuid)`.execute(db);
+        mocks.estimate.mockImplementation(async()=>structuredClone(remote)); mocks.payments.mockResolvedValue([]);
+        invoice.line_items=remote.line_items; invoice.status="sent"; invoice.payment_made=0; invoice.balance=4730;
+        mocks.convert.mockImplementation(async()=>{remote.invoice_ids=[invoice.invoice_id];remote.status="invoiced";return {invoice_id:invoice.invoice_id};});
+        mocks.createPayment.mockImplementation(async()=>{invoice.payment_made=2365;invoice.balance=2365;return {payment_id:payment.payment_id};});
+      }
+    };
     await fs.writeFile(path.join(directory,"actions.ts"), `async function call(method:string,input:unknown){return fetch('/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({method,input})}).then(r=>r.json());} export const previewInvoiceReconciliationUi=(id:string)=>call('preview',id);export const applyInvoiceReconciliationUi=(input:unknown)=>call('apply',input);export const confirmInvoiceDepositUi=(input:unknown)=>call('deposit',input);`);
+    const workspaceSource=await fs.readFile(path.join(process.cwd(),"src/components/orders/quotation-workspace.tsx"),"utf8");
+    const names=workspaceSource.match(/import \{\n([\s\S]*?)\} from "@\/lib\/actions\/quotations"/)![1].split(",").map(value=>value.trim()).filter(value=>/^\w+$/.test(value));
+    await fs.writeFile(path.join(directory,"quote-actions.ts"), names.map(name=>`export const ${name}=async()=>${name==='getZohoQuotationOptionsUi' ? "({ok:true,data:{items:[],candidates:[],linkedContactId:'synthetic',linkedContact:{id:'synthetic',name:'Synthetic customer'}}})" : name==='previewQuotationZohoDiffUi' ? "({ok:true,data:{identical:true,invoiced:false,differences:[],warnings:[]}})" : "({ok:false,error:'This historical quotation action is outside the invoice preview fixture.'})"};`).join('\n'));
     await fs.writeFile(path.join(directory,"navigation.ts"), `export const useRouter=()=>({refresh:()=>window.dispatchEvent(new Event('fixture-refresh'))});`);
-    await fs.writeFile(path.join(directory,"entry.tsx"), `import React,{useEffect,useState} from 'react';import{createRoot}from'react-dom/client';import{Toaster}from'sonner';import{InvoiceReconciliationPanel}from'@/components/orders/invoice-reconciliation-panel';function App(){const[fixture,setFixture]=useState<any>(null);useEffect(()=>{const load=()=>fetch('/fixture').then(r=>r.json()).then(setFixture);load();window.addEventListener('fixture-refresh',load);return()=>window.removeEventListener('fixture-refresh',load);},[]);return <main className="mx-auto max-w-5xl p-4"><p className="mb-4 text-sm">Local Postgres fixture · actual server actions · mocked Zoho and auth · no live writes</p>{fixture&&<InvoiceReconciliationPanel orderId={fixture.orderId} hasInvoice={fixture.hasInvoice} snapshot={fixture.snapshot}/>}<Toaster/></main>};createRoot(document.getElementById('root')!).render(<App/>);`);
-    await build({ entryPoints:[path.join(directory,"entry.tsx")],outfile:path.join(directory,"app.js"),bundle:true,jsx:"automatic",platform:"browser",nodePaths:[path.join(process.cwd(),"node_modules")],alias:{"@":path.join(process.cwd(),"src"),"@/lib/actions/invoice-reconciliation":path.join(directory,"actions.ts"),"next/navigation":path.join(directory,"navigation.ts")},define:{"process.env.NODE_ENV":'"development"'} });
+    await fs.writeFile(path.join(directory,"entry.tsx"), `import React,{useEffect,useState} from 'react';import{createRoot}from'react-dom/client';import{Toaster}from'sonner';import{QuotationWorkspace}from'@/components/orders/quotation-workspace';function App(){const[fixture,setFixture]=useState<any>(null);const[key,setKey]=useState(0);useEffect(()=>{const load=()=>fetch('/fixture').then(r=>r.json()).then(setFixture);load();window.addEventListener('fixture-refresh',load);return()=>window.removeEventListener('fixture-refresh',load);},[]);async function change(value:string){await fetch('/scenario?name='+encodeURIComponent(value));setFixture(await fetch('/fixture').then(r=>r.json()));setKey(v=>v+1);}return <main className="mx-auto max-w-5xl p-4"><aside className="mb-4 rounded border p-3 text-sm"><p>LOCAL TEST · actual workspace and invoice actions · local Postgres · synthetic Zoho/auth, no live writes</p><label>Test scenario <select className="border p-2" onChange={e=>change(e.target.value)}>{['matched','difference','payment missing','check failed','no invoice'].map(v=><option key={v}>{v}</option>)}</select></label></aside>{fixture&&<QuotationWorkspace key={key} {...fixture}/>}<Toaster/></main>};createRoot(document.getElementById('root')!).render(<App/>);`);
+    await build({ entryPoints:[path.join(directory,"entry.tsx")],outfile:path.join(directory,"app.js"),bundle:true,jsx:"automatic",platform:"browser",nodePaths:[path.join(process.cwd(),"node_modules")],alias:{"@":path.join(process.cwd(),"src"),"@/lib/actions/invoice-reconciliation":path.join(directory,"actions.ts"),"@/lib/actions/quotations":path.join(directory,"quote-actions.ts"),"next/navigation":path.join(directory,"navigation.ts")},define:{"process.env.NODE_ENV":'"development"'} });
     let done!:()=>void;const finished=new Promise<void>(resolve=>{done=resolve;});
     const server=createServer(async(request,response)=>{try{
       response.setHeader("cache-control","no-store");
       if(request.url==="/finish"){response.end("done");done();return;}
-      if(request.url==="/fixture"){const snapshot=await loadCommercialSnapshot(orderId);response.setHeader("content-type","application/json");response.end(JSON.stringify({orderId,hasInvoice:true,snapshot:snapshot?{document:snapshot.document,state:snapshot.state,invoiceId:snapshot.invoice_id}:null}));return;}
+      if(request.url?.startsWith("/scenario?")){await setScenario(new URL(request.url,"http://localhost").searchParams.get("name")!);response.end("ok");return;}
+      if(request.url==="/fixture"){
+        const q=await db.selectFrom("order_quotations").selectAll().where("id","=",quoteId).executeTakeFirstOrThrow();
+        const o=await db.selectFrom("orders").selectAll().where("id","=",orderId).executeTakeFirstOrThrow();
+        const quote={id:q.id,revision:q.revision,status:q.status,issueDate:"2026-11-01",expiryDate:null,lines:q.lines,totalCents:q.quoted_total_cents,customerMessage:"",notes:"",terms:"",estimateNumber:q.zoho_estimate_number,invoiceNumber:q.zoho_invoice_number,updatedAt:String(q.updated_at),syncError:q.status === "conflict" ? "Old quotation conflict" : null,invoiceSyncState:q.invoice_sync_state,invoiceSyncError:q.invoice_sync_error,paymentNumber:q.zoho_payment_number,paymentSyncState:q.payment_sync_state,paymentSyncError:q.payment_sync_error,hasZohoEstimate:true,hasZohoInvoice:Boolean(q.zoho_invoice_id),hasPdf:true,sentAt:q.sent_at};
+        response.setHeader("content-type","application/json");response.end(JSON.stringify({orderId,displayId:o.display_id,customerName:"Synthetic customer",productLine:"curtain",quotedCents:o.price_quoted_cents,depositCents:o.deposit_cents,defaultNotes:"",quote,history:[],versions:[],linkedContactId:q.zoho_contact_id,canManage:true,canReviewZoho:true,canConfirmDeposit:true,canRepairDeposit:true,configured:true,quotationStageComplete:o.current_status!=="order_recorded",currentOrderStatus:o.current_status}));return;
+      }
       if(request.url==="/action"){let body="";for await(const chunk of request){body+=chunk;if(body.length>10000)throw new Error("Request too large");}const parsed=JSON.parse(body);let data;try{if(parsed.method==="preview")data=await previewInvoiceReconciliation(orderId);else if(parsed.method==="apply")data=await applyInvoiceReconciliation({...parsed.input,orderId});else if(parsed.method==="deposit")data=await confirmInvoiceDeposit({...parsed.input,orderId});else throw new Error("Unknown fixture action");response.end(JSON.stringify({ok:true,data:data??null}));}catch(error){response.end(JSON.stringify({ok:false,error:error instanceof Error?error.message:"Action failed"}));}return;}
       if(request.url==="/app.js"){response.setHeader("content-type","text/javascript");response.end(await fs.readFile(path.join(directory,"app.js")));return;}
-      if(request.url==="/app.css"){response.setHeader("content-type","text/css");response.end(await fs.readFile("/tmp/drapeworks-invoiced-reconcile/preview/app.css"));return;}
-      response.setHeader("content-type","text/html");response.end('<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script src="/app.js"></script></body></html>');
+      if(request.url==="/app.css"){response.setHeader("content-type","text/css");const cssDir=path.join(process.cwd(),".next-priority/static/chunks");const files=(await fs.readdir(cssDir)).filter(file=>file.endsWith(".css"));response.end((await Promise.all(files.map(file=>fs.readFile(path.join(cssDir,file),"utf8")))).join("\n"));return;}
+      response.setHeader("content-type","text/html");response.end('<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><style>body{font-family:Arial,Helvetica,sans-serif;--font-geist-sans:Arial,Helvetica,sans-serif}</style></head><body><div id="root"></div><script src="/app.js"></script></body></html>');
     }catch(error){response.statusCode=500;response.end(String(error));}});
     await new Promise<void>(resolve=>server.listen(4318,"127.0.0.1",resolve));
     console.log("ACTUAL DB BROWSER FIXTURE http://127.0.0.1:4318 ; visit /finish to clean up",orderId);

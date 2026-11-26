@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Download, ExternalLink, FileText, Plus, RefreshCw, Share2, Trash2 } from "lucide-react";
+import { Copy, Download, ExternalLink, Plus, RefreshCw, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -21,6 +21,8 @@ import {
   searchZohoCustomersUi,
   syncQuotationUi,
 } from "@/lib/actions/quotations";
+import { previewInvoiceReconciliationUi } from "@/lib/actions/invoice-reconciliation";
+import { InvoiceReconciliationControls, type InvoiceCheck } from "@/components/orders/invoice-reconciliation-panel";
 import type { ActionResult } from "@/lib/user-facing-error";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -98,9 +100,34 @@ export function QuotationWorkspace(props: Props) {
   const [review, setReview] = useState<ZohoReview | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const reviewSeq = useRef(0);
+  const checkSeq = useRef(0);
+  const [invoiceCheck, setInvoiceCheck] = useState<InvoiceCheck | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [checkingZoho, setCheckingZoho] = useState(Boolean(props.configured && props.quote?.hasZohoEstimate));
+  const [quoteCheck, setQuoteCheck] = useState<ZohoReview | null>(null);
+  const refreshZohoCheck = useCallback(async () => {
+    if (!props.configured || !props.quote?.hasZohoEstimate) return;
+    const sequence = ++checkSeq.current;
+    setCheckingZoho(true); setCheckError(null);
+    try {
+      const response = await previewInvoiceReconciliationUi(props.orderId);
+      if (!response.ok) throw new Error(response.error);
+      if (sequence !== checkSeq.current) return;
+      setInvoiceCheck(response.data);
+      if (response.data.hasInvoice) { setQuotationDetailsOpen(false); setQuoteCheck(null); }
+      else if (props.canReviewZoho && props.quote?.id) {
+        const comparison = await previewQuotationZohoDiffUi(props.quote.id);
+        if (sequence !== checkSeq.current) return;
+        if (!comparison.ok) throw new Error(comparison.error);
+        setQuoteCheck(comparison.data);
+      }
+    } catch (error) { if (sequence === checkSeq.current) { setCheckError(error instanceof Error ? error.message : "Could not check Zoho. Retry."); setQuoteCheck(null); } }
+    finally { if (sequence === checkSeq.current) setCheckingZoho(false); }
+  }, [props.configured, props.orderId, props.quote?.hasZohoEstimate, props.quote?.id, props.canReviewZoho]);
+  useEffect(() => { const timer = setTimeout(() => void refreshZohoCheck(), 0); return () => { clearTimeout(timer); checkSeq.current += 1; }; }, [refreshZohoCheck, props.quote?.updatedAt, props.currentOrderStatus]);
   const [reviewChoice, setReviewChoice] = useState<"adopt" | "overwrite" | null>(null);
   const [quotationDetailsOpen, setQuotationDetailsOpen] = useState(
-    !props.quotationStageComplete && props.quote?.status !== "sent",
+    !props.quotationStageComplete && props.quote?.status !== "sent" && !props.quote?.hasZohoInvoice,
   );
   const [importNumber, setImportNumber] = useState("");
   const [importChannel, setImportChannel] = useState("WhatsApp");
@@ -223,9 +250,9 @@ export function QuotationWorkspace(props: Props) {
   const previouslySent = Boolean(props.quote?.sentAt);
   const synced = (props.quote?.status === "zoho_draft" || sent) && !dirty;
   const processing = props.quote?.status === "syncing" || props.quote?.status === "sending";
-  const invoiced = Boolean(props.quote?.hasZohoInvoice);
+  const invoiced = Boolean(props.quote?.hasZohoInvoice || invoiceCheck?.hasInvoice);
   const unsynced = dirty || (previouslySent && props.quote?.status === "local_draft") || props.quote?.status === "sync_failed";
-  const statusText = invoiced ? processing ? "Checking invoiced quotation…" : "Invoiced in Zoho · editing locked" : sent && !dirty ? "Sent quotation"
+  const statusText = checkError ? "Zoho check failed" : checkingZoho ? "Checking Zoho…" : invoiceCheck?.hasInvoice ? invoiceCheck.equal ? "Invoice synced" : "Invoice differences found" : quoteCheck?.identical ? "Quotation synced" : invoiced ? processing ? "Checking invoiced quotation…" : "Invoiced in Zoho · editing locked" : sent && !dirty ? "Sent quotation"
     : previouslySent && unsynced ? "Sent · changes not synced to Zoho"
     : props.quote?.status === "zoho_draft" && !dirty ? "Zoho draft ready"
     : props.quote?.status === "syncing" ? "Syncing with Zoho"
@@ -234,15 +261,17 @@ export function QuotationWorkspace(props: Props) {
     : props.quote ? "Changes not synced" : "Local draft";
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
+    <section id="quotation-workspace" className="rounded-lg border border-slate-200 bg-white p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-base font-semibold text-slate-900">Customer quotation</h2><p className="mt-1 text-sm text-slate-500">Version {props.quote?.revision ?? 1} · {statusText}</p></div>
-        {props.quote?.estimateNumber && <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">{props.quote.estimateNumber}</span>}
+        <div><h2 className="text-base font-semibold text-slate-900">{invoiced ? "Customer invoice" : "Customer quotation"}</h2><p className="mt-1 text-sm text-slate-500">{!invoiced && <>Version {props.quote?.revision ?? 1} · </>}{statusText}</p></div>
+        {(invoiced ? invoiceCheck?.invoiceNumber ?? props.quote?.invoiceNumber : props.quote?.estimateNumber) && <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">{invoiced ? invoiceCheck?.invoiceNumber ?? props.quote?.invoiceNumber : props.quote?.estimateNumber}</span>}
       </div>
-      {!props.configured && <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Zoho Books is not ready. Local quote editing remains available, but an admin must reconnect Zoho Books before customer matching or official quotation generation.</p>}
-      {props.quote?.syncError && <p role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{props.quote.syncError}</p>}
-      {dirty && props.quote?.estimateNumber && <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Changes not synced. Update the Zoho draft and refresh the PDF before sending.</p>}
+      {!props.configured && <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">Zoho Books is not ready. Local quote editing remains available, but an admin must reconnect Zoho Books before customer matching or official quotation generation.</p>}
+      {!invoiced && !checkingZoho && props.quote?.syncError && <p role="alert" className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{props.quote.syncError}</p>}
+      {!invoiced && dirty && props.quote?.estimateNumber && <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">Changes not synced. Update the Zoho draft and refresh the PDF before sending.</p>}
 
+      {props.quote?.hasZohoEstimate && props.configured && <InvoiceReconciliationControls orderId={props.orderId} review={invoiceCheck} checking={checkingZoho} error={checkError} onRefresh={refreshZohoCheck} invoiceActions={props.quote?.hasZohoInvoice ? <div className="mt-3 flex flex-wrap gap-2"><Button className="h-11" variant="outline" onClick={openInvoicePdf}><ExternalLink /> Preview invoice</Button><Button aria-label="Download official invoice" className="h-11 w-11" variant="outline" onClick={downloadInvoicePdf}><Download /></Button><Button aria-label="Share official invoice" className="h-11 w-11" variant="outline" onClick={shareInvoicePdf}><Share2 /></Button></div> : null} />}
+      {!invoiced && !checkingZoho && quoteCheck?.identical && <p className="mt-3 text-sm text-emerald-700">The saved quotation matches Zoho.</p>}
       <div className="mt-5 border-t pt-5">
         <h3 className="text-sm font-semibold text-slate-900">Zoho customer</h3>
         {(props.linkedContactId || options?.linkedContactId) && !matchingOpen ? <div className="mt-2 text-sm text-emerald-700">Confirmed Zoho customer{options?.linkedContact ? <><strong> · {options.linkedContact.name}</strong><div className="text-xs text-slate-500">{[options.linkedContact.phone, options.linkedContact.email].filter(Boolean).join(" · ") || options.linkedContact.id}</div></> : <> · {props.linkedContactId ?? options?.linkedContactId}</>}{props.canManage && !props.quote?.estimateNumber && <Button className="ml-2 h-11" variant="outline" onClick={() => setMatchingOpen(true)}>Change Zoho customer</Button>}</div> : (
@@ -262,14 +291,15 @@ export function QuotationWorkspace(props: Props) {
         onToggle={(event) => setQuotationDetailsOpen(event.currentTarget.open)}
       >
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-4 text-sm hover:text-teal-700">
-          <span className="font-semibold text-slate-900">Quotation details</span>
+          <span className="font-semibold text-slate-900">{invoiced ? `Historical quotation · ${props.quote?.estimateNumber ?? "local"}` : "Quotation details"}</span>
           <span className="flex items-center gap-3 text-xs text-slate-500">
             <span>{lines.length} {lines.length === 1 ? "line" : "lines"} · {money(total)}</span>
             <span className="font-medium text-teal-700 group-open:hidden">Show</span>
             <span className="hidden font-medium text-teal-700 group-open:inline">Hide</span>
           </span>
         </summary>
-      <fieldset disabled={!props.canManage || pending || processing || invoiced} className="space-y-4 border-t pt-5 disabled:opacity-70">
+      {invoiced && props.quote?.hasPdf && <div className="mb-3 flex gap-2"><Button className="h-11" variant="outline" onClick={() => openPdf(false)}>Preview historical quotation</Button><Button className="h-11" variant="outline" onClick={() => openPdf(true)}>Download</Button></div>}
+      <fieldset disabled={!props.canManage || pending || processing || invoiced || checkingZoho} className="space-y-4 border-t pt-5 disabled:opacity-70">
         <legend className="sr-only">Quotation details</legend>
         <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Issue date<Input className="mt-1 h-11" type="date" value={issueDate} onChange={(e) => { setIssueDate(e.target.value); setDirty(true); }} /></label><label className="text-sm font-medium">Valid until{!props.canManage || invoiced ? <div className="mt-1 flex h-11 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-600">{expiryDate || "No expiry"}</div> : <Input className="mt-1 h-11" type="date" value={expiryDate} onChange={(e) => { setExpiryDate(e.target.value); setDirty(true); }} />}</label></div>
         <div className="space-y-3">
@@ -280,41 +310,23 @@ export function QuotationWorkspace(props: Props) {
           <Button className="h-11" variant="outline" onClick={() => { setLines((v) => [...v, { zohoItemId: null, name: "", description: "", quantity: 1, rateCents: 0, discountPercent: 0 }]); setDirty(true); }}><Plus /> Add line</Button>
         </div>
         <div className="flex justify-between border-y py-3 text-base font-semibold"><span>Total</span><span>{money(total)}</span></div>
-        <label className="block text-sm font-medium">Customer message<div className="mt-1 flex gap-2"><Textarea rows={5} value={displayedMessage} onChange={(e) => { setMessage(e.target.value); setMessageCustomized(true); setDirty(true); }} /><Button type="button" aria-label="Copy message" className="h-11 w-11" variant="outline" onClick={async () => { try { await navigator.clipboard.writeText(displayedMessage); toast.success("Message copied"); } catch { toast.error("Could not copy the message"); } }}><Copy /></Button></div>{messageStale && <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">This custom message differs from the current amount, date, or quote number.<Button type="button" size="sm" variant="outline" onClick={() => { setMessage(generatedMessage); setMessageCustomized(false); setDirty(true); }}>Reset to generated message</Button></span>}</label>
+        <label className="block text-sm font-medium">Customer message<div className="mt-1 flex gap-2"><Textarea rows={5} value={displayedMessage} onChange={(e) => { setMessage(e.target.value); setMessageCustomized(true); setDirty(true); }} /><Button type="button" aria-label="Copy message" className="h-11 w-11" variant="outline" onClick={async () => { try { await navigator.clipboard.writeText(displayedMessage); toast.success("Message copied"); } catch { toast.error("Could not copy the message"); } }}><Copy /></Button></div>{messageStale && <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-700">This custom message differs from the current amount, date, or quote number.<Button type="button" size="sm" variant="outline" onClick={() => { setMessage(generatedMessage); setMessageCustomized(false); setDirty(true); }}>Reset to generated message</Button></span>}</label>
         <details><summary className="cursor-pointer text-sm font-medium text-teal-700">Notes and terms</summary><div className="mt-3 space-y-3"><label className="block text-sm">Notes<Textarea className="mt-1" value={notes} onChange={(e) => { setNotes(e.target.value); setDirty(true); }} /></label><label className="block text-sm">Terms<Textarea className="mt-1" value={terms} onChange={(e) => { setTerms(e.target.value); setDirty(true); }} /></label></div></details>
       </fieldset>
       </details>
 
       <div className="-mx-4 mt-5 flex flex-col gap-2 border-t bg-white px-4 py-3 sm:-mx-6 sm:flex-row sm:flex-wrap sm:px-6">
-        {props.canManage && !processing && !invoiced && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(save, "Local quotation saved", true)}>Save draft</Button>}
+        {props.canManage && !processing && !invoiced && !checkingZoho && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(save, "Local quotation saved", true)}>Save draft</Button>}
         {props.canManage && props.quote && !props.quote.hasZohoEstimate && (!sent || dirty) && !processing && !invoiced && props.quote.status !== "conflict" && <Button className="h-11" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => run(async () => { if (dirty) await save(); unwrap(await syncQuotationUi(props.quote!.id)); }, previouslySent ? "Zoho quotation updated" : synced ? "Zoho draft refreshed" : "Zoho draft created", true)}>{pending ? <RefreshCw className="animate-spin" /> : <ExternalLink />} {previouslySent ? "Update Zoho & refresh PDF" : props.quote.estimateNumber ? "Update Zoho draft & refresh PDF" : "Create Zoho draft & preview"}</Button>}
         {props.canManage && props.quote && !props.quote.hasZohoEstimate && !sent && !previouslySent && !processing && !invoiced && <Button className="h-11" variant="outline" disabled={pending || !props.configured || !(props.linkedContactId || options?.linkedContactId)} onClick={() => setImportOpen(true)}>Use existing Zoho quote</Button>}
-        {props.quote?.hasPdf && !dirty && synced && <><Button className="h-11" variant="outline" onClick={() => openPdf(false)}><ExternalLink /> Preview official quotation</Button><Button aria-label="Download official quotation" className="h-11 w-11" variant="outline" onClick={() => openPdf(true)}><Download /></Button><Button aria-label="Share official quotation" className="h-11 w-11" variant="outline" onClick={sharePdf}><Share2 /></Button></>}
-        {props.canManage && !invoiced && props.quote?.status === "zoho_draft" && !dirty && !previouslySent && <Button className="h-11" onClick={() => setSendOpen(true)}>Confirm quotation sent</Button>}
+        {!invoiced && props.quote?.hasPdf && !dirty && synced && <><Button className="h-11" variant="outline" onClick={() => openPdf(false)}><ExternalLink /> Preview official quotation</Button><Button aria-label="Download official quotation" className="h-11 w-11" variant="outline" onClick={() => openPdf(true)}><Download /></Button><Button aria-label="Share official quotation" className="h-11 w-11" variant="outline" onClick={sharePdf}><Share2 /></Button></>}
+        {props.canManage && !invoiced && !checkingZoho && (!quoteCheck || quoteCheck.identical) && props.quote?.status === "zoho_draft" && !dirty && !previouslySent && <Button className="h-11" onClick={() => setSendOpen(true)}>Confirm quotation sent</Button>}
         {props.canManage && props.quote?.status === "conflict" && !props.quote.hasZohoEstimate && <Button className="h-11" variant="destructive" onClick={() => run(async () => unwrap(await reconcileUncertainQuotationUi(props.quote!.id)), "Zoho checked for the interrupted quotation")}>Check Zoho before retrying creation</Button>}
-        {props.canReviewZoho && !invoiced && !props.quotationStageComplete && props.quote?.hasZohoEstimate && <Button className="h-11" variant="outline" disabled={pending || dirty || !props.configured} title={dirty ? "Save or discard your draft changes before reviewing" : undefined} onClick={openZohoReview}>Use Zoho details or update Zoho</Button>}
-        {dirty && props.quote?.hasZohoEstimate && !processing && !invoiced && <p className="w-full text-xs text-amber-700">Save or discard your draft changes before reviewing the Zoho quotation.</p>}
+        {props.canReviewZoho && !invoiced && !checkingZoho && quoteCheck && !quoteCheck.identical && !props.quotationStageComplete && props.quote?.hasZohoEstimate && <Button className="h-11" variant="outline" disabled={pending || dirty || !props.configured} title={dirty ? "Save or discard your draft changes before reviewing" : undefined} onClick={openZohoReview}>Resolve quotation differences</Button>}
+        {dirty && props.quote?.hasZohoEstimate && !processing && !invoiced && <p className="w-full text-xs text-slate-700">Save or discard your draft changes before reviewing the Zoho quotation.</p>}
         {props.canManage && processing && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(async () => unwrap(await recoverStaleQuotationClaimUi(props.quote!.id)), "Zoho operation checked")}>Check Zoho status / resume reconciliation</Button>}
       </div>
 
-      {props.quote?.invoiceNumber && <div className="mt-3 flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-emerald-700 ring-1 ring-emerald-200"><FileText className="size-4" /></span>
-          <div className="min-w-0"><p className="text-sm font-medium text-emerald-950">Invoice {props.quote.invoiceNumber}</p><p className="text-xs text-emerald-800">{props.quote.paymentSyncState === "created" ? `PayNow deposit recorded${props.quote.paymentNumber ? ` · Payment ${props.quote.paymentNumber}` : ""}.` : "Invoice linked from Zoho Books; no payment is linked in CRM. Check Zoho for current payment details."}</p></div>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button className="h-9" variant="outline" onClick={openInvoicePdf}><ExternalLink /> Preview invoice</Button>
-          <Button aria-label="Download official invoice" className="h-9 w-9" variant="outline" onClick={downloadInvoicePdf}><Download /></Button>
-          <Button aria-label="Share official invoice" className="h-9 w-9" variant="outline" onClick={shareInvoicePdf}><Share2 /></Button>
-        </div>
-      </div>}
-      {props.quote?.invoiceSyncState === "pending" && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Zoho invoice creation is still pending. Wait a moment, then use the deposit action above to check and continue.</p>}
-      {props.quote?.invoiceSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have created the invoice</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The conversion response was interrupted."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
-      {props.quote?.invoiceSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho invoice needs attention</p><p className="mt-1 text-xs">{props.quote.invoiceSyncError ?? "The last invoice attempt could not be confirmed."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry or reconcile with the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
-      {props.quote?.paymentSyncState === "pending" && <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">The Zoho deposit payment is still pending. Wait a moment, then use the deposit action above to check and continue.</p>}
-      {props.quote?.paymentSyncState === "uncertain" && <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-medium">Zoho may have recorded the deposit</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The payment response was interrupted."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Check Zoho again with the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
-      {props.quote?.paymentSyncState === "failed" && <div role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900"><p className="font-medium">Zoho deposit payment needs attention</p><p className="mt-1 text-xs">{props.quote.paymentSyncError ?? "The invoice exists, but the matching deposit payment was not confirmed."}</p>{props.canConfirmDeposit ? <a href="#advance-order-status" className="mt-2 inline-block font-medium underline">Retry the deposit action above</a> : <p className="mt-2 font-medium">Ask an operations user or admin to verify the invoice and payment on this order.</p>}</div>}
-      {props.canRepairDeposit && props.quote?.invoiceNumber && props.quote.paymentSyncState !== "created" && <div className="mt-3 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-medium text-amber-950">No payment linked in CRM</p><p className="text-xs text-amber-800">This does not mean payment is missing in Zoho. Check existing payments in Zoho before recording a payment.</p></div><Button className="h-9 shrink-0" disabled={pending} onClick={() => window.dispatchEvent(new Event("open-invoice-reconciliation"))}>Review invoice & payment</Button></div>}
       {props.versions.length > 1 && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium text-slate-700">Saved versions ({props.versions.length})</summary><ul className="mt-2 space-y-2 text-slate-500">{props.versions.map((item) => <li key={item.id} className="rounded border p-2">Version {item.version} · {money(item.totalCents)} · {new Date(item.createdAt).toLocaleString("en-SG")}</li>)}</ul></details>}
       {props.history.length > 0 && <details className="mt-4 text-sm"><summary className="cursor-pointer font-medium text-slate-700">Earlier versions ({props.history.length})</summary><ul className="mt-2 space-y-2 text-slate-500">{props.history.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2"><span>Version {item.revision} · {item.estimateNumber ?? "local"} · {money(item.totalCents)} · superseded {item.supersededAt ? new Date(item.supersededAt).toLocaleString("en-SG") : "—"}</span>{item.hasPdf && <span className="flex gap-1"><Button size="sm" variant="outline" onClick={() => openPdf(false, item.id)}>Preview</Button><Button size="sm" variant="outline" onClick={() => openPdf(true, item.id)}>Download</Button></span>}</li>)}</ul></details>}
 
@@ -339,7 +351,7 @@ export function QuotationWorkspace(props: Props) {
             const field = (label: string, value: ReactNode, changed: boolean) => (
               <div key={label} className="flex justify-between gap-3 py-1.5 text-sm">
                 <dt className="shrink-0 text-slate-500">{label}</dt>
-                <dd className={`min-w-0 text-right ${changed ? "font-medium text-amber-800" : "text-slate-800"}`}>{value}</dd>
+                <dd className={`min-w-0 text-right ${changed ? "font-medium text-slate-800" : "text-slate-800"}`}>{value}</dd>
               </div>
             );
             // Rendered text and a normalized comparison key are built from the
@@ -359,8 +371,8 @@ export function QuotationWorkspace(props: Props) {
             return (
               <div className="space-y-4">
                 <p className="text-sm text-slate-600">{review.zoho.estimateNumber} · Zoho status: <strong>{review.zoho.status}</strong></p>
-                {review.invoiced && <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950"><h4 className="font-semibold">Review the existing invoice commercial items</h4><p className="mt-2">Compare the current CRM items with this invoice, choose the financial source if needed, then separately confirm the deposit. The historical quotation stays unchanged.</p><Button className="mt-3 h-11" onClick={() => { reviewSeq.current += 1; setReviewOpen(false); window.dispatchEvent(new Event("open-invoice-reconciliation")); }}>Open invoice reconciliation</Button></div>}
-                {!review.invoiced && <div className="grid gap-3 sm:grid-cols-2">
+                {review.invoiced && <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950"><h4 className="font-semibold">Review the existing invoice commercial items</h4><p className="mt-2">Compare the current CRM items with this invoice, choose the financial source if needed, then separately confirm the deposit. The historical quotation stays unchanged.</p><Button className="mt-3 h-11" onClick={() => { reviewSeq.current += 1; setReviewOpen(false); void refreshZohoCheck(); }}>Open invoice reconciliation</Button></div>}
+                {!review.invoiced && !review.identical && <div className="grid gap-3 sm:grid-cols-2">
                   <button type="button" aria-pressed={reviewChoice === "adopt"} disabled={pending || review.adoptIssues.length > 0} onClick={() => setReviewChoice("adopt")} className={`rounded-lg border-2 p-3 text-left disabled:opacity-60 ${reviewChoice === "adopt" ? "border-teal-600 bg-teal-50" : "border-slate-200"}`}>
                     <span className="block font-semibold">Use Zoho details in CRM</span><span className="mt-1 block text-sm">Copy {money(review.zoho.totalCents)} and quotation details into CRM.{" Nothing is written back to Zoho."}</span>
                     {review.adoptIssues.length > 0 && <span className="mt-2 block text-sm font-medium text-red-800">This option is unavailable: {review.adoptIssues.join(" ")}</span>}
@@ -382,7 +394,7 @@ export function QuotationWorkspace(props: Props) {
                       {field("Notes", <span className="whitespace-pre-wrap">{review.crm.notes || "—"}</span>, differs(review.crm.notes, review.zoho.notes))}
                       {field("Terms", <span className="whitespace-pre-wrap">{review.crm.terms || "—"}</span>, differs(review.crm.terms, review.zoho.terms))}
                     </dl>
-                    <ul className={`mt-2 space-y-1 border-t pt-2 text-sm ${linesDiffer ? "text-amber-800" : "text-slate-600"}`}>
+                    <ul className={`mt-2 space-y-1 border-t pt-2 text-sm ${linesDiffer ? "text-slate-800" : "text-slate-600"}`}>
                       {crmLines.map((line, index) => <li key={index}>{line.text}</li>)}
                     </ul>
                   </div>
@@ -396,7 +408,7 @@ export function QuotationWorkspace(props: Props) {
                       {field("Notes", <span className="whitespace-pre-wrap">{review.zoho.notes || "—"}</span>, differs(review.zoho.notes, review.crm.notes))}
                       {field("Terms", <span className="whitespace-pre-wrap">{review.zoho.terms || "—"}</span>, differs(review.zoho.terms, review.crm.terms))}
                     </dl>
-                    <ul className={`mt-2 space-y-1 border-t pt-2 text-sm ${linesDiffer ? "text-amber-800" : "text-slate-600"}`}>
+                    <ul className={`mt-2 space-y-1 border-t pt-2 text-sm ${linesDiffer ? "text-slate-800" : "text-slate-600"}`}>
                       {zohoLines.map((line, index) => <li key={index}>{line.text}</li>)}
                     </ul>
                   </div>
@@ -406,7 +418,7 @@ export function QuotationWorkspace(props: Props) {
                   <strong>Overwrite Zoho with CRM</strong> pushes the saved CRM draft to this Zoho quotation and regenerates its PDF — the Zoho-only differences shown above will be lost.
                 </p>}
                 {!review.invoiced && review.warnings.map((warning) => (
-                  <div key={warning} role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{warning}</div>
+                  <div key={warning} role="alert" className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-900">{warning}</div>
                 ))}
               </div>
             );
@@ -415,7 +427,7 @@ export function QuotationWorkspace(props: Props) {
           <DialogFooter className="m-0 flex-col gap-2 rounded-none border-t bg-white p-4 sm:flex-row">
             <Button className="h-11" variant="outline" disabled={pending} onClick={() => { reviewSeq.current += 1; setReviewOpen(false); }}>Close</Button>
             <Button className="h-11" variant="outline" disabled={pending} onClick={openZohoReview}>Refresh</Button>
-            {review && !review.invoiced && <Button className="h-11 whitespace-normal" variant={reviewChoice === "overwrite" ? "destructive" : "default"} disabled={pending || !reviewChoice || (reviewChoice === "adopt" && (review.adoptIssues.length > 0)) || (reviewChoice === "overwrite" && Boolean(review.overwriteBlockedReason))} onClick={() => reviewChoice && applyZohoReview(reviewChoice)}>{pending ? "Applying…" : reviewChoice === "adopt" ? "Confirm: use Zoho details" : reviewChoice === "overwrite" ? "Confirm: overwrite Zoho" : "Choose an option above"}</Button>}
+            {review && !review.invoiced && !review.identical && <Button className="h-11 whitespace-normal" variant={reviewChoice === "overwrite" ? "destructive" : "default"} disabled={pending || !reviewChoice || (reviewChoice === "adopt" && (review.adoptIssues.length > 0)) || (reviewChoice === "overwrite" && Boolean(review.overwriteBlockedReason))} onClick={() => reviewChoice && applyZohoReview(reviewChoice)}>{pending ? "Applying…" : reviewChoice === "adopt" ? "Confirm: use Zoho details" : reviewChoice === "overwrite" ? "Confirm: overwrite Zoho" : "Choose an option above"}</Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>

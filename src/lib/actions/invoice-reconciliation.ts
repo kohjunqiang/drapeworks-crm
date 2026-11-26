@@ -6,14 +6,15 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/kysely";
 import { requireSession, requireRole } from "@/lib/auth/require-role";
-import { getZohoEstimate, getZohoInvoice, getZohoBooksBinding, listZohoCustomerPayments, getZohoCustomerPayment, updateZohoInvoiceCommercial } from "@/lib/zoho/books";
-import { commercialEqual, commercialUpdateLines, commercialWriteIssues, commercialFingerprint, commercialFromQuotation, invoiceUpdateIssues, normalizeCommercialInvoice, type CommercialInvoice } from "@/lib/quotations/commercial-invoice";
+import { getZohoEstimate, getZohoInvoice, getZohoBooksBinding, getZohoDepositPaymentConfig, listZohoCustomerPayments, getZohoCustomerPayment, updateZohoInvoiceCommercial } from "@/lib/zoho/books";
+import { commercialEqual, commercialUpdateLines, commercialWriteIssues, commercialFromQuotation, invoiceUpdateIssues, normalizeCommercialInvoice, type CommercialInvoice } from "@/lib/quotations/commercial-invoice";
 import { loadCommercialSnapshot, persistCommercialSnapshot } from "@/lib/quotations/commercial-store";
 import { quotePayloadHash } from "@/lib/quotations/hash";
 import { crmKeyConflicts } from "@/lib/quotations/lifecycle";
 import { optionalMoneyCents } from "@/lib/quotations/invoice-reconciliation";
 import type { QuotationLineInput } from "@/lib/validation/quotation";
 import { toActionResult, UserFacingError } from "@/lib/user-facing-error";
+import { verifyExistingDepositPayment } from "@/lib/quotations/deposit-verification";
 import { ensureZohoInvoiceForOrder } from "./quotations";
 import { advanceOrderStatus } from "./status";
 import { resolveLeadForOrderSync } from "./order-customer";
@@ -22,10 +23,10 @@ import { leadMilestoneForOrderStatus } from "@/lib/status-flow";
 class NoExistingInvoice extends UserFacingError {
   constructor(readonly review: { orderId: string; fingerprint: string; orderStage: string; orderTotalCents: number; depositCents: number; historicalQuoteTotalCents: number; admin: boolean; operator: boolean; canConfirmDeposit: boolean }) { super("No existing Zoho invoice is linked. Use the validated quotation-to-invoice flow."); }
 }
-const reviewSchema = z.object({ orderId: z.string().uuid(), fingerprint: z.string().min(1), choice: z.enum(["match", "zoho", "crm"]).optional(), confirm: z.boolean().optional() });
+const reviewSchema = z.object({ orderId: z.string().uuid(), fingerprint: z.string().min(1), choice: z.enum(["match", "zoho", "crm"]).optional(), confirm: z.boolean().optional(), reuseOnly: z.boolean().optional(), paymentId: z.string().min(1).max(200).optional() });
 async function context(orderId: string) {
   const session = await requireSession();
-  const order = await db.selectFrom("orders").select(["id", "current_status", "price_quoted_cents", "deposit_cents", "consultant_id", "is_draft", "lead_id", "appointment_id"]).where("id", "=", orderId).executeTakeFirstOrThrow();
+  const order = await db.selectFrom("orders").select(["id", "current_status", "price_quoted_cents", "deposit_cents", "consultant_id", "display_id", "is_draft", "lead_id", "appointment_id"]).where("id", "=", orderId).executeTakeFirstOrThrow();
   const admin = session.profile.role === "admin", operator = admin || session.profile.role === "ops";
   if (!operator && !(session.profile.role === "consultant" && order.consultant_id === session.user.id)) throw new UserFacingError("Forbidden");
   const quote = await db.selectFrom("order_quotations").selectAll().where("order_id", "=", orderId).where("superseded_at", "is", null).executeTakeFirst();
@@ -57,13 +58,21 @@ export async function previewInvoiceReconciliation(orderId: string) {
   try { c = await context(z.string().uuid().parse(orderId)); }
   catch (error) {
     if (!(error instanceof NoExistingInvoice)) throw error;
-    return { ...error.review, hasInvoice: false, crm: null, zoho: null, equal: false, issues: [], busy: false, mutationBlocked: false, sourceAllowed: false, invoiceId: null, invoiceNumber: null, invoiceStatus: null, basis: "Quotation items", synced: false, paymentState: "not_started", paidCents: null, balanceCents: null, creditsCents: null, updateIssues: [] };
+    return { ...error.review, hasInvoice: false, crm: null, zoho: null, equal: false, issues: [], busy: false, mutationBlocked: false, sourceAllowed: false, invoiceId: null, invoiceNumber: null, invoiceStatus: null, basis: "Quotation items", synced: false, verifiedPaymentId: null, paymentCheckError: null, paymentVerified: false, canRecordDeposit: false, paymentState: "not_started", paidCents: null, balanceCents: null, creditsCents: null, updateIssues: [] };
   }
+  let verifiedPaymentId: string | null = null, paymentCheckError: string | null = null;
+  try {
+    if (c.order.deposit_cents > 0) {
+      const config = getZohoDepositPaymentConfig();
+      verifiedPaymentId = (await verifyExistingDepositPayment({ customerId: c.quote.zoho_contact_id!, invoiceId: c.invoice.invoice_id, invoiceNumber: c.invoice.invoice_number ?? null, amountCents: c.order.deposit_cents, referenceNumber: `CRM-${c.order.display_id}-DEPOSIT`, accountId: config.accountId, storedPaymentId: c.quote.zoho_payment_id }))?.payment_id ?? null;
+    }
+  } catch (error) { paymentCheckError = error instanceof UserFacingError ? error.message : "The existing deposit payment could not be verified. Retry the Zoho check."; }
+  if (!verifiedPaymentId && !paymentCheckError && (c.order.deposit_cents <= 0 || !["draft", "sent", "overdue"].includes(c.invoice.status ?? "") || optionalMoneyCents(c.invoice.payment_made) !== 0 || optionalMoneyCents(c.invoice.credits_applied) !== 0 || optionalMoneyCents(c.invoice.balance) !== optionalMoneyCents(c.invoice.total))) paymentCheckError = "Zoho shows payment activity or incomplete payment information, but no matching deposit was verified. Retry or reconcile the existing payments in Zoho; no new payment will be created from this check.";
   return { orderId, hasInvoice: true, sourceAllowed: ["order_recorded", "quotation_sent", "deposit_received"].includes(c.order.current_status), fingerprint: c.fingerprint, crm: c.crm, zoho: c.zoho, equal: c.equal, issues: c.issues, busy: c.busy, mutationBlocked: c.mutationBlocked, admin: c.admin, operator: c.operator,
     invoiceId: c.invoice.invoice_id, invoiceNumber: c.invoice.invoice_number ?? c.invoice.invoice_id, invoiceStatus: c.invoice.status,
     orderStage: c.order.current_status, orderTotalCents: c.order.price_quoted_cents, depositCents: c.order.deposit_cents,
     historicalQuoteTotalCents: c.quote.quoted_total_cents, basis: c.snapshot ? "Current commercial invoice details" : "Quotation items (initial commercial basis)",
-    synced: c.equal && c.snapshot?.state === "synced" && c.snapshot.synced_fingerprint === (c.zoho ? commercialFingerprint(c.zoho) : ""),
+    synced: c.equal, verifiedPaymentId, paymentVerified: Boolean(verifiedPaymentId), paymentCheckError, canRecordDeposit: !verifiedPaymentId && !paymentCheckError,
     paymentState: c.quote.payment_sync_state, paidCents: optionalMoneyCents(c.invoice.payment_made), balanceCents: optionalMoneyCents(c.invoice.balance), creditsCents: optionalMoneyCents(c.invoice.credits_applied),
     updateIssues: [...(c.snapshot?.state === "uncertain" ? ["A previous update is unconfirmed. Verify matching details or use the current Zoho details before another update."] : []), ...invoiceUpdateIssues(c.invoice), ...commercialWriteIssues(c.crm), ...commercialWriteIssues(c.zoho), ...(!c.crm || c.crm.totalCents !== c.order.price_quoted_cents ? ["CRM commercial items do not equal the CRM order total. Use Zoho details or correct the commercial basis before updating Zoho."] : [])],
     canConfirmDeposit: c.operator && !c.order.is_draft && ["order_recorded", "quotation_sent", "deposit_received"].includes(c.order.current_status),
@@ -137,14 +146,20 @@ export async function confirmInvoiceDeposit(input: unknown) {
   try { c = await context(parsed.orderId); }
   catch (error) {
     if (!(error instanceof NoExistingInvoice)) throw error;
-    if (!parsed.confirm || !error.review.canConfirmDeposit || error.review.fingerprint !== parsed.fingerprint) throw new UserFacingError("Refresh the quotation review and confirm the received deposit before creating an invoice.");
+    if (parsed.reuseOnly || !parsed.confirm || !error.review.canConfirmDeposit || error.review.fingerprint !== parsed.fingerprint) throw new UserFacingError("Refresh the quotation review and confirm the received deposit before creating an invoice.");
     return advanceOrderStatus({ orderId: parsed.orderId, expectedStatus: "quotation_sent", note: "Confirmed deposit receipt; validated sent quotation used to create the invoice where absent." });
   }
   await requireRole(["ops", "admin"]);
-  if (!parsed.confirm || c.fingerprint !== parsed.fingerprint || !c.equal || c.busy || c.order.is_draft) throw new UserFacingError("Confirm receipt only after reviewing matching invoice details. Refresh if anything changed.");
-  if (c.order.current_status === "quotation_sent") return advanceOrderStatus({ orderId: parsed.orderId, expectedStatus: "quotation_sent", note: "Confirmed deposit after reviewing existing invoice commercial items." });
+  if ((!parsed.confirm && !parsed.reuseOnly) || c.fingerprint !== parsed.fingerprint || !c.equal || c.busy || c.order.is_draft) throw new UserFacingError("Confirm receipt only after reviewing matching invoice details. Refresh if anything changed.");
+  if (parsed.reuseOnly) {
+    if (!parsed.paymentId) throw new UserFacingError("Refresh the payment check before continuing.");
+    const config = getZohoDepositPaymentConfig();
+    const payment = await verifyExistingDepositPayment({ customerId: c.quote.zoho_contact_id!, invoiceId: c.invoice.invoice_id, invoiceNumber: c.invoice.invoice_number ?? null, amountCents: c.order.deposit_cents, referenceNumber: `CRM-${c.order.display_id}-DEPOSIT`, accountId: config.accountId, storedPaymentId: c.quote.zoho_payment_id });
+    if (payment?.payment_id !== parsed.paymentId) throw new UserFacingError("The previously verified payment is no longer available. Refresh; no new payment was created.");
+  }
+  if (c.order.current_status === "quotation_sent") return advanceOrderStatus({ orderId: parsed.orderId, expectedStatus: "quotation_sent", reuseExistingPaymentId: parsed.reuseOnly ? parsed.paymentId : undefined, note: "Confirmed deposit after reviewing existing invoice commercial items." });
   if (!["order_recorded", "deposit_received"].includes(c.order.current_status)) throw new UserFacingError("This order cannot change stage through invoice recovery.");
-  const receipt = await ensureZohoInvoiceForOrder(parsed.orderId, { recoverExistingInvoice: c.order.current_status === "order_recorded" });
+  const receipt = await ensureZohoInvoiceForOrder(parsed.orderId, { recoverExistingInvoice: c.order.current_status === "order_recorded", reuseOnly: parsed.reuseOnly, expectedPaymentId: parsed.paymentId });
   if (c.order.current_status === "order_recorded") await db.transaction().execute(async trx => {
     await sql`select public.recover_order_invoice_deposit(${parsed.orderId}::uuid,${receipt.quotationId}::uuid,${receipt.invoiceId},${receipt.paymentId},${receipt.orderTotalCents},${receipt.depositCents},${receipt.commercialFingerprint},${c.session.user.id}::uuid)`.execute(trx);
     const lead = await resolveLeadForOrderSync(trx, c.order);

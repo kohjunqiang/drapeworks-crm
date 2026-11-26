@@ -21,18 +21,24 @@ export function exactCents(value: unknown): number {
   if (!Number.isSafeInteger(cents) || cents > 100_000_000) throw new Error("Amount exceeds supported limit");
   return cents;
 }
-const rounded = (numerator: bigint, denominator: bigint) => Number((numerator * BigInt(2) + denominator) / (denominator * BigInt(2)));
+export function exactSignedCents(value: unknown): number {
+  if (typeof value !== "string" && typeof value !== "number") throw new Error("Missing numeric value");
+  const text = String(value).trim();
+  return text.startsWith("-") ? -exactCents(text.slice(1)) : exactCents(text);
+}
+const rounded = (numerator: bigint, denominator: bigint): number => numerator < BigInt(0)
+  ? -rounded(-numerator, denominator)
+  : Number((numerator * BigInt(2) + denominator) / (denominator * BigInt(2)));
 export function normalizeCommercialInvoice(invoice: ZohoInvoice): CommercialInvoice {
   if (!invoice.line_items?.length || invoice.line_items.length > 100) throw new Error("Invoice items are missing or exceed 100 lines");
-  const signedCents = (value: unknown) => String(value ?? 0).startsWith("-") ? -exactCents(String(value).slice(1)) : exactCents(value ?? 0);
-  const taxCents = exactCents(invoice.tax_total ?? 0), shippingCents = exactCents(invoice.shipping_charge ?? 0), adjustmentCents = signedCents(invoice.adjustment);
+  const taxCents = exactCents(invoice.tax_total ?? 0), shippingCents = exactCents(invoice.shipping_charge ?? 0), adjustmentCents = exactSignedCents(invoice.adjustment ?? 0);
   if (invoice.is_inclusive_tax) throw new Error("Inclusive-tax allocation cannot be verified exactly; review the tax-inclusive breakdown in Zoho.");
   const taxes = (invoice.taxes ?? []).map(tax => ({ id: tax.tax_id ?? null, name: tax.tax_name ?? "", percent: tax.tax_percentage == null ? null : decimal(tax.tax_percentage).text, amountCents: exactCents(tax.tax_amount) }));
   if (taxes.reduce((sum, tax) => sum + tax.amountCents, 0) !== taxCents) throw new Error("Invoice tax breakdown is missing or does not equal its tax total");
   const lines = invoice.line_items.map(line => {
     if (!line.name?.trim()) throw new Error("An invoice item name is missing");
 
-    const quantity = decimal(line.quantity), rateCents = exactCents(line.rate);
+    const quantity = decimal(line.quantity), rateCents = exactSignedCents(line.rate);
     if (quantity.numerator <= BigInt(0)) throw new Error("Item quantity must be positive");
     const gross = BigInt(rateCents) * quantity.numerator;
     const discountText = String(line.discount ?? 0);
@@ -47,9 +53,9 @@ export function normalizeCommercialInvoice(invoice: ZohoInvoice): CommercialInvo
       discountCents = exactCents(line.discount ?? 0);
       totalCents = rounded(gross, quantity.scale) - discountCents;
     }
-    if (totalCents < 0 || !Number.isSafeInteger(totalCents)) throw new Error("Invalid item total");
-    if (line.discount_amount != null && exactCents(line.discount_amount) !== discountCents) throw new Error("Item discount amount disagrees with its discount");
-    if (line.item_total != null && exactCents(line.item_total) !== totalCents) throw new Error("Item total disagrees with quantity, rate and discount");
+    if ((rateCents >= 0 && totalCents < 0) || Math.abs(totalCents) > 100_000_000 || !Number.isSafeInteger(totalCents)) throw new Error("Invalid item total");
+    if (line.discount_amount != null && exactSignedCents(line.discount_amount) !== discountCents) throw new Error("Item discount amount disagrees with its discount");
+    if (line.item_total != null && exactSignedCents(line.item_total) !== totalCents) throw new Error("Item total disagrees with quantity, rate and discount");
     return { itemId: line.item_id || null, name: line.name.trim(), description: line.description ?? "", quantity: quantity.text, rateCents, discountCents, discountInput: discountText, totalCents, taxId: line.tax_id ?? null, taxPercent: decimal(line.tax_percentage ?? 0).text };
   });
   const totalCents = exactCents(invoice.total);

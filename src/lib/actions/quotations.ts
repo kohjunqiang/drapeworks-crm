@@ -10,6 +10,7 @@ import { db } from "@/lib/db/kysely";
 import type { DB, Json, OrderQuotations } from "@/lib/db/schema";
 import { sql, type Selectable, type Transaction } from "kysely";
 import { commercialFingerprint as fingerprintCommercial, normalizeCommercialInvoice } from "@/lib/quotations/commercial-invoice";
+import { findDepositPayment } from "@/lib/quotations/deposit-verification";
 import { loadCommercialSnapshot, verifyCommercialForDeposit } from "@/lib/quotations/commercial-store";
 import { leadMilestoneForOrderStatus } from "@/lib/status-flow";
 import { resolveLeadForOrderSync } from "@/lib/actions/order-customer";
@@ -856,40 +857,10 @@ async function findConvertedInvoiceId(estimateId: string): Promise<string | null
   return null;
 }
 
-async function findDepositPayment(input: {
-  customerId: string;
-  invoiceId: string;
-  invoiceNumber: string | null;
-  amountCents: number;
-  referenceNumber: string;
-  accountId: string;
-}): Promise<{ payment_id: string; payment_number?: string } | null> {
-  const summaries = await listZohoCustomerPayments(input.customerId);
-  // List summaries may omit invoice allocations. Fetch every customer payment
-  // before deciding that no matching deposit exists.
-  const candidates = [...new Map(summaries.map(payment => [payment.payment_id, payment])).values()];
-  const applied = [];
-  for (const summary of candidates) {
-    const payment = await getZohoCustomerPayment(summary.payment_id);
-    if (payment.payment_id !== summary.payment_id || payment.customer_id !== input.customerId || !Array.isArray(payment.invoices)) throw new UserFacingError("A Zoho payment could not be verified. Reconcile existing payments before continuing.");
-    if (payment.reference_number === input.referenceNumber && !payment.invoices.some(invoice => invoice.invoice_id === input.invoiceId)) throw new UserFacingError("The CRM deposit reference is attached to another payment allocation. Reconcile it in Zoho before continuing.");
-    if (payment.invoices?.some((invoice) => invoice.invoice_id === input.invoiceId)) applied.push(payment);
-  }
-  if (applied.length === 0) return null;
-  if (applied.length > 1) throw new UserFacingError("Multiple Zoho payments are applied to this invoice; reconcile them in Zoho Books before continuing");
-  const payment = applied[0];
-  const invoice = payment.invoices?.find((candidate) => candidate.invoice_id === input.invoiceId);
-  const paymentMatches = payment.customer_id === input.customerId
-    && Math.round(Number(payment.amount) * 100) === input.amountCents
-    && Math.round(Number(invoice?.amount_applied) * 100) === input.amountCents
-    && payment.payment_mode?.toLowerCase() === "paynow"
-    && (!payment.account_id || payment.account_id === input.accountId);
-  if (!paymentMatches) throw new UserFacingError("The Zoho invoice already has a payment that does not match the CRM deposit, PayNow mode, or MariBank account");
-  return { payment_id: payment.payment_id, payment_number: payment.payment_number };
-}
 
 async function ensureZohoDepositPaymentForQuote(input: {
   orderId: string; orderTotalCents: number; orderStage: string; commercialFingerprint: string;
+  reuseOnly?: boolean; expectedPaymentId?: string;
   quotationId: string;
   displayId: string;
   customerId: string;
@@ -930,6 +901,7 @@ async function ensureZohoDepositPaymentForQuote(input: {
       if (payment && payment.payment_id !== storedPayment.payment_id) throw new UserFacingError("Multiple matching payments were found. Reconcile them in Zoho before continuing.");
       payment = storedPayment;
     }
+    if (input.reuseOnly && (!payment || payment.payment_id !== input.expectedPaymentId)) throw new UserFacingError("The previously verified payment is no longer available. Refresh the Zoho check; no new payment was created.");
     if (!payment && operation.reconcileOnly) {
       const uncertainSince = operation.quote.payment_uncertain_at ?? operation.quote.payment_claimed_at ?? new Date();
       if (new Date(uncertainSince).getTime() > Date.now() - 5 * 60_000) {
@@ -993,7 +965,7 @@ export type InvoicePaymentReceipt = {
   quotationId: string; invoiceId: string; paymentId: string; orderTotalCents: number; depositCents: number; commercialFingerprint: string;
 };
 
-export async function ensureZohoInvoiceForOrder(orderId: string, options?: { recoverExistingInvoice?: boolean }): Promise<InvoicePaymentReceipt> {
+export async function ensureZohoInvoiceForOrder(orderId: string, options?: { recoverExistingInvoice?: boolean; reuseOnly?: boolean; expectedPaymentId?: string }): Promise<InvoicePaymentReceipt> {
   const session = await requireRole(["ops", "admin"]);
   const invoiceClaimToken = randomUUID();
   const operation = await db.transaction().execute(async (trx) => {
@@ -1033,6 +1005,7 @@ export async function ensureZohoInvoiceForOrder(orderId: string, options?: { rec
     if ((remote.invoice_ids?.length ?? 0) > 1) throw new UserFacingError("Multiple invoices are linked to this quotation. Reconcile the invoice links in Zoho before continuing.");
     if (quote.zoho_invoice_id && remote.invoice_ids?.[0] !== quote.zoho_invoice_id) throw new UserFacingError("The stored Zoho invoice is no longer the single invoice linked to this quotation.");
     const existingInvoiceId = quote.zoho_invoice_id ?? remote.invoice_ids?.[0];
+    if (!existingInvoiceId && options?.reuseOnly) throw new UserFacingError("The existing invoice is no longer available. Refresh the Zoho check; no invoice or payment was created.");
     if (!existingInvoiceId && order.current_status === "order_recorded") throw new UserFacingError("Stage recovery requires an existing invoice; no new invoice will be created.");
     if (!existingInvoiceId && remote.status === "invoiced" && !reconcileOnly) throw new UserFacingError("Zoho says this quotation is invoiced but its invoice link is unavailable. Check its existing invoice in Zoho; no new invoice will be created.");
     if (!existingInvoiceId && !reconcileOnly) {
@@ -1160,7 +1133,7 @@ export async function ensureZohoInvoiceForOrder(orderId: string, options?: { rec
       invoiceFinalized = true;
     }
     const paymentId = await ensureZohoDepositPaymentForQuote({
-      orderId, orderTotalCents: order.price_quoted_cents, orderStage: order.current_status, commercialFingerprint,
+      orderId, orderTotalCents: order.price_quoted_cents, orderStage: order.current_status, commercialFingerprint, reuseOnly: options?.reuseOnly, expectedPaymentId: options?.expectedPaymentId,
       quotationId: quote.id, displayId: order.display_id, customerId: quote.zoho_contact_id,
       invoiceId: invoice.invoice_id, invoiceNumber: invoice.invoice_number ?? quote.zoho_invoice_number,
       depositCents: order.deposit_cents,

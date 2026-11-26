@@ -4,6 +4,16 @@ import type { ZohoInvoice } from "@/lib/zoho/books";
 const line = { item_id: "a", name: "Curtain", description: "Room", quantity: 2, rate: 50, discount: "0%" };
 const invoice: ZohoInvoice = { invoice_id: "i", total: 100, line_items: [line] };
 describe("commercial invoice authority", () => {
+  it("preserves signed waiver lines and detects same-total item changes", () => {
+    const value = { invoice_id: "i", total: 4730, line_items: [{ name: "Curtains", quantity: 1, rate: 4730 }, { name: "Installation", quantity: 23, rate: 10 }, { name: "Installation waiver", quantity: 1, rate: -230, item_total: -230 }] };
+    const document = normalizeCommercialInvoice(value);
+    expect(document.lines.map(line => line.totalCents)).toEqual([473000, 23000, -23000]);
+    expect(commercialEqual(document, normalizeCommercialInvoice({ ...value, line_items: value.line_items.map(line => ({ ...line, name: line.name + " changed" })) }))).toBe(false);
+  });
+  it("rounds signed half cents symmetrically and rejects positive-item overdiscount", () => {
+    expect(normalizeCommercialInvoice({ invoice_id: "i", total: 0.98, line_items: [{ name: "Base", quantity: 1, rate: 1 }, { name: "Waiver", quantity: 0.5, rate: -0.03, item_total: -0.02 }] }).lines[1].totalCents).toBe(-2);
+    expect(() => normalizeCommercialInvoice({ invoice_id: "i", total: 99, line_items: [{ name: "Base", quantity: 1, rate: 100 }, { name: "Invalid", quantity: 1, rate: 1, discount: 2 }] })).toThrow();
+  });
   it("compares order-insensitively while preserving duplicate multiplicity", () => {
     const a = { ...line, name: "A" }, b = { ...line, name: "B" };
     expect(commercialEqual(normalizeCommercialInvoice({ ...invoice, total: 200, line_items: [a, b] }), normalizeCommercialInvoice({ ...invoice, total: 200, line_items: [b, a] }))).toBe(true);

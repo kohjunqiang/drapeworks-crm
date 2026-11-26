@@ -293,7 +293,7 @@ export function AdvanceStatusButton({
             )}
             {currentStatus === "quotation_sent" && (
               <div className="space-y-3">
-                <ButtonForInvoiceReview onClick={() => { setOpen(false); window.dispatchEvent(new Event("open-invoice-reconciliation")); }} />
+                <a href="#quotation-workspace" onClick={() => setOpen(false)} className="block py-2 text-sm font-medium text-teal-800 underline">Check the invoice and deposit in the quotation workspace</a>
                 <p className="text-sm text-slate-600">The existing Zoho invoice is checked against the CRM order total. A matching deposit payment is reused. An invoice or payment is created only when none exists and the checks pass.</p>
                 <dl className="divide-y rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm">
                   <div className="flex justify-between py-2"><dt className="text-slate-600">Deposit received</dt><dd className="font-semibold text-slate-900">{formatMoney(depositCents)}</dd></div>
@@ -486,8 +486,4 @@ export function AdvanceStatusButton({
       </Dialog>
     </>
   );
-}
-
-function ButtonForInvoiceReview({ onClick }: { onClick: () => void }) {
-  return <button type="button" className="min-h-11 w-full rounded border border-teal-300 px-3 py-2 text-sm font-semibold text-teal-800" onClick={onClick}>Compare existing invoice items & choose details</button>;
 }

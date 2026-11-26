@@ -9,8 +9,6 @@ import { EditPaymentDialog } from "@/components/orders/edit-payment-dialog";
 import { FulfilmentArrangementCard } from "@/components/orders/fulfilment-arrangement-card";
 import { OrderReferenceField } from "@/components/orders/order-reference-field";
 import { PrintButton } from "@/components/orders/print-button";
-import { InvoiceReconciliationPanel } from "@/components/orders/invoice-reconciliation-panel";
-import { loadCommercialSnapshot } from "@/lib/quotations/commercial-store";
 import { QuoteCard } from "@/components/orders/quote-card";
 import { QuotationWorkspace } from "@/components/orders/quotation-workspace";
 import { RoomOrderControls } from "@/components/orders/room-order-controls";
@@ -223,7 +221,6 @@ export default async function OrderDetailPage({
   // comes from the EARLIEST sent_to_vendor event: an admin amendment writes a
   // second event at the same status, and "locked on" means when it happened,
   // not when it was last touched.
-  const commercialSnapshot = await loadCommercialSnapshot(order.id);
   const locked = isLocked(order.current_status);
   const isAdvancer = session.profile.role === "ops" || session.profile.role === "admin";
   const canReorderRooms =
@@ -387,6 +384,7 @@ export default async function OrderDetailPage({
               {isAdvancer &&
                 !order.is_draft &&
                 order.current_status !== "order_recorded" &&
+                order.current_status !== "quotation_sent" &&
                 order.current_status !== "deposit_received" &&
                 order.current_status !== "po_ready" &&
                 (order.current_status !== "shipping_sg" ||
@@ -424,7 +422,7 @@ export default async function OrderDetailPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
         <div className="lg:col-span-2 space-y-4 order-1">
-          {!order.is_draft && currentQuotation?.zoho_estimate_id && <InvoiceReconciliationPanel orderId={order.id} hasInvoice={Boolean(currentQuotation.zoho_invoice_id)} snapshot={commercialSnapshot ? { document: commercialSnapshot.document, state: commercialSnapshot.state, invoiceId: commercialSnapshot.invoice_id } : null} />}
+
           {!order.is_draft && (
             <QuotationWorkspace
               key={`${currentQuotation ? `${currentQuotation.id}:${new Date(currentQuotation.updated_at).toISOString()}` : "new"}:${order.current_status}`}
@@ -685,7 +683,7 @@ export default async function OrderDetailPage({
           </section>
 
           {quote && (<>
-            <div className="mb-2 text-sm font-medium text-slate-600">Manufacturing / historical quotation calculation{!order.is_draft && currentQuotation?.zoho_estimate_id ? " — current invoice commercial details are shown above" : ""}</div>
+            <div className="mb-2 text-sm font-medium text-slate-600">Manufacturing / historical quotation calculation{!order.is_draft && currentQuotation?.zoho_estimate_id ? " — current invoice status is checked in the quotation workspace" : ""}</div>
             <QuoteCard
               quote={quote}
               quotedCents={order.price_quoted_cents}

@@ -37,6 +37,7 @@ const advanceSchema = z.object({
   ),
   note: z.string().max(2000).optional(),
   balanceReceivedConfirmed: z.boolean().optional(),
+  reuseExistingPaymentId: z.string().min(1).max(200).optional(),
   shipmentNumbers: z.array(z.object({
     category: z.enum(SHIPMENT_CATEGORIES),
     localDeliveryNumber: z.string().trim().max(200).optional(),
@@ -57,7 +58,7 @@ export async function advanceOrderStatus(input: unknown) {
   // linked by Zoho before creating one, making a retry safe if the later local
   // status transaction loses a race or fails.
   const receipt = parsed.expectedStatus === "quotation_sent"
-    ? await ensureZohoInvoiceForOrder(parsed.orderId) : null;
+    ? await ensureZohoInvoiceForOrder(parsed.orderId, { reuseOnly: Boolean(parsed.reuseExistingPaymentId), expectedPaymentId: parsed.reuseExistingPaymentId }) : null;
 
   const linkedLeadId = await db.transaction().execute(async (trx) => {
     const order = await trx

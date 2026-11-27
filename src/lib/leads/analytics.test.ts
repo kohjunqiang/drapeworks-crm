@@ -26,6 +26,18 @@ describe("lead analytics", () => {
     expect(result.details.cancelled[0]).toMatchObject({ key: "a-cancelled", leadId: "a" });
     expect(result.productMix).toEqual({ curtainsBlinds: 1, mesh: 1, curtainsBlindsRate: 50, meshRate: 50, categorized: 2, unclassified: 2 });
   });
+  it("rolls split Curtains and Blinds products into the combined aggregate and drilldown", () => {
+    const leads = [
+      { id: "a", name: "A", lead_ref: "L-A", funnel_stage: "Qualify Lead" as const, lead_status: "Active", primary_product: "Curtains" as const },
+      { id: "b", name: "B", lead_ref: "L-B", funnel_stage: "Qualify Lead" as const, lead_status: "Active", primary_product: "Blinds" as const },
+      { id: "c", name: "C", lead_ref: "L-C", funnel_stage: "Qualify Lead" as const, lead_status: "Active", primary_product: "Curtains / Blinds" as const },
+      { id: "d", name: "D", lead_ref: "L-D", funnel_stage: "Qualify Lead" as const, lead_status: "Active", primary_product: "Mesh" as const },
+      { id: "e", name: "E", lead_ref: "L-E", funnel_stage: "Qualify Lead" as const, lead_status: "Active", primary_product: "Both" as const },
+    ];
+    const result = calculateLeadAnalytics(leads, [], [], 1);
+    expect(result.productMix).toEqual({ curtainsBlinds: 3, mesh: 1, curtainsBlindsRate: 75, meshRate: 25, categorized: 4, unclassified: 1 });
+    expect(result.details.curtainsBlinds.map(item => item.leadId)).toEqual(["a", "b", "c"]);
+  });
   it("uses null rather than a misleading zero percent without a denominator", () => {
     const result = calculateLeadAnalytics([], [], [], 0);
     expect(result.leadToAppointmentRate).toBeNull();

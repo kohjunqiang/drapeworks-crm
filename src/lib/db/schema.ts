@@ -85,7 +85,7 @@ export type LeadOutcome = "Appointment Booked" | "Awaiting Customer" | "Customer
 
 export type LeadOutcomeLegacy = "Appointment Booked" | "Appointment Completed" | "Appointment Confirmed" | "Barrier / Objection Raised" | "Customer Declined" | "Customer Needs Time" | "Customer Replied" | "Follow-Up Sent" | "No Response" | "Order Confirmed" | "Quote Requested" | "Quote Sent" | "Ready to Book Appointment" | "Renovation Delayed";
 
-export type LeadPrimaryProduct = "Both" | "Curtains / Blinds" | "Mesh";
+export type LeadPrimaryProduct = "Blinds" | "Both" | "Curtains" | "Curtains / Blinds" | "Mesh";
 
 export type LeadSource = "Carousell" | "Existing Customer" | "Organic" | "Other" | "Referral" | "SEM" | "Telegram Group Buy";
 

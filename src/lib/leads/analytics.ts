@@ -1,4 +1,4 @@
-import type { FunnelStage } from "./funnel-types";
+import type { FunnelStage, PrimaryProduct } from "./funnel-types";
 
 export const APPOINTMENT_TRACKING_STARTED_AT = new Date("2026-09-01T00:00:00+08:00");
 
@@ -8,7 +8,7 @@ export type AnalyticsLead = {
   lead_ref: string;
   funnel_stage: FunnelStage;
   lead_status: string;
-  primary_product: "Curtains / Blinds" | "Mesh" | "Both" | null;
+  primary_product: PrimaryProduct | null;
 };
 
 export type AnalyticsAppointmentEvent = {
@@ -41,6 +41,10 @@ export type PeriodActivity = {
   appointmentAttendanceRate: number | null;
   appointmentClosingRate: number | null;
 };
+
+// Split products roll up into the historical combined bucket so the aggregate
+// and its drilldown stay comparable across the rename.
+const CURTAINS_BLINDS_PRODUCTS: ReadonlySet<string> = new Set(["Curtains / Blinds", "Curtains", "Blinds"]);
 
 const rate = (numerator: number, denominator: number) => denominator ? Math.round(numerator / denominator * 1000) / 10 : null;
 const instant = (value: Date | string) => new Date(value).getTime();
@@ -103,7 +107,7 @@ export function calculateLeadAnalytics(
   }
   const attended = new Set(completedAt.keys());
   const won = new Set(leads.filter(lead => lead.funnel_stage === "Won" || lead.lead_status === "Closed – Won").map(lead => lead.id));
-  const curtainsBlinds = new Set(leads.filter(lead => lead.primary_product === "Curtains / Blinds").map(lead => lead.id));
+  const curtainsBlinds = new Set(leads.filter(lead => lead.primary_product != null && CURTAINS_BLINDS_PRODUCTS.has(lead.primary_product)).map(lead => lead.id));
   const mesh = new Set(leads.filter(lead => lead.primary_product === "Mesh").map(lead => lead.id));
   const categorizedProducts = curtainsBlinds.size + mesh.size;
   const orderedWins = new Set(trackedStageEvents.filter(event => {

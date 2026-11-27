@@ -2,13 +2,14 @@
 
 import { useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
-import { useFormContext, useWatch } from "react-hook-form";
+import { Controller, useFormContext, useWatch } from "react-hook-form";
 
+import { PhoneInput } from "@/components/forms/phone-input";
 import { FormSelect } from "@/components/ui/app-select";
 import { setConsultationCustomer } from "@/lib/actions/consultation-selection";
 
 import type { ConsultationShellShape } from "./form-shapes";
-import { clearCreateFormDrafts } from "./use-form-draft";
+import { clearCreateFormDrafts, draftChildKey } from "./use-form-draft";
 
 export type CustomerLeadOption = {
   leadId: string;
@@ -25,6 +26,12 @@ export type ExistingCustomerOption = {
 };
 
 type Props = {
+  /**
+   * This form's sessionStorage draft identity (from formDraftKey). The phone
+   * country selector's remembered choice lives nested under it, so it is
+   * scoped to this exact create/order and cleared with the draft lifecycle.
+   */
+  draftKey: string;
   /** Present only on a new consultation. Edit mode keeps the normal name input. */
   leadOptions?: CustomerLeadOption[];
   customerOptions?: ExistingCustomerOption[];
@@ -111,6 +118,7 @@ function SalutationField() {
 // claiming to know what the line items are. register/errors come from context
 // for the same reason — props typed to one schema wouldn't accept the other.
 export function CustomerSection({
+  draftKey,
   leadOptions,
   customerOptions = [],
   selectedLeadId,
@@ -264,17 +272,36 @@ export function CustomerSection({
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
+            <label
+              htmlFor="customer-mobile"
+              className="block text-xs font-medium text-slate-600 mb-1"
+            >
               Mobile <span className="text-red-500">*</span>
             </label>
-            <input
-              type="tel"
-              placeholder="+65"
-              className={INPUT_CLS}
-              {...register("customer.mobile")}
+            <Controller
+              control={control}
+              name="customer.mobile"
+              render={({ field }) => (
+                <PhoneInput
+                  id="customer-mobile"
+                  inputRef={field.ref}
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  placeholder="9123 4567"
+                  label="Mobile"
+                  persistKey={draftChildKey(draftKey, "customer-mobile-country")}
+                  inputClassName={INPUT_CLS}
+                  selectClassName={INPUT_CLS}
+                  aria-invalid={errors.customer?.mobile ? true : undefined}
+                  aria-describedby={
+                    errors.customer?.mobile ? "customer-mobile-error" : undefined
+                  }
+                />
+              )}
             />
             {errors.customer?.mobile && (
-              <p className="mt-1 text-xs text-red-600">
+              <p id="customer-mobile-error" className="mt-1 text-xs text-red-600">
                 {errors.customer.mobile.message}
               </p>
             )}

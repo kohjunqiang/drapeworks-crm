@@ -14,6 +14,7 @@
 
 import { z } from "zod";
 
+import { canonicalizePhone } from "@/lib/phone";
 import {
   ROOM_TYPE_VALUES,
   customerSchema,
@@ -120,7 +121,7 @@ const customerDraftSchema = z.object({
     .string()
     .max(30)
     .optional()
-    .transform((v) => v ?? ""),
+    .transform((v) => (v ? canonicalizePhone(v) ?? v : "")),
   email: z
     .string()
     .max(254)

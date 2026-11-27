@@ -68,6 +68,34 @@ export function formDraftKey(
 }
 
 /**
+ * A companion storage slot nested under a form draft's identity (e.g. the
+ * phone country selector's remembered choice). Nesting means the slot is
+ * cleared alongside the draft by clearDraftKey/clearCreateFormDrafts and can
+ * never leak into a different order or a later consultation in this tab.
+ */
+export function draftChildKey(draftKey: string, slot: string): string {
+  return `${draftKey}:${slot}`;
+}
+
+/**
+ * Remove a draft snapshot and every slot nested under its identity. The
+ * trailing ":" keeps siblings safe — "...:edit:order-1" must not clear the
+ * draft for "...:edit:order-10".
+ */
+export function clearDraftKey(key: string): void {
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const stored = sessionStorage.key(index);
+      if (stored === key || stored?.startsWith(`${key}:`)) {
+        sessionStorage.removeItem(stored);
+      }
+    }
+  } catch {
+    /* storage unavailable — nothing to clean up */
+  }
+}
+
+/**
  * Drop create-form recovery snapshots when the consultant deliberately changes
  * customer. That action is already confirmed as a reset in the picker; keeping
  * an older per-customer snapshot would otherwise override the freshly loaded
@@ -139,11 +167,7 @@ export function useFormDraft<T extends FieldValues>(
   return {
     clearDraft: () => {
       writesEnabled.current = false;
-      try {
-        sessionStorage.removeItem(key);
-      } catch {
-        /* nothing to clean up */
-      }
+      clearDraftKey(key);
     },
   };
 }

@@ -24,9 +24,20 @@ describe("lead save validation", () => {
   it("preserves timestamp precision and accepts a complete interaction", () => {
     expect(logUpdateSchema.parse(interaction).expected_updated_at.toISOString()).toBe(edit.expected_updated_at);
   });
-  // Lead mobile is deliberately free text — overseas contacts must save
-  // verbatim on every path that carries the field.
-  it.each(["+60 12 345 6789", "+1 (555) 123-4567", "9123 4567"])("accepts mobile %s on create and both edit paths", mobile => {
+  // Lead mobile is deliberately free text — overseas contacts must save on
+  // every path that carries the field. Readable numbers normalise to E.164;
+  // anything unparseable is kept verbatim rather than rejected.
+  it.each([
+    ["+60 12 345 6789", "+60123456789"],
+    ["+1 (555) 123-4567", "+15551234567"],
+    ["9123 4567", "+6591234567"],
+    ["0086 138 1234 5678", "+8613812345678"],
+  ])("normalises mobile %s to %s on create and both edit paths", (mobile, expected) => {
+    expect(leadCreateSchema.parse({ name: "Lead", contact_channel: "WhatsApp", first_initiated_date: "2026-09-16", mobile }).mobile).toBe(expected);
+    expect(leadDetailsSchema.parse({ id: edit.id, owner_id: edit.owner_id, expected_updated_at: edit.expected_updated_at, mobile }).mobile).toBe(expected);
+    expect(leadQuickEditSchema.parse({ ...edit, mobile }).mobile).toBe(expected);
+  });
+  it.each(["call after 6pm", "whatsapp only"])("keeps unparseable mobile %s verbatim on all paths", mobile => {
     expect(leadCreateSchema.parse({ name: "Lead", contact_channel: "WhatsApp", first_initiated_date: "2026-09-16", mobile }).mobile).toBe(mobile);
     expect(leadDetailsSchema.parse({ id: edit.id, owner_id: edit.owner_id, expected_updated_at: edit.expected_updated_at, mobile }).mobile).toBe(mobile);
     expect(leadQuickEditSchema.parse({ ...edit, mobile }).mobile).toBe(mobile);

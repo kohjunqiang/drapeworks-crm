@@ -14,9 +14,13 @@ import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: Promise<{ leadId: string }> }) {
+export default async function Page({ params, searchParams }: { params: Promise<{ leadId: string }>; searchParams: Promise<Record<string, string | undefined>> }) {
   await requireRole(["consultant", "admin"]);
   const id = (await params).leadId;
+  // A freshly created lead lands here via ?created=1 — its back link goes to
+  // All Leads with the row pinned, since a lead created straight into a closed
+  // stage would be filtered out of the Active Queue.
+  const justCreated = (await searchParams).created === "1";
   const lead = await db.selectFrom("leads").selectAll().select([
     sql<string | null>`next_action_date::text`.as("next_action_date_text"),
     sql<string | null>`move_in_date::text`.as("move_in_date_text"),
@@ -40,7 +44,10 @@ export default async function Page({ params }: { params: Promise<{ leadId: strin
   const stats = [["Status", lead.lead_status], ["Action", derived.actionRequired], ["Due", derived.dueStatus], ["Funnel readiness", derived.buyingReadiness ?? "—"], ["Owner", derived.currentOwnerId ? names.get(derived.currentOwnerId) ?? "Unknown" : "Unassigned"], ["Follow-ups", String(lead.unanswered_followups)]];
 
   return <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-    <Link href="/leads?view=work" className="mb-4 inline-flex text-sm font-medium text-slate-500 hover:text-slate-900">← Back to Active Queue</Link>
+    <Link
+      href={justCreated ? `/leads?view=all&created=${id}` : "/leads?view=work"}
+      className="mb-4 inline-flex text-sm font-medium text-slate-500 hover:text-slate-900"
+    >{justCreated ? "← Back to All Leads" : "← Back to Active Queue"}</Link>
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><h1 className="break-words text-2xl font-bold">{lead.name}</h1><p className="text-slate-500">{lead.lead_ref} · {lead.mobile ?? "No mobile"}</p></div><Link href={`/leads/${id}/edit`} className="inline-flex h-10 w-fit shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">Edit details</Link></div>
     <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{stats.map(([label, value]) => <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" key={label}><div className="text-xs font-medium text-slate-500">{label}</div><div className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</div></div>)}</div>
     <PriorityBreakdown lead={lead}/>

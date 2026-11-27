@@ -272,17 +272,15 @@ export function ConsultationForm({
 
   // Survive an accidental refresh mid-consultation. Keyed per order so a create
   // and each edited order keep separate drafts.
-  const { clearDraft } = useFormDraft(
-    form,
-    // Keyed by the appointment on a create too, so a recovery draft left over
-    // from an unrelated consultation in this tab cannot restore itself over the
-    // customer we just prefilled from the booking.
-    formDraftKey(
-      "curtain",
-      mode,
-      orderId ?? appointment?.id ?? appointment?.leadId ?? appointment?.customerId,
-    ),
+  // Keyed by the appointment on a create too, so a recovery draft left over
+  // from an unrelated consultation in this tab cannot restore itself over the
+  // customer we just prefilled from the booking.
+  const draftKey = formDraftKey(
+    "curtain",
+    mode,
+    orderId ?? appointment?.id ?? appointment?.leadId ?? appointment?.customerId,
   );
+  const { clearDraft } = useFormDraft(form, draftKey);
   const pendingPhotos = usePendingRoomPhotos();
   const pendingWindowPhotos = usePendingWindowPhotos();
   const [savedWithPhotos, setSavedWithPhotos] = useState<{
@@ -488,6 +486,7 @@ export function ConsultationForm({
         )}
         <fieldset disabled={Boolean(savedWithPhotos)} inert={Boolean(savedWithPhotos)} className="min-w-0">
         <CustomerSection
+          draftKey={draftKey}
           leadOptions={mode === "create" ? leadOptions : undefined}
           customerOptions={mode === "create" ? customerOptions : undefined}
           selectedLeadId={appointment?.leadId}

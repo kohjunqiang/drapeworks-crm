@@ -165,14 +165,12 @@ export function MeshConsultationForm({
 
   // Survive an accidental refresh mid-consultation. Keyed per order so a create
   // and each edited order keep separate drafts.
-  const { clearDraft } = useFormDraft(
-    form,
-    formDraftKey(
-      "mesh",
-      mode,
-      orderId ?? appointment?.id ?? appointment?.leadId ?? appointment?.customerId,
-    ),
+  const draftKey = formDraftKey(
+    "mesh",
+    mode,
+    orderId ?? appointment?.id ?? appointment?.leadId ?? appointment?.customerId,
   );
+  const { clearDraft } = useFormDraft(form, draftKey);
   const pendingPhotos = usePendingRoomPhotos();
   const [savedWithPhotos, setSavedWithPhotos] = useState<{ orderId: string; roomIds: string[]; roomKeys: string[] } | null>(null);
 
@@ -349,6 +347,7 @@ export function MeshConsultationForm({
         )}
         <fieldset disabled={Boolean(savedWithPhotos)} inert={Boolean(savedWithPhotos)} className="min-w-0">
         <CustomerSection
+          draftKey={draftKey}
           leadOptions={mode === "create" ? leadOptions : undefined}
           customerOptions={mode === "create" ? customerOptions : undefined}
           selectedLeadId={appointment?.leadId}

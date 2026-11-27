@@ -84,7 +84,7 @@ describe("saveLeadBatch", () => {
     expect(result).toEqual({ ok: true, saved: [idA, idB], skipped: [] });
     expect(mocks.updates).toHaveLength(2);
     expect(mocks.updates[0].set).toMatchObject({ name: "Renamed A" });
-    expect(mocks.updates[1].set).toMatchObject({ mobile: "9123 4567", next_action_date: "2026-12-01" });
+    expect(mocks.updates[1].set).toMatchObject({ mobile: "+6591234567", next_action_date: "2026-12-01" });
     for (const update of mocks.updates) {
       expect(update.set).toHaveProperty("updated_at");
       expect(update.set).not.toHaveProperty("funnel_stage");

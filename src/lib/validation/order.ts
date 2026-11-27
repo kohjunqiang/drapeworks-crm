@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { canonicalizePhone } from "@/lib/phone";
+
 const ROOM_TYPES = [
   "Living Room",
   "Master Bedroom",
@@ -180,24 +182,27 @@ export const roomSchema = z.object({
 });
 
 // Customer phone. Singapore numbers are 8 digits starting with 3 (VoIP),
-// 6 (landline), 8 or 9 (mobile), with an optional +65 prefix. Anything else
-// must carry an explicit country code in E.164 shape — a "+" followed by
-// 7–15 digits, the first not 0 — so a foreign number is never coerced into a
-// Singapore one. Accepts spaces, dashes, or parentheses between digits;
-// strips them before checking, so the stored value is already normalised.
+// 6 (landline), 8 or 9 (mobile); foreign numbers carry an explicit country
+// code ("+" or "00") or are already canonicalised to E.164 by the country
+// picker. libphonenumber-js validates by possible length rather than exact
+// allocated ranges, so a well-shaped number in a new block still saves.
+// The stored value is canonical E.164 — a foreign number is never coerced
+// into a Singapore one, and a "+65" prefix never gets doubled.
 const customerPhone = z
   .string()
   .min(1, "Required")
   .max(30)
-  .transform((v) => v.replace(/[\s\-()]/g, ""))
-  .pipe(
-    z
-      .string()
-      .regex(
-        /^(\+65)?[3689]\d{7}$|^\+[1-9]\d{6,14}$/,
-        "Enter a valid number — 8-digit Singapore (e.g. 9123 4567) or international with country code (e.g. +60 12 345 6789)",
-      ),
-  );
+  .transform((v, ctx) => {
+    const canonical = canonicalizePhone(v, "SG");
+    if (canonical === null) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Enter a valid number — 8-digit Singapore (e.g. 9123 4567) or international with country code (e.g. +60 12 345 6789)",
+      });
+      return z.NEVER;
+    }
+    return canonical;
+  });
 
 export const customerSchema = z.object({
   // Optional title, separate from the name and never guessed. Capped at 25 —
@@ -332,7 +337,9 @@ export const orderCreateSchema = z.object({
 const customerDraftSchema = z.object({
   salutation: z.string().trim().max(25).optional(),
   name: z.string().min(1, "Customer name is required").max(200),
-  mobile: z.string().max(30).optional().transform((v) => v ?? ""),
+  // Draft mobile is relaxed like the lead paths: canonicalised when readable
+  // as a number, kept verbatim otherwise, blank stays "".
+  mobile: z.string().max(30).optional().transform((v) => (v ? canonicalizePhone(v) ?? v : "")),
   email: z
     .string()
     .max(254)

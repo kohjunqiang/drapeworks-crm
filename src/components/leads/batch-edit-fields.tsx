@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneInput } from "@/components/forms/phone-input";
 import { useBatchEdit, batchFieldDomId, type BatchVariant } from "@/components/leads/batch-edit-context";
 import { BATCH_EDITABLE_FIELDS, BATCH_FIELD_LABELS, EXPANDED_FIELDS, TERMINAL_BATCH_STAGES, TEXTAREA_FIELDS, valuesFromSnapshot, type BatchEditableField } from "@/lib/leads/batch-draft";
 import {
@@ -8,7 +9,7 @@ import {
 } from "@/lib/leads/funnel-types";
 import { BUYING_STAGES, ENGAGEMENT_QUALITIES } from "@/lib/leads/priority";
 
-const TEXT_FIELDS = new Set<BatchEditableField>(["name", "mobile", "development"]);
+const TEXT_FIELDS = new Set<BatchEditableField>(["name", "development"]);
 const DATE_FIELDS = new Set<BatchEditableField>(["next_action_date", "move_in_date"]);
 const TEXTAREA = new Set<BatchEditableField>(TEXTAREA_FIELDS);
 
@@ -63,8 +64,25 @@ export function BatchField({ leadId, field, variant, consultants = [], compact =
   const shared = { id, value, disabled: ctx.saving || notApplicable, onChange: (event: { target: { value: string } }) => set(event.target.value), "aria-invalid": !!error || undefined, "aria-required": required || undefined, "aria-label": compact ? `${label} for ${entry.snapshot.name}` : undefined, "aria-describedby": error ? errorId : undefined };
 
   let control: React.ReactNode;
-  if (TEXT_FIELDS.has(field)) {
-    control = <input {...shared} type="text" inputMode={field === "mobile" ? "tel" : undefined} className={controlClass}/>;
+  if (field === "mobile") {
+    // Controlled PhoneInput: the country selector is component state and only
+    // shapes how a bare national number is read — choosing a country with an
+    // empty/legacy value emits nothing, so the row stays untouched.
+    control = <PhoneInput
+      id={id}
+      value={value}
+      onChange={set}
+      disabled={ctx.saving}
+      label={label}
+      persistKey={`drapeworks:phone-country:batch-mobile:${leadId}`}
+      aria-label={compact ? `${label} for ${entry.snapshot.name}` : undefined}
+      aria-invalid={!!error || undefined}
+      aria-describedby={error ? errorId : undefined}
+      inputClassName={controlClass}
+      selectClassName={controlClass}
+    />;
+  } else if (TEXT_FIELDS.has(field)) {
+    control = <input {...shared} type="text" className={controlClass}/>;
   } else if (DATE_FIELDS.has(field)) {
     control = <input {...shared} type="date" className={controlClass}/>;
   } else if (field === "latest_quote_sgd") {

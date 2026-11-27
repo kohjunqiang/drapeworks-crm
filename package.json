@@ -31,6 +31,7 @@
     "google-auth-library": "^10.9.1",
     "heic2any": "^0.0.4",
     "kysely": "^0.29.2",
+    "libphonenumber-js": "^1.12.0",
     "lucide-react": "^1.17.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",

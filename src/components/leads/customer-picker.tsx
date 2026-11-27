@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Search } from "lucide-react";
 
+import { PhoneInput } from "@/components/forms/phone-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -167,13 +168,15 @@ export function CustomerPicker({
             >
               Mobile <span className="text-red-600">*</span>
             </Label>
-            <Input
+            <PhoneInput
               id="customer-mobile"
               value={value.mobile}
-              onChange={(e) => onChange({ ...value, mobile: e.target.value })}
+              onChange={(mobile) => onChange({ ...value, mobile })}
               placeholder="e.g. 9843 9326"
               required
-              className="mt-1 h-9 border-slate-200"
+              label="Mobile"
+              inputClassName="mt-1 h-9 border-slate-200 w-full rounded-md bg-white px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+              selectClassName="mt-1 h-9 border-slate-200 w-full rounded-md bg-white px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
             />
           </div>
         </div>

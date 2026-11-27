@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { canonicalizePhone } from "@/lib/phone";
+
 // Either an existing customer is chosen, or a new one is described. Never both,
 // never neither — a discriminated union makes the impossible state unspellable.
 const customerRef = z.discriminatedUnion("mode", [
@@ -11,7 +13,7 @@ const customerRef = z.discriminatedUnion("mode", [
     // build the form: 146 of 244 leads have no mobile, so for most leads the
     // consultant must type one at booking. Mark the field required in the
     // picker rather than letting the server action be the first thing to say so.
-    mobile: z.string().trim().min(1, "Mobile is required").max(40),
+    mobile: z.string().trim().min(1, "Mobile is required").max(40).transform(v => canonicalizePhone(v) ?? v),
     email: z.string().trim().email().optional().or(z.literal("")),
   }),
 ]);

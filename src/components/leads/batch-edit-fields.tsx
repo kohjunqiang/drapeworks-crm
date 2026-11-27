@@ -78,7 +78,7 @@ export function BatchField({ leadId, field, variant, consultants = [], compact =
         options = <><option value="">Select owner</option>{consultants.map(person => <option key={person.id} value={person.id}>{person.full_name ?? "Unnamed"}</option>)}</>;
         break;
       case "funnel_stage":
-        options = FUNNEL_STAGES.map(stage => <option key={stage} value={stage} disabled={stage === "Won" && entry.baseline.funnel_stage !== "Won"}>{stage}</option>);
+        options = optionList(FUNNEL_STAGES);
         break;
       case "closure_reason":
         options = <><option value="">No closure reason</option>{optionList(CLOSURE_REASONS)}</>;

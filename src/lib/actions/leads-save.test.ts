@@ -136,15 +136,15 @@ describe("Versioned lead saves", () => {
     expect(mocks.transaction).not.toHaveBeenCalled();
   });
 
-  it.each([quickEditLead, logLeadUpdate])("returns production-safe validation feedback for a manual Won transition", async action => {
+  it.each([quickEditLead, logLeadUpdate])("saves a manual Won transition without a linked order and audits it as a user event", async action => {
     const payload = action === quickEditLead ? edit() : log();
-    await expect(action({ ...payload, funnel_stage: "Won" })).resolves.toEqual({
-      ok: false,
-      error: expect.stringContaining("Record the deposit on the linked order"),
-    });
-    expect(mocks.updateTable).not.toHaveBeenCalled();
-    expect(mocks.insertInto).not.toHaveBeenCalled();
-    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+    await expect(action({ ...payload, funnel_stage: "Won" })).resolves.toEqual({ ok: true });
+    expect(mocks.set.mock.calls[0][0]).toMatchObject({ funnel_stage: "Won" });
+    expect(mocks.inserts).toContainEqual({ table: "lead_stage_events", values: {
+      lead_id: id, from_stage: "Qualify Lead", to_stage: "Won",
+      changed_at: expect.any(Date), changed_by: owner, source: "user",
+    } });
+    expect(mocks.revalidatePath).toHaveBeenCalled();
   });
 
   it.each([quickEditLead, logLeadUpdate])("keeps an already-Won lead Won while saving unrelated fields", async action => {
@@ -156,16 +156,37 @@ describe("Versioned lead saves", () => {
     expect(mocks.revalidatePath).toHaveBeenCalled();
   });
 
-  it("rejects a forged Won stage through the details editor without writing", async () => {
+  it("persists a Won stage through the details editor with transactional attributed history", async () => {
     await expect(editLeadDetails({ id, owner_id: owner, expected_updated_at: version, funnel_stage: "Won" }))
-      .resolves.toEqual({ ok: false, error: expect.stringContaining("Record the deposit on the linked order") });
-    expect(mocks.updateTable).not.toHaveBeenCalled();
-    expect(mocks.revalidatePath).not.toHaveBeenCalled();
+      .resolves.toEqual({ ok: true });
+    expect(mocks.set.mock.calls[0][0]).toMatchObject({ funnel_stage: "Won" });
+    expect(mocks.inserts).toEqual([{ table: "lead_stage_events", values: {
+      lead_id: id, from_stage: "Qualify Lead", to_stage: "Won",
+      changed_at: expect.any(Date), changed_by: owner, source: "user",
+    } }]);
+    expect(mocks.revalidatePath).toHaveBeenCalled();
   });
 
-  it("rejects creating a lead that is already Won", async () => {
+  it("creates a lead already Won with an attributed stage event for analytics", async () => {
     await expect(createLead({ name: "Customer", contact_channel: "Other", first_initiated_date: "2026-09-01", funnel_stage: "Won" }))
-      .resolves.toEqual({ ok: false, error: expect.stringContaining("Record the deposit on the linked order") });
+      .resolves.toEqual({ ok: true, id });
+    expect(mocks.inserts).toEqual([
+      { table: "leads", values: expect.objectContaining({ funnel_stage: "Won" }) },
+      { table: "lead_stage_events", values: {
+        lead_id: id, from_stage: null, to_stage: "Won",
+        changed_at: expect.any(Date), changed_by: owner, source: "user",
+      } },
+    ]);
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
+  it("propagates the role guard before opening a transaction", async () => {
+    mocks.requireRole.mockRejectedValue(new Error("forbidden"));
+    await expect(quickEditLead(edit())).rejects.toThrow("forbidden");
+    await expect(logLeadUpdate(log())).rejects.toThrow("forbidden");
+    await expect(editLeadDetails(edit())).rejects.toThrow("forbidden");
+    await expect(createLead({ name: "Customer", contact_channel: "Other", first_initiated_date: "2026-09-01" })).rejects.toThrow("forbidden");
+    expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.insertInto).not.toHaveBeenCalled();
     expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });

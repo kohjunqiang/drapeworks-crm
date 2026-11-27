@@ -29,8 +29,8 @@ const controlClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px
 const Select = ({ name, defaultValue, children, required = false }: { name: string; defaultValue?: string | null; children: ReactNode; required?: boolean }) => <select name={name} defaultValue={defaultValue ?? ""} required={required} className={controlClass}>{children}</select>;
 const Field = ({ label, hint, children, className = "" }: { label: string; hint?: string; children: ReactNode; className?: string }) => <label className={`block min-w-0 ${className}`}><span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>{children}{hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}</label>;
 const options = (values: readonly string[]) => <>{values.map(value => <option key={value} value={value}>{value === "Curtains / Blinds" ? "Curtains & Blinds" : value}</option>)}</>;
-const stageOptions = (current: FunnelStage) => <>{FUNNEL_STAGES.map(value => <option key={value} value={value} disabled={value === "Won" && current !== "Won"}>{value}</option>)}</>;
-const WON_HINT = "Won is set automatically when the linked order reaches Deposit Received. To close it manually, use Mark as Won and link the order that has a recorded deposit.";
+const stageOptions = (_current: FunnelStage) => <>{FUNNEL_STAGES.map(value => <option key={value} value={value}>{value}</option>)}</>;
+const WON_HINT = "Won can be selected here, or set automatically when the linked order reaches Deposit Received.";
 
 function useSubmit<Success extends { ok: true }>(action: (value: Record<string, FormDataEntryValue>) => Promise<Success | { ok: false; error: string }>, onSuccess?: (result: Success) => void | Promise<void>, successMessage = "Saved") {
   const [pending, start] = useTransition();

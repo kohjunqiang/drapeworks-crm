@@ -202,14 +202,14 @@ export function MarkAsWonDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger type="button" onClick={event => { event.preventDefault(); openDialog(); }}
         className="inline-flex min-h-11 sm:min-h-9 items-center justify-center rounded-lg border border-teal-600 bg-white px-4 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50">
-        Mark as Won
+        Link order and mark Won
       </DialogTrigger>
       {/* 44px touch targets on phones: the scoped dialog-close selector
           enlarges the shared primitive's close button only inside this
           dialog, the rest carry h-11 until sm. */}
       <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:size-11 sm:[&_[data-slot=dialog-close]]:size-7">
         <DialogHeader>
-          <DialogTitle>Mark as Won</DialogTitle>
+          <DialogTitle>Link order and mark Won</DialogTitle>
           <DialogDescription>
             {lead?.name ?? leadName ?? "This lead"} — link the order that already has a recorded deposit, then close the lead Won.
           </DialogDescription>

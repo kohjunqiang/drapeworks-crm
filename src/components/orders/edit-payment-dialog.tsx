@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import {
   Dialog,
   DialogContent,
@@ -89,7 +90,7 @@ export function EditPaymentDialog({
         Edit
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md md:scroll-pb-24">
           <DialogHeader>
             <DialogTitle>Edit payment</DialogTitle>
             <DialogDescription>
@@ -126,7 +127,7 @@ export function EditPaymentDialog({
                 Enter valid amounts; the deposit cannot exceed the quote.
               </p>
             )}
-            <div className="flex justify-end gap-2 pt-1">
+            <DialogActionBar className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -143,7 +144,7 @@ export function EditPaymentDialog({
               >
                 {pending ? "Saving…" : "Save payment"}
               </button>
-            </div>
+            </DialogActionBar>
           </div>
         </DialogContent>
       </Dialog>

@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -197,7 +198,7 @@ export function InstallationDetailsEditor({
       >
         Edit installation details
       </DialogTrigger>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl md:scroll-pb-24">
         <DialogHeader>
           <DialogTitle>Edit installation details</DialogTitle>
           <DialogDescription>
@@ -364,7 +365,7 @@ export function InstallationDetailsEditor({
               </p>
             ) : null}
 
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+            <DialogActionBar className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
               <Button
                 type="button"
                 variant="ghost"
@@ -380,7 +381,7 @@ export function InstallationDetailsEditor({
               >
                 {pending ? "Saving…" : "Save installation details"}
               </Button>
-            </div>
+            </DialogActionBar>
           </form>
         </Form>
       </DialogContent>

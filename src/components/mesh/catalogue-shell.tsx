@@ -55,6 +55,7 @@ export function CatalogueSection({
   isEmpty,
   emptyMessage,
   children,
+  allowStickyFooter = false,
 }: {
   title: string;
   description: string;
@@ -64,6 +65,11 @@ export function CatalogueSection({
   isEmpty: boolean;
   emptyMessage: string;
   children: ReactNode;
+  // Opt in only when the section contains a FormActionBar: it lifts the
+  // overflow-x clip on md+ so the bar can pin to the page. Sections using
+  // it must wrap their table in their own md:overflow-x-auto wrapper to
+  // keep horizontal scrolling on desktop.
+  allowStickyFooter?: boolean;
 }) {
   return (
     <section className="mb-8">
@@ -82,7 +88,7 @@ export function CatalogueSection({
         )}
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+      <div className={`bg-white rounded-lg border border-slate-200 overflow-x-auto${allowStickyFooter ? " md:overflow-x-visible" : ""}`}>
         {isEmpty ? (
           <div className="text-center py-10 px-4 text-sm text-slate-500">
             {emptyMessage}

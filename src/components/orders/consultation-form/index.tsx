@@ -6,6 +6,7 @@ import { useForm, useFieldArray, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { formDraftKey, useFormDraft } from "./use-form-draft";
 import { usePendingRoomPhotos } from "./use-pending-room-photos";
@@ -603,7 +604,7 @@ export function ConsultationForm({
           />
         </section>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pb-12">
+        <FormActionBar className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pb-12">
           <button
             type="button"
             onClick={handleCancel}
@@ -639,7 +640,7 @@ export function ConsultationForm({
                   : "Save changes"
                 : "Create order"}
           </button>
-        </div>
+        </FormActionBar>
         </fieldset>
       </form>
     </FormProvider>

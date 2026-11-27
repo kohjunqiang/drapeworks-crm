@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -248,7 +249,7 @@ export function FulfilmentArrangementCard({
               >
                 Reset link
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
+              <DialogContent className="sm:max-w-md md:scroll-pb-24">
                 <DialogHeader>
                   <DialogTitle>Reset installer link</DialogTitle>
                   <DialogDescription>
@@ -256,7 +257,7 @@ export function FulfilmentArrangementCard({
                     resend them to the installer.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <DialogActionBar className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                   <Button
                     type="button"
                     variant="ghost"
@@ -268,7 +269,7 @@ export function FulfilmentArrangementCard({
                   <Button type="button" disabled={pending} onClick={resetLink}>
                     {pending ? "Resetting…" : "Reset link"}
                   </Button>
-                </div>
+                </DialogActionBar>
               </DialogContent>
             </Dialog>
           ) : null}
@@ -277,7 +278,7 @@ export function FulfilmentArrangementCard({
               <DialogTrigger className="inline-flex min-h-11 items-center justify-center rounded bg-orange-600 px-3 text-sm font-medium text-white outline-none hover:bg-orange-700 focus-visible:ring-2 focus-visible:ring-orange-500 sm:min-h-8">
                 {activeArrangement ? "Reschedule" : "Arrange installation"}
               </DialogTrigger>
-              <DialogContent className="sm:max-w-lg">
+              <DialogContent className="sm:max-w-lg md:scroll-pb-24">
                 <DialogHeader>
                   <DialogTitle>
                     {activeArrangement ? "Reschedule installation" : "Arrange installation"}
@@ -306,12 +307,12 @@ export function FulfilmentArrangementCard({
                     <Input id="fulfilment-address" name="address" required defaultValue={activeArrangement?.address ?? defaultAddress} className="mt-1" />
                   </div>
                   <p className="text-xs text-slate-500">Times use Singapore time.</p>
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <DialogActionBar className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>Cancel</Button>
                     <Button type="submit" disabled={pending} className="bg-orange-600 text-white hover:bg-orange-700">
                       {pending ? "Saving…" : activeArrangement ? "Save new time" : "Book installation"}
                     </Button>
-                  </div>
+                  </DialogActionBar>
                 </form>
               </DialogContent>
             </Dialog>
@@ -322,7 +323,7 @@ export function FulfilmentArrangementCard({
                 <X className="h-4 w-4" aria-hidden="true" />
                 Cancel installation
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
+              <DialogContent className="sm:max-w-md md:scroll-pb-24">
                 <DialogHeader>
                   <DialogTitle>Cancel installation</DialogTitle>
                   <DialogDescription>
@@ -344,14 +345,14 @@ export function FulfilmentArrangementCard({
                       className="mt-1"
                     />
                   </div>
-                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <DialogActionBar className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                     <Button type="button" variant="ghost" onClick={() => setCancelOpen(false)} disabled={pending}>
                       Keep booking
                     </Button>
                     <Button type="submit" variant="destructive" disabled={pending}>
                       {pending ? "Cancelling…" : "Cancel installation"}
                     </Button>
-                  </div>
+                  </DialogActionBar>
                 </form>
               </DialogContent>
             </Dialog>

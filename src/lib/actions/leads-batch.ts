@@ -8,7 +8,6 @@ import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import type { LeadBatchError, LeadBatchSnapshot } from "@/lib/leads/batch-draft";
 
-const MANUAL_WON_ERROR = "Won is set automatically when the linked order reaches Deposit Received. To close it against an order that already has a recorded deposit, use Mark as Won.";
 const TERMINAL_STAGES = new Set(["Lost", "Not Qualified"]);
 const MAX_BATCH = 50;
 
@@ -110,9 +109,6 @@ export async function saveLeadBatch(input: unknown): Promise<
       // An unchanged record is skipped outright: no timestamp or audit writes,
       // and a legacy closed record missing its reason cannot block the batch.
       if (!Object.keys(set).length) { skipped.push(item.id); continue; }
-      if (set.funnel_stage === "Won") {
-        errors.push({ leadId: item.id, kind: "validation", field: "funnel_stage", message: MANUAL_WON_ERROR }); continue;
-      }
       const effectiveStage = (set.funnel_stage as string | undefined) ?? row.funnel_stage;
       const effectiveReason = patch.closure_reason !== undefined ? patch.closure_reason : row.closure_reason;
       if (TERMINAL_STAGES.has(effectiveStage) && !effectiveReason) {

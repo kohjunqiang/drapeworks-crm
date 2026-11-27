@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -291,7 +292,7 @@ export function AddonsTable({ addons }: { addons: AddonRow[] }) {
         </div>
       ))}
 
-      <div className="flex justify-between items-center mt-4 gap-2">
+      <FormActionBar className="flex justify-between items-center mt-4 gap-2">
         <Button type="button" variant="outline" onClick={addRow}>
           + Add add-on
         </Button>
@@ -303,7 +304,7 @@ export function AddonsTable({ addons }: { addons: AddonRow[] }) {
         >
           {pending ? "Saving…" : "Save add-ons"}
         </Button>
-      </div>
+      </FormActionBar>
     </div>
   );
 }

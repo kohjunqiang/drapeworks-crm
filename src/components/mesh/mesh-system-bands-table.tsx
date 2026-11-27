@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -83,7 +84,7 @@ function BandDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md md:scroll-pb-24">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit band" : "Add width band"}</DialogTitle>
         </DialogHeader>
@@ -149,7 +150,7 @@ function BandDialog({
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <DialogActionBar className="flex items-center justify-end gap-2 pt-2">
               <Button
                 type="button"
                 variant="ghost"
@@ -165,7 +166,7 @@ function BandDialog({
               >
                 {pending ? "Saving…" : "Save"}
               </Button>
-            </div>
+            </DialogActionBar>
           </form>
         </Form>
       </DialogContent>

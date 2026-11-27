@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -153,7 +154,7 @@ export function AssumptionsForm({ values }: { values: AssumptionsInput }) {
           </div>
         ))}
 
-        <div className="flex justify-end">
+        <FormActionBar className="flex justify-end">
           <Button
             type="submit"
             disabled={pending}
@@ -161,7 +162,7 @@ export function AssumptionsForm({ values }: { values: AssumptionsInput }) {
           >
             {pending ? "Saving…" : "Save assumptions"}
           </Button>
-        </div>
+        </FormActionBar>
       </form>
     </Form>
   );

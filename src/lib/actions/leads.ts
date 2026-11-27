@@ -14,9 +14,6 @@ import { archiveLeadSchema, leadCreateSchema, leadDetailsSchema, leadQuickEditSc
 
 const nextLeadRef = () => `MN-${Date.now()}-${randomBytes(3).toString("hex")}`;
 type ActionResult = { ok: true } | { ok: false; error: string };
-const MANUAL_WON_ERROR = "Won is set automatically when the linked order reaches Deposit Received. To close it against an order that already has a recorded deposit, use Mark as Won.";
-const manualWonError = (before: string | null, after: string | undefined) =>
-  after === "Won" && before !== "Won" ? MANUAL_WON_ERROR : null;
 const revalidateLead = (id: string) => {
   revalidatePath("/queue"); revalidatePath("/leads");
   revalidatePath(`/leads/${id}`); revalidatePath(`/leads/${id}/edit`);
@@ -60,23 +57,32 @@ export async function getLeadModalData(id: string) {
 export async function createLead(input: unknown): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const session = await requireRole(["consultant", "admin"]);
   const p = leadCreateSchema.parse(input);
-  const wonError = manualWonError(null, p.funnel_stage);
-  if (wonError) return { ok: false, error: wonError };
-  const row = await db.insertInto("leads").values({
-    renovation_buying_stage: p.renovation_buying_stage ?? null, engagement_quality: p.engagement_quality ?? null,
-    latest_quote_cents: p.latest_quote_sgd == null ? null : Math.round(p.latest_quote_sgd * 100),
-    lead_ref: nextLeadRef(), name: p.name, mobile: p.mobile ?? null,
-    first_initiated_at: new Date(`${p.first_initiated_date}T00:00:00+08:00`),
-    // Required by the schema; the before-insert trigger immediately derives
-    // the authoritative value from the funnel fields.
-    lead_status: "Active",
-    development: p.development ?? null, contact_channel: p.contact_channel,
-    source: p.source ?? null, inbound_outbound: p.inbound_outbound ?? null,
-    primary_product: p.primary_product ?? null, funnel_stage: p.funnel_stage,
-    next_action_date: p.next_action_date ?? null,
-    closure_reason: p.closure_reason ?? null,
-    interaction_summary: p.interaction_summary ?? null, owner_id: session.user.id,
-  }).returning("id").executeTakeFirstOrThrow();
+  const row = await db.transaction().execute(async (trx) => {
+    const row = await trx.insertInto("leads").values({
+      renovation_buying_stage: p.renovation_buying_stage ?? null, engagement_quality: p.engagement_quality ?? null,
+      latest_quote_cents: p.latest_quote_sgd == null ? null : Math.round(p.latest_quote_sgd * 100),
+      lead_ref: nextLeadRef(), name: p.name, mobile: p.mobile ?? null,
+      first_initiated_at: new Date(`${p.first_initiated_date}T00:00:00+08:00`),
+      // Required by the schema; the before-insert trigger immediately derives
+      // the authoritative value from the funnel fields.
+      lead_status: "Active",
+      development: p.development ?? null, contact_channel: p.contact_channel,
+      source: p.source ?? null, inbound_outbound: p.inbound_outbound ?? null,
+      primary_product: p.primary_product ?? null, funnel_stage: p.funnel_stage,
+      next_action_date: p.next_action_date ?? null,
+      closure_reason: p.closure_reason ?? null,
+      interaction_summary: p.interaction_summary ?? null, owner_id: session.user.id,
+    }).returning("id").executeTakeFirstOrThrow();
+    // A lead created already Won still needs an attributed stage event so
+    // conversion analytics sees the same history as a later transition.
+    if (p.funnel_stage === "Won") {
+      await trx.insertInto("lead_stage_events").values({
+        lead_id: row.id, from_stage: null, to_stage: "Won",
+        changed_at: new Date(), changed_by: session.user.id, source: "user",
+      }).execute();
+    }
+    return row;
+  });
   revalidateLead(row.id);
   return { ok: true, id: row.id };
 }
@@ -84,12 +90,10 @@ export async function createLead(input: unknown): Promise<{ ok: true; id: string
 export async function logLeadUpdate(input: unknown): Promise<ActionResult> {
   const session = await requireRole(["consultant", "admin"]);
   const p = logUpdateSchema.parse(input);
-  const wonError = await db.transaction().execute(async (trx) => {
+  await db.transaction().execute(async (trx) => {
     const before = await trx.selectFrom("leads")
       .select(["funnel_stage", "last_outcome", "quote_valid_days"])
       .where("id", "=", p.lead_id).forUpdate().executeTakeFirstOrThrow();
-    const manualWon = manualWonError(before.funnel_stage, p.funnel_stage);
-    if (manualWon) return manualWon;
     const quoteDate = p.quotation_sent_date
       ? new Date(`${p.quotation_sent_date}T00:00:00+08:00`) : undefined;
     const recommendationChanged = before.funnel_stage !== p.funnel_stage ||
@@ -132,31 +136,38 @@ export async function logLeadUpdate(input: unknown): Promise<ActionResult> {
         changed_by: session.user.id, source: "user",
       }).execute();
     }
-    return null;
   });
-  if (wonError) return { ok: false, error: wonError };
   revalidateLead(p.lead_id);
   return { ok: true };
 }
 
 export async function editLeadDetails(input: unknown): Promise<ActionResult> {
-  await requireRole(["consultant", "admin"]);
+  const session = await requireRole(["consultant", "admin"]);
   const p = leadDetailsSchema.parse(input);
   const { id, expected_updated_at, owner_id, latest_quote_sgd, ...fields } = p;
-  const before = await db.selectFrom("leads").select(["move_in_date", "funnel_stage"])
-    .where("id", "=", id).executeTakeFirstOrThrow();
-  const wonError = manualWonError(before.funnel_stage, fields.funnel_stage);
-  if (wonError) return { ok: false, error: wonError };
-  const oldMoveIn = before.move_in_date ? String(before.move_in_date).slice(0, 10) : null;
-  const moveInChanged = fields.move_in_date !== undefined && fields.move_in_date !== oldMoveIn;
-  const row = await db.updateTable("leads").set({
-    ...fields, owner_id, assigned_consultant_id: owner_id,
-    ...(latest_quote_sgd !== undefined ? { latest_quote_cents: latest_quote_sgd === null ? null : Math.round(latest_quote_sgd * 100) } : {}),
-    ...(moveInChanged ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
-    updated_at: new Date(),
-  }).where("id", "=", id).where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${expected_updated_at}`)
-    .returning("id").executeTakeFirst();
-  if (!row) throw new Error("This lead changed since you opened it. Reload and try again.");
+  await db.transaction().execute(async (trx) => {
+    const before = await trx.selectFrom("leads").select(["move_in_date", "funnel_stage"])
+      .where("id", "=", id).forUpdate().executeTakeFirstOrThrow();
+    const oldMoveIn = before.move_in_date ? String(before.move_in_date).slice(0, 10) : null;
+    const moveInChanged = fields.move_in_date !== undefined && fields.move_in_date !== oldMoveIn;
+    const row = await trx.updateTable("leads").set({
+      ...fields, owner_id, assigned_consultant_id: owner_id,
+      ...(latest_quote_sgd !== undefined ? { latest_quote_cents: latest_quote_sgd === null ? null : Math.round(latest_quote_sgd * 100) } : {}),
+      ...(moveInChanged ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
+      updated_at: new Date(),
+    }).where("id", "=", id).where(sql<boolean>`date_trunc('milliseconds', updated_at) = ${expected_updated_at}`)
+      .returning("id").executeTakeFirst();
+    if (!row) throw new Error("This lead changed since you opened it. Reload and try again.");
+    // The details form has no stage control, but a funnel_stage change that
+    // reaches this action still gets the same attributed history as the
+    // editors that expose one.
+    if (fields.funnel_stage !== undefined && before.funnel_stage !== fields.funnel_stage) {
+      await trx.insertInto("lead_stage_events").values({
+        lead_id: id, from_stage: before.funnel_stage, to_stage: fields.funnel_stage,
+        changed_at: new Date(), changed_by: session.user.id, source: "user",
+      }).execute();
+    }
+  });
   revalidateLead(id);
   return { ok: true };
 }
@@ -164,11 +175,9 @@ export async function editLeadDetails(input: unknown): Promise<ActionResult> {
 export async function quickEditLead(input: unknown): Promise<ActionResult> {
   const session = await requireRole(["consultant", "admin"]);
   const p = leadQuickEditSchema.parse(input);
-  const wonError = await db.transaction().execute(async (trx) => {
+  await db.transaction().execute(async (trx) => {
   const before = await trx.selectFrom("leads").select(["funnel_stage", "last_outcome", sql<string | null>`move_in_date::text`.as("move_in_date")])
     .where("id", "=", p.id).forUpdate().executeTakeFirstOrThrow();
-  const manualWon = manualWonError(before.funnel_stage, p.funnel_stage);
-  if (manualWon) return manualWon;
   const row = await trx.updateTable("leads").set({
     ...(before.funnel_stage !== p.funnel_stage || before.move_in_date !== (p.move_in_date ?? null) || (p.last_outcome !== undefined && before.last_outcome !== p.last_outcome)
       ? { dismissed_recommendations: sql`'{}'::text[]` } : {}),
@@ -202,9 +211,7 @@ export async function quickEditLead(input: unknown): Promise<ActionResult> {
       changed_at: new Date(), changed_by: session.user.id, source: "user",
     }).execute();
   }
-  return null;
   });
-  if (wonError) return { ok: false, error: wonError };
   revalidateLead(p.id);
   return { ok: true };
 }
@@ -212,7 +219,7 @@ export async function quickEditLead(input: unknown): Promise<ActionResult> {
 export async function acceptRecommendation(input: unknown): Promise<ActionResult> {
   const session = await requireRole(["consultant", "admin"]);
   const p = recommendationSchema.parse(input);
-  const wonError = await db.transaction().execute(async (trx) => {
+  await db.transaction().execute(async (trx) => {
     const lead = await trx.selectFrom("leads").selectAll()
       .where("id", "=", p.lead_id).executeTakeFirstOrThrow();
     const recommendations = deriveRecommendations({
@@ -223,8 +230,6 @@ export async function acceptRecommendation(input: unknown): Promise<ActionResult
     }, todayInSingapore());
     const recommendation = recommendations.find((item) => item.code === p.code);
     if (!recommendation?.suggestedStage) throw new Error("This recommendation cannot be accepted.");
-    const wonError = manualWonError(lead.funnel_stage, recommendation.suggestedStage);
-    if (wonError) return wonError;
     if (recommendation.suggestedStage === "Lost" && !p.closure_reason) {
       throw new Error("Select a closure reason before marking this lead Lost.");
     }
@@ -239,9 +244,7 @@ export async function acceptRecommendation(input: unknown): Promise<ActionResult
       to_stage: recommendation.suggestedStage, changed_at: new Date(),
       changed_by: session.user.id, source: "user",
     }).execute();
-    return null;
   });
-  if (wonError) return { ok: false, error: wonError };
   revalidateLead(p.lead_id);
   return { ok: true };
 }

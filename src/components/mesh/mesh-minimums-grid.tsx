@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import { upsertMeshMinimumArea } from "@/lib/actions/mesh-catalogue";
 import type {
@@ -100,7 +101,9 @@ export function MeshMinimumsGrid({
       description="The smallest area a panel is charged for, in m² PER LEAF. A single draw takes it once, a double takes it twice — so a 2 m² minimum means 4 m² on a double. Leave blank for no minimum."
       isEmpty={activeCategories.length === 0 || activeSystems.length === 0}
       emptyMessage="Add at least one category and one system to set minimums."
+      allowStickyFooter
     >
+      <div className="md:overflow-x-auto">
       <table className="w-full text-sm min-w-[36rem]">
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
           <tr>
@@ -141,8 +144,9 @@ export function MeshMinimumsGrid({
           ))}
         </tbody>
       </table>
+      </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100">
+      <FormActionBar className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-slate-100">
         <p className="text-xs text-slate-500 max-w-xl">
           The area is floored, not the price — a panel under the minimum is
           charged as though it were exactly that size, at the category&rsquo;s
@@ -163,7 +167,7 @@ export function MeshMinimumsGrid({
             {pending ? "Saving…" : "Save minimums"}
           </Button>
         </div>
-      </div>
+      </FormActionBar>
     </CatalogueSection>
   );
 }

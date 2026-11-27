@@ -153,11 +153,27 @@ describe("saveLeadBatch", () => {
     ]);
   });
 
-  it("rejects a manual Won transition without writing", async () => {
+  it("saves a manual Won transition with an attributed stage event", async () => {
     const result = await saveLeadBatch({ leads: [item(idA, { funnel_stage: "Won" })] });
-    expect(result).toMatchObject({ ok: false, errors: [{ leadId: idA, field: "funnel_stage", kind: "validation" }] });
+    expect(result).toEqual({ ok: true, saved: [idA], skipped: [] });
+    expect(mocks.updates[0].set).toMatchObject({ funnel_stage: "Won" });
+    expect(mocks.inserts.filter(entry => entry.table === "lead_stage_events")).toEqual([
+      { table: "lead_stage_events", values: expect.objectContaining({
+        lead_id: idA, from_stage: "Qualify Lead", to_stage: "Won", source: "user", changed_by: owner,
+      }) },
+    ]);
+  });
+
+  it("still writes nothing across the batch when a manual Won is mixed with a stale row", async () => {
+    mocks.rows[idB] = row(idB, { updated_at: new Date("2026-09-01T09:00:00.000Z") });
+    const result = await saveLeadBatch({ leads: [
+      item(idA, { funnel_stage: "Won" }),
+      item(idB, { mobile: "9888 7777" }),
+    ] });
+    expect(result).toMatchObject({ ok: false, errors: [{ leadId: idB, kind: "conflict" }] });
     expect(mocks.updateTable).not.toHaveBeenCalled();
     expect(mocks.insertInto).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
   it("keeps an already-Won lead Won while saving unrelated fields", async () => {

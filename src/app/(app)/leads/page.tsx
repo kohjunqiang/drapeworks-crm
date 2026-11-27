@@ -1,4 +1,3 @@
-import { PriorityBadge } from "@/components/leads/priority";
 import { PRIORITY_CLASSES } from "@/lib/leads/priority";
 import Link from "next/link";
 import { parseLeadSort, sortLeadRows } from "@/lib/leads/workspace-sort";
@@ -10,9 +9,10 @@ import { sql } from "kysely";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { CONTACT_CHANNELS, FUNNEL_STAGES, LEAD_SOURCES, LEAD_STATUSES, LEAD_DIRECTIONS, LEAD_OUTCOMES, PRIMARY_PRODUCTS } from "@/lib/leads/funnel-types";
-import { QuickEditLead } from "@/components/leads/phase16-forms";
-import { ArchiveLeadButton, EditableLeadRow } from "@/components/leads/editable-lead-row";
-import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
+import { LeadBatchProvider } from "@/components/leads/batch-edit-context";
+import { LeadBatchToolbar } from "@/components/leads/batch-edit-toolbar";
+import { BatchLeadCard } from "@/components/leads/batch-lead-card";
+import { EditableLeadRow } from "@/components/leads/editable-lead-row";
 import { LeadAnalyticsView } from "@/components/leads/analytics-view";
 import { APPOINTMENT_TRACKING_STARTED_AT, analyticsMonthWindow, calculateLeadAnalytics, calculatePeriodActivity, inclusiveCalendarDays } from "@/lib/leads/analytics";
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Leads — Drapeworks CRM" };
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  await requireRole(["consultant", "admin"]);
+  const session = await requireRole(["consultant", "admin"]);
   const p = await searchParams;
   const today = todayInSingapore();
   const sort = parseLeadSort(p.sort ?? (p.view === "all" ? "priority" : "due"));
@@ -157,30 +157,17 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     <div className="mb-4"><h1 className="text-2xl font-bold">Leads</h1><p className="text-sm text-slate-500">{view === "work" ? "Open leads requiring follow-up" : "Search and manage every lead"}</p></div>
     {toolbar}
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">{[{label:"Matching leads",value:String(total)},{label:"Active",value:String(activeCount)},{label:"Unresponsive",value:String(unresponsiveCount)},{label:"Closed",value:String(closedCount)},{label:"Active Pipeline Value",value:new Intl.NumberFormat("en-SG",{style:"currency",currency:"SGD",maximumFractionDigits:0}).format(pipelineCents / 100)}].map(stat=><div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs font-medium uppercase tracking-wide text-slate-500">{stat.label}</div><div className="mt-1 text-xl font-semibold text-slate-900">{stat.value}</div></div>)}</div>
+    <LeadBatchProvider currentPage={page} actorId={session.user.id}>
     <LeadFilterToolbar key={JSON.stringify(p)} params={p} view={view} pageSize={pageSize} owners={filterOwners}/>
+    <LeadBatchToolbar/>
     <div className="mb-3 flex items-center justify-between gap-3"><h2 aria-label={`${total} matching leads`} className="text-sm font-semibold text-slate-600">{total}</h2><span className="text-xs text-slate-500">{sortLabel} · Page {page} of {pageCount}</span></div>
     <div aria-label="Lead sorting" className="mb-3 flex flex-wrap items-center gap-3 text-xs"><span>Sort:</span>{(["priority", "initiated", "next", "due"] as const).map(key => <Link key={key} href={sortHref(key)} className={sort === key ? "font-semibold text-teal-700 underline" : "text-slate-600"}>{key === "priority" ? "Priority Score" : key === "initiated" ? "Initiated Date" : key === "next" ? "Next Action Date" : "Due Status"}{sort === key ? sortDirection === "asc" ? " ↑" : " ↓" : ""}</Link>)}</div>
-    {rows.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center"><p className="font-medium text-slate-700">No leads match these filters</p><p className="mt-1 text-sm text-slate-500">Adjust the filters or clear the search.</p></div>}<div className="grid gap-3 md:grid-cols-2 xl:hidden">{rows.map(row => <article key={row.id} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <QuickEditLead lead={row} consultants={consultants} trigger="name"/>
-      <div className="mt-1 text-xs text-slate-500">{row.lead_ref}</div><PriorityBadge lead={row} compact/>
-      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">{[
-        ["Inbound / Outbound", row.inbound_outbound ?? "—"],
-        ["Initiated Date", row.initiated_date_text ?? "—"],
-        ["Last Contact Date", row.last_contact_date_text ?? "—"],
-        ["Funnel Stage", row.funnel_stage],
-        ["Lead Status", row.lead_status],
-        ["Last Contact Outcome", row.last_outcome ?? "—"],
-        ["Action Required", actionFor(row)],
-        ["Action Detail", row.action_detail ?? "—"],
-        ["Next Action Date", row.next_action_date_text ?? "—"],
-        ["Due Status", deriveDueStatus(actionFor(row), row.next_action_date_text, today)],
-      ].map(([label, value]) => <div key={label} className="min-w-0 break-words"><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1">{label === "Funnel Stage" ? <FunnelStagePill stage={row.funnel_stage}/> : value}</dd></div>)}</dl>
-      <div className="mt-4 grid grid-cols-3 gap-2"><QuickEditLead lead={row} consultants={consultants} trigger="view" fullWidth/><QuickEditLead lead={row} consultants={consultants} fullWidth/><ArchiveLeadButton leadId={row.id} leadName={row.name} fullWidth/></div>
-    </article>)}</div>
-{rows.length > 0 &&     <div className="hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:block"><table className="w-full table-fixed text-xs [&_th]:break-words"><colgroup>{[11,5,7,7,8,5,10,7,7,8,9,6,10].map((width, index) => <col key={index} style={{width: `${width}%`}}/>)}</colgroup><thead><tr className="border-b bg-slate-50/70 text-left text-slate-600">{["Customer Name", "Inbound / Outbound", "Initiated Date", "Last Contact Date", "Funnel Stage", "Lead Status", "Last Contact Outcome", "Action Required", "Action Detail", "Next Action Date", "Priority", "Due Status", "Actions"].map(label => {
+    {rows.length === 0 && <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-12 text-center"><p className="font-medium text-slate-700">No leads match these filters</p><p className="mt-1 text-sm text-slate-500">Adjust the filters or clear the search.</p></div>}<div className="grid gap-3 md:grid-cols-2 xl:hidden">{rows.map(row => <BatchLeadCard key={row.id} lead={row} consultants={consultants} actionLabel={actionFor(row)} dueLabel={deriveDueStatus(actionFor(row), row.next_action_date_text, today)}/>)}</div>
+{rows.length > 0 &&     <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm xl:block"><table className="w-full min-w-[1560px] table-fixed text-xs [&_th]:break-words"><colgroup>{[3,10,6,6,6,7,5,9,7,8,8,7,5,13].map((width, index) => <col key={index} style={{width: `${width}%`}}/>)}</colgroup><thead><tr className="border-b bg-slate-50/70 text-left text-slate-600">{["Select", "Customer Name", "Inbound / Outbound", "Initiated Date", "Last Contact Date", "Funnel Stage", "Lead Status", "Last Contact Outcome", "Action Required", "Action Detail", "Next Action Date", "Priority", "Due Status", "Actions"].map(label => {
   const key = label === "Priority" ? "priority" : label === "Initiated Date" ? "initiated" : label === "Next Action Date" ? "next" : label === "Due Status" ? "due" : null;
   return <th className={`px-2 py-3 font-medium ${label === "Actions" ? "text-right" : ""}`} key={label} aria-sort={key && sort === key ? sortDirection === "desc" ? "descending" : "ascending" : undefined}>{key ? <Link href={sortHref(key)} className="inline-flex items-center gap-1 rounded hover:text-teal-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600" aria-label={`Sort by ${label}`}>{label}<span aria-hidden="true">{sort === key ? sortDirection === "desc" ? "↓" : "↑" : "↕"}</span></Link> : label}</th>;
 })}</tr></thead><tbody>{rows.map(row => <EditableLeadRow key={row.id} lead={row} consultants={consultants} variant="all" actionLabel={actionFor(row)} dueLabel={deriveDueStatus(actionFor(row), row.next_action_date_text, today)} ownerName={row.consultant_name ?? "Unassigned"}/> )}</tbody></table></div>}
     <nav aria-label="Leads pagination" className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-slate-500">Showing {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total}</p><div className="flex flex-wrap items-center justify-end gap-1"><div className="flex items-center gap-1 text-xs text-slate-500"><span className="mr-1">Rows</span>{[10,25,50].map(size => <Link key={size} href={pageSizeHref(size)} className={`rounded-md px-2 py-1.5 font-medium ${pageSize === size ? "bg-slate-900 text-white" : "hover:bg-slate-100"}`}>{size}</Link>)}</div><Link aria-disabled={page === 1} tabIndex={page === 1 ? -1 : undefined} className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-medium ${page === 1 ? "pointer-events-none border-slate-200 text-slate-300" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} href={pageHref(Math.max(1, page - 1))}>Previous</Link><span className="min-w-20 text-center text-sm text-slate-600">Page {page} of {pageCount}</span><Link aria-disabled={page === pageCount} tabIndex={page === pageCount ? -1 : undefined} className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-medium ${page === pageCount ? "pointer-events-none border-slate-200 text-slate-300" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} href={pageHref(Math.min(pageCount, page + 1))}>Next</Link></div></nav>
+    </LeadBatchProvider>
   </main>;
 }

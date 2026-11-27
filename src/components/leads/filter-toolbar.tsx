@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FILTER_DATES, FILTER_SELECTS, selectedFilters, selectedFilterValues, columnFilterPills } from "@/lib/leads/workspace-filters";
+import { useBatchEditGuard } from "@/components/leads/batch-edit-context";
 
 const control = "mt-1 h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100";
 export function LeadFilterToolbar({ params, view, pageSize, owners }: { params: Record<string, string | undefined>; view: "all" | "work"; pageSize: number; owners: { id: string; full_name: string | null }[] }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const router = useRouter();
+  const guardNavigation = useBatchEditGuard();
+  const pushGuarded = (href: string) => { if (!guardNavigation || guardNavigation(href)) router.push(href); };
   const filters = selectedFilters(params, owners);
   const pills = columnFilterPills(params, owners, view);
   const displayPills = pills.filter(pill => pill.key !== "q");
@@ -26,7 +29,7 @@ export function LeadFilterToolbar({ params, view, pageSize, owners }: { params: 
     const next = new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => !!entry[1] && entry[0] !== "q" && entry[0] !== "page"));
     if (value) next.set("q", value);
     next.set("view", view); next.set("pageSize", String(pageSize));
-    router.push(`/leads?${next.toString()}`);
+    pushGuarded(`/leads?${next.toString()}`);
   };
   return <section aria-label="Lead filters" className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
     <div className="flex flex-col gap-2 sm:flex-row"><form role="search" className="flex min-w-0 flex-1 items-center gap-2" onSubmit={event => { event.preventDefault(); search(event.currentTarget); }}><label htmlFor="lead-customer-search" className="sr-only">Search customer name</label><input id="lead-customer-search" name="customer_search" type="search" defaultValue={params.q ?? ""} placeholder="Search customer name" className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"/><button type="submit" className="h-10 shrink-0 rounded-lg bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-800">Search</button></form>
@@ -34,7 +37,7 @@ export function LeadFilterToolbar({ params, view, pageSize, owners }: { params: 
         <DialogTrigger className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium hover:bg-slate-50">Filters{activeCount ? ` (${activeCount})` : ""}</DialogTrigger>
         <DialogContent className="sm:max-w-2xl">
           <DialogTitle>Filter leads</DialogTitle><DialogDescription>Choose any combination. All means that field is not filtered.</DialogDescription>
-          <form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(); for (const [key, value] of data) if (key !== "stage" && typeof value === "string" && value.trim()) next.set(key, value.trim()); const stages = data.getAll("stage").filter((value): value is string => typeof value === "string" && !!value); if (stages.length) next.set("stage", stages.join(",")); next.set("view", view); next.set("pageSize", String(pageSize)); router.push(`/leads?${next.toString()}`); setOpen(false); }}>
+          <form onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); const next = new URLSearchParams(); for (const [key, value] of data) if (key !== "stage" && typeof value === "string" && value.trim()) next.set(key, value.trim()); const stages = data.getAll("stage").filter((value): value is string => typeof value === "string" && !!value); if (stages.length) next.set("stage", stages.join(",")); next.set("view", view); next.set("pageSize", String(pageSize)); pushGuarded(`/leads?${next.toString()}`); setOpen(false); }}>
             <input type="hidden" name="sort" value={params.sort ?? (view === "work" ? "due" : "priority")}/>
             <input type="hidden" name="order" value={params.order ?? (view === "all" ? "desc" : "asc")}/>
             <input type="hidden" name="q" value={params.q ?? ""}/>

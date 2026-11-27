@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -89,7 +90,7 @@ export function RescheduleDialog({
       <DialogTrigger className="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
         Reschedule
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md md:scroll-pb-24">
         <DialogHeader>
           <DialogTitle>Reschedule consultation</DialogTitle>
           <DialogDescription>
@@ -146,7 +147,7 @@ export function RescheduleDialog({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-1">
+          <DialogActionBar className="flex justify-end gap-2 pt-1">
             <Button
               type="button"
               variant="ghost"
@@ -162,7 +163,7 @@ export function RescheduleDialog({
             >
               {pending ? "Rescheduling…" : "Reschedule"}
             </Button>
-          </div>
+          </DialogActionBar>
         </form>
       </DialogContent>
     </Dialog>

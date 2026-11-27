@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import { MoneyField } from "@/components/pricing/money-field";
 import { useUnsavedPricing } from "@/components/pricing/use-unsaved-pricing";
 import { Button } from "@/components/ui/button";
@@ -93,7 +94,7 @@ export function BlindPricingForm({ initialRows }: { initialRows: BlindPackageSet
           ))}
         </div>
       </section>
-      <div className="sticky bottom-0 -mx-4 flex items-center justify-between border-t border-slate-200 bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:mx-0 sm:rounded-lg sm:border">
+      <FormActionBar className="sticky bottom-0 -mx-4 flex items-center justify-between border-t border-slate-200 bg-white/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:mx-0 sm:rounded-lg sm:border">
         <span aria-live="polite" className="text-xs text-slate-500">
           {dirty ? "Unsaved package pricing changes" : "Package pricing saved"}
         </span>
@@ -104,7 +105,7 @@ export function BlindPricingForm({ initialRows }: { initialRows: BlindPackageSet
         >
           {pending ? "Saving…" : "Save package pricing"}
         </Button>
-      </div>
+      </FormActionBar>
     </div>
   );
 }

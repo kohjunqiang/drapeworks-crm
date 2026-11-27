@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import {
   Dialog,
   DialogContent,
@@ -255,7 +256,7 @@ export function AdvanceStatusButton({
           setOpen(nextOpen);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md md:scroll-pb-24">
           <DialogHeader>
             <DialogTitle>
               {invoiceReviewedDeposit
@@ -474,7 +475,7 @@ export function AdvanceStatusButton({
               placeholder={trackingMode ? "Optional handover note" : undefined}
               className="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white"
             />
-            <div className={invoiceReviewedDeposit ? "flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end" : "flex items-center justify-end gap-2 pt-2"}>
+            <DialogActionBar className={invoiceReviewedDeposit ? "flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end" : "flex items-center justify-end gap-2 pt-2"}>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -522,7 +523,7 @@ export function AdvanceStatusButton({
                           : (ctaLabel ?? "Advance")}
               </button>
               )}
-            </div>
+            </DialogActionBar>
           </div>
         </DialogContent>
       </Dialog>

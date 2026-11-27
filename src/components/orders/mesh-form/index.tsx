@@ -23,6 +23,7 @@ import {
   QuickAddRoomBar,
   type RoomTemplate,
 } from "@/components/orders/consultation-form/quick-add-room-bar";
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import {
   createMeshOrder,
@@ -442,7 +443,7 @@ export function MeshConsultationForm({
           />
         </section>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pb-12">
+        <FormActionBar className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pb-12">
           <button
             type="button"
             onClick={handleCancel}
@@ -478,7 +479,7 @@ export function MeshConsultationForm({
                   : "Save changes"
                 : "Create mesh order"}
           </button>
-        </div>
+        </FormActionBar>
         </fieldset>
       </form>
     </FormProvider>

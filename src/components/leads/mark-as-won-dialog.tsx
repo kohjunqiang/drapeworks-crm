@@ -8,6 +8,7 @@ import { z } from "zod";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -207,7 +208,7 @@ export function MarkAsWonDialog({
       {/* 44px touch targets on phones: the scoped dialog-close selector
           enlarges the shared primitive's close button only inside this
           dialog, the rest carry h-11 until sm. */}
-      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:size-11 sm:[&_[data-slot=dialog-close]]:size-7">
+      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:size-11 sm:[&_[data-slot=dialog-close]]:size-7 md:scroll-pb-24">
         <DialogHeader>
           <DialogTitle>Link order and mark Won</DialogTitle>
           <DialogDescription>
@@ -321,13 +322,13 @@ export function MarkAsWonDialog({
                     </div>
                   ) : null}
 
-                  <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-1">
+                  <DialogActionBar className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-1">
                     <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending} className="h-11 sm:h-8">Cancel</Button>
                     <Button type="submit" disabled={!canConfirm}
                       className="bg-teal-600 hover:bg-teal-700 text-white h-11 sm:h-8">
                       {pending ? "Marking Won…" : "Confirm and mark Won"}
                     </Button>
-                  </div>
+                  </DialogActionBar>
                 </>
               )}
             </form>

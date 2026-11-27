@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { DialogActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -105,7 +106,7 @@ export function BookAppointmentDialog({
       <DialogTrigger type="button" onClick={event => { event.preventDefault(); if (beforeOpen && !beforeOpen()) return; setOpen(true); }} className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
         Book appointment
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto md:scroll-pb-24">
         <DialogHeader>
           <DialogTitle>Book consultation</DialogTitle>
           <DialogDescription>{leadName}</DialogDescription>
@@ -215,7 +216,7 @@ export function BookAppointmentDialog({
             not emailed.
           </p>
 
-          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-1">
+          <DialogActionBar className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-3 pt-1">
             <Button
               type="button"
               variant="ghost"
@@ -231,7 +232,7 @@ export function BookAppointmentDialog({
             >
               {pending ? "Booking…" : "Book appointment"}
             </Button>
-          </div>
+          </DialogActionBar>
         </form>
       </DialogContent>
     </Dialog>

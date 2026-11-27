@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -166,7 +167,7 @@ export function PromotionsTable({
         </Button>
       </div>
 
-      <div className="flex justify-end mt-4">
+      <FormActionBar className="flex justify-end mt-4">
         <Button
           type="button"
           onClick={saveAll}
@@ -175,7 +176,7 @@ export function PromotionsTable({
         >
           {pending ? "Saving…" : "Save promotions"}
         </Button>
-      </div>
+      </FormActionBar>
     </div>
   );
 }

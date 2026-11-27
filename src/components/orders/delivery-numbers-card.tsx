@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { FormActionBar } from "@/components/forms/form-action-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -412,7 +413,7 @@ export function DeliveryNumbersCard({
       </div>
 
       {editing && (
-        <div className="flex justify-end gap-2">
+        <FormActionBar className="flex justify-end gap-2">
           <Button
             variant="outline"
             disabled={pending}
@@ -427,10 +428,10 @@ export function DeliveryNumbersCard({
           <Button disabled={pending} onClick={save}>
             {pending ? "Saving…" : "Save changes"}
           </Button>
-        </div>
+        </FormActionBar>
       )}
       {currentStatus === "shipping_sg" && !editing && (
-        <div className="space-y-2 border-t border-slate-200 pt-4">
+        <FormActionBar className="space-y-2 border-t border-slate-200 pt-4">
           {initial.some((shipment) =>
             Boolean(shipment.arrivedCheckedAt) &&
             !arrivalDrafts[shipment.category]) && (
@@ -462,7 +463,7 @@ export function DeliveryNumbersCard({
                   : `Save arrival progress · ${shipments.length - arrivedCount} remaining`}
             </Button>
           </div>
-        </div>
+        </FormActionBar>
       )}
     </section>
   );

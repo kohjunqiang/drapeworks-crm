@@ -5,10 +5,9 @@ import { requireRole } from "@/lib/auth/require-role";
 import { syncAppointment, unsyncAppointment } from "@/lib/calendar/sync";
 import { db } from "@/lib/db/kysely";
 import { appointmentCreateSchema, appointmentRescheduleSchema, appointmentStatusSchema } from "@/lib/validation/appointment";
-import type { FunnelStage } from "@/lib/leads/funnel-types";
+import { isClosedLeadStage } from "@/lib/leads/priority";
 const sgInstant=(date:string,time:string)=>new Date(`${date}T${time}:00+08:00`);
 const refresh=(leadId:string)=>{revalidatePath("/queue");revalidatePath("/leads");revalidatePath(`/leads/${leadId}`)};
-const BOOKABLE_STAGES = new Set<FunnelStage>(["Book Appointment", "Attend Appointment"]);
 
 export async function bookAppointment(input:unknown):Promise<void>{
   const session=await requireRole(["consultant","admin"]);const p=appointmentCreateSchema.parse(input);
@@ -18,7 +17,7 @@ export async function bookAppointment(input:unknown):Promise<void>{
       .select(["funnel_stage","last_outcome","next_action_date","is_archived"])
       .where("id","=",p.lead_id).forUpdate().executeTakeFirst();
     if(!before||before.is_archived)throw new Error("This lead is no longer available");
-    if(!BOOKABLE_STAGES.has(before.funnel_stage))throw new Error("Move this lead to Book Appointment before booking");
+    if(isClosedLeadStage(before.funnel_stage))throw new Error(`This lead is closed (${before.funnel_stage}). Reopen it before booking an appointment.`);
     const existing=await trx.selectFrom("appointments").select("id")
       .where("lead_id","=",p.lead_id).where("status","=","scheduled").executeTakeFirst();
     if(existing)throw new Error("This lead already has a scheduled appointment");

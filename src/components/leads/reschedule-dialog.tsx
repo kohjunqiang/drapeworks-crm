@@ -97,7 +97,11 @@ export function RescheduleDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-3">
+        {/* Same portal/event-bubbling note as BookAppointmentDialog: without
+            this, rescheduling from inside the lead modal would submit the
+            outer lead form and mark it dirty. */}
+        <form onSubmit={event => { event.stopPropagation(); onSubmit(event); }}
+          onChange={event => event.stopPropagation()} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <Label htmlFor="reschedule-date" className={LABEL}>

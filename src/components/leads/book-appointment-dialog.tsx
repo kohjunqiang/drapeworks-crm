@@ -30,6 +30,7 @@ export function BookAppointmentDialog({
   development,
   consultants,
   onBooked,
+  beforeOpen,
 }: {
   leadId: string;
   leadName: string;
@@ -37,6 +38,10 @@ export function BookAppointmentDialog({
   development: string | null;
   consultants: { id: string; full_name: string | null }[];
   onBooked?: () => void | Promise<void>;
+  // Runs before the dialog opens — callers with unsaved edits use it for the
+  // existing discard-confirmation convention so a booked appointment cannot
+  // silently overwrite pending input.
+  beforeOpen?: () => boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -79,7 +84,13 @@ export function BookAppointmentDialog({
         });
         toast.success("Appointment booked");
         setOpen(false);
-        await onBooked?.();
+        // The booking is already committed at this point — a failed refresh
+        // must not surface as a booking failure or reopen the dialog.
+        try {
+          await onBooked?.();
+        } catch {
+          toast.error("Appointment booked — reload the page to see it.");
+        }
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not book");
@@ -91,7 +102,7 @@ export function BookAppointmentDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       {/* The trigger renders its own <button>, styled like every other teal CTA
           in the app — same as nav/mobile-menu.tsx and nav/user-menu.tsx. */}
-      <DialogTrigger type="button" className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
+      <DialogTrigger type="button" onClick={event => { event.preventDefault(); if (beforeOpen && !beforeOpen()) return; setOpen(true); }} className="inline-flex shrink-0 items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded font-medium text-sm outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
         Book appointment
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg max-h-[85dvh] overflow-y-auto">
@@ -100,7 +111,12 @@ export function BookAppointmentDialog({
           <DialogDescription>{leadName}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-3">
+        {/* The portal moves the DOM out of the parent lead form, but React
+            still bubbles synthetic events through the component tree. Submit
+            and change stop here so booking cannot trigger the parent's save
+            or its dirty tracking. */}
+        <form onSubmit={event => { event.stopPropagation(); onSubmit(event); }}
+          onChange={event => event.stopPropagation()} className="space-y-3">
           <div>
             <Label htmlFor="consultant_id" className={LABEL}>Assigned consultant</Label>
             <select id="consultant_id" name="consultant_id" required className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm">

@@ -79,3 +79,55 @@ describe("track procurement respects saved requirements", () => {
     expect(railShipmentKind(result.lines[0].options)).toBe("s_fold_tracks");
   });
 });
+
+describe("track-only windows", () => {
+  const rail = (over: Record<string, unknown> = {}) => ({
+    window_id: "rail", position: 1, room_label: "Bedroom",
+    window_label: "Balcony", mfg_width_cm: 298,
+    day_curtain_type_id: null, night_curtain_type_id: null,
+    blind_type_id: null, side_installation: false,
+    overlap_tracks_attachment: false,
+    day_track_required: true, night_track_required: false,
+    track_only: true, track_kind: "single",
+    ...over,
+  });
+
+  beforeEach(() => {
+    // A curtain window sits in the same order — the mixed case.
+    state.windows.push(rail());
+  });
+
+  it("orders the explicit rail count from track_kind, not from fabric", async () => {
+    const result = await loadTrackOrder("order");
+    // One double curtain rail (default fixture) + one single track-only rail.
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[1]).toMatchObject({ kind: "single", widthCm: 298 });
+  });
+
+  it("orders two runs for a double track-only window", async () => {
+    state.windows[1].track_kind = "double";
+    const result = await loadTrackOrder("order");
+    expect(result.lines[1].kind).toBe("double");
+  });
+
+  it("names the rail by its editable window label on the cutting list", async () => {
+    const result = await loadTrackOrder("order");
+    expect(result.lines[1].label).toBe("Bedroom — Balcony");
+  });
+
+  it("carries the stored label as explicit windowName metadata for the copied text", async () => {
+    const result = await loadTrackOrder("order");
+    expect(result.lines[1].windowName).toBe("Balcony");
+    // The curtain window has no stored label — its copied line stays legacy.
+    expect(result.lines[0].windowName).toBeNull();
+  });
+
+  it("uses the CONFIRMED manufacturing width, flagging an unmeasured one by name", async () => {
+    state.windows[1].mfg_width_cm = null;
+    const result = await loadTrackOrder("order");
+    expect(result.lines).toHaveLength(1); // the curtain rail only
+    expect(result.unmeasured).toEqual([
+      { label: "Bedroom — Balcony", options: noOptions },
+    ]);
+  });
+});

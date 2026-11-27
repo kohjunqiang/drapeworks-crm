@@ -619,6 +619,7 @@ export interface Customers {
   id: Generated<string>;
   mobile: string;
   name: string;
+  salutation: string | null;
   updated_at: Generated<Timestamp>;
 }
 
@@ -626,6 +627,8 @@ export interface CustomerZohoLinks {
   confirmed_at: Generated<Timestamp>;
   confirmed_by: string;
   customer_id: string;
+  pending_salutation: string | null;
+  salutation_sync_error: string | null;
   updated_at: Generated<Timestamp>;
   zoho_contact_id: string;
 }
@@ -1435,6 +1438,18 @@ export interface WindowAddons {
   window_id: string;
 }
 
+export interface WindowPhotos {
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mime_type: string;
+  original_name: string | null;
+  position: Generated<number>;
+  size_bytes: number;
+  storage_path: string;
+  uploaded_by: string | null;
+  window_id: string;
+}
+
 export interface Windows {
   blind_type_id: string | null;
   combo_id: string | null;
@@ -1444,6 +1459,7 @@ export interface Windows {
   draw: DrawDirection | null;
   height_cm: number | null;
   id: Generated<string>;
+  label: string | null;
   night_curtain_type_id: string | null;
   night_track_required: Generated<boolean>;
   no_installation: Generated<boolean>;
@@ -1454,6 +1470,8 @@ export interface Windows {
   side_installation: Generated<boolean>;
   split_left_cm: number | null;
   split_right_cm: number | null;
+  track_kind: string | null;
+  track_only: Generated<boolean>;
   width_cm: number | null;
 }
 
@@ -1624,6 +1642,7 @@ export interface DB {
   "vault.secrets": VaultSecrets;
   vendors: Vendors;
   window_addons: WindowAddons;
+  window_photos: WindowPhotos;
   windows: Windows;
   zoho_connection_events: ZohoConnectionEvents;
   zoho_connections: ZohoConnections;

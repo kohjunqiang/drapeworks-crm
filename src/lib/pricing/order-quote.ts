@@ -352,6 +352,10 @@ type WindowPriceRow = {
   // the label) groups, so two rooms both called "Bedroom" stay two rooms.
   room_label: string | null;
   room_position: number | null;
+  /** Editable per-window label; the breakdown falls back to "Window N". */
+  label: string | null;
+  track_only: boolean;
+  track_kind: string | null;
   width_cm: number | null;
   /**
    * The width the vendor is actually cutting, present only once the order's
@@ -391,8 +395,22 @@ function rowToCalcWindow(
   const where = {
     roomIndex: w.room_position ?? undefined,
     roomLabel: w.room_label,
+    itemLabel: w.label,
   };
   const addons = addonsByWindow.get(w.id) ?? [];
+
+  // A rail over an uncovered opening: installation-only sale, the track cost
+  // stays COGS. The explicit kind, not any fabric presence, counts the runs.
+  if (w.track_only) {
+    return {
+      ...where,
+      trackOnly: true,
+      trackKind: w.track_kind === "double" ? "double" : "single",
+      widthCm: w.width_cm,
+      costWidthCm: w.mfg_width_cm,
+      addons,
+    };
+  }
 
   // A blind occupies the window instead of curtains: no day/night leg and no
   // combo. It DOES carry add-ons — that is new in Phase 14.
@@ -485,6 +503,9 @@ export async function computeOrderQuote(
       .leftJoin("manufacture_measurements as mm", "mm.window_id", "windows.id")
       .select([
         "windows.id as id",
+        "windows.label as label",
+        "windows.track_only",
+        "windows.track_kind",
         "windows.day_track_required",
         "windows.night_track_required",
         "windows.no_installation",
@@ -651,6 +672,9 @@ export async function orderStaleFlags(
           "windows.day_track_required",
           "windows.night_track_required",
           "windows.no_installation",
+          "windows.label as label",
+          "windows.track_only as track_only",
+          "windows.track_kind as track_kind",
           "windows.blind_type_id as blind_type_id",
           "rooms.label as room_label",
           "rooms.position as room_position",

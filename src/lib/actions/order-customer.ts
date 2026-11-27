@@ -4,6 +4,7 @@ import type { Transaction } from "kysely";
 
 import type { DB } from "@/lib/db/schema";
 import { ATTEND_APPOINTMENT_STAGE } from "@/lib/leads/funnel-types";
+import { queueZohoSalutationSync } from "@/lib/zoho/salutation-sync";
 
 export type ResolvedOrderCustomer = {
   customerId: string;
@@ -119,6 +120,7 @@ type SubmittedCustomer = {
   name: string;
   mobile: string;
   email?: string;
+  salutation?: string;
 };
 
 /**
@@ -232,6 +234,7 @@ export async function resolveOrderCustomer(
         name: customer.name,
         mobile: customer.mobile,
         email: customer.email ?? null,
+        salutation: customer.salutation?.trim() || null,
         created_by: userId,
       })
       .returning("id")
@@ -243,6 +246,9 @@ export async function resolveOrderCustomer(
         .where("id", "=", lead.id)
         .execute();
     }
+    // A brand-new customer has no link row, so this is a no-op — kept for the
+    // symmetric contract that every title save queues its durable retry.
+    await queueZohoSalutationSync(trx, inserted.id, customer.salutation?.trim() || null);
     return {
       customerId: inserted.id,
       appointmentId: appointment?.id ?? null,
@@ -257,9 +263,14 @@ export async function resolveOrderCustomer(
       // Drafts may leave mobile blank; do not erase the booked number.
       ...(customer.mobile.trim().length > 0 ? { mobile: customer.mobile } : {}),
       email: customer.email ?? null,
+      salutation: customer.salutation?.trim() || null,
     })
     .where("id", "=", existingCustomerId)
     .execute();
+
+  // Durable retry marker, committed WITH the title save: a post-commit sync
+  // that never runs leaves the row queued for retry instead of looking synced.
+  await queueZohoSalutationSync(trx, existingCustomerId, customer.salutation?.trim() || null);
 
   return {
     customerId: existingCustomerId,

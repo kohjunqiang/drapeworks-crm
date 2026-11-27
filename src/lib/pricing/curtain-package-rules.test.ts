@@ -106,6 +106,24 @@ describe("curtain room rules", () => {
   it("prevents credits exceeding package price", () => {
     expect(resolveCurtainPackageQuote([window()], {...context(),tier:"tier2",roomDowngradeCents:200000}).issues).toContain("Package credits cannot exceed the package and upgrade charges");
   });
+  it("ignores track-only windows — no room set, no fabric consistency break, no rail width, no extras surcharge", () => {
+    const track = (changes: Partial<CalcWindow>): CalcWindow => ({
+      roomIndex: 0, roomLabel: "Living", widthCm: 300, trackOnly: true,
+      trackKind: "double", addons: [sfold, { ...sfold, key: "slim_tracks" }],
+      ...changes,
+    });
+    const baseline = resolveCurtainPackageQuote([window()], context());
+    // Same room: the rail must not break same-room fabric consistency or add
+    // its metres to the package width — and its S-Fold/slim add-ons are rail
+    // fittings, not package surcharges.
+    const sameRoom = resolveCurtainPackageQuote([window(), track({})], context());
+    // Separate room: it must not count as a second curtain room set.
+    const separateRoom = resolveCurtainPackageQuote([window(), track({ roomIndex: 1, roomLabel: "Balcony" })], context());
+    for (const result of [baseline, sameRoom, separateRoom]) {
+      expect(result.issues).toEqual([]);
+      expect(result.totalSgdCents).toBe(76800);
+    }
+  });
 });
 
 describe("integrated quote", () => {
@@ -135,5 +153,19 @@ describe("integrated quote", () => {
     const a = computeQuote([window({widthCm:500,dayPrice:fabric("Zen")})],assumptions,"air",0,0,context());
     const b = computeQuote([window({widthCm:500,costWidthCm:490,dayPrice:fabric("Zen")})],assumptions,"air",0,0,context());
     expect(a.saleSgdCents).toBe(b.saleSgdCents); expect(a.cogsRmbCents).not.toBe(b.cogsRmbCents);
+  });
+  it("appends only the track install sale to a valid package, keeping rail costs", () => {
+    const track: CalcWindow = { roomIndex: 1, roomLabel: "Balcony", widthCm: 300,
+      trackOnly: true, trackKind: "double", addons: [{ label: "Slim tracks", key: "slim_tracks", costRmbCents: 3500, saleSgdCents: 5000, basis: "per_metre" }] };
+    const packagedOnly = computeQuote([window()], assumptions, "air", 0, 0, context());
+    const mixed = computeQuote([window(), track], assumptions, "air", 0, 0, context());
+    expect(mixed.pricingIssues).toEqual([]);
+    // Package 76800 unchanged; the track adds ONLY its install sale (double
+    // rate) — its rail and slim fitting stay COGS, never reaching the sale.
+    expect(mixed.saleSgdCents).toBe(76800 + 10000);
+    expect(mixed.installationSgdCents).toBe(packagedOnly.installationSgdCents + 10000);
+    // Rail 2×3m×¥25=15000 + slim 3m×¥35=10500 on top of the curtain's COGS.
+    expect(mixed.cogsRmbCents).toBe(packagedOnly.cogsRmbCents + 25500);
+    expect(mixed.freightRmbCents).toBe(packagedOnly.freightRmbCents);
   });
 });

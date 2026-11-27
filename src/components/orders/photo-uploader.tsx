@@ -10,6 +10,12 @@ import {
   deleteRoomPhoto,
   requestRoomPhotoUpload,
 } from "@/lib/actions/photos";
+import {
+  cleanupOrphanWindowUpload,
+  confirmWindowPhotoUpload,
+  deleteWindowPhoto,
+  requestWindowPhotoUpload,
+} from "@/lib/actions/window-photos";
 
 export type UploaderPhoto = {
   id: string;
@@ -34,11 +40,7 @@ function isHeic(file: File): boolean {
   return lower.endsWith(".heic") || lower.endsWith(".heif");
 }
 
-/** Upload and persist one room photo after its room has a database id. */
-export async function uploadRoomPhotoFile(
-  roomId: string,
-  file: File,
-): Promise<void> {
+async function preparePhotoFile(file: File): Promise<File> {
   let toUpload: File = file;
 
   if (isHeic(file)) {
@@ -64,10 +66,17 @@ export async function uploadRoomPhotoFile(
     useWebWorker: true,
   });
 
-  const compressedFile =
-    compressed instanceof File
-      ? compressed
-      : new File([compressed], toUpload.name, { type: toUpload.type });
+  return compressed instanceof File
+    ? compressed
+    : new File([compressed], toUpload.name, { type: toUpload.type });
+}
+
+/** Upload and persist one room photo after its room has a database id. */
+export async function uploadRoomPhotoFile(
+  roomId: string,
+  file: File,
+): Promise<void> {
+  const compressedFile = await preparePhotoFile(file);
 
   const { path, signedUrl } = await requestRoomPhotoUpload({
     roomId,
@@ -104,7 +113,84 @@ export async function uploadRoomPhotoFile(
   }
 }
 
+/** Upload and persist one window detail photo once its window has an id. */
+export async function uploadWindowPhotoFile(
+  windowId: string,
+  file: File,
+): Promise<void> {
+  const compressedFile = await preparePhotoFile(file);
+
+  const { path, signedUrl } = await requestWindowPhotoUpload({
+    windowId,
+    mime: compressedFile.type || "image/jpeg",
+    sizeBytes: compressedFile.size,
+    originalName: file.name,
+  });
+
+  const putRes = await fetch(signedUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": compressedFile.type || "application/octet-stream",
+      "x-upsert": "false",
+    },
+    body: compressedFile,
+  });
+  if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`);
+
+  try {
+    await confirmWindowPhotoUpload({
+      windowId,
+      path,
+      mime: compressedFile.type || "image/jpeg",
+      sizeBytes: compressedFile.size,
+      originalName: file.name,
+    });
+  } catch (confirmErr) {
+    try {
+      await cleanupOrphanWindowUpload({ windowId, path });
+    } catch {
+      // Best effort: the server logs storage cleanup failures.
+    }
+    throw confirmErr;
+  }
+}
+
 export function PhotoUploader({ roomId, photos }: Props) {
+  return (
+    <PersistedPhotoUploader
+      photos={photos}
+      uploadFile={(file) => uploadRoomPhotoFile(roomId, file)}
+      deletePhoto={deleteRoomPhoto}
+    />
+  );
+}
+
+/** Detail photos on a persisted window; each upload/delete commits at once. */
+export function WindowPhotoUploader({
+  windowId,
+  photos,
+}: {
+  windowId: string;
+  photos: UploaderPhoto[];
+}) {
+  return (
+    <PersistedPhotoUploader
+      photos={photos}
+      uploadFile={(file) => uploadWindowPhotoFile(windowId, file)}
+      deletePhoto={deleteWindowPhoto}
+    />
+  );
+}
+
+function PersistedPhotoUploader({
+  photos,
+  uploadFile,
+  deletePhoto,
+}: {
+  photos: UploaderPhoto[];
+  uploadFile: (file: File) => Promise<void>;
+  deletePhoto: (photoId: string) => Promise<unknown>;
+}) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -113,7 +199,7 @@ export function PhotoUploader({ roomId, photos }: Props) {
   async function handleFile(file: File) {
     setUploading(true);
     try {
-      await uploadRoomPhotoFile(roomId, file);
+      await uploadFile(file);
 
       toast.success("Photo saved automatically");
       router.refresh();
@@ -134,7 +220,7 @@ export function PhotoUploader({ roomId, photos }: Props) {
   function handleDelete(photoId: string) {
     startTransition(async () => {
       try {
-        await deleteRoomPhoto(photoId);
+        await deletePhoto(photoId);
         toast.success("Photo deleted automatically");
         router.refresh();
       } catch (e) {

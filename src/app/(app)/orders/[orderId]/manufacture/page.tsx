@@ -43,7 +43,8 @@ import {
   railShipmentKind,
 } from "@/lib/po/track-options";
 import { loadTrackOrder } from "@/lib/po/track-order-load";
-import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import { applyAllowance, applyTrackAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import { windowLabel } from "@/lib/orders/window-label";
 import type { AllowanceLine } from "@/lib/manufacture/allowance";
 import {
   loadAllowanceBook,
@@ -85,10 +86,13 @@ const LINE_LABELS: Record<AllowanceLine, string> = {
 };
 
 // Positions are stored 0-based (the consultation form indexes them), so the
-// display is +1 — nobody calls the first window on the wall "window 0".
+// display is +1 — nobody calls the first window on the wall "window 0". A
+// consultant-written location label wins over the positional fallback, the
+// same naming the PO and installer documents use.
 function labelOf(line: ManufactureLine): string {
-  const noun = line.kind === "window" ? "Window" : "Panel";
-  return `${noun} ${line.position + 1}`;
+  return line.kind === "window"
+    ? windowLabel(line.position, line.windowName)
+    : `Panel ${line.position + 1}`;
 }
 
 // Lines arrive ordered by room position then item position, so rooms group by
@@ -461,15 +465,22 @@ async function EditableView({
   for (const line of lines) {
     const allowance = resolveAllowance(book, line.line);
     if (!allowance) continue;
-    const applied = applyAllowance(
-      { widthCm: line.widthCm, heightCm: line.heightCm },
-      allowance,
-    );
+    // A track-only rail confirms on width alone — the same rule the confirm
+    // action enforces in preconditions.ts.
+    const applied = line.trackOnly
+      ? applyTrackAllowance(
+          { widthCm: line.widthCm, heightCm: line.heightCm },
+          allowance,
+        )
+      : applyAllowance(
+          { widthCm: line.widthCm, heightCm: line.heightCm },
+          allowance,
+        );
     if (!applied) {
       blockers.push({
         message: isAdmin
-          ? `${line.roomLabel} — ${labelOf(line)} has no measured width and height to work from.`
-          : `${line.roomLabel} — ${labelOf(line)} has no measured width and height to work from. Ask the consultant or an admin to add them.`,
+          ? `${line.roomLabel} — ${labelOf(line)} has no measured ${line.trackOnly ? "width" : "width and height"} to work from.`
+          : `${line.roomLabel} — ${labelOf(line)} has no measured ${line.trackOnly ? "width" : "width and height"} to work from. Ask the consultant or an admin to add them.`,
         href: isAdmin ? `/orders/${order.id}/edit` : undefined,
         hrefLabel: isAdmin ? "Fix the measurement" : undefined,
       });
@@ -481,10 +492,12 @@ async function EditableView({
       kind: line.kind,
       label: labelOf(line),
       description: line.description,
+      trackOnly: line.trackOnly === true ? true : undefined,
       sourceWidthCm: applied.sourceWidthCm,
-      sourceHeightCm: applied.sourceHeightCm,
+      // A rail stores 0 for "no height to cut" — the row shows no height axis.
+      sourceHeightCm: applied.sourceHeightCm || null,
       mfgWidthCm: applied.mfgWidthCm,
-      mfgHeightCm: applied.mfgHeightCm,
+      mfgHeightCm: applied.mfgHeightCm || null,
       splitLeftCm: line.splitLeftCm,
       splitRightCm: line.splitRightCm,
       sFold: line.sFold,
@@ -587,12 +600,14 @@ async function FrozenView({
       lineId: line.lineId,
       label: labelOf(line),
       description: line.description,
+      trackOnly: line.trackOnly === true ? true : undefined,
       sourceWidthCm: row.source_width_cm,
-      sourceHeightCm: row.source_height_cm,
+      // A track-only rail stores 0 for "no height to cut" — show nothing.
+      sourceHeightCm: row.source_height_cm || null,
       widthDeltaCm: row.width_delta_cm,
-      heightDeltaCm: row.height_delta_cm,
+      heightDeltaCm: row.mfg_height_cm ? row.height_delta_cm : null,
       mfgWidthCm: row.mfg_width_cm,
-      mfgHeightCm: row.mfg_height_cm,
+      mfgHeightCm: row.mfg_height_cm || null,
       sourceSplitLeftCm: line.splitLeftCm ?? null,
       sourceSplitRightCm: line.splitRightCm ?? null,
       mfgSplitLeftCm: row.mfg_split_left_cm,
@@ -672,6 +687,7 @@ async function FrozenView({
       sourceHeightCm: l.sourceHeightCm,
       mfgWidthCm: l.mfgWidthCm,
       mfgHeightCm: l.mfgHeightCm,
+      trackOnly: l.trackOnly === true ? true : undefined,
       mfgSplitLeftCm: l.mfgSplitLeftCm,
       mfgSplitRightCm: l.mfgSplitRightCm,
       sFold: l.sFold,

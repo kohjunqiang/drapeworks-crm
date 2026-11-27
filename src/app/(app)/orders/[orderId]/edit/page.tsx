@@ -16,7 +16,7 @@ import {
   loadActiveMeshSystemBands,
   loadActiveMeshSystemSpecs,
 } from "@/lib/db/mesh-catalogue";
-import { signRoomPhotoUrls } from "@/lib/db/photos";
+import { signRoomPhotoUrls, signWindowPhotoUrls } from "@/lib/db/photos";
 import { loadWindowAddonIds } from "@/lib/db/window-addons";
 import { isLocked } from "@/lib/status-flow";
 import {
@@ -75,6 +75,7 @@ export default async function EditOrderPage({
       "customers.name as customer_name",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
+      "customers.salutation as customer_salutation",
     ])
     .where("orders.id", "=", orderId)
     .executeTakeFirst();
@@ -112,6 +113,9 @@ export default async function EditOrderPage({
             "id",
             "room_id",
             "position",
+            "label",
+            "track_only",
+            "track_kind",
             "width_cm",
             "height_cm",
             "notes",
@@ -174,6 +178,37 @@ export default async function EditOrderPage({
     roomPhotos[p.room_id] = list;
   }
 
+  const windowPhotoRows =
+    windows.length === 0
+      ? []
+      : await db
+          .selectFrom("window_photos")
+          .select([
+            "id",
+            "window_id",
+            "storage_path",
+            "original_name",
+            "position",
+            "created_at",
+          ])
+          .where("window_id", "in", windows.map((w) => w.id))
+          .orderBy("position", "asc")
+          .orderBy("created_at", "asc")
+          .execute();
+
+  const windowSigned = await signWindowPhotoUrls(
+    windowPhotoRows.map((p) => p.storage_path),
+  );
+
+  const windowPhotos: Record<string, UploaderPhoto[]> = {};
+  for (const p of windowPhotoRows) {
+    const url = windowSigned.get(p.storage_path);
+    if (!url) continue;
+    const list = windowPhotos[p.window_id] ?? [];
+    list.push({ id: p.id, signedUrl: url, originalName: p.original_name });
+    windowPhotos[p.window_id] = list;
+  }
+
   // ── mesh orders take a different form, schema and action ───────────────
   // Everything above (order, rooms, photos) is shared; only the line items and
   // the form differ. Without this branch, editing a mesh order would render
@@ -228,6 +263,7 @@ export default async function EditOrderPage({
     const meshDefaults: MeshOrderEditInput = {
       customer: {
         name: order.customer_name,
+        salutation: order.customer_salutation ?? "",
         mobile: order.customer_mobile,
         email: order.customer_email ?? "",
       },
@@ -310,6 +346,7 @@ export default async function EditOrderPage({
       name: order.customer_name,
       mobile: order.customer_mobile,
       email: order.customer_email ?? "",
+      salutation: order.customer_salutation ?? "",
     },
     order: {
       property_type: order.property_type ?? undefined,
@@ -340,6 +377,25 @@ export default async function EditOrderPage({
         label: r.label,
         position: rIdx,
         windows: wins.map((w, wIdx) => {
+          // Track-only is checked FIRST: it is an explicit variant with no
+          // covering, and the blind/curtain branches must never claim it.
+          if (w.track_only) {
+            return {
+              id: w.id,
+              variant: "track" as const,
+              position: wIdx,
+              no_installation: false as const,
+              track_kind:
+                w.track_kind === "double" ? ("double" as const) : ("single" as const),
+              label: w.label ?? "",
+              width_cm: w.width_cm ?? null,
+              height_cm: w.height_cm ?? null,
+              notes: w.notes ?? "",
+              side_installation: w.side_installation,
+              overlap_tracks_attachment: w.overlap_tracks_attachment,
+              addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
+            };
+          }
           // A blind is checked FIRST and never derived from the room type: it
           // is valid in every room, and deriving would drop the saved blind on
           // load and re-save the window as an empty curtain.
@@ -352,6 +408,7 @@ export default async function EditOrderPage({
               id: w.id,
               variant: "blind" as const,
               position: wIdx,
+              label: w.label ?? "",
               blind_type_id: w.blind_type_id ?? "",
               // Control side. "Double" can't occur on a blind (the schema and
               // the trigger both reject it), so no coercion is needed.
@@ -368,6 +425,7 @@ export default async function EditOrderPage({
             id: w.id,
             variant: "regular" as const,
             position: wIdx,
+            label: w.label ?? "",
             day_curtain_type_id: w.day_curtain_type_id ?? "",
             night_curtain_type_id: w.night_curtain_type_id ?? "",
             draw: w.draw ?? "Double",
@@ -414,6 +472,7 @@ export default async function EditOrderPage({
         }
         defaultValues={defaultValues}
         roomPhotos={roomPhotos}
+        windowPhotos={windowPhotos}
         persistedAddonIdsByWindow={persistedAddonIdsByWindow}
       />
     </EditShell>

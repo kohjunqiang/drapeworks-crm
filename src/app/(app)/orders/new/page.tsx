@@ -68,6 +68,7 @@ async function loadAppointmentPrefill(
         "appointments.address as address",
         "customers.id as customer_id",
         "customers.name as customer_name",
+        "customers.salutation as customer_salutation",
         "customers.mobile as customer_mobile",
         "customers.email as customer_email",
       ])
@@ -87,6 +88,7 @@ async function loadAppointmentPrefill(
         customerId: booked.customer_id,
         customer: {
           name: booked.customer_name,
+          salutation: booked.customer_salutation ?? undefined,
           mobile: booked.customer_mobile,
           email: booked.customer_email ?? undefined,
         },
@@ -113,6 +115,7 @@ async function loadAppointmentPrefill(
         "leads.development",
         "customers.id as customer_id",
         "customers.name as customer_name",
+        "customers.salutation as customer_salutation",
         "customers.mobile as customer_mobile",
         "customers.email as customer_email",
         "appointments.id as appointment_id",
@@ -132,6 +135,7 @@ async function loadAppointmentPrefill(
         customerId: lead.customer_id,
         customer: {
           name: lead.customer_name ?? lead.lead_name,
+          salutation: lead.customer_salutation ?? undefined,
           mobile: lead.customer_mobile ?? lead.lead_mobile ?? "",
           email: lead.customer_email ?? undefined,
         },
@@ -148,6 +152,7 @@ async function loadAppointmentPrefill(
     .select([
       "customers.id",
       "customers.name",
+      "customers.salutation",
       "customers.mobile",
       "customers.email",
       "orders.development",
@@ -162,6 +167,7 @@ async function loadAppointmentPrefill(
     customerId: existingCustomer.id,
     customer: {
       name: existingCustomer.name,
+      salutation: existingCustomer.salutation ?? undefined,
       mobile: existingCustomer.mobile,
       email: existingCustomer.email ?? undefined,
     },
@@ -366,6 +372,11 @@ async function CurtainConsultation({
               : "",
             addon_ids: window.addon_ids.filter((id) => activeAddonIds.has(id)),
           }
+        : window.variant === "track"
+        ? {
+            ...window,
+            addon_ids: window.addon_ids.filter((id) => activeAddonIds.has(id)),
+          }
         : {
             ...window,
             day_curtain_type_id: activeTypeIds.has(window.day_curtain_type_id ?? "")
@@ -403,6 +414,7 @@ async function CurtainConsultation({
         customerOptions={customerOptions}
         defaultValues={templateDefaults}
         roomPhotos={template?.roomPhotos}
+        windowPhotos={template?.windowPhotos}
       />
     </>
   );

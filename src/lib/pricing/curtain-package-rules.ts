@@ -91,7 +91,11 @@ export function resolveCurtainPackageQuote(windows: readonly CalcWindow[], conte
   }
   const rooms = new Map<number, CalcWindow[]>();
   for (const [index, window] of windows.entries()) {
-    if (window.blindPrice || window.covering === "blind") continue;
+    // Blinds carry their own headrail and price outside the package. Track-
+    // only windows are rails with no fabric at all — they must not join a
+    // curtain room set (they would break same-room fabric consistency, add
+    // rail width to the package metres, or inflate the room count).
+    if (window.blindPrice || window.covering === "blind" || window.trackOnly) continue;
     const key = window.roomIndex ?? index;
     rooms.set(key, [...(rooms.get(key) ?? []), window]);
   }

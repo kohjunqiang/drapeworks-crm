@@ -7,6 +7,7 @@ import {
   windowQuote,
   type CalcAssumptions,
 } from "./calculator";
+import type { CalcAddon } from "@/lib/orders/window-addons";
 
 const ASSUMPTIONS: CalcAssumptions = {
   fxSgdToRmb: 53000, // 5.3
@@ -550,6 +551,143 @@ describe("marginBps", () => {
   });
   it("is 0 when sale is 0", () => {
     expect(marginBps(500, 0)).toBe(0);
+  });
+});
+
+// ── Track-only windows ────────────────────────────────────────────────────
+//
+// A rail supplied and installed with no covering: the customer pays the
+// install rate and nothing else. The rail is COGS like every other track —
+// per metre of measured width, a double being two runs — and stays out of
+// the air-freight base.
+
+describe("windowQuote — track only", () => {
+  it("sells installation only: the rail is COGS, nothing reaches the sale side", () => {
+    const q = windowQuote(
+      { trackOnly: true, trackKind: "single", widthCm: 300, addons: [] },
+      ASSUMPTIONS,
+    );
+    expect(q).toEqual({
+      costRmbCents: 7500, // 3.0m × ¥25, one run
+      saleSgdCents: 0,
+      curtainCostRmbCents: 0,
+      // The kind IS the install offering: single rail → single rate.
+      offering: "single",
+      trackRmbCents: 7500,
+      trackKind: "single",
+      legs: [],
+    });
+  });
+
+  it("a double track is two runs at the same rate and the double offering", () => {
+    const q = windowQuote(
+      { trackOnly: true, trackKind: "double", widthCm: 300, addons: [] },
+      ASSUMPTIONS,
+    );
+    expect(q.costRmbCents).toBe(15000); // 2 × 3.0m × ¥25
+    expect(q.trackRmbCents).toBe(15000);
+    expect(q.offering).toBe("double");
+    expect(q.saleSgdCents).toBe(0);
+  });
+
+  it("an unmeasured track-only window bills nothing and offers no install", () => {
+    const q = windowQuote(
+      { trackOnly: true, trackKind: "double", widthCm: null, addons: [S_FOLD] },
+      ASSUMPTIONS,
+    );
+    expect(q).toEqual({
+      costRmbCents: 0,
+      saleSgdCents: 0,
+      curtainCostRmbCents: 0,
+      offering: "none",
+      trackRmbCents: 0,
+      trackKind: null,
+      legs: [],
+    });
+  });
+
+  it("keeps a rail fitting's COGS but not its sale — install is the only charge", () => {
+    const q = windowQuote(
+      { trackOnly: true, trackKind: "single", widthCm: 200, addons: [SLIM] },
+      ASSUMPTIONS,
+    );
+    // rail 2.0m×¥25=5000 + slim 2.0m×¥35=7000. Slim's S$50/m sale does NOT bill.
+    expect(q.costRmbCents).toBe(12000);
+    expect(q.saleSgdCents).toBe(0);
+    expect(q.legs).toEqual([
+      { label: "Slim tracks", detail: null, rmbCents: 7000 },
+    ]);
+  });
+});
+
+describe("computeQuote — track-only windows in a mixed order", () => {
+  // A 5m curtain keeps the order comfortably above the S$500 floor so the
+  // track's install delta is observable as an exact sale sum, not a floor.
+  const CURTAIN = {
+    roomIndex: 0,
+    roomLabel: "Living Room",
+    widthCm: 500,
+    dayPrice: { costRmbCents: 5100, saleSgdCents: 9000, label: "Essential" },
+    nightPrice: null,
+    addons: [] as CalcAddon[],
+  };
+  const TRACK = {
+    roomIndex: 0,
+    roomLabel: "Living Room",
+    itemLabel: "Balcony side",
+    trackOnly: true,
+    trackKind: "double" as const,
+    widthCm: 300,
+    addons: [] as CalcAddon[],
+  };
+
+  it("the install rate IS the track window's sale; the rail stays COGS", () => {
+    const q = computeQuote([CURTAIN, TRACK], ASSUMPTIONS, "air");
+    // Curtain sale 5.0m × S$90 = 45000; track install sale = double rate.
+    expect(q.saleSgdCents).toBe(45000 + 10000);
+    // No floor adjustment — the delta above is the raw install charge.
+    expect(q.minimumOrderAdjustmentSgdCents).toBe(0);
+    // Install COST: single curtain 6000 + double rail 10000.
+    expect(q.installationSgdCents).toBe(16000);
+    // COGS: fabric 5m×2×5100=51000 + curtain rail 12500 + track-only rail 15000.
+    expect(q.cogsRmbCents).toBe(78500);
+    // Air freight bills curtain-only COGS: 51000 — the rails never join it.
+    expect(q.freightRmbCents).toBe(
+      Math.min(
+        Math.max(Math.round((51000 * 6000) / 10000), 50000),
+        140000,
+      ),
+    );
+    // Both rails land on the order-level extras lines by kind.
+    expect(q.cogsExtras).toEqual([
+      { label: "Track (single)", count: 1, rmbCents: 12500 },
+      { label: "Track (double)", count: 1, rmbCents: 15000 },
+    ]);
+  });
+
+  it("labels the breakdown line with the window's editable label", () => {
+    const q = computeQuote([CURTAIN, TRACK], ASSUMPTIONS, "air");
+    const items = q.cogsRooms[0].items;
+    expect(items[1].label).toBe("Balcony side");
+    expect(items[1].detail).toBe("Track only (double)");
+    // The rail is lifted out of the window's own row — nothing remains.
+    expect(items[1].rmbCents).toBe(0);
+  });
+
+  it("the whole-order minimum is unchanged by a track-only window", () => {
+    const small = {
+      roomIndex: 0,
+      roomLabel: "Bedroom",
+      widthCm: 100,
+      dayPrice: { costRmbCents: 5100, saleSgdCents: 9000 },
+      addons: [] as CalcAddon[],
+    };
+    const track = { ...TRACK, trackKind: "single" as const, widthCm: 100 };
+    const q = computeQuote([small, track], ASSUMPTIONS, "air");
+    // Raw sale 9000 + install 6000 = 15000 → raised to the S$500 floor.
+    expect(q.saleSgdCents).toBe(50_000);
+    expect(q.minimumOrderSgdCents).toBe(50_000);
+    expect(q.minimumOrderAdjustmentSgdCents).toBe(35_000);
   });
 });
 

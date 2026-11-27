@@ -41,6 +41,7 @@ import { hasZohoInvoice, invoiceFinancialDifferences, invoiceFingerprint, invoic
 import type { ZohoEstimate, ZohoInvoice } from "@/lib/zoho/books";
 import { assertEstimateEditable, assertQuotationStage, crmKeyConflicts, hasZohoDrift, QUOTATION_INVOICED_MESSAGE, quotationBreakdown } from "@/lib/quotations/lifecycle";
 import { adoptedTotalMatches, isValidZohoDate, zohoAdoptionIssues, zohoLineForDisplay, zohoRemoteTotalCents, zohoValidatedLines } from "@/lib/quotations/zoho-adoption";
+import { QUEUED_MESSAGE, retryZohoSalutation, syncZohoSalutation } from "@/lib/zoho/salutation-sync";
 import { defaultCustomerMessage, isGeneratedCustomerMessage, quotationDateOnly, quotationTotalCents, toZohoEstimatePayload } from "@/lib/quotations/model";
 import { actionErrorMessage, toActionResult, UserFacingError } from "@/lib/user-facing-error";
 
@@ -54,7 +55,7 @@ async function authorizedOrder(orderId: string, write: boolean) {
     .leftJoin("profiles", "profiles.id", "orders.consultant_id")
     .select([
       "orders.id", "orders.display_id", "orders.order_reference", "orders.current_status", "orders.consultant_id", "orders.site_address", "orders.price_quoted_cents", "orders.deposit_cents",
-      "customers.id as customer_id", "customers.name as customer_name", "customers.email as customer_email", "customers.mobile as customer_mobile",
+      "customers.id as customer_id", "customers.name as customer_name", "customers.salutation as customer_salutation", "customers.email as customer_email", "customers.mobile as customer_mobile",
       "profiles.full_name as consultant_name",
     ])
     .where("orders.id", "=", orderId).executeTakeFirst();
@@ -79,7 +80,19 @@ export async function getZohoQuotationOptions(orderId: string) {
     candidates: candidates.map((contact) => ({ id: contact.contact_id, name: contact.contact_name, company: contact.company_name ?? "", email: contact.email ?? "", phone: contact.mobile || contact.phone || "" })),
     linkedContactId: link?.zoho_contact_id ?? null,
     linkedContact: linkedContact ? { id: linkedContact.contact_id, name: linkedContact.contact_name, email: linkedContact.email ?? "", phone: linkedContact.mobile || linkedContact.phone || "" } : null,
+    pendingSalutation: link?.pending_salutation ?? null,
+    salutationSyncError: link?.salutation_sync_error ?? null,
   };
+}
+
+/** Retry a parked Zoho title push after a failed sync. */
+export async function retrySalutationSync(orderId: string) {
+  const { order } = await authorizedOrder(orderId, true);
+  const synced = await retryZohoSalutation(order.customer_id);
+  revalidatePath(`/orders/${orderId}`);
+  if (!synced) {
+    throw new UserFacingError("The title still did not reach Zoho. Check the Zoho connection and try again.");
+  }
 }
 
 export async function searchZohoCustomers(orderId: string, query: string) {
@@ -99,9 +112,17 @@ export async function confirmZohoCustomer(input: unknown) {
   if (contact.contact_type !== "customer") throw new UserFacingError("Only a Zoho customer can be linked to an order");
   await db.insertInto("customer_zoho_links").values({
     customer_id: order.customer_id, zoho_contact_id: contact.contact_id, confirmed_by: session.user.id,
+    // The title has not been pushed to this contact yet — record it queued
+    // right on the link write so a crash before the sync below still leaves a
+    // visible, retryable marker instead of a clean-looking row.
+    pending_salutation: order.customer_salutation ?? null, salutation_sync_error: QUEUED_MESSAGE,
   }).onConflict((conflict) => conflict.column("customer_id").doUpdateSet({
     zoho_contact_id: contact.contact_id, confirmed_by: session.user.id, confirmed_at: new Date(),
+    pending_salutation: order.customer_salutation ?? null, salutation_sync_error: QUEUED_MESSAGE,
   })).execute();
+  // Push the current title onto the newly linked contact. Never throws —
+  // a failure parks the value on the link row for retry.
+  await syncZohoSalutation(order.customer_id);
   revalidatePath(`/orders/${parsed.orderId}`);
 }
 
@@ -111,7 +132,7 @@ export async function createAndConfirmZohoCustomer(orderId: string) {
   if (existingEstimate?.zoho_estimate_id) throw new UserFacingError("The Zoho customer cannot be changed after an official draft exists");
   let contact;
   try {
-    contact = await createZohoContact({ name: order.customer_name, email: order.customer_email, mobile: order.customer_mobile, address: order.site_address });
+    contact = await createZohoContact({ name: order.customer_name, salutation: order.customer_salutation, email: order.customer_email, mobile: order.customer_mobile, address: order.site_address });
   } catch (error) {
     // Never blindly retry a contact POST: Zoho may have committed it before a
     // response was lost. A refresh will surface the candidate for confirmation.
@@ -894,4 +915,7 @@ export async function confirmZohoCustomerUi(input: unknown) {
 }
 export async function createAndConfirmZohoCustomerUi(orderId: string) {
   return toActionResult(() => createAndConfirmZohoCustomer(orderId), "The Zoho customer could not be created. Refresh and check for the customer before trying again.");
+}
+export async function retrySalutationSyncUi(orderId: string) {
+  return toActionResult(() => retrySalutationSync(orderId), "The title still did not reach Zoho. Check the Zoho connection and try again.");
 }

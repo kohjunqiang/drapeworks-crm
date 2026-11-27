@@ -1,8 +1,8 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useTransition } from "react";
-import { useFormContext } from "react-hook-form";
+import { useState, useTransition } from "react";
+import { useFormContext, useWatch } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
 import { setConsultationCustomer } from "@/lib/actions/consultation-selection";
@@ -34,6 +34,77 @@ type Props = {
 
 const INPUT_CLS =
   "w-full px-3 py-2 border border-slate-200 rounded text-sm focus:outline-none focus:border-teal-500 bg-white";
+
+const SALUTATION_PRESETS = ["Mr", "Mrs", "Ms", "Dr"] as const;
+
+// Optional title, kept separate from the name. Four presets plus a free-text
+// custom entry (Zoho Books caps salutation at 25 chars — the schema and the
+// input both enforce that). No default is ever guessed.
+function SalutationField() {
+  const { control, register, setValue } =
+    useFormContext<ConsultationShellShape>();
+  const value = useWatch({ control, name: "customer.salutation" });
+  const [customMode, setCustomMode] = useState(
+    () =>
+      Boolean(value) &&
+      !SALUTATION_PRESETS.includes(
+        value as (typeof SALUTATION_PRESETS)[number],
+      ),
+  );
+  const isCustom =
+    customMode ||
+    (Boolean(value) &&
+      !SALUTATION_PRESETS.includes(
+        value as (typeof SALUTATION_PRESETS)[number],
+      ));
+  const selectValue = isCustom ? "custom" : (value ?? "");
+
+  return (
+    <div className="mb-3">
+      <label
+        htmlFor="customer-salutation"
+        className="block text-xs font-medium text-slate-600 mb-1"
+      >
+        Title <span className="font-normal text-slate-400">(optional)</span>
+      </label>
+      <select
+        id="customer-salutation"
+        value={selectValue}
+        onChange={(event) => {
+          const next = event.target.value;
+          if (next === "custom") {
+            setCustomMode(true);
+            if (!isCustom) {
+              setValue("customer.salutation", "", { shouldDirty: true });
+            }
+            return;
+          }
+          setCustomMode(false);
+          setValue("customer.salutation", next, { shouldDirty: true });
+        }}
+        className={`${INPUT_CLS} min-h-11`}
+      >
+        <option value="">No title</option>
+        {SALUTATION_PRESETS.map((preset) => (
+          <option key={preset} value={preset}>
+            {preset}
+          </option>
+        ))}
+        <option value="custom">Custom…</option>
+      </select>
+      {isCustom && (
+        <input
+          type="text"
+          maxLength={25}
+          placeholder="e.g. Mdm, Prof"
+          aria-label="Custom title"
+          className={`${INPUT_CLS} mt-2 min-h-11`}
+          {...register("customer.salutation")}
+        />
+      )}
+    </div>
+  );
+}
 
 // Typed to the shared customer+order prefix, not to either product's full
 // schema, so it can be dropped into the curtain or the mesh form without
@@ -99,6 +170,7 @@ export function CustomerSection({
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div>
+          <SalutationField />
           <label
             htmlFor={choosingCustomer ? "consultation-customer" : "customer-name"}
             className="block text-xs font-medium text-slate-600 mb-1"

@@ -23,6 +23,7 @@ import { computeOrderQuote } from "@/lib/pricing/order-quote";
 import { adminClient } from "@/lib/supabase/admin";
 
 export const PHOTO_BUCKET = "room-photos";
+export const WINDOW_PHOTO_BUCKET = "window-photos";
 
 type Trx = Transaction<DB> | Kysely<DB>;
 
@@ -155,6 +156,129 @@ export async function cloneTemplateRoomPhotos(
       uploaded_by: input.uploadedBy,
       position: photo.position,
     }).execute();
+  }
+}
+
+/**
+ * Duplicate one template window's detail photos into a newly inserted window.
+ *
+ * Same contract as cloneTemplateRoomPhotos: storage paths are copied, never
+ * shared, and the source window is constrained to the same customer and
+ * product line so a crafted payload cannot clone arbitrary files.
+ */
+export async function cloneTemplateWindowPhotos(
+  trx: Transaction<DB>,
+  input: {
+    sourceWindowId: string;
+    targetWindowId: string;
+    targetOrderId: string;
+    customerId: string;
+    productLine: ProductLine;
+    uploadedBy: string;
+    copiedPaths: string[];
+  },
+): Promise<void> {
+  const sourceWindow = await trx
+    .selectFrom("windows")
+    .innerJoin("rooms", "rooms.id", "windows.room_id")
+    .innerJoin("orders", "orders.id", "rooms.order_id")
+    .select("windows.id")
+    .where("windows.id", "=", input.sourceWindowId)
+    .where("orders.customer_id", "=", input.customerId)
+    .where("orders.product_line", "=", input.productLine)
+    .executeTakeFirst();
+  if (!sourceWindow) throw new Error("The template window is no longer available");
+
+  const photos = await trx
+    .selectFrom("window_photos")
+    .select([
+      "storage_path",
+      "mime_type",
+      "size_bytes",
+      "original_name",
+      "position",
+    ])
+    .where("window_id", "=", input.sourceWindowId)
+    .orderBy("position", "asc")
+    .orderBy("created_at", "asc")
+    .execute();
+  const storage = adminClient().storage.from(WINDOW_PHOTO_BUCKET);
+
+  for (const photo of photos) {
+    const extension = /\.[a-z0-9]+$/i.exec(photo.storage_path)?.[0] ?? "";
+    const targetPath = `orders/${input.targetOrderId}/windows/${input.targetWindowId}/${randomUUID()}${extension}`;
+    const { error } = await storage.copy(photo.storage_path, targetPath);
+    if (error) {
+      console.error("template window-photo copy failed:", error.message);
+      throw new Error("Could not copy the previous window photos");
+    }
+    input.copiedPaths.push(targetPath);
+    await trx.insertInto("window_photos").values({
+      window_id: input.targetWindowId,
+      storage_path: targetPath,
+      mime_type: photo.mime_type,
+      size_bytes: photo.size_bytes,
+      original_name: photo.original_name,
+      uploaded_by: input.uploadedBy,
+      position: photo.position,
+    }).execute();
+  }
+}
+
+// Every window_photo storage_path about to be cascade-deleted when the given
+// room's windows outside `keepWindowIds` are removed. Same capture-before-delete
+// contract as the room sweep.
+export async function collectDroppedWindowPhotoPaths(
+  trx: Trx,
+  roomId: string,
+  keepWindowIds: string[],
+): Promise<string[]> {
+  let q = trx
+    .selectFrom("window_photos")
+    .innerJoin("windows", "windows.id", "window_photos.window_id")
+    .select("window_photos.storage_path as storage_path")
+    .where("windows.room_id", "=", roomId);
+  if (keepWindowIds.length > 0) {
+    q = q.where("windows.id", "not in", keepWindowIds);
+  }
+  return (await q.execute()).map((r) => r.storage_path);
+}
+
+// Every window_photo storage_path about to be cascade-deleted when rooms outside
+// `keepRoomIds` are removed — the window-level mirror of
+// collectOrphanPhotoPaths.
+export async function collectOrphanWindowPhotoPaths(
+  trx: Trx,
+  orderId: string,
+  keepRoomIds: string[],
+): Promise<string[]> {
+  let q = trx
+    .selectFrom("window_photos")
+    .innerJoin("windows", "windows.id", "window_photos.window_id")
+    .innerJoin("rooms", "rooms.id", "windows.room_id")
+    .select("window_photos.storage_path as storage_path")
+    .where("rooms.order_id", "=", orderId);
+  if (keepRoomIds.length > 0) {
+    q = q.where("rooms.id", "not in", keepRoomIds);
+  }
+  return (await q.execute()).map((r) => r.storage_path);
+}
+
+// A failed sweep is logged, never thrown — same contract as sweepPhotoStorage,
+// against the window-photos bucket.
+export async function sweepWindowPhotoStorage(
+  paths: string[],
+  context: string,
+): Promise<void> {
+  if (paths.length === 0) return;
+  const { error } = await adminClient()
+    .storage.from(WINDOW_PHOTO_BUCKET)
+    .remove(paths);
+  if (error) {
+    console.error(
+      `window-photo storage sweep failed during ${context}:`,
+      error.message,
+    );
   }
 }
 

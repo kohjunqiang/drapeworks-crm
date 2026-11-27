@@ -158,6 +158,36 @@ function CoveringToggle({
   );
 }
 
+// "Track only" ticks the window over to a rail supply+install with no
+// covering — still the same window card, just no fabric on it.
+function TrackOnlyToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div className="col-span-2 sm:col-span-6">
+      <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+        />
+        Track only — supply &amp; install rail, no curtains
+      </label>
+      {checked && (
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          The customer pays installation only; the rail still counts toward
+          cost.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function WindowFields({
   roomIndex,
   windowIndex,
@@ -172,6 +202,7 @@ export function WindowFields({
   const base = `rooms.${roomIndex}.windows.${windowIndex}` as const;
   const variant = useWatch({ control, name: `${base}.variant` });
   const isBlind = variant === "blind";
+  const isTrack = variant === "track";
   const rememberedCurtainDraw = useRef<WindowDraw | undefined>(
     variant === "regular" ? (getValues(`${base}.draw`) ?? "Double") : undefined,
   );
@@ -214,6 +245,26 @@ export function WindowFields({
     if (transition.draw !== currentDraw) {
       setValue(`${base}.draw`, transition.draw, { shouldDirty: true });
     }
+  }
+
+  // Track only: the same window supplies and installs a rail with no
+  // covering. Fabric fields stay in form state (untouched measurements,
+  // notes and photos survive an accidental toggle) but never persist —
+  // the discriminated union strips them and windowValues() nulls the
+  // columns. Add-ons are re-picked from the rail-fitting subset.
+  function setTrackOnly(on: boolean) {
+    setValue(`${base}.addon_ids`, [], { shouldDirty: true });
+    if (on) {
+      setValue(`${base}.variant`, "track", { shouldDirty: true });
+      if (!getValues(`${base}.track_kind`)) {
+        setValue(`${base}.track_kind`, "single", { shouldDirty: true });
+      }
+      return;
+    }
+    setValue(`${base}.variant`, "regular", { shouldDirty: true });
+    const restored = rememberedCurtainDraw.current ?? "Double";
+    rememberedCurtainDraw.current = restored;
+    setValue(`${base}.draw`, restored, { shouldDirty: true });
   }
 
   // Every curtain picker takes curtain-line options only. The day/night
@@ -341,10 +392,73 @@ export function WindowFields({
           >
             Installation note
           </label>
-          <input
+          <textarea
             id={`room-${roomIndex}-window-${windowIndex}-installation-note`}
-            type="text"
+            rows={4}
             placeholder="e.g. inside mount, bracket clearance…"
+            className={INPUT_CLS}
+            {...register(`${base}.notes`)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (isTrack) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <TrackOnlyToggle checked onChange={setTrackOnly} />
+        <div className="col-span-2 sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Track type
+          </label>
+          <FormSelect
+            control={control}
+            name={`${base}.track_kind`}
+            options={[
+              { value: "single", label: "Single track" },
+              { value: "double", label: "Double track" },
+            ]}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Width (cm)
+          </label>
+          <input
+            type="number"
+            className={INPUT_CLS}
+            {...register(`${base}.width_cm`)}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">
+            Height (cm)
+          </label>
+          <input
+            type="number"
+            className={INPUT_CLS}
+            {...register(`${base}.height_cm`)}
+          />
+        </div>
+        <AddonCheckboxes
+          roomIndex={roomIndex}
+          windowIndex={windowIndex}
+          covering="track"
+          catalogue={addonCatalogue}
+          persistedIds={persistedAddonIds}
+        />
+        <div className="col-span-2 sm:col-span-6">
+          <label
+            htmlFor={`room-${roomIndex}-window-${windowIndex}-installation-note`}
+            className="block text-xs font-medium text-slate-600 mb-1"
+          >
+            Installation note
+          </label>
+          <textarea
+            id={`room-${roomIndex}-window-${windowIndex}-installation-note`}
+            rows={4}
+            placeholder="e.g. ceiling mount, beam clearance…"
             className={INPUT_CLS}
             {...register(`${base}.notes`)}
           />
@@ -360,6 +474,7 @@ export function WindowFields({
         onChange={setCovering}
         blindsAvailable={blindOptions.length > 0}
       />
+      {!isToilet && <TrackOnlyToggle checked={false} onChange={setTrackOnly} />}
       <div className="col-span-2 sm:col-span-3">
         <label className="block text-xs font-medium text-slate-600 mb-1">
           Day Curtain
@@ -488,16 +603,16 @@ export function WindowFields({
           )}
         </div>
       )}
-      <div className="col-span-2 sm:col-span-4">
+      <div className="col-span-2 sm:col-span-6">
         <label
           htmlFor={`room-${roomIndex}-window-${windowIndex}-installation-note`}
           className="block text-xs font-medium text-slate-600 mb-1"
         >
           Installation note
         </label>
-        <input
+        <textarea
           id={`room-${roomIndex}-window-${windowIndex}-installation-note`}
-          type="text"
+          rows={4}
           placeholder="e.g. ceiling mount, beam clearance…"
           className={INPUT_CLS}
           {...register(`${base}.notes`)}

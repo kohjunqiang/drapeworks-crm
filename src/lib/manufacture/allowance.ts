@@ -65,3 +65,28 @@ export function applyAllowance(
 export function isManufacturable(a: AppliedAllowance): boolean {
   return a.mfgWidthCm > 0 && a.mfgHeightCm > 0;
 }
+
+/**
+ * Track-only rails: only the width is procured. A measured height still gets
+ * the height allowance applied; an unmeasured one is stored as 0 ("no height
+ * to cut") rather than fabricated, and never blocks confirmation.
+ */
+export function applyTrackAllowance(
+  dims: SourceDims,
+  allowance: Allowance,
+): AppliedAllowance | null {
+  const { widthCm, heightCm } = dims;
+  if (widthCm == null || widthCm <= 0) return null;
+  const hasHeight = heightCm != null && heightCm > 0;
+
+  return {
+    sourceWidthCm: widthCm,
+    sourceHeightCm: hasHeight ? heightCm : 0,
+    widthDeltaCm: allowance.widthDeltaCm,
+    heightDeltaCm: hasHeight ? allowance.heightDeltaCm : 0,
+    mfgWidthCm: Math.round((widthCm + allowance.widthDeltaCm) * 100) / 100,
+    mfgHeightCm: hasHeight
+      ? Math.round((heightCm + allowance.heightDeltaCm) * 100) / 100
+      : 0,
+  };
+}

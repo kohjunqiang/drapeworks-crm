@@ -405,3 +405,38 @@ it("keeps a decimal mesh panel ready for manufacture", () => {
   const panel = line({ kind: "mesh_panel", sourceWidthCm: 120.25, mfgWidthCm: 118.25 });
   expect(evaluateRow(panel, draftFor(panel)).errors).toEqual([]);
 });
+
+describe("track-only rail — width-only confirm", () => {
+  // A rail has no fabric panel to cut: no measured height, no manufacturing
+  // height. The height column is absent, not invalid.
+  const rail = line({
+    trackOnly: true,
+    description: "Track only — double track",
+    sourceWidthCm: 300,
+    sourceHeightCm: null,
+    mfgWidthCm: 298,
+    mfgHeightCm: null,
+  });
+
+  it("seeds a blank height and evaluates clean on width alone", () => {
+    expect(draftFor(rail)).toMatchObject({ width: "298", height: "", heightDelta: "" });
+    const s = evaluateRow(rail, draftFor(rail));
+    expect(s.errors).toEqual([]);
+    expect(s.widthCm).toBe(298);
+    expect(s.heightCm).toBeNull();
+  });
+
+  it("cannot flag a height override or error — there is no height axis", () => {
+    const s = evaluateRow(rail, { ...draftFor(rail), height: "250" });
+    expect(s.heightOverridden).toBe(false);
+    expect(s.heightDeltaInvalid).toBe(false);
+    expect(s.errors).toEqual([]);
+  });
+
+  it("still reconciles the width like any other line", () => {
+    const s = evaluateRow(rail, syncDraft(rail, draftFor(rail), { widthDelta: "-10" }));
+    expect(s.widthCm).toBe(290);
+    expect(s.widthOverridden).toBe(true);
+    expect(s.errors).toEqual([]);
+  });
+});

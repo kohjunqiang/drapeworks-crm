@@ -9,7 +9,7 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
-import { applyAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import { applyAllowance, applyTrackAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
 import { beadShapeFor, defaultBeads } from "@/lib/manufacture/sfold-beads";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/lib/manufacture/load";
 import { checkConfirmPreconditions } from "@/lib/manufacture/preconditions";
 import { materializeShipmentManifest } from "@/lib/logistics/load";
+import { windowLabel } from "@/lib/orders/window-label";
 import { STATUS_LABELS } from "@/lib/status-flow";
 import {
   allowanceSchema,
@@ -182,10 +183,15 @@ export async function confirmManufactureMeasurements(
       const rows = lines.map((line) => {
         const allowance = resolveAllowance(book, line.line);
         const applied = allowance
-          ? applyAllowance(
-              { widthCm: line.widthCm, heightCm: line.heightCm },
-              allowance,
-            )
+          ? line.trackOnly
+            ? applyTrackAllowance(
+                { widthCm: line.widthCm, heightCm: line.heightCm },
+                allowance,
+              )
+            : applyAllowance(
+                { widthCm: line.widthCm, heightCm: line.heightCm },
+                allowance,
+              )
           : null;
         // Unreachable: the precondition check above rejects both cases. It
         // stays because the alternative is a non-null assertion that would go
@@ -222,7 +228,7 @@ export async function confirmManufactureMeasurements(
             submittedRight != null)
         ) {
           throw new AuthoredError(
-            `${line.roomLabel} Window ${line.position + 1} is not an S-fold curtain, so it cannot carry a bead count.`,
+            `${line.roomLabel} ${windowLabel(line.position, line.windowName)} is not an S-fold curtain, so it cannot carry a bead count.`,
           );
         }
         let beadColumns = {
@@ -244,7 +250,7 @@ export async function confirmManufactureMeasurements(
           if (beadShapeFor(line.draw) === "pair") {
             if (submittedSingle != null) {
               throw new AuthoredError(
-                `${line.roomLabel} Window ${line.position + 1} is a double draw and takes a left and a right bead count, not a single count.`,
+                `${line.roomLabel} ${windowLabel(line.position, line.windowName)} is a double draw and takes a left and a right bead count, not a single count.`,
               );
             }
             const left =
@@ -265,7 +271,7 @@ export async function confirmManufactureMeasurements(
           } else {
             if (submittedLeft != null || submittedRight != null) {
               throw new AuthoredError(
-                `${line.roomLabel} Window ${line.position + 1} is a single draw and takes one bead count, not a left/right pair.`,
+                `${line.roomLabel} ${windowLabel(line.position, line.windowName)} is a single draw and takes one bead count, not a left/right pair.`,
               );
             }
             const count =
@@ -578,6 +584,18 @@ export async function amendManufactureMeasurements(
               row.mfg_split_right_cm,
             );
 
+        // A track-only rail confirms with no height (stored 0) and amends
+        // with null. Any COVERED line must carry a real height — keyed on the
+        // window's actual trackOnly identity, not the stored source height,
+        // so a legacy 0-height covered row can't shed its height here.
+        const isTrackRail = lineFacts.get(line.lineId)?.trackOnly === true;
+        if (!isTrackRail && line.mfgHeightCm == null) {
+          throw new AuthoredError(
+            "That line item needs a manufacturing height — only a track-only rail amends without one.",
+          );
+        }
+        const amendedHeightCm = line.mfgHeightCm ?? 0;
+
         // Bead fields are OPT-IN on an amendment: omitted columns are left
         // untouched, so a dimensional edit never recalculates a stored count
         // and a legacy null row stays null until beads are set deliberately.
@@ -631,11 +649,11 @@ export async function amendManufactureMeasurements(
           .updateTable("manufacture_measurements")
           .set({
             mfg_width_cm: line.mfgWidthCm,
-            mfg_height_cm: line.mfgHeightCm,
+            mfg_height_cm: amendedHeightCm,
             mfg_split_left_cm: resizedSplit?.leftCm ?? null,
             mfg_split_right_cm: resizedSplit?.rightCm ?? null,
             width_delta_cm: line.mfgWidthCm - row.source_width_cm,
-            height_delta_cm: line.mfgHeightCm - row.source_height_cm,
+            height_delta_cm: amendedHeightCm - row.source_height_cm,
             ...beadSet,
             is_overridden: true,
             override_reason: parsed.reason,

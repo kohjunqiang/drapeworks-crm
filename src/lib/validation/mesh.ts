@@ -115,6 +115,7 @@ export const meshOrderCreateSchema = z.object({
 // required, rooms and panels may be empty.
 const customerDraftSchema = z.object({
   name: z.string().min(1, "Customer name is required").max(200),
+  salutation: z.string().trim().max(25).optional(),
   mobile: z
     .string()
     .max(30)

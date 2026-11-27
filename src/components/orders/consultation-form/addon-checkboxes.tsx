@@ -6,12 +6,13 @@ import {
   resolveWindowAddons,
   type AddonRule,
 } from "@/lib/orders/window-addons";
+import { TRACK_OPTION_ADDON_KEYS } from "@/lib/po/track-options";
 import type { OrderEditInput } from "@/lib/validation/order";
 
 type Props = {
   roomIndex: number;
   windowIndex: number;
-  covering: "curtain" | "blind";
+  covering: "curtain" | "blind" | "track";
   catalogue: AddonRule[];
   /**
    * What window_addons held when this form loaded. FIXED for the life of the
@@ -52,12 +53,17 @@ export function AddonCheckboxes({
   const width = Number(rawWidth);
   const widthCm = Number.isFinite(width) && width > 0 ? width : null;
 
+  // A track-only window offers rail fittings only — the same subset the
+  // server enforces in writeWindowAddons — resolved against the curtain
+  // rules those fittings are scoped to.
   const resolved = resolveWindowAddons(
-    covering,
+    covering === "track" ? "curtain" : covering,
     widthCm,
     selected,
     persistedIds,
-    catalogue,
+    covering === "track"
+      ? catalogue.filter((a) => TRACK_OPTION_ADDON_KEYS.includes(a.key))
+      : catalogue,
   );
 
   function toggle(id: string, on: boolean) {
@@ -117,15 +123,18 @@ export function AddonCheckboxes({
       </label>
       {/* Shared by curtains and blinds: waives only this window's automatic
           handyman charge — tracks and order-level transport/extras are
-          unaffected. */}
-      <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
-        <input
-          type="checkbox"
-          className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-          {...register(`${base}.no_installation`)}
-        />
-        No installation
-      </label>
+          unaffected. Hidden on track-only, where installation IS the whole
+          charge, so the opt-out would contradict the window's purpose. */}
+      {covering !== "track" && (
+        <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+            {...register(`${base}.no_installation`)}
+          />
+          No installation
+        </label>
+      )}
       {covering === "curtain" && (
         <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
           <input
@@ -143,7 +152,9 @@ export function AddonCheckboxes({
           No tracks
         </label>
       )}
-      {covering === "curtain" && (
+      {/* The overlap carrier is a rail fitting, not a fabric one, so it stays
+          offered on a track-only window too. */}
+      {(covering === "curtain" || covering === "track") && (
         <label className="flex min-h-11 items-center gap-1.5 text-xs text-slate-700 sm:min-h-0">
           <input
             type="checkbox"

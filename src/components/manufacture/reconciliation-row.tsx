@@ -30,11 +30,15 @@ export type ReconLine = {
   label: string;
   /** Catalogue labels, verbatim. */
   description: string | null;
+  /** A rail with no covering: only the width is procured, so the height
+   *  column is absent (null) rather than demanded. Mirrors the width-only
+   *  branch in lib/manufacture/preconditions.ts — keep the two agreeing. */
+  trackOnly?: boolean;
   sourceWidthCm: number;
-  sourceHeightCm: number;
+  sourceHeightCm: number | null;
   /** The allowance applied. May be ≤ 0, which is a state a human must resolve. */
   mfgWidthCm: number;
-  mfgHeightCm: number;
+  mfgHeightCm: number | null;
   /** Measured left/right allocation for an off-centre double draw. */
   splitLeftCm?: number | null;
   splitRightCm?: number | null;
@@ -89,12 +93,17 @@ export function draftFor(line: ReconLine): RowDraft {
   const beads = line.sFold ? defaultBeads(beadLine(line)) : null;
   return {
     width: String(line.mfgWidthCm),
-    height: String(line.mfgHeightCm),
+    height: line.mfgHeightCm == null ? "" : String(line.mfgHeightCm),
     // Rounded to the same 2-decimal precision deltaFromSize displays at, so a
     // decimal source like 120.25 cannot float-error an integer allowance into
     // "-1.9999999999999716" and get itself rejected as fractional.
     widthDelta: String(Math.round((line.mfgWidthCm - line.sourceWidthCm) * 100) / 100),
-    heightDelta: String(Math.round((line.mfgHeightCm - line.sourceHeightCm) * 100) / 100),
+    heightDelta:
+      line.mfgHeightCm == null || line.sourceHeightCm == null
+        ? ""
+        : String(
+            Math.round((line.mfgHeightCm - line.sourceHeightCm) * 100) / 100,
+          ),
     splitLeft: split ? String(split.leftCm) : "",
     splitRight: split ? String(split.rightCm) : "",
     // Bead defaults come from the MEASURED width — a manufacturing allowance
@@ -180,6 +189,9 @@ export function syncDraft(
     if (size !== null) merged.width = size;
   }
 
+  // A heightless rail has no height column to reconcile — leave it alone.
+  if (line.sourceHeightCm == null) return merged;
+
   if (next.height !== undefined) {
     const delta = deltaFromSize(merged.height, line.sourceHeightCm);
     if (delta !== null) merged.heightDelta = delta;
@@ -208,11 +220,15 @@ function dimError(
 export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   const widthCm = parseCm(draft.width);
   const heightCm = parseCm(draft.height);
+  // A track-only rail confirms on width alone — the height column is absent,
+  // so nothing about it can be invalid or overridden.
+  const heightless = line.trackOnly === true;
   // The allowance is validated in its own right, not just by the size it
   // implies: an unparseable draft leaves the paired size untouched, so without
   // this check a lone "-" would confirm the stale Make it never recomputed.
   const widthDeltaInvalid = parseDelta(draft.widthDelta) == null;
-  const heightDeltaInvalid = parseDelta(draft.heightDelta) == null;
+  const heightDeltaInvalid =
+    !heightless && parseDelta(draft.heightDelta) == null;
   const expectsSplit = line.splitLeftCm != null && line.splitRightCm != null;
   const splitLeftCm = expectsSplit ? parseCm(draft.splitLeft) : null;
   const splitRightCm = expectsSplit ? parseCm(draft.splitRight) : null;
@@ -226,7 +242,8 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   // not "was typed in". Retyping 298 over a computed 298 is not an adjustment
   // and must not be flagged — nothing about the order changed.
   const widthOverridden = widthCm != null && widthCm !== line.mfgWidthCm;
-  const heightOverridden = heightCm != null && heightCm !== line.mfgHeightCm;
+  const heightOverridden =
+    !heightless && heightCm != null && heightCm !== line.mfgHeightCm;
   const splitOverridden = expectsSplit && splitLeftCm != null && splitRightCm != null && (
     splitLeftCm !== defaultSplit?.leftCm || splitRightCm !== defaultSplit?.rightCm
   );
@@ -263,8 +280,10 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
   if (widthCm == null) {
     errors.push(dimError("width", draft.width, line.mfgWidthCm));
   }
-  if (heightCm == null) {
-    errors.push(dimError("height", draft.height, line.mfgHeightCm));
+  if (!heightless && heightCm == null) {
+    errors.push(
+      dimError("height", draft.height, line.mfgHeightCm ?? Number.NaN),
+    );
   }
   if (expectsSplit && (splitLeftCm == null || splitRightCm == null)) {
     errors.push("Enter positive centimetres with up to 2 decimal places for both PO split widths.");
@@ -306,7 +325,7 @@ export function evaluateRow(line: ReconLine, draft: RowDraft): RowState {
         ? null
         : Math.round((widthCm - line.sourceWidthCm) * 100) / 100,
     heightDeltaCm:
-      heightCm == null || heightDeltaInvalid
+      heightless || heightCm == null || heightDeltaInvalid || line.sourceHeightCm == null
         ? null
         : Math.round((heightCm - line.sourceHeightCm) * 100) / 100,
     widthDeltaInvalid,
@@ -593,20 +612,27 @@ export function ReconciliationRow({
             </div>
           </fieldset>
         )}
-        <AxisRow
-          axis="Height"
-          lineId={line.lineId}
-          pieceLabel={piece}
-          sourceCm={line.sourceHeightCm}
-          size={draft.height}
-          delta={draft.heightDelta}
-          invalid={state.heightCm == null}
-          deltaInvalid={state.heightDeltaInvalid}
-          adjusted={state.heightOverridden}
-          disabled={disabled}
-          onSize={(height) => onChange({ height })}
-          onDelta={(heightDelta) => onChange({ heightDelta })}
-        />
+        {line.trackOnly ? (
+          <p className="text-xs text-slate-500 sm:col-span-3">
+            Rail — the track order cuts to this width; there is no height to
+            make.
+          </p>
+        ) : (
+          <AxisRow
+            axis="Height"
+            lineId={line.lineId}
+            pieceLabel={piece}
+            sourceCm={line.sourceHeightCm ?? 0}
+            size={draft.height}
+            delta={draft.heightDelta}
+            invalid={state.heightCm == null}
+            deltaInvalid={state.heightDeltaInvalid}
+            adjusted={state.heightOverridden}
+            disabled={disabled}
+            onSize={(height) => onChange({ height })}
+            onDelta={(heightDelta) => onChange({ heightDelta })}
+          />
+        )}
       </div>
 
       {line.sFold && (
@@ -705,7 +731,7 @@ export function ReconciliationRow({
               disabled={disabled}
               className="inline-flex items-center min-h-11 px-2 sm:min-h-0 sm:px-0 text-xs text-slate-500 hover:text-slate-900 underline underline-offset-2"
             >
-              Reset to {line.mfgWidthCm} × {line.mfgHeightCm} cm
+              Reset to {line.mfgWidthCm}{line.mfgHeightCm != null ? ` × ${line.mfgHeightCm}` : ""} cm
             </button>
           </div>
           <textarea

@@ -9,7 +9,7 @@ import {
   loadActiveMeshSystemBands,
   loadActiveMeshSystemSpecs,
 } from "@/lib/db/mesh-catalogue";
-import { signRoomPhotoUrls } from "@/lib/db/photos";
+import { signRoomPhotoUrls, signWindowPhotoUrls } from "@/lib/db/photos";
 import type { FulfilmentStatus, ProductLine } from "@/lib/db/schema";
 import {
   openingOverride,
@@ -90,6 +90,9 @@ export async function loadRoomSummaries(order: {
             "windows.id as id",
             "windows.room_id as room_id",
             "windows.position as position",
+            "windows.label as label",
+            "windows.track_only as track_only",
+            "windows.track_kind as track_kind",
             "windows.width_cm as width_cm",
             "windows.height_cm as height_cm",
             "windows.notes as notes",
@@ -337,7 +340,8 @@ export async function loadRoomSummaries(order: {
     const size = resolveInstallationSize(
       {
         widthCm: frozen?.mfg_width_cm ?? null,
-        heightCm: frozen?.mfg_height_cm ?? null,
+        // A track-only rail stores 0 for "no height to cut" — show "—".
+        heightCm: frozen?.mfg_height_cm || null,
       },
       { widthCm: w.width_cm, heightCm: w.height_cm },
       o,
@@ -345,13 +349,16 @@ export async function loadRoomSummaries(order: {
     return {
     id: w.id,
     position: w.position,
+    label: w.label,
+    track_only: w.track_only,
+    track_kind: w.track_kind,
     width_cm: w.width_cm,
     height_cm: w.height_cm,
     installation_width_cm: size.widthCm,
     installation_height_cm: size.heightCm,
     installation_overridden: size.overridden,
     frozen_width_cm: frozen?.mfg_width_cm ?? null,
-    frozen_height_cm: frozen?.mfg_height_cm ?? null,
+    frozen_height_cm: frozen?.mfg_height_cm || null,
     notes: resolveInstallationNote(w.notes, o),
     side_installation: w.side_installation,
     no_installation: w.no_installation,
@@ -389,13 +396,6 @@ export async function loadRoomSummaries(order: {
     };
   });
 
-  const windowsByRoom = new Map<string, typeof windowSummaries>();
-  for (const w of windowSummaries) {
-    const list = windowsByRoom.get(w.room_id) ?? [];
-    list.push(w);
-    windowsByRoom.set(w.room_id, list);
-  }
-
   const photos =
     roomIds.length === 0
       ? []
@@ -429,6 +429,62 @@ export async function loadRoomSummaries(order: {
     photosByRoom.set(p.room_id, list);
   }
 
+  // Per-window detail photos, same private-bucket contract as the room
+  // photos above — signed here so the order page and the installer page show
+  // the identical grouping.
+  const windowPhotoRows =
+    windows.length === 0
+      ? []
+      : await db
+          .selectFrom("window_photos")
+          .select([
+            "id",
+            "window_id",
+            "storage_path",
+            "original_name",
+            "position",
+            "created_at",
+          ])
+          .where(
+            "window_id",
+            "in",
+            windows.map((w) => w.id),
+          )
+          .orderBy("position", "asc")
+          .orderBy("created_at", "asc")
+          .execute();
+
+  const signedWindow = await signWindowPhotoUrls(
+    windowPhotoRows.map((p) => p.storage_path),
+  );
+
+  const windowPhotosByWindow = new Map<string, PhotoTile[]>();
+  for (const p of windowPhotoRows) {
+    const url = signedWindow.get(p.storage_path);
+    if (!url) continue;
+    const list = windowPhotosByWindow.get(p.window_id) ?? [];
+    list.push({
+      id: p.id,
+      signedUrl: url,
+      originalName: p.original_name,
+    });
+    windowPhotosByWindow.set(p.window_id, list);
+  }
+
+  // Detail photos travel on the summary object so the order page and the
+  // installer page group them under their window without extra plumbing.
+  const windowSummariesWithPhotos = windowSummaries.map((w) => ({
+    ...w,
+    photos: windowPhotosByWindow.get(w.id) ?? [],
+  }));
+
+  const windowsByRoom = new Map<string, typeof windowSummariesWithPhotos>();
+  for (const w of windowSummariesWithPhotos) {
+    const list = windowsByRoom.get(w.room_id) ?? [];
+    list.push(w);
+    windowsByRoom.set(w.room_id, list);
+  }
+
   return {
     rooms,
     isMesh,
@@ -439,6 +495,7 @@ export async function loadRoomSummaries(order: {
     windowsByRoom,
     panelsByRoom,
     photosByRoom,
+    windowPhotosByWindow,
     installationDetails,
     installationDetailsVersion:
       arrangement?.installation_details_version ?? 0,

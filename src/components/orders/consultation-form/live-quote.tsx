@@ -18,6 +18,7 @@ import {
   resolveWindowAddons,
   toCalcAddons,
 } from "@/lib/orders/window-addons";
+import { TRACK_OPTION_ADDON_KEYS } from "@/lib/po/track-options";
 import type { CalcConfig } from "@/lib/pricing/order-quote";
 import type { OrderEditInput } from "@/lib/validation/order";
 
@@ -103,7 +104,11 @@ export function LiveQuote({
         // Carried through pricing untouched, for the cost breakdown's room →
         // window tree. The label is whatever the consultant typed; a room they
         // haven't named yet falls back to its number.
-        const where = { roomIndex, roomLabel: r?.label || null };
+        const where = {
+          roomIndex,
+          roomLabel: r?.label || null,
+          itemLabel: (w as { label?: string }).label?.trim() || null,
+        };
         // A blind carries no curtain, no add-ons and no combo — mirroring
         // windowValues on the server so the live figure and the saved quote
         // agree on what a blind window costs.
@@ -119,9 +124,28 @@ export function LiveQuote({
               persistedAddonIdsByWindow[
                 (w as { id?: string }).id ?? ""
               ] ?? [],
-              config.addonCatalogue,
+              // A track-only window may only carry rail fittings — same
+              // catalogue filter writeWindowAddons applies on save.
+              w.variant === "track"
+                ? config.addonCatalogue.filter((a) =>
+                    TRACK_OPTION_ADDON_KEYS.includes(a.key),
+                  )
+                : config.addonCatalogue,
             ),
           );
+
+        if (w.variant === "track") {
+          return {
+            ...where,
+            trackOnly: true,
+            trackKind:
+              (w as { track_kind?: string }).track_kind === "double"
+                ? "double"
+                : "single",
+            widthCm,
+            addons: addonsFor("curtain"),
+          };
+        }
 
         if (w.variant === "blind") {
           return {

@@ -13,12 +13,15 @@ export type FrozenLine = {
   lineId: string;
   label: string;
   description: string | null;
+  /** A rail with no covering — no height column was ever confirmed. */
+  trackOnly?: boolean;
   sourceWidthCm: number;
-  sourceHeightCm: number;
+  /** Null on a track-only rail — there is no height to cut. */
+  sourceHeightCm: number | null;
   widthDeltaCm: number;
-  heightDeltaCm: number;
+  heightDeltaCm: number | null;
   mfgWidthCm: number;
-  mfgHeightCm: number;
+  mfgHeightCm: number | null;
   sourceSplitLeftCm: number | null;
   sourceSplitRightCm: number | null;
   mfgSplitLeftCm: number | null;
@@ -49,9 +52,9 @@ function Pair({
   overridden,
 }: {
   label: string;
-  measured: number;
-  made: number;
-  delta: number;
+  measured: number | null;
+  made: number | null;
+  delta: number | null;
   overridden: boolean;
 }) {
   return (
@@ -59,7 +62,7 @@ function Pair({
       <div className="flex items-baseline gap-2">
         <span className="w-14 shrink-0 text-xs text-slate-500">{label}</span>
         <span className="text-sm text-slate-600 tabular-nums">
-          {measured} cm
+          {measured == null ? "—" : `${measured} cm`}
         </span>
       </div>
       <div className="flex items-center gap-2 flex-wrap sm:pl-4 sm:border-l sm:border-slate-200">
@@ -67,9 +70,11 @@ function Pair({
           {label}
         </span>
         <span className="text-sm font-semibold text-slate-900 tabular-nums">
-          {made} cm
+          {made == null ? "—" : `${made} cm`}
         </span>
-        <DeltaChip delta={delta} source={overridden ? "person" : "rule"} />
+        {delta != null && (
+          <DeltaChip delta={delta} source={overridden ? "person" : "rule"} />
+        )}
       </div>
     </div>
   );
@@ -160,13 +165,15 @@ export function FrozenMeasurements({ rooms }: { rooms: FrozenRoom[] }) {
                   delta={line.widthDeltaCm}
                   overridden={line.isOverridden}
                 />
-                <Pair
-                  label="Height"
-                  measured={line.sourceHeightCm}
-                  made={line.mfgHeightCm}
-                  delta={line.heightDeltaCm}
-                  overridden={line.isOverridden}
-                />
+                {line.mfgHeightCm != null && (
+                  <Pair
+                    label="Height"
+                    measured={line.sourceHeightCm}
+                    made={line.mfgHeightCm}
+                    delta={line.heightDeltaCm}
+                    overridden={line.isOverridden}
+                  />
+                )}
               </div>
               {line.isOverridden && line.overrideReason && (
                 <p className="mt-2 text-xs text-amber-900 break-words">

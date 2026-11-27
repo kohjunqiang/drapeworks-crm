@@ -13,6 +13,7 @@ import type { RoomType } from "@/lib/db/schema";
 export type ConsultationShellShape = {
   customer: {
     name: string;
+    salutation?: string;
     mobile: string;
     email?: string;
   };

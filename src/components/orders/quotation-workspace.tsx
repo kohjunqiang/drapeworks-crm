@@ -17,6 +17,7 @@ import {
   previewQuotationZohoDiffUi,
   recoverStaleQuotationClaimUi,
   reconcileUncertainQuotationUi,
+  retrySalutationSyncUi,
   saveQuotationUi,
   searchZohoCustomersUi,
   syncQuotationUi,
@@ -40,9 +41,13 @@ type Quote = {
 type Props = {
   orderId: string; displayId: string; customerName: string; productLine: "curtain" | "mesh"; quotedCents: number;
   depositCents: number; defaultNotes: string;
+  /** Order carries a track-only window — the seed line names it honestly. */
+  hasTrackOnly?: boolean;
   quote: Quote | null; history: Array<{ id: string; revision: number; estimateNumber: string | null; sentAt: string | null; supersededAt: string | null; totalCents: number; hasPdf: boolean }>;
   versions: Array<{ id: string; version: number; totalCents: number; createdAt: string; hasPdf: boolean }>;
   linkedContactId: string | null; canManage: boolean; canReviewZoho: boolean; canConfirmDeposit: boolean; canRepairDeposit: boolean; configured: boolean;
+  /** A customer title that has not reached Zoho yet, with the last failure. */
+  pendingSalutation?: string | null; salutationSyncError?: string | null;
   quotationStageComplete: boolean; currentOrderStatus: string;
 };
 
@@ -52,8 +57,13 @@ type ZohoReview = Extract<Awaited<ReturnType<typeof previewQuotationZohoDiffUi>>
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const money = (cents: number) => new Intl.NumberFormat("en-SG", { style: "currency", currency: "SGD" }).format(cents / 100);
 
-function initialLines(quote: Quote | null, quotedCents: number, productLine: Props["productLine"]): QuotationLineInput[] {
-  return quote?.lines ?? [{ zohoItemId: null, name: productLine === "mesh" ? "Mesh" : "Curtains and blinds", description: "", quantity: 1, rateCents: quotedCents, discountPercent: 0 }];
+function initialLines(quote: Quote | null, quotedCents: number, productLine: Props["productLine"], hasTrackOnly: boolean): QuotationLineInput[] {
+  const name = productLine === "mesh"
+    ? "Mesh"
+    : hasTrackOnly
+      ? "Curtains, blinds and tracks"
+      : "Curtains and blinds";
+  return quote?.lines ?? [{ zohoItemId: null, name, description: "", quantity: 1, rateCents: quotedCents, discountPercent: 0 }];
 }
 
 function shiftRateDrafts(drafts: Record<number, string>, removedIndex: number): Record<number, string> {
@@ -69,7 +79,7 @@ export function QuotationWorkspace(props: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [options, setOptions] = useState<Options | null>(null);
-  const [lines, setLines] = useState(() => initialLines(props.quote, props.quotedCents, props.productLine));
+  const [lines, setLines] = useState(() => initialLines(props.quote, props.quotedCents, props.productLine, props.hasTrackOnly ?? false));
   const [rateDrafts, setRateDrafts] = useState<Record<number, string>>({});
   const [issueDate, setIssueDate] = useState(props.quote?.issueDate ?? today());
   const [expiryDate, setExpiryDate] = useState(props.quote?.expiryDate ?? "");
@@ -244,6 +254,15 @@ export function QuotationWorkspace(props: Props) {
             {props.canManage && <Button className="h-11" variant="outline" disabled={pending || !options} onClick={() => { if (window.confirm(`Create a new Zoho customer for ${props.customerName}? Check the matches above first to avoid duplicates.`)) run(async () => unwrap(await createAndConfirmZohoCustomerUi(props.orderId)), "Zoho customer created and linked"); }}>Create new Zoho customer</Button>}
           </div>
         )}
+        {(() => {
+          const pendingTitle = options?.pendingSalutation ?? props.pendingSalutation ?? null;
+          const syncError = options?.salutationSyncError ?? props.salutationSyncError ?? null;
+          if (pendingTitle === null && !syncError) return null;
+          return <div className="mt-2 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
+            <span>Customer title{pendingTitle ? ` “${pendingTitle}”` : ""} has not reached Zoho{syncError ? ` — ${syncError}` : ""}. The CRM record is saved; retry pushes it to the primary contact.</span>
+            {props.canManage && <Button className="h-11" variant="outline" disabled={pending} onClick={() => run(async () => unwrap(await retrySalutationSyncUi(props.orderId)), "Customer title synced to Zoho", true)}>Retry</Button>}
+          </div>;
+        })()}
       </div>
 
       <details
@@ -266,7 +285,7 @@ export function QuotationWorkspace(props: Props) {
         <div className="space-y-3">
           {lines.map((line, index) => <div key={index} className="rounded-lg border border-slate-200 p-3">
             <div className="flex items-start gap-2"><label className="flex-1 text-xs font-medium text-slate-600">Catalogue item<select className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm" value={line.zohoItemId ?? ""} onChange={(e) => { const item = options?.items.find((row) => row.id === e.target.value); mutateLine(index, item ? { zohoItemId: item.id, name: item.name, description: item.description, rateCents: item.rateCents } : { zohoItemId: null }); clearRateDraft(index); }}><option value="">Custom line</option>{options?.items.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>{lines.length > 1 && <Button aria-label="Remove line" className="mt-6 h-11 w-11" variant="ghost" onClick={() => { setLines((v) => v.filter((_, i) => i !== index)); setRateDrafts((d) => shiftRateDrafts(d, index)); setDirty(true); }}><Trash2 /></Button>}</div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-slate-600">Line name<Input className="mt-1 h-11" disabled={Boolean(line.zohoItemId)} title={line.zohoItemId ? "Catalogue names come from Zoho Books" : undefined} value={line.name} onChange={(e) => mutateLine(index, { name: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Description<Input className="mt-1 h-11" value={line.description} onChange={(e) => mutateLine(index, { description: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Quantity<Input className="mt-1 h-11" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => mutateLine(index, { quantity: Number(e.target.value) })} /></label><label className="text-xs font-medium text-slate-600">Rate (SGD)<Input className="mt-1 h-11" type="number" step="0.01" value={rateDrafts[index] ?? line.rateCents / 100} onChange={(e) => { const text = e.target.value; setRateDrafts((d) => ({ ...d, [index]: text })); const rateCents = parseRateDraftCents(text); if (rateCents !== null) mutateLine(index, { rateCents }); }} onBlur={() => clearRateDraft(index)} /></label><label className="text-xs font-medium text-slate-600">Discount %<Input className="mt-1 h-11" type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(e) => mutateLine(index, { discountPercent: Number(e.target.value) })} /></label></div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-xs font-medium text-slate-600">Line name<Input className="mt-1 h-11" disabled={Boolean(line.zohoItemId)} title={line.zohoItemId ? "Catalogue names come from Zoho Books" : undefined} value={line.name} onChange={(e) => mutateLine(index, { name: e.target.value })} /></label><label className="text-xs font-medium text-slate-600 sm:col-span-2">Description<Textarea rows={4} className="mt-1" value={line.description} onChange={(e) => mutateLine(index, { description: e.target.value })} /></label><label className="text-xs font-medium text-slate-600">Quantity<Input className="mt-1 h-11" type="number" min="0.01" step="0.01" value={line.quantity} onChange={(e) => mutateLine(index, { quantity: Number(e.target.value) })} /></label><label className="text-xs font-medium text-slate-600">Rate (SGD)<Input className="mt-1 h-11" type="number" step="0.01" value={rateDrafts[index] ?? line.rateCents / 100} onChange={(e) => { const text = e.target.value; setRateDrafts((d) => ({ ...d, [index]: text })); const rateCents = parseRateDraftCents(text); if (rateCents !== null) mutateLine(index, { rateCents }); }} onBlur={() => clearRateDraft(index)} /></label><label className="text-xs font-medium text-slate-600">Discount %<Input className="mt-1 h-11" type="number" min="0" max="100" step="0.01" value={line.discountPercent} onChange={(e) => mutateLine(index, { discountPercent: Number(e.target.value) })} /></label></div>
           </div>)}
           <Button className="h-11" variant="outline" onClick={() => { setLines((v) => [...v, { zohoItemId: null, name: "", description: "", quantity: 1, rateCents: 0, discountPercent: 0 }]); setDirty(true); }}><Plus /> Add line</Button>
         </div>

@@ -1,5 +1,6 @@
 import "server-only";
 import { newCurtainTrackCount } from "@/lib/orders/curtain-tracks";
+import { windowLabel } from "@/lib/orders/window-label";
 
 // What goes on this order's rail order, read once.
 //
@@ -54,6 +55,9 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
       )
       .select([
         "windows.id as window_id",
+        "windows.label as window_label",
+        "windows.track_only as track_only",
+        "windows.track_kind as track_kind",
         "windows.day_track_required",
         "windows.night_track_required",
         "windows.position as position",
@@ -104,14 +108,20 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
     // A blind carries its own headrail, so it orders no track. A window with
     // nothing on it orders none either.
     if (w.blind_type_id) continue;
-    const curtains = newCurtainTrackCount(
-      Boolean(w.day_curtain_type_id), Boolean(w.night_curtain_type_id),
-      w.day_track_required, w.night_track_required,
-    );
+    // A track-only window's count is its explicit kind — there is no fabric
+    // to derive it from.
+    const curtains = w.track_only
+      ? w.track_kind === "double"
+        ? 2
+        : 1
+      : newCurtainTrackCount(
+          Boolean(w.day_curtain_type_id), Boolean(w.night_curtain_type_id),
+          w.day_track_required, w.night_track_required,
+        );
     if (curtains === 0) continue;
 
     // Positions are 0-based in the database and 1-based on every screen.
-    const label = `${w.room_label} — Window ${w.position + 1}`;
+    const label = `${w.room_label} — ${windowLabel(w.position, w.window_label)}`;
 
     const options = resolveTrackOptions({
       addonKeys: addonKeysByWindow.get(w.window_id) ?? [],
@@ -126,6 +136,9 @@ export async function loadTrackOrder(orderId: string): Promise<TrackOrderLoad> {
 
     lines.push({
       label,
+      // The stored label verbatim — the copied supplier text keys on this
+      // explicit flag, never on what the display label happens to show.
+      windowName: w.window_label?.trim() || null,
       widthCm: w.mfg_width_cm,
       // Day + night is two runs of rail over one opening; a single curtain —
       // day only or night only — is one. A toilet window is a blind since

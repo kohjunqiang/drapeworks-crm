@@ -181,25 +181,31 @@ export function LineItemRow({
   index,
   total,
   onRemove,
+  headingAside,
   children,
 }: {
   label: string;
   index: number;
   total: number;
   onRemove: () => void;
+  /** Optional control (e.g. an editable location label) beside the heading. */
+  headingAside?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded p-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-slate-700">
-          {total > 1 ? `${label} ${index + 1}` : label}
-        </span>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 text-xs font-semibold text-slate-700">
+            {total > 1 ? `${label} ${index + 1}` : label}
+          </span>
+          {headingAside}
+        </div>
         {total > 1 && (
           <button
             type="button"
             onClick={onRemove}
-            className="text-xs text-slate-400 hover:text-red-600"
+            className="shrink-0 text-xs text-slate-400 hover:text-red-600"
           >
             Remove {label.toLowerCase()}
           </button>

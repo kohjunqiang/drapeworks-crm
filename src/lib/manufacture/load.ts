@@ -28,6 +28,10 @@ export type ManufactureLine = {
   roomLabel: string;
   roomPosition: number;
   position: number;
+  /** The consultant's window label — names problems; null falls back to position. */
+  windowName?: string | null;
+  /** A rail with no covering — confirms on width alone (allowance.ts). */
+  trackOnly?: boolean;
   /** Which allowance applies. A window carrying a blind resolves to "blind". */
   line: AllowanceLine;
   /** What the piece is, for display: series/type labels, verbatim. */
@@ -136,6 +140,9 @@ export async function loadManufactureLines(
     .select([
       "windows.id as id",
       "windows.position as position",
+      "windows.label as window_label",
+      "windows.track_only as track_only",
+      "windows.track_kind as track_kind",
       "windows.width_cm as width_cm",
       "windows.height_cm as height_cm",
       "windows.split_left_cm as split_left_cm",
@@ -189,9 +196,11 @@ export async function loadManufactureLines(
     // A window is ONE covering — day/night curtains or a blind, never a mix —
     // so this is an either/or, not a priority list.
     const isBlind = w.blind_type_id != null;
-    const description = isBlind
-      ? labelOf(w.blind_series, w.blind_index, w.blind_page, w.blind_label)
-      : joinParts([
+    const description = w.track_only
+      ? `Track only — ${w.track_kind === "double" ? "double" : "single"} track`
+      : isBlind
+        ? labelOf(w.blind_series, w.blind_index, w.blind_page, w.blind_label)
+        : joinParts([
           prefixed(
             "Day",
             labelOf(
@@ -218,6 +227,11 @@ export async function loadManufactureLines(
       roomLabel: w.room_label,
       roomPosition: w.room_position,
       position: w.position,
+      windowName: w.window_label,
+      trackOnly: w.track_only,
+      // A track-only rail confirms its production width through the same
+      // allowance/override workflow a curtain uses — the confirmed number is
+      // what the track order cuts to.
       line: isBlind ? ("blind" as const) : ("curtain" as const),
       description,
       widthCm: w.width_cm,
@@ -226,9 +240,12 @@ export async function loadManufactureLines(
       splitRightCm: w.split_right_cm,
       draw: w.draw,
       // A blind has no rail to space runners on: only a curtain window can be
-      // S-fold, matching the PO loader's per-covering flag.
+      // S-fold, matching the PO loader's per-covering flag. A track-only
+      // window can carry the s_fold rail fitting, but it has no curtain to
+      // count beads for.
       sFold:
         !isBlind &&
+        !w.track_only &&
         resolveTrackOptions({
           addonKeys: addonKeysByWindow.get(w.id) ?? [],
         }).s_fold,

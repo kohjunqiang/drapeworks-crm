@@ -1,10 +1,14 @@
+import { windowLabel } from "@/lib/orders/window-label";
+
 export type InstallationOpening = {
   roomLabel: string;
   /** Ops room-level note, rendered once on the room's first opening. */
   roomNote?: string | null;
   openingNumber: number;
   openingsInRoom: number;
-  covering: "Double" | "Single" | "Blinds" | "Mesh" | "Curtain";
+  /** The consultant's location label, when the window carries one. */
+  windowName?: string | null;
+  covering: "Double" | "Single" | "Blinds" | "Mesh" | "Curtain" | "Track";
   widthCm: number | null;
   heightCm: number | null;
   draw: string | null;
@@ -95,7 +99,7 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
   const countLine =
     input.openings.length > 0 && input.openings.every((o) => o.noInstallation)
       ? "No windows require installation"
-      : (["Double", "Single", "Blinds", "Mesh", "Curtain"] as const)
+      : (["Double", "Single", "Blinds", "Mesh", "Curtain", "Track"] as const)
           .flatMap((kind) => {
             const count = counts.get(kind) ?? 0;
             return count > 0 ? [`${count} ${kind}`] : [];
@@ -112,8 +116,8 @@ export function buildInstallationSummary(input: InstallationSummaryInput): strin
 
   const details = input.openings.map((opening) => {
     const room =
-      opening.openingsInRoom > 1
-        ? `${opening.roomLabel} - Window ${opening.openingNumber}`
+      opening.openingsInRoom > 1 || opening.windowName?.trim()
+        ? `${opening.roomLabel} - ${windowLabel(opening.openingNumber - 1, opening.windowName)}`
         : opening.roomLabel;
     const drawDescription =
       opening.splitLeftCm != null && opening.splitRightCm != null

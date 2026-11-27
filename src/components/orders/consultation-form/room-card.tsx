@@ -3,9 +3,12 @@
 import { useEffect } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 
-import type {
-  PendingUploaderPhoto,
-  UploaderPhoto,
+import {
+  PendingPhotoUploader,
+  ReadOnlyPhotoGallery,
+  WindowPhotoUploader,
+  type PendingUploaderPhoto,
+  type UploaderPhoto,
 } from "@/components/orders/photo-uploader";
 import type { AddonRule } from "@/lib/orders/window-addons";
 import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
@@ -38,6 +41,13 @@ type Props = {
   photosDisabled?: boolean;
   onAddPendingPhotos?: (files: File[]) => void;
   onRemovePendingPhoto?: (photoId: string) => void;
+  /** windowId or template_window_id → persisted detail photos. */
+  windowPhotos?: Record<string, UploaderPhoto[]>;
+  /** client_key → detail photos still waiting for the window to persist. */
+  pendingWindowPhotos?: Record<string, PendingUploaderPhoto[]>;
+  onAddPendingWindowPhotos?: (windowKey: string, files: File[]) => void;
+  onRemovePendingWindowPhoto?: (windowKey: string, photoId: string) => void;
+  onDiscardWindowPending?: (windowKey: string) => void;
 };
 
 export function RoomCard({
@@ -54,8 +64,14 @@ export function RoomCard({
   photosDisabled,
   onAddPendingPhotos,
   onRemovePendingPhoto,
+  windowPhotos,
+  pendingWindowPhotos = {},
+  onAddPendingWindowPhotos,
+  onRemovePendingWindowPhoto,
+  onDiscardWindowPending,
 }: Props) {
-  const { control, setValue, getValues } = useFormContext<OrderEditInput>();
+  const { control, register, setValue, getValues } =
+    useFormContext<OrderEditInput>();
 
   const { fields, append, remove } = useFieldArray({
     control,
@@ -78,7 +94,9 @@ export function RoomCard({
     const targetVariant = isToilet ? "blind" : "regular";
     fields.forEach((_, i) => {
       const current = getValues(`rooms.${roomIndex}.windows.${i}.variant`);
-      if (current === "blind") return;
+      // A track-only window is valid in every non-toilet room, so it rides a
+      // room-type change untouched — a toilet still forces it to blind.
+      if (current === "blind" || (current === "track" && !isToilet)) return;
       setValue(`rooms.${roomIndex}.windows.${i}.variant`, targetVariant, {
         shouldValidate: false,
         shouldDirty: false,
@@ -107,6 +125,24 @@ export function RoomCard({
     });
   }, [roomType, isToilet, roomIndex, fields, setValue, getValues]);
 
+  // Pending detail photos key off client_key. If a value rewrite ever drops
+  // the key on a window that has no server id yet, stamp a fresh one so the
+  // uploader and the submit-time key→id map keep working. Keys are never
+  // reassigned from another window — photos whose key was lost are discarded
+  // at upload, never moved across windows or rooms.
+  useEffect(() => {
+    fields.forEach((_, i) => {
+      const win = getValues(`rooms.${roomIndex}.windows.${i}`);
+      if (win && !win.id && !win.client_key) {
+        setValue(
+          `rooms.${roomIndex}.windows.${i}.client_key`,
+          crypto.randomUUID(),
+          { shouldDirty: false, shouldValidate: false },
+        );
+      }
+    });
+  }, [roomIndex, fields, setValue, getValues]);
+
   function addWindow() {
     append(
       isToilet
@@ -117,6 +153,8 @@ export function RoomCard({
             width_cm: null,
             height_cm: null,
             notes: "",
+            label: "",
+            client_key: crypto.randomUUID(),
             addon_ids: [],
             side_installation: false,
             no_installation: false,
@@ -132,6 +170,8 @@ export function RoomCard({
             width_cm: null,
             height_cm: null,
             notes: "",
+            label: "",
+            client_key: crypto.randomUUID(),
             combo_id: "",
             addon_ids: [],
             side_installation: false,
@@ -154,29 +194,103 @@ export function RoomCard({
       onAddPendingPhotos={onAddPendingPhotos}
       onRemovePendingPhoto={onRemovePendingPhoto}
     >
-      {fields.map((field, wIdx) => (
-        <LineItemRow
-          key={field.id}
-          label="Window"
-          index={wIdx}
-          total={fields.length}
-          onRemove={() => remove(wIdx)}
-        >
-          <WindowFields
-            roomIndex={roomIndex}
-            windowIndex={wIdx}
-            isToilet={isToilet}
-            curtainTypes={curtainTypes}
-            combos={combos}
-            addonCatalogue={addonCatalogue}
-            persistedAddonIds={
-              persistedAddonIdsByWindow[
-                getValues(`rooms.${roomIndex}.windows.${wIdx}.id`) ?? ""
-              ] ?? []
+      {fields.map((field, wIdx) => {
+        const win = getValues(`rooms.${roomIndex}.windows.${wIdx}`);
+        const windowId = win?.id;
+        // A seeded-but-unsaved window reads the source order's detail photos
+        // read-only; the server clones the files it points at on save.
+        const persistedPhotos = windowId
+          ? (windowPhotos?.[windowId] ?? [])
+          : (windowPhotos?.[win?.template_window_id ?? ""] ?? []);
+        // client_key travels in the form values and feeds the submit-time
+        // key→id map; field.id is useFieldArray's stable per-item key — the
+        // fallback keeps the uploader attached during the single render
+        // between a value rewrite dropping client_key and the effect above
+        // stamping a fresh one.
+        const pendingKey = windowId
+          ? undefined
+          : (win?.client_key ?? field.id);
+        const pending = pendingKey ? (pendingWindowPhotos[pendingKey] ?? []) : [];
+        return (
+          <LineItemRow
+            key={field.id}
+            label="Window"
+            index={wIdx}
+            total={fields.length}
+            onRemove={() => {
+              if (pendingKey) onDiscardWindowPending?.(pendingKey);
+              remove(wIdx);
+            }}
+            headingAside={
+              <input
+                type="text"
+                aria-label="Window location label"
+                placeholder="e.g. Bay window, left of door"
+                maxLength={120}
+                className="min-w-0 flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 placeholder:text-slate-400 focus:border-teal-500 focus:outline-none"
+                {...register(
+                  `rooms.${roomIndex}.windows.${wIdx}.label`,
+                )}
+              />
             }
-          />
-        </LineItemRow>
-      ))}
+          >
+            <WindowFields
+              roomIndex={roomIndex}
+              windowIndex={wIdx}
+              isToilet={isToilet}
+              curtainTypes={curtainTypes}
+              combos={combos}
+              addonCatalogue={addonCatalogue}
+              persistedAddonIds={
+                persistedAddonIdsByWindow[windowId ?? ""] ?? []
+              }
+            />
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium text-slate-600">
+                  Detail photos for this window
+                </span>
+                <span className="text-slate-400">
+                  {windowId ? "Saved automatically" : "Uploads with order"}
+                </span>
+              </div>
+              {windowId ? (
+                <WindowPhotoUploader
+                  windowId={windowId}
+                  photos={persistedPhotos}
+                />
+              ) : (
+                <>
+                  {persistedPhotos.length > 0 && (
+                    <div className="mb-3">
+                      <ReadOnlyPhotoGallery photos={persistedPhotos} />
+                    </div>
+                  )}
+                  {pendingKey &&
+                  onAddPendingWindowPhotos &&
+                  onRemovePendingWindowPhoto ? (
+                    <PendingPhotoUploader
+                      photos={pending}
+                      disabled={photosDisabled}
+                      onAdd={(files) =>
+                        onAddPendingWindowPhotos(pendingKey, files)
+                      }
+                      onRemove={(photoId) =>
+                        onRemovePendingWindowPhoto(pendingKey, photoId)
+                      }
+                    />
+                  ) : (
+                    <div className="rounded border-2 border-dashed border-slate-300 p-4 text-center text-xs text-slate-500">
+                      Save changes once to create this window. After that,
+                      photos save automatically.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </LineItemRow>
+        );
+      })}
       <button
         type="button"
         onClick={addWindow}

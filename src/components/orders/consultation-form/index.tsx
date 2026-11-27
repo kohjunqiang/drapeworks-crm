@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { formDraftKey, useFormDraft } from "./use-form-draft";
 import { usePendingRoomPhotos } from "./use-pending-room-photos";
+import { usePendingWindowPhotos } from "./use-pending-window-photos";
 import { asFinalOrder } from "./final-order";
 import {
   createOrder,
@@ -53,7 +54,12 @@ export type AppointmentPrefill = {
   id?: string;
   leadId?: string;
   customerId?: string;
-  customer: { name: string; mobile: string; email?: string };
+  customer: {
+    name: string;
+    salutation?: string;
+    mobile: string;
+    email?: string;
+  };
   development?: string | null;
   address?: string | null;
 };
@@ -79,6 +85,12 @@ type Props = {
   customerOptions?: ExistingCustomerOption[];
   roomPhotos?: Record<string, UploaderPhoto[]>;
   /**
+   * windowId → persisted detail photos. On a template-seeded create the map
+   * is keyed by template_window_id instead, so each card reads the source
+   * order's photos read-only while the server clones them on save.
+   */
+  windowPhotos?: Record<string, UploaderPhoto[]>;
+  /**
    * windowId → the add-on ids that window had on load. Fixed for the life of
    * the edit: it is what lets a since-archived add-on stay listed (and
    * clearable) rather than vanishing. Empty on a new consultation.
@@ -96,6 +108,8 @@ function makeWindow(roomType: RoomType, position: number) {
       width_cm: null,
       height_cm: null,
       notes: "",
+      label: "",
+      client_key: crypto.randomUUID(),
       addon_ids: [] as string[],
       side_installation: false,
       no_installation: false,
@@ -112,6 +126,8 @@ function makeWindow(roomType: RoomType, position: number) {
     width_cm: null,
     height_cm: null,
     notes: "",
+    label: "",
+    client_key: crypto.randomUUID(),
     combo_id: "",
     addon_ids: [] as string[],
     side_installation: false,
@@ -151,6 +167,39 @@ const EMPTY_DEFAULTS: OrderEditInput = {
   ],
 };
 
+// Server-hydrated windows (template seeds, recovered drafts saved before this
+// field existed) may lack the form-local key pending window photos are keyed
+// by. Stamp one on every window that has no persisted id yet.
+function withWindowClientKeys(input: OrderEditInput): OrderEditInput {
+  return {
+    ...input,
+    rooms: input.rooms.map((room) => ({
+      ...room,
+      windows: room.windows.map((win) =>
+        win.id || win.client_key
+          ? win
+          : { ...win, client_key: crypto.randomUUID() },
+      ),
+    })),
+  };
+}
+
+// Submitted order → the server stamps window ids positionally per room. Pair
+// each window's client_key with its new id so pending detail photos resolve.
+function windowKeyToId(
+  rooms: OrderEditInput["rooms"],
+  windowIds: string[][],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  rooms.forEach((room, rIdx) => {
+    room.windows.forEach((win, wIdx) => {
+      const id = windowIds[rIdx]?.[wIdx];
+      if (id && win.client_key) map.set(win.client_key, id);
+    });
+  });
+  return map;
+}
+
 // The booked customer replaces the blank one; everything else is an ordinary
 // new consultation. `development` only fills in when the appointment recorded
 // one — a blank booking must not blank out the form's default.
@@ -162,6 +211,7 @@ function withAppointment(
     ...base,
     customer: {
       name: appointment.customer.name,
+      salutation: appointment.customer.salutation ?? "",
       mobile: appointment.customer.mobile,
       email: appointment.customer.email ?? "",
     },
@@ -187,17 +237,19 @@ export function ConsultationForm({
   leadOptions,
   customerOptions,
   roomPhotos,
+  windowPhotos,
   persistedAddonIdsByWindow = {},
 }: Props) {
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   const schema = mode === "create" ? orderCreateSchema : orderEditSchema;
-  const initial =
+  const initial = withWindowClientKeys(
     defaultValues ??
-    (appointment
-      ? withAppointment(EMPTY_DEFAULTS, appointment)
-      : EMPTY_DEFAULTS);
+      (appointment
+        ? withAppointment(EMPTY_DEFAULTS, appointment)
+        : EMPTY_DEFAULTS),
+  );
 
   const form = useForm<OrderEditInput>({
     // The Zod schema's transforms produce a slightly different output shape;
@@ -231,12 +283,32 @@ export function ConsultationForm({
     ),
   );
   const pendingPhotos = usePendingRoomPhotos();
-  const [savedWithPhotos, setSavedWithPhotos] = useState<{ orderId: string; roomIds: string[]; roomKeys: string[] } | null>(null);
+  const pendingWindowPhotos = usePendingWindowPhotos();
+  const [savedWithPhotos, setSavedWithPhotos] = useState<{
+    orderId: string;
+    roomIds: string[];
+    roomKeys: string[];
+    windowKeyToId: Map<string, string>;
+  } | null>(null);
 
-  async function finishPhotoUpload(saved: { orderId: string; roomIds: string[]; roomKeys: string[] }) {
-    const failures = await pendingPhotos.upload(saved.roomKeys, saved.roomIds);
+  async function finishPhotoUpload(saved: {
+    orderId: string;
+    roomIds: string[];
+    roomKeys: string[];
+    windowKeyToId: Map<string, string>;
+  }) {
+    const roomFailures = await pendingPhotos.upload(
+      saved.roomKeys,
+      saved.roomIds,
+    );
+    const windowFailures = await pendingWindowPhotos.upload(
+      saved.windowKeyToId,
+    );
+    const failures = roomFailures + windowFailures;
     if (failures > 0) {
-      toast.error(`Consultation saved, but ${failures} photo(s) did not upload. Retry below.`);
+      toast.error(
+        `Consultation saved, but ${failures} photo(s) did not upload. Retry below.`,
+      );
       return;
     }
     clearDraft();
@@ -247,7 +319,14 @@ export function ConsultationForm({
     const roomKeys = rooms.map((room) => room.id);
     const action = draft ? createOrderDraft : createOrder;
     const result = await action(payload, true);
-    const saved = { ...result, roomKeys };
+    const saved = {
+      ...result,
+      roomKeys,
+      windowKeyToId: windowKeyToId(
+        (payload as OrderEditInput).rooms ?? [],
+        result.windowIds,
+      ),
+    };
     // Retain the committed order before uploading; a retry must never recreate it.
     setSavedWithPhotos(saved);
     clearDraft();
@@ -296,14 +375,17 @@ export function ConsultationForm({
             normalised,
             true,
           );
-          if (pendingPhotos.hasPending) {
+          const windowKeyToIdMap = windowKeyToId(
+            normalised.rooms,
+            result.windowIds,
+          );
+          if (pendingPhotos.hasPending || pendingWindowPhotos.hasPending) {
             result.roomIds.forEach((roomId, index) => {
               setValue(`rooms.${index}.id`, roomId, { shouldDirty: false });
             });
-            const failures = await pendingPhotos.upload(
-              roomKeys,
-              result.roomIds,
-            );
+            const failures =
+              (await pendingPhotos.upload(roomKeys, result.roomIds)) +
+              (await pendingWindowPhotos.upload(windowKeyToIdMap));
             if (failures > 0) {
               toast.error(
                 `Order saved, but ${failures} ${failures === 1 ? "photo" : "photos"} failed to upload. Save changes to retry.`,
@@ -313,7 +395,9 @@ export function ConsultationForm({
           }
           clearDraft();
           toast.success(
-            pendingPhotos.hasPending ? "Order and photos saved" : "Order saved",
+            pendingPhotos.hasPending || pendingWindowPhotos.hasPending
+              ? "Order and photos saved"
+              : "Order saved",
           );
           router.push(`/orders/${orderId}`);
         } else {
@@ -457,6 +541,13 @@ export function ConsultationForm({
                   roomIndex={rIdx}
                   onRemove={() => {
                     pendingPhotos.discardRoom(room.id);
+                    pendingWindowPhotos.discardKeys(
+                      (
+                        getValues(`rooms.${rIdx}.windows`) ?? []
+                      )
+                        .map((w) => w.client_key)
+                        .filter((key): key is string => Boolean(key)),
+                    );
                     removeRoom(rIdx);
                   }}
                   curtainTypes={curtainTypes}
@@ -472,6 +563,13 @@ export function ConsultationForm({
                   }
                   onRemovePendingPhoto={(photoId) =>
                     pendingPhotos.remove(room.id, photoId)
+                  }
+                  windowPhotos={windowPhotos}
+                  pendingWindowPhotos={pendingWindowPhotos.byWindow}
+                  onAddPendingWindowPhotos={pendingWindowPhotos.add}
+                  onRemovePendingWindowPhoto={pendingWindowPhotos.remove}
+                  onDiscardWindowPending={(key) =>
+                    pendingWindowPhotos.discardKeys([key])
                   }
                   photos={
                     photoRoomId

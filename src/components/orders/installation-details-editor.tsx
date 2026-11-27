@@ -339,10 +339,11 @@ export function InstallationDetailsEditor({
                               Installation note
                             </FormLabel>
                             <FormControl>
-                              <Input
+                              <Textarea
+                                rows={4}
                                 maxLength={1000}
                                 placeholder="E.g. drill into concrete beam"
-                                className={FIELD}
+                                className="mt-1 min-h-24 border-slate-200"
                                 {...field}
                                 value={field.value ?? ""}
                               />

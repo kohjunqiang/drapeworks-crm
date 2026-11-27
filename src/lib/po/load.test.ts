@@ -65,4 +65,26 @@ describe("loadPoInput room roster", () => {
       room: "次卧 1 BR1", widthM: "2.74", heightM: "2.55", derived: "5.48",
     });
   });
+
+  it("creates no fabric PO row for a track-only window", async () => {
+    // A rail with no covering: it must not reach the fabric vendor — the
+    // track order handles it (see track-order-load.test.ts).
+    state.rows.windows.push({
+      id: "rail", position: 1, room_id: "occupied", room_label: "Bedroom 1",
+      room_type: "Bedroom", room_position: 1, track_only: true,
+      track_kind: "double", window_label: "Balcony", mfg_width_cm: 298,
+      mfg_height_cm: 0,
+    });
+    const loaded = await loadPoInput("order-qa", new Date("2026-10-18T00:00:00Z"));
+    // Exactly one covering survives — the curtain, identified by the fields a
+    // PoLine actually carries. No second row: the rail never becomes fabric.
+    expect(loaded.input?.lines).toEqual([
+      expect.objectContaining({
+        roomId: "occupied",
+        position: 0,
+        kind: "curtain",
+        fabricLabel: "QA Fabric",
+      }),
+    ]);
+  });
 });

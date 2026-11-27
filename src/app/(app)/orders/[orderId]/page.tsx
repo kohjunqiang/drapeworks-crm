@@ -114,7 +114,7 @@ export default async function OrderDetailPage({
     currentQuotation
       ? db.selectFrom("order_quotation_versions").select(["id", "version", "quoted_total_cents", "pdf_storage_path", "created_at"]).where("quotation_id", "=", currentQuotation.id).orderBy("version", "desc").execute()
       : Promise.resolve([]),
-    db.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id", "=", order.customer_id).executeTakeFirst(),
+    db.selectFrom("customer_zoho_links").select(["zoho_contact_id", "pending_salutation", "salutation_sync_error"]).where("customer_id", "=", order.customer_id).executeTakeFirst(),
   ]);
 
   const shipmentState =
@@ -180,6 +180,8 @@ export default async function OrderDetailPage({
       dayPage: w.day_curtain_page,
       nightLabel: w.night_curtain_label,
       blindLabel: w.blind_label,
+      trackOnly: w.track_only,
+      trackKind: w.track_kind,
       overlapTracksAttachment: w.overlap_tracks_attachment,
       addons: addonsByWindow.get(w.id) ?? [],
     })),
@@ -435,6 +437,7 @@ export default async function OrderDetailPage({
               productLine={order.product_line}
               quotedCents={order.price_quoted_cents}
               defaultNotes={defaultQuotationNotes}
+              hasTrackOnly={windows.some((w) => w.track_only)}
               depositCents={order.deposit_cents}
               quote={currentQuotation ? {
                 id: currentQuotation.id,
@@ -472,6 +475,8 @@ export default async function OrderDetailPage({
                 hasPdf: Boolean(item.pdf_storage_path),
               }))}
               linkedContactId={zohoCustomerLink?.zoho_contact_id ?? null}
+              pendingSalutation={zohoCustomerLink?.pending_salutation ?? null}
+              salutationSyncError={zohoCustomerLink?.salutation_sync_error ?? null}
               quotationStageComplete={
                 statusIndex(order.current_status) > statusIndex("quotation_sent")
               }

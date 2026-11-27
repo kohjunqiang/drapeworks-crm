@@ -16,6 +16,7 @@
 import type { FreightMode, RoomType } from "@/lib/db/schema";
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
 import type { SFoldBeads } from "@/lib/manufacture/sfold-beads";
+import { windowLabel } from "@/lib/orders/window-label";
 
 import { SIDE_INSTALLATION_NOTE_CN } from "./track-options";
 
@@ -63,6 +64,8 @@ export type PoLine = {
   roomPosition: number;
   /** 0-based position of the window within its room. */
   position: number;
+  /** The consultant's own window label, used to NAME PROBLEMS, never printed. */
+  windowName?: string | null;
   /** Decides the fourth column: fabric length for curtains, area for blinds. */
   kind: "curtain" | "blind";
   /** Determines which separate vendor document this covering belongs to. */
@@ -369,7 +372,7 @@ export function formatPoDate(at: Date): string {
 function locate(line: PoLine): string {
   // position is 0-based in the database and 1-based on every screen. Naming
   // "window 0" sends the reader hunting for a row that is not on their page.
-  return `${line.roomLabel} Window ${line.position + 1}`;
+  return `${line.roomLabel} ${windowLabel(line.position, line.windowName)}`;
 }
 
 // The standard wordings a bedroom's label uses to carry its number — the
@@ -550,8 +553,12 @@ export function sFoldRunnerRemark(
 
 function toRow(ready: ReadyLine, room: string, fullnessBps: number): PoRow {
   const { line } = ready;
+  // A consultant-named opening rides the printed room cell — the supplier
+  // matches the cut to a named window, not a position. No custom name → the
+  // canonical room identity renders byte-for-byte as it always has.
+  const windowName = line.windowName?.trim();
   return {
-    room,
+    room: windowName ? `${room} · ${windowName}` : room,
     // Catalogue and type labels verbatim — they are the vendor's own language.
     type: ready.typeLabel,
     // NOTE: 型号 is still a nullable pass-through and still renders blank when

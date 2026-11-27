@@ -14,6 +14,7 @@ import { canScheduleInstallation } from "@/lib/fulfilment/status";
 import { loadCompletedAt } from "@/lib/fulfilment/load-completed-at";
 import { loadRoomSummaries } from "@/lib/orders/load-room-summaries";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
+import { windowLabel } from "@/lib/orders/window-label";
 
 export const dynamic = "force-dynamic";
 
@@ -130,13 +131,18 @@ export default async function InstallerPage({
       : (windowsByRoom.get(room.id) ?? []).map((w, index, windows) => ({
           id: w.id,
           roomId: room.id,
-          subLabel: windows.length > 1 ? `Window ${index + 1}` : null,
-          detail: w.is_blind
-            ? (w.blind_label ?? "Blinds")
-            : ([w.day_curtain_label, w.night_curtain_label]
-                  .filter(Boolean)
-                  .join(" + ") ||
-                null) ?? "Curtain",
+          subLabel:
+            windows.length > 1 || w.label
+              ? windowLabel(w.position, w.label)
+              : null,
+          detail: w.track_only
+            ? `Track only — ${w.track_kind === "double" ? "double" : "single"} track`
+            : w.is_blind
+              ? (w.blind_label ?? "Blinds")
+              : ([w.day_curtain_label, w.night_curtain_label]
+                    .filter(Boolean)
+                    .join(" + ") ||
+                  null) ?? "Curtain",
           widthCm: w.installation_width_cm ?? w.width_cm,
           heightCm: w.installation_height_cm ?? w.height_cm,
           originalWidthCm: w.frozen_width_cm ?? w.width_cm,

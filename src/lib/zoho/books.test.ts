@@ -384,6 +384,28 @@ describe("createZohoContact", () => {
     }
   });
 
+  it("carries the customer's salutation onto the primary contact person", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await createZohoContact({ name: "Jia Jun", salutation: "Mrs", email: null, mobile: "91234567", address: null });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.contact_persons).toEqual([{ first_name: "Jia Jun", salutation: "Mrs", mobile: "91234567", is_primary_contact: true }]);
+  });
+
+  it("omits the salutation key when no title was chosen", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact: { contact_id: "c-1", contact_name: "Jia Jun" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { createZohoContact } = await import("./books");
+
+    await createZohoContact({ name: "Jia Jun", salutation: null, email: null, mobile: null, address: null });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.contact_persons[0]).not.toHaveProperty("salutation");
+  });
+
   it("never retries a non-idempotent contact POST", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 1, message: "uncertain" }, 500));
     vi.stubGlobal("fetch", fetchMock);
@@ -391,5 +413,137 @@ describe("createZohoContact", () => {
 
     await expect(createZohoContact({ name: "Jia Jun", email: null, mobile: null, address: null })).rejects.toThrow("uncertain");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("updateZohoPrimaryContactSalutation", () => {
+  const CONTACT = {
+    contact_id: "c-1",
+    contact_name: "Jia Jun",
+    contact_persons: [
+      {
+        contact_person_id: "p-1",
+        first_name: "Jia Jun",
+        last_name: "Tan",
+        email: "jia@example.com",
+        mobile: "91234567",
+        is_primary_contact: true,
+      },
+      { contact_person_id: "p-2", first_name: "Alt", is_primary_contact: false },
+    ],
+  };
+
+  const withContactsScope = async () => {
+    const connection = await import("./connection");
+    vi.mocked(connection.getZohoAccessContext).mockResolvedValueOnce({
+      accessToken: "token",
+      organizationId: "org",
+      apiBaseUrl: "https://www.zohoapis.com/books/v3",
+      crmKeyApiName: "cf_crm_quote_key",
+      crmKeyFieldId: "field",
+      estimateTemplateId: "template",
+      connectionId: "connection",
+      tokenVersion: 1,
+      requestedScopes: ["ZohoBooks.contacts.UPDATE"],
+    } as unknown as Awaited<ReturnType<typeof connection.getZohoAccessContext>>);
+  };
+
+  it("re-reads the contact and merges the stored primary person into the PUT", async () => {
+    await withContactsScope();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, contact: CONTACT }))
+      .mockResolvedValueOnce(envelope({ code: 0, contact_person: { contact_person_id: "p-1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { updateZohoPrimaryContactSalutation } = await import("./books");
+
+    await updateZohoPrimaryContactSalutation({ contactId: "c-1", salutation: "Dr" });
+
+    // Documented endpoint: PUT /contacts/contactpersons/{contact_person_id},
+    // with contact_id + first_name required and every stored field preserved.
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/contacts/c-1");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/contacts/contactpersons/p-1");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(body).toMatchObject({
+      contact_id: "c-1",
+      contact_person_id: "p-1",
+      first_name: "Jia Jun",
+      last_name: "Tan",
+      email: "jia@example.com",
+      mobile: "91234567",
+      salutation: "Dr",
+    });
+  });
+
+  it("clears the title with an empty string, not by dropping the key", async () => {
+    await withContactsScope();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, contact: CONTACT }))
+      .mockResolvedValueOnce(envelope({ code: 0, contact_person: { contact_person_id: "p-1" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { updateZohoPrimaryContactSalutation } = await import("./books");
+
+    await updateZohoPrimaryContactSalutation({ contactId: "c-1", salutation: null });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(body.salutation).toBe("");
+  });
+
+  it("falls back to primary_contact_id when no person is flagged", async () => {
+    await withContactsScope();
+    const contact = {
+      ...CONTACT,
+      primary_contact_id: "p-2",
+      contact_persons: CONTACT.contact_persons.map((person) => ({ ...person, is_primary_contact: false })),
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(envelope({ code: 0, contact }))
+      .mockResolvedValueOnce(envelope({ code: 0, contact_person: { contact_person_id: "p-2" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { updateZohoPrimaryContactSalutation } = await import("./books");
+
+    await updateZohoPrimaryContactSalutation({ contactId: "c-1", salutation: "Mr" });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/contacts/contactpersons/p-2");
+  });
+
+  it("refuses to guess when no primary can be identified — a retryable failure, not an arbitrary edit", async () => {
+    await withContactsScope();
+    const contact = {
+      ...CONTACT,
+      contact_persons: CONTACT.contact_persons.map((person) => ({ ...person, is_primary_contact: false })),
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { updateZohoPrimaryContactSalutation } = await import("./books");
+
+    await expect(updateZohoPrimaryContactSalutation({ contactId: "c-1", salutation: "Mr" }))
+      .rejects.toThrow("no identifiable primary contact person");
+    // The fetch happened once (the read); no PUT was issued.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses when more than one person claims to be primary", async () => {
+    await withContactsScope();
+    const contact = {
+      ...CONTACT,
+      contact_persons: CONTACT.contact_persons.map((person) => ({ ...person, is_primary_contact: true })),
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(envelope({ code: 0, contact }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { updateZohoPrimaryContactSalutation } = await import("./books");
+
+    await expect(updateZohoPrimaryContactSalutation({ contactId: "c-1", salutation: "Mr" }))
+      .rejects.toThrow("more than one primary contact person");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks the write before any Zoho call when contact-update consent is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const { updateZohoPrimaryContactSalutation } = await import("./books");
+
+    await expect(updateZohoPrimaryContactSalutation({ contactId: "c-1", salutation: "Mr" }))
+      .rejects.toThrow("Zoho Books needs permission to update customers");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

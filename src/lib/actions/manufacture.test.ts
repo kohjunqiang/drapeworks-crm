@@ -485,6 +485,128 @@ describe("confirmManufactureMeasurements refusals", () => {
 });
 
 
+describe("confirmManufactureMeasurements — track-only rails", () => {
+  it("confirms a rail on width alone, storing 0 as no-height-to-cut", async () => {
+    const lines = [
+      windowLine(windowId1, 0, {
+        trackOnly: true,
+        windowName: "Balcony",
+        heightCm: null,
+        description: "Track only — double track",
+      }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements(payloadFor(lines));
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    // curtain widthDelta +10 → 210. No height axis: stored 0, delta 0.
+    expect(rows[0]).toMatchObject({
+      window_id: windowId1,
+      source_width_cm: 200,
+      source_height_cm: 0,
+      width_delta_cm: 10,
+      height_delta_cm: 0,
+      mfg_width_cm: 210,
+      mfg_height_cm: 0,
+    });
+  });
+
+  it("applies a measured height when the rail happens to have one", async () => {
+    const lines = [
+      windowLine(windowId1, 0, { trackOnly: true, heightCm: 250 }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements(payloadFor(lines));
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({
+      source_height_cm: 250,
+      mfg_height_cm: 245, // −5 curtain heightDelta applied
+    });
+  });
+
+  it("still refuses a rail with no measured width", async () => {
+    const lines = [
+      windowLine(windowId1, 0, {
+        trackOnly: true,
+        windowName: "Balcony",
+        widthCm: null,
+        heightCm: null,
+      }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await expect(
+      confirmManufactureMeasurements(payloadFor(lines)),
+    ).rejects.toThrow(/no measured width/);
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("amendManufactureMeasurements — track-only rails", () => {
+  const storedRail = {
+    id: "stored-rail", window_id: windowId1, mesh_panel_id: null,
+    source_width_cm: 200, source_height_cm: 0,
+    mfg_split_left_cm: null, mfg_split_right_cm: null,
+  };
+
+  it("amends the cut width with a null height — a rail has none", async () => {
+    mocks.loadManufactureLines.mockResolvedValue([
+      windowLine(windowId1, 0, { trackOnly: true, heightCm: null }),
+    ]);
+    const { writes } = setupOrder("po_ready", [storedRail]);
+
+    await amendManufactureMeasurements({
+      orderId,
+      reason: "Vendor asked 190",
+      lines: [{ lineId: windowId1, mfgWidthCm: 190, mfgHeightCm: null }],
+    });
+
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        kind: "update",
+        table: "manufacture_measurements",
+        set: expect.objectContaining({
+          mfg_width_cm: 190,
+          mfg_height_cm: 0,
+          height_delta_cm: 0,
+        }),
+      }),
+    );
+    expect(mocks.generateOrderPos).toHaveBeenCalledWith(orderId);
+  });
+
+  it("still refuses a null height on a covered line — whatever the stored source height", async () => {
+    mocks.loadManufactureLines.mockResolvedValue([windowLine(windowId1, 0)]);
+    const { writes } = setupOrder("po_ready", [
+      {
+        // Even a legacy covered row with no stored source height may not be
+        // amended to null — the invariant keys on trackOnly identity.
+        id: "stored-row", window_id: windowId1, mesh_panel_id: null,
+        source_width_cm: 150, source_height_cm: 0,
+        mfg_split_left_cm: null, mfg_split_right_cm: null,
+      },
+    ]);
+
+    await expect(
+      amendManufactureMeasurements({
+        orderId,
+        reason: "x",
+        lines: [{ lineId: windowId1, mfgWidthCm: 148, mfgHeightCm: null }],
+      }),
+    ).rejects.toThrow();
+    expect(writes).toEqual([]);
+    expect(mocks.generateOrderPos).not.toHaveBeenCalled();
+  });
+});
+
 describe("amendManufactureMeasurements bead persistence", () => {
   const stored = { id: "stored-row", window_id: windowId1, mesh_panel_id: null,
     source_width_cm: 150, source_height_cm: 250, mfg_split_left_cm: null, mfg_split_right_cm: null };

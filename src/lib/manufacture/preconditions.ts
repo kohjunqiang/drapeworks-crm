@@ -12,10 +12,12 @@
 // to this function is the real fix and is worth doing.
 
 import type { FulfilmentStatus } from "@/lib/db/schema";
+import { windowLabel } from "@/lib/orders/window-label";
 import { STATUS_LABELS } from "@/lib/status-flow";
 
 import {
   applyAllowance,
+  applyTrackAllowance,
   isManufacturable,
   resolveAllowance,
   type AllowanceBook,
@@ -52,11 +54,12 @@ const LINE_LABELS: Record<AllowanceLine, string> = {
 // Room label verbatim — it is what the consultant wrote on site, and it is how
 // whoever has to fix the problem will find the piece.
 function locate(line: ManufactureLine): string {
-  const noun = line.kind === "window" ? "Window" : "Panel";
   // position is 0-based in the database; every screen shows it 1-based. A
   // message naming "window 0" sends the reader looking for a row that does not
   // exist on the page they are staring at.
-  return `${line.roomLabel} ${noun} ${line.position + 1}`;
+  return line.kind === "window"
+    ? `${line.roomLabel} ${windowLabel(line.position, line.windowName)}`
+    : `${line.roomLabel} Panel ${line.position + 1}`;
 }
 
 export function checkConfirmPreconditions(
@@ -89,6 +92,32 @@ export function checkConfirmPreconditions(
       reasons.push(
         `${LINE_LABELS[line.line]} allowance is not configured. Set it under Product → Allowances before confirming.`,
       );
+      continue;
+    }
+
+    // A track-only rail confirms on width alone: there is no fabric panel to
+    // cut, so a missing height must not block the order's other lines.
+    if (line.trackOnly) {
+      const appliedTrack = applyTrackAllowance(
+        { widthCm: line.widthCm, heightCm: line.heightCm },
+        allowance,
+      );
+      if (!appliedTrack) {
+        reasons.push(
+          `${locate(line)} has no measured width to work from.`,
+        );
+        continue;
+      }
+      const trackWidth = override?.overrideWidthCm ?? appliedTrack.mfgWidthCm;
+      const trackHeight =
+        line.heightCm != null
+          ? (override?.overrideHeightCm ?? appliedTrack.mfgHeightCm)
+          : null;
+      if (trackWidth <= 0 || (trackHeight != null && trackHeight <= 0)) {
+        reasons.push(
+          `${locate(line)} would be cut at ${trackWidth} cm${trackHeight != null ? ` × ${trackHeight} cm` : ""}, which is not a buildable rail size.`,
+        );
+      }
       continue;
     }
 

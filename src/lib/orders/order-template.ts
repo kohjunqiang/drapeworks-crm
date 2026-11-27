@@ -1,7 +1,7 @@
 import "server-only";
 
 import { db } from "@/lib/db/kysely";
-import { signRoomPhotoUrls } from "@/lib/db/photos";
+import { signRoomPhotoUrls, signWindowPhotoUrls } from "@/lib/db/photos";
 import { loadWindowAddonIds } from "@/lib/db/window-addons";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import type { MeshOrderEditInput } from "@/lib/validation/mesh";
@@ -11,6 +11,8 @@ type TemplateResult<T> = {
   sourceDisplayId: string;
   defaults: T;
   roomPhotos: Record<string, UploaderPhoto[]>;
+  /** Keyed by the SOURCE window id — the form reads it via template_window_id. */
+  windowPhotos: Record<string, UploaderPhoto[]>;
 };
 
 async function loadTemplatePhotos(roomIds: string[]) {
@@ -35,6 +37,30 @@ async function loadTemplatePhotos(roomIds: string[]) {
   return byRoom;
 }
 
+async function loadTemplateWindowPhotos(windowIds: string[]) {
+  if (windowIds.length === 0) return {};
+  const photos = await db
+    .selectFrom("window_photos")
+    .select(["id", "window_id", "storage_path", "original_name"])
+    .where("window_id", "in", windowIds)
+    .orderBy("position", "asc")
+    .orderBy("created_at", "asc")
+    .execute();
+  const signed = await signWindowPhotoUrls(
+    photos.map((photo) => photo.storage_path),
+  );
+  const byWindow: Record<string, UploaderPhoto[]> = {};
+  for (const photo of photos) {
+    const signedUrl = signed.get(photo.storage_path);
+    if (!signedUrl) continue;
+    byWindow[photo.window_id] = [
+      ...(byWindow[photo.window_id] ?? []),
+      { id: photo.id, signedUrl, originalName: photo.original_name },
+    ];
+  }
+  return byWindow;
+}
+
 async function loadTemplateOrder(
   customerId: string,
   productLine: "curtain" | "mesh",
@@ -55,6 +81,7 @@ async function loadTemplateOrder(
       "orders.channel",
       "orders.extra_install_sgd_cents",
       "customers.name as customer_name",
+      "customers.salutation as customer_salutation",
       "customers.mobile as customer_mobile",
       "customers.email as customer_email",
     ])
@@ -116,6 +143,9 @@ export async function loadCurtainOrderTemplate(
         .select([
           "id",
           "room_id",
+          "label",
+          "track_only",
+          "track_kind",
           "width_cm",
           "height_cm",
           "notes",
@@ -145,14 +175,19 @@ export async function loadCurtainOrderTemplate(
   const addonIdsByWindow = await loadWindowAddonIds(
     windows.map((window) => window.id),
   );
-  const roomPhotos = await loadTemplatePhotos(roomIds);
+  const [roomPhotos, windowPhotos] = await Promise.all([
+    loadTemplatePhotos(roomIds),
+    loadTemplateWindowPhotos(windows.map((window) => window.id)),
+  ]);
 
   return {
     sourceDisplayId: order.display_id,
     roomPhotos,
+    windowPhotos,
     defaults: {
       customer: {
         name: order.customer_name,
+        salutation: order.customer_salutation ?? "",
         mobile: order.customer_mobile,
         email: order.customer_email ?? "",
       },
@@ -163,10 +198,34 @@ export async function loadCurtainOrderTemplate(
         label: room.label,
         position: roomIndex,
         windows: (windowsByRoom.get(room.id) ?? []).map((window, windowIndex) => {
+          // Track-only copies as track-only, even in a toilet room — the
+          // schema allows it there and the alternative (a blind with no
+          // covering cost) misstates what was quoted.
+          if (window.track_only) {
+            return {
+              variant: "track" as const,
+              position: windowIndex,
+              no_installation: false as const,
+              template_window_id: window.id,
+              label: window.label ?? "",
+              track_kind:
+                window.track_kind === "double"
+                  ? ("double" as const)
+                  : ("single" as const),
+              width_cm: window.width_cm ?? null,
+              height_cm: window.height_cm ?? null,
+              notes: window.notes ?? "",
+              side_installation: window.side_installation,
+              overlap_tracks_attachment: window.overlap_tracks_attachment,
+              addon_ids: addonIdsByWindow.get(window.id) ?? [],
+            };
+          }
           if (window.blind_type_id || isToiletRoom(room.type)) {
             return {
               variant: "blind" as const,
               position: windowIndex,
+              template_window_id: window.id,
+              label: window.label ?? "",
               blind_type_id: window.blind_type_id ?? "",
               draw: window.draw === "Double" ? undefined : (window.draw ?? undefined),
               width_cm: window.width_cm ?? null,
@@ -180,6 +239,8 @@ export async function loadCurtainOrderTemplate(
           return {
             variant: "regular" as const,
             position: windowIndex,
+            template_window_id: window.id,
+            label: window.label ?? "",
             day_curtain_type_id: window.day_curtain_type_id ?? "",
             night_curtain_type_id: window.night_curtain_type_id ?? "",
             draw: window.draw ?? "Double",
@@ -248,9 +309,11 @@ export async function loadMeshOrderTemplate(
   return {
     sourceDisplayId: order.display_id,
     roomPhotos,
+    windowPhotos: {},
     defaults: {
       customer: {
         name: order.customer_name,
+        salutation: order.customer_salutation ?? "",
         mobile: order.customer_mobile,
         email: order.customer_email ?? "",
       },

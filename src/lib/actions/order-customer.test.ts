@@ -6,6 +6,17 @@ import type { FunnelStage } from "@/lib/leads/funnel-types";
 
 vi.mock("server-only", () => ({}));
 
+// The durable-queue path must run the REAL salutation-sync module against the
+// fake transaction — but its remote half (books.ts) pulls in env-dependent
+// connection setup, so only that leaf is stubbed.
+vi.mock("@/lib/zoho/books", () => ({
+  updateZohoPrimaryContactSalutation: vi.fn(),
+}));
+
+// queueZohoSalutationSync writes through the passed transaction, never `db` —
+// but salutation-sync constructs the real client at import, so stub it off.
+vi.mock("@/lib/db/kysely", () => ({ db: {} }));
+
 import { completeAppointmentForOrder, resolveOrderCustomer } from "./order-customer";
 
 type Insert = { table: string; values: Record<string, unknown> };
@@ -142,6 +153,8 @@ describe("resolveOrderCustomer", () => {
   } = {}) {
     const selectedTables: string[] = [];
     const updatedTables: string[] = [];
+    const updateWrites: { table: string; values: Record<string, unknown> }[] =
+      [];
     const rows: Record<string, Record<string, unknown> | undefined> = {
       appointments: {
         id: "appointment-1",
@@ -205,14 +218,19 @@ describe("resolveOrderCustomer", () => {
       },
       updateTable(table: string) {
         updatedTables.push(table);
-        return builder({});
+        const chain = builder({});
+        chain.set = ((values?: Record<string, unknown>) => {
+          if (values) updateWrites.push({ table, values });
+          return chain;
+        }) as ResolveChain["set"];
+        return chain;
       },
       insertInto() {
         return builder({ id: "new-customer" });
       },
     } as unknown as Transaction<DB>;
 
-    return { trx, selectedTables, updatedTables };
+    return { trx, selectedTables, updatedTables, updateWrites };
   }
 
   it("recovers the scheduled appointment when the lead picker sends only leadId", async () => {
@@ -235,19 +253,28 @@ describe("resolveOrderCustomer", () => {
   });
 
   it("reuses a selected customer without attaching the new order to an old lead", async () => {
-    const { trx, selectedTables, updatedTables } = fakeResolveTransaction();
+    const { trx, selectedTables, updatedTables, updateWrites } =
+      fakeResolveTransaction();
 
     const result = await resolveOrderCustomer(
       trx,
       undefined,
       undefined,
-      { name: "Kenny", mobile: "91234567" },
+      { name: "Kenny", mobile: "91234567", salutation: "Dr" },
       "user-1",
       "customer-1",
     );
 
     expect(selectedTables).toEqual(["customers"]);
-    expect(updatedTables).toEqual(["customers"]);
+    // The durable Zoho title queue commits in the SAME transaction — a lost
+    // post-commit sync leaves the new title visibly pending, not synced.
+    expect(updatedTables).toEqual(["customers", "customer_zoho_links"]);
+    expect(
+      updateWrites.find((w) => w.table === "customer_zoho_links")?.values,
+    ).toMatchObject({
+      pending_salutation: "Dr",
+      salutation_sync_error: expect.any(String),
+    });
     expect(result).toEqual({
       customerId: "customer-1",
       appointmentId: null,
@@ -287,7 +314,7 @@ describe("resolveOrderCustomer", () => {
   });
 
   it("repairs a missing legacy lead customer from its locked appointment", async () => {
-    const { trx, updatedTables } = fakeResolveTransaction({ leadCustomerId: null });
+    const { trx, updatedTables, updateWrites } = fakeResolveTransaction({ leadCustomerId: null });
 
     const result = await resolveOrderCustomer(
       trx,
@@ -297,7 +324,15 @@ describe("resolveOrderCustomer", () => {
       "user-1",
     );
 
-    expect(updatedTables).toEqual(["leads", "customers"]);
+    expect(updatedTables).toEqual(["leads", "customers", "customer_zoho_links"]);
+    expect(
+      updateWrites.find((w) => w.table === "customer_zoho_links")?.values,
+    ).toMatchObject({
+      // No title typed → the queued value is null and the non-null queued
+      // marker is what keeps the CLEAR visibly retryable.
+      pending_salutation: null,
+      salutation_sync_error: expect.any(String),
+    });
     expect(result).toMatchObject({
       customerId: "customer-1",
       appointmentId: "appointment-1",

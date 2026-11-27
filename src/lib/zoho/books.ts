@@ -7,6 +7,17 @@ import { ZohoEstimateConversionRejectedError } from "./conversion-error";
 
 type ZohoEnvelope = { code?: number; message?: string; [key: string]: unknown };
 
+export type ZohoContactPerson = {
+  contact_person_id?: string;
+  salutation?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  is_primary_contact?: boolean;
+};
+
 export type ZohoContact = {
   contact_id: string;
   contact_name: string;
@@ -16,6 +27,8 @@ export type ZohoContact = {
   mobile?: string;
   status?: string;
   contact_type?: string;
+  primary_contact_id?: string;
+  contact_persons?: ZohoContactPerson[];
 };
 
 export type ZohoItem = {
@@ -216,10 +229,11 @@ export async function getZohoContact(id: string): Promise<ZohoContact> {
   return json.contact;
 }
 
-export async function createZohoContact(input: { name: string; email: string | null; mobile: string | null; address: string | null }): Promise<ZohoContact> {
+export async function createZohoContact(input: { name: string; salutation?: string | null; email: string | null; mobile: string | null; address: string | null }): Promise<ZohoContact> {
   const email = input.email?.trim();
   const mobile = input.mobile?.trim();
   const address = input.address?.trim();
+  const salutation = input.salutation?.trim();
   // Zoho derives a contact's email/phone fields from its primary contact
   // person — top-level email/mobile keys are silently dropped — and defaults
   // the subtype to business, so both must be sent explicitly. Estimates take
@@ -227,6 +241,7 @@ export async function createZohoContact(input: { name: string; email: string | n
   // order's site address is sent verbatim on both.
   const person = {
     first_name: input.name,
+    ...(salutation ? { salutation } : {}),
     ...(email ? { email } : {}),
     ...(mobile ? { mobile } : {}),
     is_primary_contact: true,
@@ -243,6 +258,56 @@ export async function createZohoContact(input: { name: string; email: string | n
   });
   if (!json.contact) throw new Error("Zoho Books did not return the new customer");
   return json.contact;
+}
+
+const CONTACTS_UPDATE_SCOPE_MESSAGE = "Zoho Books needs permission to update customers. The title was saved in the CRM but not sent to Zoho. To fix: an admin opens Integrations in the top menu, clicks Reconnect Zoho Books, signs in to Zoho and clicks Accept, then retries the sync.";
+
+/**
+ * Push a title change onto the linked customer's PRIMARY contact person.
+ *
+ * Fetch-before-update: Zoho replaces the person wholesale, so the stored
+ * record is re-read and merged — first/last name, email and every other field
+ * the CRM does not own ride through untouched. Clearing the title sends "".
+ */
+export async function updateZohoPrimaryContactSalutation(input: { contactId: string; salutation: string | null }): Promise<void> {
+  const context = await getZohoAccessContext(true, true);
+  requireScope(context, "ZohoBooks.contacts.UPDATE", CONTACTS_UPDATE_SCOPE_MESSAGE);
+  const contact = await getZohoContact(input.contactId);
+  const persons = contact.contact_persons ?? [];
+  // Only an explicitly-flagged primary may be written. Falling back to the
+  // first listed person would edit an arbitrary contact — an absent or
+  // ambiguous primary is a retryable failure, not a guess.
+  const flagged = persons.filter((person) => person.is_primary_contact);
+  const primary = flagged.length === 1
+    ? flagged[0]
+    : contact.primary_contact_id
+      ? persons.find((person) => person.contact_person_id === contact.primary_contact_id)
+      : undefined;
+  if (!primary?.contact_person_id) {
+    throw new Error(
+      flagged.length > 1
+        ? "The linked Zoho customer lists more than one primary contact person. Set a single primary in Zoho Books, then retry."
+        : "The linked Zoho customer has no identifiable primary contact person. Check the contact in Zoho Books, then retry.",
+    );
+  }
+  // Documented endpoint: PUT /contacts/contactpersons/{contact_person_id}.
+  // contact_id and first_name are required; every stored field rides through
+  // so the partial update cannot blank what the CRM does not own.
+  const json = await request<ZohoEnvelope & { contact_person?: ZohoContactPerson }>(
+    `/contacts/contactpersons/${encodeURIComponent(primary.contact_person_id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        ...primary,
+        contact_id: input.contactId,
+        first_name: primary.first_name ?? contact.contact_name,
+        salutation: input.salutation?.trim() ?? "",
+      }),
+    },
+  );
+  if (!json.contact_person) {
+    throw new Error("Zoho Books did not return the updated contact person");
+  }
 }
 
 export async function findZohoEstimatesByCrmQuoteKey(crmQuoteKey: string): Promise<ZohoEstimate[]> {

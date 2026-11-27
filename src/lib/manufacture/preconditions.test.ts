@@ -208,3 +208,65 @@ describe("checkConfirmPreconditions", () => {
     expect(result.reasons.join(" ")).toMatch(/Balcony Panel 4/);
   });
 });
+
+describe("checkConfirmPreconditions — track-only rails", () => {
+  it("confirms a rail on width alone — no fabric panel means no height to require", () => {
+    expect(
+      checkConfirmPreconditions(
+        [
+          line({
+            trackOnly: true,
+            windowName: "Balcony",
+            heightCm: null,
+            description: "Track only — double track",
+          }),
+        ],
+        BOOK,
+        "deposit_received",
+        overrides(),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("names a missing-width rail by its window label, not a positional fallback", () => {
+    const result = checkConfirmPreconditions(
+      [
+        line({
+          trackOnly: true,
+          windowName: "Balcony",
+          widthCm: null,
+          heightCm: null,
+        }),
+      ],
+      BOOK,
+      "deposit_received",
+      overrides(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reasons.join(" ")).toContain("Living Room Balcony");
+  });
+
+  it("refuses a rail whose width works out to nothing after the allowance", () => {
+    // Curtain widthDelta is −2: a 2 cm source cuts to a 0 cm rail.
+    const result = checkConfirmPreconditions(
+      [line({ trackOnly: true, widthCm: 2, heightCm: null })],
+      BOOK,
+      "deposit_received",
+      overrides(),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reasons.join(" ")).toContain("buildable rail");
+  });
+
+  it("accepts a width override on a rail — the cut width is what the vendor needs", () => {
+    const result = checkConfirmPreconditions(
+      [line({ trackOnly: true, widthCm: 2, heightCm: null })],
+      BOOK,
+      "deposit_received",
+      overrides([["line-1", { overrideWidthCm: 298 }]]),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+});

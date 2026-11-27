@@ -24,6 +24,9 @@ describe("windowValues — regular window", () => {
 
     expect(values).toEqual({
       position: 2,
+      label: null,
+      track_only: false,
+      track_kind: null,
       width_cm: 120,
       height_cm: 240,
       notes: "beam clearance",
@@ -77,6 +80,9 @@ describe("windowValues — blind window", () => {
 
     expect(values).toEqual({
       position: 3,
+      label: null,
+      track_only: false,
+      track_kind: null,
       width_cm: 150,
       height_cm: 200,
       notes: null,
@@ -238,5 +244,96 @@ describe("window track requirements", () => {
       .toMatchObject({ day_track_required: false, night_track_required: true });
     expect(windowValues({ variant: "regular" }, 0))
       .toMatchObject({ day_track_required: true, night_track_required: true });
+  });
+});
+
+describe("windowValues — track-only window", () => {
+  it("writes the rail count and nulls every covering column", () => {
+    const values = windowValues(
+      { variant: "track", track_kind: "double", width_cm: 300, label: "Balcony" },
+      1,
+    );
+
+    expect(values).toEqual({
+      position: 1,
+      label: "Balcony",
+      track_only: true,
+      track_kind: "double",
+      width_cm: 300,
+      height_cm: null,
+      notes: null,
+      side_installation: false,
+      // Installation is the only thing this window bills — the flag can
+      // never persist, even if a stale payload carried it.
+      no_installation: false,
+      overlap_tracks_attachment: false,
+      day_track_required: true,
+      night_track_required: true,
+      day_curtain_type_id: null,
+      night_curtain_type_id: null,
+      blind_type_id: null,
+      draw: null,
+      split_left_cm: null,
+      split_right_cm: null,
+      combo_id: null,
+    });
+  });
+
+  it("a single track restates the count in day/night flags for curtain-counting consumers", () => {
+    const values = windowValues({ variant: "track", track_kind: "single" }, 0);
+    expect(values.track_kind).toBe("single");
+    expect(values.day_track_required).toBe(true);
+    expect(values.night_track_required).toBe(false);
+  });
+
+  it("defaults to a single rail when the kind is omitted", () => {
+    const values = windowValues({ variant: "track", width_cm: 200 }, 0);
+    expect(values.track_kind).toBe("single");
+  });
+
+  it("drops curtain and blind ids left over from a covering switch", () => {
+    const values = windowValues(
+      { variant: "track", day_curtain_type_id: DAY, night_curtain_type_id: NIGHT, blind_type_id: BLIND, combo_id: COMBO, draw: "Double" },
+      0,
+    );
+    expect(values.day_curtain_type_id).toBeNull();
+    expect(values.night_curtain_type_id).toBeNull();
+    expect(values.blind_type_id).toBeNull();
+    expect(values.combo_id).toBeNull();
+    expect(values.draw).toBeNull();
+  });
+
+  it("forces no_installation off even when the input carries it", () => {
+    expect(
+      windowValues({ variant: "track", no_installation: true }, 0).no_installation,
+    ).toBe(false);
+  });
+
+  it("keeps rail fittings like the overlap attachment", () => {
+    expect(
+      windowValues({ variant: "track", overlap_tracks_attachment: true }, 0)
+        .overlap_tracks_attachment,
+    ).toBe(true);
+  });
+});
+
+describe("windowValues — window label", () => {
+  it("trims and persists the label", () => {
+    expect(
+      windowValues({ variant: "regular", label: "  Bay window  " }, 0).label,
+    ).toBe("Bay window");
+  });
+
+  it("stores null for a blank or missing label", () => {
+    expect(windowValues({ variant: "regular", label: "   " }, 0).label).toBeNull();
+    expect(windowValues({ variant: "regular" }, 0).label).toBeNull();
+  });
+
+  it("keeps the label through a covering switch — it names the opening, not the covering", () => {
+    for (const variant of ["regular", "blind", "track"] as const) {
+      expect(
+        windowValues({ variant, label: "Sliding door", ...(variant === "track" ? { track_kind: "single" as const } : {}) }, 0).label,
+      ).toBe("Sliding door");
+    }
   });
 });

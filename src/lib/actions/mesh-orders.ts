@@ -33,6 +33,7 @@ import {
   type MeshOrderDraftInput,
   type MeshOrderEditInput,
 } from "@/lib/validation/mesh";
+import { queueZohoSalutationSync, syncZohoSalutation } from "@/lib/zoho/salutation-sync";
 
 // Mesh consultations. Parallel to actions/orders.ts rather than branching
 // inside it: the line-item half shares nothing with curtains, while the order
@@ -78,6 +79,7 @@ export async function createMeshOrder(input: unknown, returnRoomIds = false): Pr
 
   const copiedPhotoPaths: string[] = [];
   let orderId: string;
+  let customerIdForSync: string | null = null;
   const roomIds: string[] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
@@ -89,6 +91,7 @@ export async function createMeshOrder(input: unknown, returnRoomIds = false): Pr
       session.user.id,
       parsed.customer_id,
     );
+    customerIdForSync = customer.customerId;
 
     const order = await trx
       .insertInto("orders")
@@ -171,6 +174,10 @@ export async function createMeshOrder(input: unknown, returnRoomIds = false): Pr
 
   await stampQuoteBaseline(orderId);
 
+  if (customerIdForSync) {
+    await syncZohoSalutation(customerIdForSync);
+  }
+
   revalidatePath("/orders");
   if (returnRoomIds) return { orderId, roomIds };
   redirect(`/orders/${orderId}`);
@@ -191,6 +198,7 @@ export async function updateMeshOrder(
 
   const orphanStoragePaths: string[] = [];
 
+  let customerIdForSync: string | null = null;
   const roomIds = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
@@ -216,6 +224,8 @@ export async function updateMeshOrder(
     const isAdmin = session.profile.role === "admin";
     if (!isOwner && !isAdmin) throw new Error("Forbidden");
 
+    customerIdForSync = order.customer_id;
+
     if (isLocked(order.current_status)) {
       throw new Error(
         "This order is locked — it has been sent to the vendor. Ask an admin to amend the manufacturing measurements instead.",
@@ -226,11 +236,16 @@ export async function updateMeshOrder(
       .updateTable("customers")
       .set({
         name: parsed.customer.name,
+        salutation: parsed.customer.salutation?.trim() || null,
         mobile: parsed.customer.mobile,
         email: parsed.customer.email ?? null,
       })
       .where("id", "=", order.customer_id)
       .execute();
+
+    // Queue the title push atomically with the save (same contract as the
+    // curtain order edit) so a lost post-commit sync stays visibly retryable.
+    await queueZohoSalutationSync(trx, order.customer_id, parsed.customer.salutation?.trim() || null);
 
     // product_line is deliberately absent — an order's product line is
     // immutable, and no edit schema can express it.
@@ -324,6 +339,10 @@ export async function updateMeshOrder(
   await sweepPhotoStorage(orphanStoragePaths, "updateMeshOrder");
   await stampQuoteBaseline(orderId);
 
+  if (customerIdForSync) {
+    await syncZohoSalutation(customerIdForSync);
+  }
+
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/edit`);
   revalidatePath("/orders");
@@ -340,6 +359,7 @@ export async function createMeshOrderDraft(input: unknown, returnRoomIds = false
 
   const copiedPhotoPaths: string[] = [];
   let orderId: string;
+  let customerIdForSync: string | null = null;
   const roomIds: string[] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
@@ -351,6 +371,7 @@ export async function createMeshOrderDraft(input: unknown, returnRoomIds = false
       session.user.id,
       parsed.customer_id,
     );
+    customerIdForSync = customer.customerId;
 
     const order = await trx
       .insertInto("orders")
@@ -421,6 +442,10 @@ export async function createMeshOrderDraft(input: unknown, returnRoomIds = false
   }
 
   await stampQuoteBaseline(orderId);
+
+  if (customerIdForSync) {
+    await syncZohoSalutation(customerIdForSync);
+  }
 
   revalidatePath("/orders");
   if (returnRoomIds) return { orderId, roomIds };

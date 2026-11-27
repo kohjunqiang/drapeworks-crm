@@ -581,6 +581,40 @@ describe("buildPos — room numbering", () => {
     expect(pos[0].tables[0].rows[0].room).toBe("Study Room");
   });
 
+  it("appends a custom window label to the printed room identity", () => {
+    const { pos } = buildPos(
+      input({
+        lines: [
+          line({ lineId: "a", roomId: "r1", roomType: "Bedroom", windowName: "Balcony side" }),
+          line({ lineId: "b", roomId: "r1", roomType: "Bedroom", position: 1 }),
+        ],
+      }),
+    );
+
+    expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+      "次卧 BR · Balcony side",
+      "次卧 BR",
+    ]);
+  });
+
+  it("treats blank or absent window labels exactly like the legacy unnamed window", () => {
+    const { pos } = buildPos(
+      input({
+        lines: [
+          line({ lineId: "a", roomId: "r1", windowName: null }),
+          line({ lineId: "b", roomId: "r2", windowName: "   " }),
+        ],
+      }),
+    );
+
+    // Two rooms of a repeated type number exactly as the unlabeled legacy
+    // case always did — no window name is appended.
+    expect(pos[0].tables[0].rows.map((r) => r.room)).toEqual([
+      "客厅 1 LR1",
+      "客厅 2 LR2",
+    ]);
+  });
+
   it("numbers repeated English room fallbacks", () => {
     const { pos, problems } = buildPos(
       input({

@@ -8,6 +8,7 @@ import type { DB } from "@/lib/db/schema";
 import type { JsonObject, OrderInvoiceLedger } from "@/lib/db/invoice-ledger-schema";
 import { requireSession, requireRole } from "@/lib/auth/require-role";
 import { UserFacingError } from "@/lib/user-facing-error";
+import { windowLabel } from "@/lib/orders/window-label";
 import { commercialEqual, commercialFingerprint, commercialUpdateLines, commercialWriteIssues, invoiceUpdateIssues, normalizeCommercialInvoice, type CommercialInvoice } from "@/lib/quotations/commercial-invoice";
 import { quotePayloadHash } from "@/lib/quotations/hash";
 import { verifyExistingDepositPayment } from "@/lib/quotations/deposit-verification";
@@ -48,14 +49,14 @@ async function local(orderId: string, trx: Connection = db, lock = false) {
   const link=await trx.selectFrom("customer_zoho_links").select("zoho_contact_id").where("customer_id","=",order.customer_id).executeTakeFirst();
   const customerId=ledger?.customer_id??link?.zoho_contact_id??null;
   if(ledger?.customer_id && link?.zoho_contact_id && ledger.customer_id!==link.zoho_contact_id) throw new UserFacingError("The order invoice customer differs from the confirmed CRM customer link. Ask an admin to review it.");
-  const source=(await sql<{context:{order:{product:string;package:string|null};rooms:Array<{label:string}>;windows:Array<{width_cm:number|null;height_cm:number|null}>;mesh:unknown[]}}>`select jsonb_build_object(
+  const source=(await sql<{context:{order:{product:string;package:string|null};rooms:Array<{label:string}>;windows:Array<{width_cm:number|null;height_cm:number|null;label?:string|null}>;mesh:unknown[]}}>`select jsonb_build_object(
     'order',jsonb_build_object('product',o.product_line,'package',o.curtain_package_id,'packageRules',o.curtain_package_rules,'packagePrice',o.curtain_package_sale_sgd_cents,'discount',o.discount_bps,'installation',o.extra_install_sgd_cents,'freight',o.freight_mode,'channel',o.channel),
     'rooms',(select coalesce(jsonb_agg(to_jsonb(r)-'created_at' order by r.id),'[]') from public.rooms r where r.order_id=o.id),
     'windows',(select coalesce(jsonb_agg(to_jsonb(w)-'created_at'-'updated_at' order by w.id),'[]') from public.windows w join public.rooms r on r.id=w.room_id where r.order_id=o.id),
     'mesh',(select coalesce(jsonb_agg(to_jsonb(m)-'created_at' order by m.id),'[]') from public.mesh_panels m join public.rooms r on r.id=m.room_id where r.order_id=o.id),
     'addons',(select coalesce(jsonb_agg(to_jsonb(a)-'created_at' order by a.window_id,a.addon_id),'[]') from public.window_addons a join public.windows w on w.id=a.window_id join public.rooms r on r.id=w.room_id where r.order_id=o.id)
   ) as context from public.orders o where o.id=${orderId}::uuid`.execute(trx)).rows[0].context;
-  return {order,ledger,customerId,sourceFingerprint:quotePayloadHash(source),sourceContext:[`Product: ${source.order.product}`, ...(source.order.package?[`Package: ${source.order.package}`]:[]),`Rooms: ${source.rooms.map(room=>room.label).join(", ")||"None recorded"}`,`${source.windows.length} windows · ${source.mesh.length} mesh panels`,...source.windows.map((window,index)=>`Window ${index+1}: ${window.width_cm??"?"} × ${window.height_cm??"?"} cm`)]};
+  return {order,ledger,customerId,sourceFingerprint:quotePayloadHash(source),sourceContext:[`Product: ${source.order.product}`, ...(source.order.package?[`Package: ${source.order.package}`]:[]),`Rooms: ${source.rooms.map(room=>room.label).join(", ")||"None recorded"}`,`${source.windows.length} windows · ${source.mesh.length} mesh panels`,...source.windows.map((window,index)=>`${windowLabel(index,window.label)}: ${window.width_cm??"?"} × ${window.height_cm??"?"} cm`)]};
 }
 const localHash = (c: Awaited<ReturnType<typeof local>>) => quotePayloadHash({order:c.order,customer:c.customerId,ledger:c.ledger,source:c.sourceFingerprint});
 const invoiceLocalHash = (c: Awaited<ReturnType<typeof local>>) => quotePayloadHash({order:c.order,customer:c.customerId,ledger:invoiceLedgerForComparison(c.ledger),source:c.sourceFingerprint});

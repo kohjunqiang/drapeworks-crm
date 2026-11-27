@@ -59,6 +59,16 @@ export const optionalTypeId = z.preprocess(
 
 const baseWindow = z.object({
   position: z.number().int().min(0),
+  // When the consultation was seeded from a previous order, the window whose
+  // detail photos should be cloned onto this new row. The action constrains
+  // it to the same customer + product line before copying.
+  template_window_id: z.string().uuid().optional(),
+  // Editable location label. Blank stores null and every downstream document
+  // falls back to the legacy "Window N" wording.
+  label: z.string().trim().max(120).optional(),
+  // Form-local key stamped on a not-yet-persisted window so its pending detail
+  // photos keep their identity through add/remove/draft-restore. Never stored.
+  client_key: z.string().max(64).optional(),
   width_cm: optionalInt,
   height_cm: optionalInt,
   notes: z.string().max(2000).optional(),
@@ -109,9 +119,22 @@ const blindWindow = baseWindow.extend({
   draw: z.enum(BLIND_CONTROL_SIDES).optional(),
 });
 
+// Track-only: a rail supplied and installed over a window that gets NO
+// covering. It lives in the same card as a curtain window — the consultant
+// ticks it where fabric would be picked — but it carries no fabric fields at
+// all, the same way a blind never carries day/night. Installation is the only
+// charge, so the contradictory no_installation opt-out is pinned to literal
+// false — present on the union for downstream code, rejected if asserted.
+const trackOnlyWindow = baseWindow.extend({
+  variant: z.literal("track"),
+  no_installation: z.literal(false).default(false),
+  track_kind: z.enum(["single", "double"]),
+  overlap_tracks_attachment: z.boolean().default(false),
+});
+
 function validateCurtainSplit(
   win: {
-    variant: "regular" | "blind";
+    variant: "regular" | "blind" | "track";
     draw?: (typeof DRAW_DIRECTIONS)[number];
     width_cm?: number | null;
     split_left_cm?: number | null;
@@ -145,7 +168,7 @@ function validateCurtainSplit(
 }
 
 export const windowSchema = z
-  .discriminatedUnion("variant", [regularWindow, blindWindow])
+  .discriminatedUnion("variant", [regularWindow, blindWindow, trackOnlyWindow])
   .superRefine(validateCurtainSplit);
 
 export const roomSchema = z.object({
@@ -177,6 +200,13 @@ const customerPhone = z
   );
 
 export const customerSchema = z.object({
+  // Optional title, separate from the name and never guessed. Capped at 25 —
+  // the Zoho Books salutation limit — so any stored value can be pushed.
+  salutation: z
+    .string()
+    .trim()
+    .max(25, "Title must be 25 characters or fewer")
+    .optional(),
   name: z.string().min(1, "Required").max(200),
   mobile: customerPhone,
   email: z
@@ -300,6 +330,7 @@ export const orderCreateSchema = z.object({
 // consultation without filling every field. Only customer.name is required;
 // mobile and other strict checks are dropped; rooms can be empty.
 const customerDraftSchema = z.object({
+  salutation: z.string().trim().max(25).optional(),
   name: z.string().min(1, "Customer name is required").max(200),
   mobile: z.string().max(30).optional().transform((v) => v ?? ""),
   email: z
@@ -314,10 +345,11 @@ const customerDraftSchema = z.object({
 // because saveDraft must PRESERVE a blind variant rather than derive it from
 // the room type; deriving would silently discard blind_type_id on every save.
 const draftWindow = baseWindow.extend({
-  variant: z.enum(["regular", "blind"]),
+  variant: z.enum(["regular", "blind", "track"]),
   day_curtain_type_id: optionalTypeId,
   night_curtain_type_id: optionalTypeId,
   blind_type_id: optionalTypeId,
+  track_kind: z.enum(["single", "double"]).optional(),
   draw: z.enum(DRAW_DIRECTIONS).optional(),
   split_left_cm: optionalInt,
   split_right_cm: optionalInt,
@@ -359,9 +391,14 @@ const optionalUuid = z.string().uuid().optional();
 
 const regularWindowEdit = regularWindow.extend({ id: optionalUuid });
 const blindWindowEdit = blindWindow.extend({ id: optionalUuid });
+const trackOnlyWindowEdit = trackOnlyWindow.extend({ id: optionalUuid });
 
 export const windowEditSchema = z
-  .discriminatedUnion("variant", [regularWindowEdit, blindWindowEdit])
+  .discriminatedUnion("variant", [
+    regularWindowEdit,
+    blindWindowEdit,
+    trackOnlyWindowEdit,
+  ])
   .superRefine(validateCurtainSplit);
 
 export const roomEditSchema = z.object({

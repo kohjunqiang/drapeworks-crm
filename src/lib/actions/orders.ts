@@ -28,6 +28,8 @@ import {
   selectedAddonIds,
   type AddonRule,
 } from "@/lib/orders/window-addons";
+import { TRACK_OPTION_ADDON_KEYS } from "@/lib/po/track-options";
+import { queueZohoSalutationSync, syncZohoSalutation } from "@/lib/zoho/salutation-sync";
 import { windowValues } from "@/lib/orders/window-values";
 import { computeOrderQuote, loadCurtainRates } from "@/lib/pricing/order-quote";
 import { loadCurtainPackages } from "@/lib/db/product-pricing-settings";
@@ -38,9 +40,14 @@ import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { adminClient } from "@/lib/supabase/admin";
 import {
   cloneTemplateRoomPhotos,
+  cloneTemplateWindowPhotos,
+  collectDroppedWindowPhotoPaths,
+  collectOrphanWindowPhotoPaths,
   PHOTO_BUCKET,
   stampQuoteBaseline,
   sweepPhotoStorage,
+  sweepWindowPhotoStorage,
+  WINDOW_PHOTO_BUCKET,
 } from "@/lib/actions/order-shared";
 import {
   isToiletRoom,
@@ -117,6 +124,9 @@ async function validateCurtainPackageRooms(
   };
   const result = resolveCurtainPackageQuote(rooms.flatMap((room, roomIndex) => room.windows.map((window) => ({
     roomIndex, roomLabel: room.label, covering: window.variant === "blind" ? "blind" as const : "curtain" as const,
+    // A rail with no covering is not a curtain room set member — the package
+    // resolver skips trackOnly windows outright.
+    trackOnly: window.variant === "track",
     widthCm: window.width_cm ?? null, dayPrice: window.variant === "regular" ? price(window.day_curtain_type_id) : null, nightPrice: window.variant === "regular" ? price(window.night_curtain_type_id) : null,
     comboPriceSgdCents: window.variant === "regular" && window.combo_id ? 0 : null,
     addons: toCalcAddons(resolveWindowAddons(window.variant === "blind" ? "blind" : "curtain", window.width_cm ?? null,
@@ -131,7 +141,7 @@ async function validateCurtainPackageRooms(
 
 /** The window fields the add-on resolver needs, on any of the three shapes. */
 type AddonWindowLike = {
-  variant: "regular" | "blind";
+  variant: "regular" | "blind" | "track";
   width_cm?: number | null;
   addon_ids?: string[];
 };
@@ -157,7 +167,12 @@ async function writeWindowAddons(
     win.width_cm ?? null,
     win.addon_ids ?? [],
     persistedIds,
-    catalogue,
+    // A track-only window carries only the fittings that change the rail
+    // itself (S-Fold, slim tracks) — fabric extras and bundles have no
+    // covering to attach to.
+    win.variant === "track"
+      ? catalogue.filter((a) => TRACK_OPTION_ADDON_KEYS.includes(a.key))
+      : catalogue,
   );
   const ids = selectedAddonIds(resolved);
 
@@ -173,7 +188,7 @@ async function writeWindowAddons(
   }
 }
 
-export async function createOrder(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[] }> {
+export async function createOrder(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[]; windowIds: string[][] }> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderCreateInput = orderCreateSchema.parse(input);
   const packageSnapshot = await resolveCurtainPackage(parsed.order);
@@ -183,8 +198,11 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
   const addonCatalogue = await loadAddonCatalogue();
 
   const copiedPhotoPaths: string[] = [];
+  const copiedWindowPhotoPaths: string[] = [];
   let orderId: string;
+  let customerIdForSync: string | null = null;
   const roomIds: string[] = [];
+  const windowIds: string[][] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
@@ -195,6 +213,7 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
       session.user.id,
       parsed.customer_id,
     );
+    customerIdForSync = customer.customerId;
 
     const order = await trx
       .insertInto("orders")
@@ -241,6 +260,8 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
         .returning("id")
         .executeTakeFirstOrThrow();
       roomIds.push(insertedRoom.id);
+      const roomWindowIds: string[] = [];
+      windowIds.push(roomWindowIds);
 
       const isToilet = isToiletRoom(room.type);
 
@@ -250,7 +271,7 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
         // curtains are constrained: a toilet takes a blind and nothing else.
         const matchesShape = isToilet
           ? win.variant === "blind"
-          : win.variant === "regular" || win.variant === "blind";
+          : win.variant === "regular" || win.variant === "blind" || win.variant === "track";
         if (!matchesShape) {
           throw new Error(
             `Window variant '${win.variant}' does not match room type '${room.type}'`,
@@ -262,8 +283,21 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
           .values({ room_id: insertedRoom.id, ...windowValues(win, w) })
           .returning("id")
           .executeTakeFirstOrThrow();
+        roomWindowIds.push(insertedWin.id);
         // No persisted state on a create — the payload cannot claim any.
         await writeWindowAddons(trx, insertedWin.id, win, addonCatalogue, []);
+
+        if (win.template_window_id) {
+          await cloneTemplateWindowPhotos(trx, {
+            sourceWindowId: win.template_window_id,
+            targetWindowId: insertedWin.id,
+            targetOrderId: order.id,
+            customerId: customer.customerId,
+            productLine: "curtain",
+            uploadedBy: session.user.id,
+            copiedPaths: copiedWindowPhotoPaths,
+          });
+        }
       }
 
       if (room.template_room_id) {
@@ -302,13 +336,20 @@ export async function createOrder(input: unknown, returnRoomIds = false): Promis
     });
   } catch (error) {
     await sweepPhotoStorage(copiedPhotoPaths, "createOrder template rollback");
+    await sweepWindowPhotoStorage(copiedWindowPhotoPaths, "createOrder template rollback");
     throw error;
   }
 
   await stampQuoteBaseline(orderId);
 
+  // Post-commit: push the title to an already-linked Zoho contact. Never
+  // throws — a failure parks the value on the link row for retry.
+  if (customerIdForSync) {
+    await syncZohoSalutation(customerIdForSync);
+  }
+
   revalidatePath("/orders");
-  if (returnRoomIds) return { orderId, roomIds };
+  if (returnRoomIds) return { orderId, roomIds, windowIds };
   redirect(`/orders/${orderId}`);
 }
 
@@ -316,7 +357,7 @@ export async function updateOrder(
   orderId: string,
   input: unknown,
   returnRoomIds = false,
-): Promise<{ roomIds: string[] }> {
+): Promise<{ roomIds: string[]; windowIds: string[][] }> {
   if (typeof orderId !== "string" || orderId.length === 0) {
     throw new Error("Invalid order id");
   }
@@ -356,9 +397,15 @@ export async function updateOrder(
   );
 
   const orphanStoragePaths: string[] = [];
+  const orphanWindowStoragePaths: string[] = [];
+  // Window photos cloned into a NEW window during this edit — swept if the
+  // transaction rolls back after the copy, exactly like the create paths.
+  const copiedWindowPhotoPaths: string[] = [];
   await validateCurtainPackageRooms(packageSnapshot, parsed.rooms, persistedByWindow);
 
-  const roomIds = await db.transaction().execute(async (trx) => {
+  let result: { roomIds: string[]; windowIds: string[][]; customerId: string };
+  try {
+    result = await db.transaction().execute(async (trx) => {
     const order = await trx
       .selectFrom("orders")
       .select([
@@ -388,9 +435,14 @@ export async function updateOrder(
         name: parsed.customer.name,
         mobile: parsed.customer.mobile,
         email: parsed.customer.email ?? null,
+        salutation: parsed.customer.salutation?.trim() || null,
       })
       .where("id", "=", order.customer_id)
       .execute();
+
+    // Queue the title push atomically with the save — the post-commit sync
+    // then confirms or leaves this marker visible for retry.
+    await queueZohoSalutationSync(trx, order.customer_id, parsed.customer.salutation?.trim() || null);
 
     await trx
       .updateTable("orders")
@@ -415,6 +467,7 @@ export async function updateOrder(
       .execute();
 
     const keepRoomIds: string[] = [];
+    const windowIds: string[][] = [];
 
     for (let r = 0; r < parsed.rooms.length; r++) {
       const room = parsed.rooms[r];
@@ -444,6 +497,7 @@ export async function updateOrder(
       keepRoomIds.push(roomId);
 
       const keepWindowIds: string[] = [];
+      windowIds.push(keepWindowIds);
 
       for (let w = 0; w < room.windows.length; w++) {
         const win = room.windows[w];
@@ -451,7 +505,7 @@ export async function updateOrder(
         // curtains are constrained: a toilet takes a blind and nothing else.
         const matchesShape = isToilet
           ? win.variant === "blind"
-          : win.variant === "regular" || win.variant === "blind";
+          : win.variant === "regular" || win.variant === "blind" || win.variant === "track";
         if (!matchesShape) {
           throw new Error(
             `Window variant '${win.variant}' does not match room type '${room.type}'`,
@@ -486,8 +540,25 @@ export async function updateOrder(
             .executeTakeFirstOrThrow();
           keepWindowIds.push(insertedWin.id);
           await writeWindowAddons(trx, insertedWin.id, win, addonCatalogue, []);
+          if (win.template_window_id) {
+            await cloneTemplateWindowPhotos(trx, {
+              sourceWindowId: win.template_window_id,
+              targetWindowId: insertedWin.id,
+              targetOrderId: orderId,
+              customerId: order.customer_id,
+              productLine: "curtain",
+              uploadedBy: session.user.id,
+              copiedPaths: copiedWindowPhotoPaths,
+            });
+          }
         }
       }
+
+      // Capture the window-photo paths about to be cascade-deleted BEFORE the
+      // delete — same contract as the room-photo sweep below.
+      orphanWindowStoragePaths.push(
+        ...(await collectDroppedWindowPhotoPaths(trx, roomId, keepWindowIds)),
+      );
 
       let delWindows = trx.deleteFrom("windows").where("room_id", "=", roomId);
       if (keepWindowIds.length > 0) {
@@ -509,6 +580,10 @@ export async function updateOrder(
     }
     const orphanRows = await orphanQ.execute();
     orphanStoragePaths.push(...orphanRows.map((r) => r.storage_path));
+    // Window photos under those same dropped rooms cascade too.
+    orphanWindowStoragePaths.push(
+      ...(await collectOrphanWindowPhotoPaths(trx, orderId, keepRoomIds)),
+    );
 
     let delRooms = trx.deleteFrom("rooms").where("order_id", "=", orderId);
     if (keepRoomIds.length > 0) {
@@ -525,19 +600,29 @@ export async function updateOrder(
       );
     }
 
-    return keepRoomIds;
-  });
+    return { roomIds: keepRoomIds, windowIds, customerId: order.customer_id };
+    });
+  } catch (error) {
+    await sweepWindowPhotoStorage(copiedWindowPhotoPaths, "updateOrder template rollback");
+    throw error;
+  }
 
   await sweepPhotoStorage(orphanStoragePaths, "updateOrder");
+  await sweepWindowPhotoStorage(orphanWindowStoragePaths, "updateOrder");
 
   await stampQuoteBaseline(orderId);
+
+  // Post-commit: push the saved title to the linked Zoho contact. It never
+  // throws — a Zoho outage parks the value on the link row for retry instead
+  // of failing the save.
+  await syncZohoSalutation(result.customerId);
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/edit`);
   revalidatePath("/orders");
 
   if (returnRoomIds !== true) redirect(`/orders/${orderId}`);
-  return { roomIds };
+  return result;
 }
 
 export async function moveOrderRoom(input: {
@@ -761,6 +846,13 @@ export async function deleteOrder(input: {
     .select("room_photos.storage_path as storage_path")
     .where("rooms.order_id", "=", order.id)
     .execute();
+  const windowPhotos = await db
+    .selectFrom("window_photos")
+    .innerJoin("windows", "windows.id", "window_photos.window_id")
+    .innerJoin("rooms", "rooms.id", "windows.room_id")
+    .select("window_photos.storage_path as storage_path")
+    .where("rooms.order_id", "=", order.id)
+    .execute();
 
   const completionPhotos = await db
     .selectFrom("order_completion_photos")
@@ -854,6 +946,18 @@ export async function deleteOrder(input: {
     }
   }
 
+  if (windowPhotos.length > 0) {
+    const { error } = await adminClient()
+      .storage.from(WINDOW_PHOTO_BUCKET)
+      .remove(windowPhotos.map((p) => p.storage_path));
+    if (error) {
+      console.error(
+        "window-photo storage sweep failed during deleteOrder:",
+        error.message,
+      );
+    }
+  }
+
   if (completionPhotos.length > 0) {
     const { error } = await adminClient()
       .storage.from(COMPLETION_PHOTO_BUCKET)
@@ -882,15 +986,18 @@ export async function deleteOrder(input: {
 // required; rooms can be empty; phone/email/dates are not strictly validated.
 // The order's is_draft flag is set so the dashboard can surface drafts
 // separately later.
-export async function createOrderDraft(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[] }> {
+export async function createOrderDraft(input: unknown, returnRoomIds = false): Promise<{ orderId: string; roomIds: string[]; windowIds: string[][] }> {
   const session = await requireRole(["consultant", "admin"]);
   const parsed: OrderDraftInput = orderDraftSchema.parse(input);
   const packageSnapshot = await resolveCurtainPackage(parsed.order);
   const addonCatalogue = await loadAddonCatalogue();
 
   const copiedPhotoPaths: string[] = [];
+  const copiedWindowPhotoPaths: string[] = [];
   let orderId: string;
+  let customerIdForSync: string | null = null;
   const roomIds: string[] = [];
+  const windowIds: string[][] = [];
   try {
     orderId = await db.transaction().execute(async (trx) => {
     const customer = await resolveOrderCustomer(
@@ -901,6 +1008,7 @@ export async function createOrderDraft(input: unknown, returnRoomIds = false): P
       session.user.id,
       parsed.customer_id,
     );
+    customerIdForSync = customer.customerId;
 
     const order = await trx
       .insertInto("orders")
@@ -946,6 +1054,8 @@ export async function createOrderDraft(input: unknown, returnRoomIds = false): P
         .returning("id")
         .executeTakeFirstOrThrow();
       roomIds.push(insertedRoom.id);
+      const roomWindowIds: string[] = [];
+      windowIds.push(roomWindowIds);
 
       const isToilet = isToiletRoom(room.type);
 
@@ -963,16 +1073,30 @@ export async function createOrderDraft(input: unknown, returnRoomIds = false): P
           variant:
             win.variant === "blind" || isToilet
               ? ("blind" as const)
-              : ("regular" as const),
+              : win.variant === "track"
+                ? ("track" as const)
+                : ("regular" as const),
         };
         const insertedWin = await trx
           .insertInto("windows")
           .values({ room_id: insertedRoom.id, ...windowValues(shaped, w) })
           .returning("id")
           .executeTakeFirstOrThrow();
+        roomWindowIds.push(insertedWin.id);
         // Drafts are relaxed about COMPLETENESS, never about correctness of
         // charge — so they resolve like any other write path.
         await writeWindowAddons(trx, insertedWin.id, shaped, addonCatalogue, []);
+        if (win.template_window_id) {
+          await cloneTemplateWindowPhotos(trx, {
+            sourceWindowId: win.template_window_id,
+            targetWindowId: insertedWin.id,
+            targetOrderId: order.id,
+            customerId: customer.customerId,
+            productLine: "curtain",
+            uploadedBy: session.user.id,
+            copiedPaths: copiedWindowPhotoPaths,
+          });
+        }
       }
 
       if (room.template_room_id) {
@@ -1002,13 +1126,18 @@ export async function createOrderDraft(input: unknown, returnRoomIds = false): P
     });
   } catch (error) {
     await sweepPhotoStorage(copiedPhotoPaths, "createOrderDraft template rollback");
+    await sweepWindowPhotoStorage(copiedWindowPhotoPaths, "createOrderDraft template rollback");
     throw error;
   }
 
   await stampQuoteBaseline(orderId);
 
+  if (customerIdForSync) {
+    await syncZohoSalutation(customerIdForSync);
+  }
+
   revalidatePath("/orders");
-  if (returnRoomIds) return { orderId, roomIds };
+  if (returnRoomIds) return { orderId, roomIds, windowIds };
   redirect(`/orders/${orderId}`);
 }
 

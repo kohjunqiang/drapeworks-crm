@@ -135,6 +135,25 @@ describe("trackOrderLine", () => {
       "1.20米 双轨裁成1.20m 2根配连接器",
     );
   });
+
+  it("appends the room/window identity after the cut when the window is custom-named", () => {
+    expect(
+      trackOrderLine(
+        line({ label: "Balcony — Sliding door", windowName: "Sliding door" }),
+      ),
+    ).toBe("2.66米 双轨裁成1.33m 4根配连接器（Balcony — Sliding door）");
+  });
+
+  it("keeps the legacy text byte-for-byte without an explicit window name", () => {
+    // Same display label shape as always — but windowName is the stored
+    // custom label, and absent it nothing is appended.
+    expect(trackOrderLine(line({ windowName: null }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器",
+    );
+    expect(trackOrderLine(line({ windowName: "   " }))).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器",
+    );
+  });
 });
 
 describe("overlapTrackOrderText", () => {
@@ -241,6 +260,20 @@ describe("overlapTrackOrderText", () => {
       ),
     ).toBe(
       "2.56米 双轨裁成1.28m 4根配连接器 P6白色配交叉器\n加固包装",
+    );
+  });
+
+  it("puts the window identity AFTER the P6 attachment wording", () => {
+    expect(
+      overlapTrackOrderLine(
+        line({
+          label: "Balcony — Sliding door",
+          windowName: "Sliding door",
+          options: opts({ overlap_tracks_attachment: true }),
+        }),
+      ),
+    ).toBe(
+      "2.66米 双轨裁成1.33m 4根配连接器 P6白色配交叉器（Balcony — Sliding door）",
     );
   });
 });

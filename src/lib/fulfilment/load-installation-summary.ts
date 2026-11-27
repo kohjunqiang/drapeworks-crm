@@ -89,6 +89,9 @@ export async function loadInstallationSummary(
         "width_cm",
         "height_cm",
         "notes",
+        "label",
+        "track_only",
+        "track_kind",
         "side_installation",
         "no_installation",
         "draw",
@@ -130,18 +133,21 @@ export async function loadInstallationSummary(
         const size = frozenByLine.get(window.id);
         const o = openingOverride(details, window.id);
         const layerCount = Number(Boolean(window.day_curtain_type_id)) + Number(Boolean(window.night_curtain_type_id));
-        const covering: InstallationOpening["covering"] = window.blind_type_id
-          ? "Blinds"
-          : layerCount === 2
-            ? "Double"
-            : layerCount === 1
-              ? "Single"
-              : "Curtain";
+        const covering: InstallationOpening["covering"] = window.track_only
+          ? "Track"
+          : window.blind_type_id
+            ? "Blinds"
+            : layerCount === 2
+              ? "Double"
+              : layerCount === 1
+                ? "Single"
+                : "Curtain";
         openings.push({
           roomLabel: room.label,
           roomNote: roomNote(details, room.id),
           openingNumber: index + 1,
           openingsInRoom: roomWindows.length,
+          windowName: window.label,
           covering,
           widthCm: o?.width_cm ?? size?.mfg_width_cm ?? window.width_cm,
           heightCm: o?.height_cm ?? size?.mfg_height_cm ?? window.height_cm,

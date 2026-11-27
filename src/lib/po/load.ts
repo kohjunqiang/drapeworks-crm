@@ -17,6 +17,7 @@ import { db } from "@/lib/db/kysely";
 import { loadWindowCalcAddons } from "@/lib/db/window-addons";
 import type { RoomType } from "@/lib/db/schema";
 import { STATUS_LABELS, statusIndex } from "@/lib/status-flow";
+import { windowLabel } from "@/lib/orders/window-label";
 import { customerReference } from "./customer-reference";
 import { resolveTrackOptions } from "./track-options";
 
@@ -38,8 +39,12 @@ export type PoLoad = {
 
 // Positions are 0-based in the database and 1-based on every screen, and this
 // string is read beside the reconciliation grid.
-function locate(roomLabel: string, position: number): string {
-  return `${roomLabel} Window ${position + 1}`;
+function locate(
+  roomLabel: string,
+  position: number,
+  windowName?: string | null,
+): string {
+  return `${roomLabel} ${windowLabel(position, windowName)}`;
 }
 
 export async function loadPoInput(
@@ -299,6 +304,8 @@ async function loadLines(
     .select([
       "windows.id as id",
       "windows.position as position",
+      "windows.label as window_label",
+      "windows.track_only as track_only",
       "windows.draw as draw",
       "windows.split_left_cm as split_left_cm",
       "windows.split_right_cm as split_right_cm",
@@ -337,7 +344,10 @@ async function loadLines(
   const problems: string[] = [];
 
   for (const w of rows) {
-    const where = locate(w.room_label, w.position);
+    // Track-only orders a rail, never fabric — the rail is on the track order,
+    // so this window must not surface as a missing-covering fault here.
+    if (w.track_only) continue;
+    const where = locate(w.room_label, w.position, w.window_label);
     const blackout = (addonsByWindow.get(w.id) ?? []).some(
       (addon) => addon.key === "blackout",
     );
@@ -371,6 +381,7 @@ async function loadLines(
       roomType: w.room_type,
       roomPosition: w.room_position,
       position: w.position,
+      windowName: w.window_label,
       draw: w.draw,
       openingLabel: opening,
       splitLeftCm: w.mfg_split_left_cm,

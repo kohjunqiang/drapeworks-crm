@@ -29,10 +29,12 @@ export type AmendLine = {
   lineId: string;
   /** Room and item, e.g. "Master Bedroom — Window 1". */
   label: string;
+  /** A rail with no covering: height is absent, not zero. */
+  trackOnly?: boolean;
   sourceWidthCm: number;
-  sourceHeightCm: number;
+  sourceHeightCm: number | null;
   mfgWidthCm: number;
-  mfgHeightCm: number;
+  mfgHeightCm: number | null;
   mfgSplitLeftCm: number | null;
   mfgSplitRightCm: number | null;
   /** Whether this curtain takes S-fold runners — decides the bead inputs. */
@@ -131,7 +133,7 @@ export function AmendDialog({
           l.lineId,
           {
             width: String(l.mfgWidthCm),
-            height: String(l.mfgHeightCm),
+            height: l.mfgHeightCm == null ? "" : String(l.mfgHeightCm),
             splitLeft:
               l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm),
             splitRight:
@@ -152,7 +154,7 @@ export function AmendDialog({
     const d = drafts[l.lineId];
     return (
       d.width !== String(l.mfgWidthCm) ||
-      d.height !== String(l.mfgHeightCm) ||
+      (l.mfgHeightCm != null && d.height !== String(l.mfgHeightCm)) ||
       d.splitLeft !==
         (l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm)) ||
       d.splitRight !==
@@ -167,7 +169,7 @@ export function AmendDialog({
     const width = parseCm(d.width);
     return (
       width == null ||
-      parseCm(d.height) == null ||
+      (l.mfgHeightCm != null && parseCm(d.height) == null) ||
       (l.mfgSplitLeftCm != null &&
         (splitLeft == null ||
           splitRight == null ||
@@ -195,7 +197,9 @@ export function AmendDialog({
     const payload = changed.map((l) => ({
       lineId: l.lineId,
       mfgWidthCm: parseCm(drafts[l.lineId].width)!,
-      mfgHeightCm: parseCm(drafts[l.lineId].height)!,
+      // A rail has no height to amend — null keeps the stored 0 ("no cut").
+      mfgHeightCm:
+        l.mfgHeightCm == null ? null : parseCm(drafts[l.lineId].height)!,
       ...(l.mfgSplitLeftCm != null && l.mfgSplitRightCm != null
         ? {
             mfgSplitLeftCm: parseCm(drafts[l.lineId].splitLeft)!,
@@ -263,7 +267,8 @@ export function AmendDialog({
                     w != null && Math.abs(splitLeft + splitRight - w) < 0.000001);
                 const moved =
                   d.width !== String(l.mfgWidthCm) ||
-                  d.height !== String(l.mfgHeightCm) ||
+                  (l.mfgHeightCm != null &&
+                    d.height !== String(l.mfgHeightCm)) ||
                   d.splitLeft !==
                     (l.mfgSplitLeftCm == null ? "" : String(l.mfgSplitLeftCm)) ||
                   d.splitRight !==
@@ -280,7 +285,9 @@ export function AmendDialog({
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                       <span className="text-xs text-slate-500 tabular-nums">
-                        Measured {l.sourceWidthCm} × {l.sourceHeightCm} cm
+                        Measured {l.sourceWidthCm}
+                        {l.sourceHeightCm != null ? ` × ${l.sourceHeightCm}` : ""}{" "}
+                        cm
                       </span>
                       <label className="flex items-center gap-1.5 text-xs text-slate-600">
                         W
@@ -304,39 +311,45 @@ export function AmendDialog({
                           }`}
                         />
                       </label>
-                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
-                        H
-                        <input
-                          inputMode="decimal"
-                          aria-label={`${l.label} manufacturing height in cm`}
-                          disabled={pending}
-                          value={d.height}
-                          onChange={(e) =>
-                            setDrafts((s) => ({
-                              ...s,
-                              [l.lineId]: {
-                                ...s[l.lineId],
-                                height: e.target.value,
-                              },
-                            }))
-                          }
-                          className={`${INPUT} ${
-                            h == null
-                              ? "border-rose-400 bg-rose-50"
-                              : moved
-                                ? "border-amber-400 bg-white"
-                                : "border-slate-200 bg-white"
-                          }`}
-                        />
-                      </label>
-                      {moved && w != null && h != null && (
+                      {l.mfgHeightCm != null && (
+                        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                          H
+                          <input
+                            inputMode="decimal"
+                            aria-label={`${l.label} manufacturing height in cm`}
+                            disabled={pending}
+                            value={d.height}
+                            onChange={(e) =>
+                              setDrafts((s) => ({
+                                ...s,
+                                [l.lineId]: {
+                                  ...s[l.lineId],
+                                  height: e.target.value,
+                                },
+                              }))
+                            }
+                            className={`${INPUT} ${
+                              h == null
+                                ? "border-rose-400 bg-rose-50"
+                                : moved
+                                  ? "border-amber-400 bg-white"
+                                  : "border-slate-200 bg-white"
+                            }`}
+                          />
+                        </label>
+                      )}
+                      {moved && w != null && (h != null || l.mfgHeightCm == null) && (
                         <span className="text-xs text-amber-900 tabular-nums">
-                          was {l.mfgWidthCm} × {l.mfgHeightCm} cm · now{" "}
-                          {signedCm(w - l.sourceWidthCm)} /{" "}
-                          {signedCm(h - l.sourceHeightCm)} on the opening
+                          was {l.mfgWidthCm}
+                          {l.mfgHeightCm != null ? ` × ${l.mfgHeightCm}` : ""}{" "}
+                          cm · now {signedCm(w - l.sourceWidthCm)}
+                          {l.sourceHeightCm != null && h != null
+                            ? ` / ${signedCm(h - l.sourceHeightCm)}`
+                            : ""}{" "}
+                          on the opening
                         </span>
                       )}
-                      {(w == null || h == null) && (
+                      {(w == null || (l.mfgHeightCm != null && h == null)) && (
                         <span className="text-xs text-rose-700">
                           Whole centimetres above zero only.
                         </span>

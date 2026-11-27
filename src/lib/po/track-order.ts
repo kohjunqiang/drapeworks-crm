@@ -33,6 +33,14 @@ export type TrackOrderLine = {
   /** "Living Room — Window 1". For the screen; never in the copied text. */
   label: string;
   /**
+   * windows.label — the consultant's own name for the opening, verbatim.
+   * Present only when it was explicitly set: the copied supplier text then
+   * carries the room/window identity after the cut instruction, so the
+   * supplier can match each rail to a named opening. Never derived from the
+   * display label — an unlabeled rail keeps the legacy text byte-for-byte.
+   */
+  windowName?: string | null;
+  /**
    * The RAIL width, in centimetres — the manufacturing width, which already
    * has the allowance taken off it (curtain is seeded at −2 cm and an admin can
    * change it). Nothing here deducts anything: do that twice and every rail in
@@ -120,13 +128,28 @@ function mmToM(mm: number): string {
  * reason catalogue labels are: the person reading this has been reading it that
  * way for years.
  */
-export function trackOrderLine(line: TrackOrderLine): string {
+function cutText(line: TrackOrderLine): string {
   const kindCn = line.kind === "double" ? "双轨" : "单轨";
   return `${cmToM(line.widthCm)}米 ${kindCn}裁成${mmToM(
     cutLengthMm(line.widthCm),
   )}m ${pieceCount(line.widthCm, line.kind)}根配连接器${railLineSuffix(
     line.options,
   )}`;
+}
+
+/**
+ * A named opening rides the copied text so the supplier can mark which rail
+ * goes where — appended AFTER every cut/option wording, so the instruction
+ * itself is untouched. windowName is the explicit stored label, never a
+ * guess parsed from the display label; no name → the legacy text is exact.
+ */
+function withLocation(line: TrackOrderLine, text: string): string {
+  const windowName = line.windowName?.trim();
+  return windowName ? `${text}（${line.label}）` : text;
+}
+
+export function trackOrderLine(line: TrackOrderLine): string {
+  return withLocation(line, cutText(line));
 }
 
 /**
@@ -139,7 +162,7 @@ export function trackOrderLine(line: TrackOrderLine): string {
  * its usual spot beside the piece count.
  */
 export function overlapTrackOrderLine(line: TrackOrderLine): string {
-  return `${trackOrderLine(line)}${extraOrderSuffix(line.options)}`;
+  return withLocation(line, `${cutText(line)}${extraOrderSuffix(line.options)}`);
 }
 
 export function overlapTrackOrderText(

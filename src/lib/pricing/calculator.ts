@@ -151,6 +151,11 @@ export type BreakdownIdentity = {
   roomLabel?: string | null;
   /** Supplied when the caller knows it (mesh); curtains derive it per window. */
   itemDetail?: string | null;
+  /**
+   * An editable per-item label ("Bay window"). Falls back to the numbered
+   * `${itemNoun} N` the breakdown has always printed.
+   */
+  itemLabel?: string | null;
 };
 
 export type AddonPrice = {
@@ -160,6 +165,14 @@ export type AddonPrice = {
 };
 
 export type CalcWindow = BreakdownIdentity & {
+  /**
+   * Track-only: a rail supplied and installed with no covering. The sale side
+   * is installation ONLY — the rail itself is COGS like every other track,
+   * priced per metre of measured width (double = two runs).
+   */
+  trackOnly?: boolean;
+  /** The explicit rail count a track-only window was ordered with. */
+  trackKind?: TrackKind | null;
   dayTrackRequired?: boolean;
   nightTrackRequired?: boolean;
   /**
@@ -317,6 +330,9 @@ function addonLeg(
  * series, once. A blind says so — it is priced by different rules.
  */
 export function windowDetail(win: CalcWindow): string | null {
+  if (win.trackOnly) {
+    return `Track only (${win.trackKind === "double" ? "double" : "single"})`;
+  }
   if (win.blindPrice) {
     return win.blindPrice.label ? `${win.blindPrice.label} (blind)` : null;
   }
@@ -363,7 +379,7 @@ export function groupIntoRooms(
       rooms.set(key, room);
     }
     room.items.push({
-      label: `${itemNoun} ${room.items.length + 1}`,
+      label: item.itemLabel || `${itemNoun} ${room.items.length + 1}`,
       detail: item.detail,
       rmbCents: item.rmbCents,
       ...(item.legs ? { legs: item.legs } : {}),
@@ -458,6 +474,38 @@ export function windowQuote(
   const { styleMultiplier } = a;
   const charged = (legs: CogsLeg[]): CogsLeg[] =>
     legs.filter((leg) => leg.rmbCents !== 0);
+  // Track-only: no covering, no fabric charge — the customer pays for
+  // installation ONLY. The rail is bought per metre of measured width exactly
+  // like a curtain's track (a double is two runs at the same rate), stays
+  // COGS through cogsExtras, and keeps out of the air-freight base.
+  if (win.trackOnly) {
+    const measured = win.widthCm != null && win.widthCm > 0;
+    const kind: TrackKind = win.trackKind === "double" ? "double" : "single";
+    const trackRmbCents = measured
+      ? Math.round(
+          ((win.widthCm as number) / 100) *
+            (kind === "double" ? 2 : 1) *
+            a.trackCostRmbCentsPerM,
+        )
+      : 0;
+    // Rail fittings (S-Fold, slim tracks) are the only add-ons a track-only
+    // window can carry. Their COST counts like on any window; their sale does
+    // NOT — installation is the only thing this window bills.
+    const extra = measured
+      ? addonLegs(win.addons, win.widthCm, win.costWidthCm)
+      : { total: ZERO, legs: [] as CogsLeg[] };
+    return {
+      costRmbCents: trackRmbCents + extra.total.costRmbCents,
+      saleSgdCents: 0,
+      curtainCostRmbCents: 0,
+      // The kind IS the install offering: a single rail installs at the
+      // single rate, a double at the double rate.
+      offering: measured ? kind : "none",
+      trackRmbCents,
+      trackKind: measured ? kind : null,
+      legs: charged(extra.legs),
+    };
+  }
   // A blind window is priced and installed on its own terms: per metre of
   // width, with NO style multiplier (that models gathered fabric fullness, and
   // a blind doesn't gather) and no track (a blind carries its own headrail).
@@ -789,17 +837,22 @@ export function computeQuote(
     (acc, w) => {
       const q = windowQuote(w, a);
       const measuredCurtain =
-        !w.blindPrice && w.widthCm != null && w.widthCm > 0 &&
+        !w.trackOnly && !w.blindPrice && w.widthCm != null && w.widthCm > 0 &&
         (!!w.dayPrice || !!w.nightPrice);
       const addonSale = measuredCurtain
         ? addonLegs(packageQuote ? w.addons?.filter((addon) => !packageAddonKind(addon.label, addon.key)) : w.addons, w.widthCm, w.costWidthCm).total.saleSgdCents
         : 0;
       const nonPackageSale = w.blindPrice ? q.saleSgdCents : addonSale;
+      // A track-only window sells installation and nothing else: the same
+      // handyman rate that is a cost on every other window is the whole sale
+      // here. The rail's COGS still lands in the margin, so the consultant
+      // sees a thin or negative margin rather than a hidden cost.
+      const trackInstallSale = w.trackOnly ? installFor(q.offering, a) : 0;
       return {
         costRmbCents: acc.costRmbCents + q.costRmbCents,
-        saleSgdCents: acc.saleSgdCents + q.saleSgdCents,
+        saleSgdCents: acc.saleSgdCents + q.saleSgdCents + trackInstallSale,
         nonPackageSaleSgdCents:
-          acc.nonPackageSaleSgdCents + nonPackageSale,
+          acc.nonPackageSaleSgdCents + nonPackageSale + trackInstallSale,
         curtainCostRmbCents: acc.curtainCostRmbCents + q.curtainCostRmbCents,
         // "No installation" waives only this leg: every other cost and the
         // sale price are computed exactly as before.

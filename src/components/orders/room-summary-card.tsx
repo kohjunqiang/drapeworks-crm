@@ -1,11 +1,19 @@
 import type { ReactNode } from "react";
 
 import type { RoomType } from "@/lib/db/schema";
+import { windowLabel } from "@/lib/orders/window-label";
 
 import { PhotoStrip, type PhotoTile } from "./photo-strip";
 
 type WindowSummary = {
   position: number;
+  /** Editable per-window location label; falls back to "Window N". */
+  label?: string | null;
+  /** Track-only window — a rail supplied and installed with no covering. */
+  track_only?: boolean;
+  track_kind?: string | null;
+  /** Per-window detail photos (signed tiles). */
+  photos?: PhotoTile[];
   width_cm: number | null;
   height_cm: number | null;
   installation_width_cm?: number | null;
@@ -51,6 +59,102 @@ function dim(a: number | null, b: number | null): string {
   return `${a ?? "—"} × ${b ?? "—"}`;
 }
 
+// First cell of every window row: the consultant's location label (or the
+// "Window N" fallback) plus the window's own detail photos when it has any.
+function WindowCell({ w }: { w: WindowSummary }) {
+  return (
+    <div>
+      <span className="font-medium text-slate-800">
+        {windowLabel(w.position, w.label)}
+      </span>
+      {(w.photos ?? []).length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {(w.photos ?? []).map((p) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={p.id}
+              src={p.signedUrl}
+              alt={p.originalName ?? "Window detail photo"}
+              className="h-10 w-10 rounded border border-slate-200 object-cover"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Track-only windows read as a rail job, not a covering — separate table,
+// the same way blinds already split out.
+function TrackTable({ windows }: { windows: WindowSummary[] }) {
+  const hasInstallation = windows.some(
+    (w) =>
+      w.installation_width_cm != null || w.installation_height_cm != null,
+  );
+  return (
+    <table className="w-full text-xs min-w-[640px]">
+      <thead className="text-slate-500">
+        <tr>
+          <th className="text-left px-4 py-2 font-medium">Window</th>
+          <th className="text-left px-4 py-2 font-medium">Track</th>
+          <th className="text-left px-4 py-2 font-medium">Measured W × H</th>
+          {hasInstallation && (
+            <th className="text-left px-4 py-2 font-medium">
+              Installation W × H
+            </th>
+          )}
+          <th className="text-left px-4 py-2 font-medium">Add-ons</th>
+          <th className="text-left px-4 py-2 font-medium">
+            Installation note
+          </th>
+        </tr>
+      </thead>
+      <tbody className="text-slate-700">
+        {windows.map((w) => (
+          <tr key={w.position} className="border-t border-slate-100">
+            <td className="px-4 py-2">
+              <WindowCell w={w} />
+            </td>
+            <td className="px-4 py-2">
+              Track only —{" "}
+              {w.track_kind === "double" ? "double" : "single"} track
+            </td>
+            <td className="px-4 py-2">{dim(w.width_cm, w.height_cm)}</td>
+            {hasInstallation && (
+              <td
+                className="px-4 py-2 font-medium text-slate-900"
+                title={
+                  w.installation_overridden
+                    ? "Installation correction — original measurement unchanged"
+                    : undefined
+                }
+              >
+                <span className={w.installation_overridden ? "text-teal-700" : undefined}>
+                  {dim(w.installation_width_cm ?? null, w.installation_height_cm ?? null)}
+                </span>
+              </td>
+            )}
+            <td className="px-4 py-2 text-slate-600">
+              {w.addon_labels?.join(", ") || "—"}
+            </td>
+            <td className="px-4 py-2 text-slate-500 whitespace-pre-wrap">
+              {[
+                w.side_installation ? "Side installation" : null,
+                w.overlap_tracks_attachment
+                  ? "Overlap tracks / attachment"
+                  : null,
+                w.notes,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // Curtain-type cell: small hero thumbnail + label. Em-dash when unselected.
 function CurtainCell({
   label,
@@ -86,6 +190,7 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
     <table className="w-full text-xs min-w-[640px]">
       <thead className="text-slate-500">
         <tr>
+          <th className="text-left px-4 py-2 font-medium">Window</th>
           <th className="text-left px-4 py-2 font-medium">Blind</th>
           <th className="text-left px-4 py-2 font-medium">Measured W × H</th>
           {hasInstallation && (
@@ -103,6 +208,9 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
       <tbody className="text-slate-700">
         {windows.map((w) => (
           <tr key={w.position} className="border-t border-slate-100">
+            <td className="px-4 py-2">
+              <WindowCell w={w} />
+            </td>
             <td className="px-4 py-2">
               <CurtainCell label={w.blind_label} photoUrl={w.blind_photo_url} />
             </td>
@@ -131,7 +239,7 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
             <td className="px-4 py-2 text-slate-600">
               {w.addon_labels?.join(", ") || "—"}
             </td>
-            <td className="px-4 py-2 text-slate-500">
+            <td className="px-4 py-2 text-slate-500 whitespace-pre-wrap">
               {[
                 w.side_installation ? "Side installation" : null,
                 w.no_installation ? "No installation" : null,
@@ -148,10 +256,11 @@ function BlindTable({ windows }: { windows: WindowSummary[] }) {
 }
 
 export function RoomSummaryCard({ label, windows, photos, roomNote, orderControls }: Props) {
-  // A room can mix the two — curtains on one window, a blind on the next — so
-  // the split is per window, not per room.
-  const blindWindows = windows.filter((w) => w.is_blind);
-  const curtainWindows = windows.filter((w) => !w.is_blind);
+  // A room can mix all three — curtains on one window, a blind on the next, a
+  // bare rail on the third — so the split is per window, not per room.
+  const blindWindows = windows.filter((w) => w.is_blind && !w.track_only);
+  const trackWindows = windows.filter((w) => w.track_only);
+  const curtainWindows = windows.filter((w) => !w.is_blind && !w.track_only);
   const hasCurtainInstallation = curtainWindows.some(
     (w) =>
       w.installation_width_cm != null || w.installation_height_cm != null,
@@ -173,6 +282,7 @@ export function RoomSummaryCard({ label, windows, photos, roomNote, orderControl
           <table className="w-full text-xs min-w-[640px]">
             <thead className="text-slate-500">
               <tr>
+                <th className="text-left px-4 py-2 font-medium">Window</th>
                 <th className="text-left px-4 py-2 font-medium">Day Curtain</th>
                 <th className="text-left px-4 py-2 font-medium">
                   Night Curtain
@@ -195,6 +305,9 @@ export function RoomSummaryCard({ label, windows, photos, roomNote, orderControl
             <tbody className="text-slate-700">
               {curtainWindows.map((w) => (
                 <tr key={w.position} className="border-t border-slate-100">
+                  <td className="px-4 py-2">
+                    <WindowCell w={w} />
+                  </td>
                   <td className="px-4 py-2">
                     <CurtainCell
                       label={w.day_curtain_label}
@@ -255,7 +368,7 @@ export function RoomSummaryCard({ label, windows, photos, roomNote, orderControl
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-2 text-slate-500">
+                  <td className="px-4 py-2 text-slate-500 whitespace-pre-wrap">
                     {[
                       w.side_installation ? "Side installation" : null,
                       w.no_installation ? "No installation" : null,
@@ -273,6 +386,7 @@ export function RoomSummaryCard({ label, windows, photos, roomNote, orderControl
           </table>
         )}
         {blindWindows.length > 0 && <BlindTable windows={blindWindows} />}
+        {trackWindows.length > 0 && <TrackTable windows={trackWindows} />}
       </div>
       <PhotoStrip photos={photos} />
     </div>

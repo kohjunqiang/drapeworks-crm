@@ -136,7 +136,7 @@ export function MeshConsultationForm({
     mode === "create" ? meshOrderCreateSchema : meshOrderEditSchema;
   const initial = defaultValues ?? (appointment ? {
     ...EMPTY_DEFAULTS,
-    customer: { name: appointment.customer.name, mobile: appointment.customer.mobile, email: appointment.customer.email ?? "" },
+    customer: { name: appointment.customer.name, salutation: appointment.customer.salutation ?? "", mobile: appointment.customer.mobile, email: appointment.customer.email ?? "" },
     order: {
       ...EMPTY_DEFAULTS.order,
       development: appointment.development ?? "",

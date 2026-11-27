@@ -20,6 +20,9 @@ export type FabricNoteWindow = {
   dayPage: string | null;
   nightLabel: string | null;
   blindLabel: string | null;
+  /** Track-only window — a rail with no covering. */
+  trackOnly?: boolean;
+  trackKind?: string | null;
   overlapTracksAttachment: boolean;
   addons: FabricNoteAddon[];
 };
@@ -42,7 +45,11 @@ export function quotationRoomCode(room: { type: string; label: string }): string
 // window contributes nothing — including its add-ons and track flags).
 function windowBody(window: FabricNoteWindow): string | null {
   const parts: string[] = [];
-  if (window.blindLabel) {
+  if (window.trackOnly) {
+    parts.push(
+      `Track only — ${window.trackKind === "double" ? "double" : "single"} track`,
+    );
+  } else if (window.blindLabel) {
     parts.push(`Blind ${window.blindLabel}`);
   } else {
     if (window.dayLabel) {

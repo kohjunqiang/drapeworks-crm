@@ -116,10 +116,13 @@ export const amendManufactureLineSchema = z.object({
     .number()
     .multipleOf(0.01, "Use up to 2 decimal places")
     .positive("Manufacturing width must be above zero"),
+  // Nullable because a track-only rail has no height to cut; the action
+  // refuses a null on a line whose stored source had a real height.
   mfgHeightCm: z
     .number()
     .multipleOf(0.01, "Use up to 2 decimal places")
-    .positive("Manufacturing height must be above zero"),
+    .positive("Manufacturing height must be above zero")
+    .nullable(),
   mfgSplitLeftCm: z.number().multipleOf(0.01).positive().nullable().optional(),
   mfgSplitRightCm: z.number().multipleOf(0.01).positive().nullable().optional(),
   ...beadFields,

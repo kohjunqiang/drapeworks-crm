@@ -13,6 +13,7 @@ export const ZOHO_BOOKS_SCOPES = [
   "ZohoBooks.settings.READ",
   "ZohoBooks.contacts.READ",
   "ZohoBooks.contacts.CREATE",
+  "ZohoBooks.contacts.UPDATE",
   "ZohoBooks.estimates.READ",
   "ZohoBooks.estimates.CREATE",
   "ZohoBooks.estimates.UPDATE",

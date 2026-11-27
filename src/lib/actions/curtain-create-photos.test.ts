@@ -9,7 +9,11 @@ vi.mock("@/lib/db/kysely", () => ({ db: { transaction: mocks.transaction } }));
 vi.mock("@/lib/db/mesh-catalogue", () => ({ loadActiveMeshSystemBands: async () => [] }));
 vi.mock("@/lib/orders/mesh-system", () => ({ meshSystemProblems: () => [] }));
 vi.mock("@/lib/actions/order-customer", () => ({ resolveOrderCustomer: async () => ({ customerId: "customer", appointmentId: null, leadId: null }), completeAppointmentForOrder: vi.fn(), updateOrderCustomerIdentity: vi.fn() }));
-vi.mock("@/lib/actions/order-shared", () => ({ SEQ_PLACEHOLDERS: {}, orderMetaColumns: () => ({}), stampQuoteBaseline: vi.fn(), cloneTemplateRoomPhotos: mocks.clone, sweepPhotoStorage: vi.fn(), collectOrphanPhotoPaths: vi.fn(), deleteDroppedRooms: vi.fn() }));
+vi.mock("@/lib/actions/order-shared", () => ({ SEQ_PLACEHOLDERS: {}, orderMetaColumns: () => ({}), stampQuoteBaseline: vi.fn(), cloneTemplateRoomPhotos: mocks.clone, cloneTemplateWindowPhotos: vi.fn(), sweepPhotoStorage: vi.fn(), sweepWindowPhotoStorage: vi.fn(), collectOrphanPhotoPaths: vi.fn(), collectDroppedWindowPhotoPaths: vi.fn(async () => []), collectOrphanWindowPhotoPaths: vi.fn(async () => []), deleteDroppedRooms: vi.fn() }));
+vi.mock("@/lib/zoho/salutation-sync", () => ({
+  syncZohoSalutation: vi.fn(),
+  queueZohoSalutationSync: vi.fn(),
+}));
 vi.mock("@/lib/calendar/google", () => ({ deleteEvent: vi.fn(), isCalendarConfigured: () => false }));
 vi.mock("@/lib/calendar/fulfilment-sync", () => ({ syncFulfilmentArrangement: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ adminClient: vi.fn() }));
@@ -23,15 +27,16 @@ const input = {
 beforeEach(() => {
   vi.clearAllMocks();
   let room = 0;
+  let win = 0;
   const trx = { deleteFrom: () => ({ where: () => ({ execute: async () => [] }) }), insertInto: (table: string) => {
-    const query = { values: () => query, returning: () => query, execute: async () => [], executeTakeFirstOrThrow: async () => ({ id: table === "rooms" ? `room-${room++}` : "order-1" }) };
+    const query = { values: () => query, returning: () => query, execute: async () => [], executeTakeFirstOrThrow: async () => ({ id: table === "rooms" ? `room-${room++}` : table === "windows" ? `window-${win++}` : "order-1" }) };
     return query;
   } };
   mocks.transaction.mockReturnValue({ execute: async (fn: (tx: typeof trx) => unknown) => fn(trx) });
   mocks.redirect.mockImplementation(() => { throw new Error("NEXT_REDIRECT"); });
 });
-it.each([createOrder, createOrderDraft])("returns committed room IDs in form order for photo uploads", async (create) => {
-  expect(await create(input, true)).toEqual({ orderId: "order-1", roomIds: ["room-0", "room-1"] });
+it.each([createOrder, createOrderDraft])("returns committed room and window IDs in form order for photo uploads", async (create) => {
+  expect(await create(input, true)).toEqual({ orderId: "order-1", roomIds: ["room-0", "room-1"], windowIds: [["window-0"], ["window-1"]] });
   expect(mocks.redirect).not.toHaveBeenCalled();
   expect(revalidatePath).toHaveBeenCalledWith("/orders");
 });

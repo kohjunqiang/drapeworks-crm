@@ -5,6 +5,8 @@ import { OrdersCards } from "@/components/orders/orders-cards";
 import { OrdersFilters } from "@/components/orders/orders-filters";
 import { OrdersStats } from "@/components/orders/orders-stats";
 import { OrdersTable, type OrderRow } from "@/components/orders/orders-table";
+import { OrderSelectionProvider } from "@/components/orders/order-selection";
+import { OrdersFreightToolbar } from "@/components/orders/order-select-controls";
 import {
   FreightManagerProvider,
   ManageFreightButton,
@@ -408,10 +410,20 @@ export default async function OrdersDashboardPage({
     return `/orders?${params.toString()}`;
   }
 
+  const canManage = session.profile.role === "ops" || session.profile.role === "admin";
+
   return (
+    <OrderSelectionProvider
+      actorId={session.user.id}
+      canSelect={canManage}
+      pageOrders={orders.map((o) => ({
+        id: o.id,
+        label: primaryOrderIdentifier(o.order_reference, o.display_id),
+      }))}
+    >
     <FreightManagerProvider
       components={freightComponents}
-      canManage={session.profile.role === "ops" || session.profile.role === "admin"}
+      canManage={canManage}
       referenceTime={new Date().toISOString()}
     >
     <main className="mx-auto max-w-[1536px] px-4 py-6 sm:px-6 sm:py-8">
@@ -425,7 +437,7 @@ export default async function OrdersDashboardPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {(session.profile.role === "ops" || session.profile.role === "admin") && (
+          {canManage && (
             <ManageFreightButton />
           )}
           <Link
@@ -490,9 +502,11 @@ export default async function OrdersDashboardPage({
         />
       ) : (
         <>
+          <OrdersFreightToolbar />
           <OrdersTable
             orders={orders}
             canDelete={session.profile.role === "admin"}
+            canSelect={canManage}
             sort={sort}
             direction={direction}
             sortHrefs={{
@@ -500,7 +514,7 @@ export default async function OrdersDashboardPage({
               status: sortHref("status"),
             }}
           />
-          <OrdersCards orders={orders} canDelete={session.profile.role === "admin"} />
+          <OrdersCards orders={orders} canDelete={session.profile.role === "admin"} canSelect={canManage} />
           <nav aria-label="Orders pagination" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
             <span>Showing {pagination.first}–{pagination.last} of {totalOrders} orders</span>
             <div className="flex items-center gap-3">
@@ -517,5 +531,6 @@ export default async function OrdersDashboardPage({
       )}
     </main>
     </FreightManagerProvider>
+    </OrderSelectionProvider>
   );
 }

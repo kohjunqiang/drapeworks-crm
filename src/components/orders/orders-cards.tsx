@@ -9,10 +9,12 @@ import { productLineLabel } from "./orders-table";
 import { StatusBadge } from "./status-badge";
 import type { OrderRow } from "./orders-table";
 import { DeleteOrderDialog } from "./delete-order-dialog";
+import { OrderSelectCheckbox, SelectPageRow } from "./order-select-controls";
 
 type Props = {
   orders: OrderRow[];
   canDelete?: boolean;
+  canSelect?: boolean;
 };
 
 const SG_DATE = new Intl.DateTimeFormat("en-GB", {
@@ -26,12 +28,24 @@ function formatDate(d: Date | string | null): string {
   return SG_DATE.format(new Date(d));
 }
 
-export function OrdersCards({ orders, canDelete = false }: Props) {
+export function OrdersCards({ orders, canDelete = false, canSelect = false }: Props) {
   return (
     <div className="md:hidden space-y-3">
+      {canSelect && <SelectPageRow />}
       {orders.map((o) => (
         <article key={o.id} className="rounded-lg border border-slate-200 bg-white p-4">
-          <Link href={`/orders/${o.id}`} className="block active:bg-slate-50">
+          <div className="flex items-start gap-1">
+            {/* 44px target deliberately outside the card link — tapping it must
+                never navigate. */}
+            {canSelect && (
+              <OrderSelectCheckbox
+                order={{
+                  id: o.id,
+                  label: primaryOrderIdentifier(o.order_reference, o.display_id),
+                }}
+              />
+            )}
+          <Link href={`/orders/${o.id}`} className="block min-w-0 flex-1 active:bg-slate-50">
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-slate-900 truncate">
@@ -62,6 +76,7 @@ export function OrdersCards({ orders, canDelete = false }: Props) {
             Product: {productLineLabel(o.product_line)}
           </div>
           </Link>
+          </div>
           {(o.shipments.length > 0 || o.hasFreightComponents) && (
             <div className="mt-2 space-y-1.5 text-xs">
               <div className="font-medium text-slate-600">Shippable items / freight</div>

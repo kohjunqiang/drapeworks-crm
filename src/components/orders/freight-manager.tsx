@@ -5,11 +5,12 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
 } from "react";
-import { Check, Clock3, PackageSearch, Truck } from "lucide-react";
+import { Check, Clock3, PackageSearch, RefreshCw, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -25,12 +26,21 @@ import {
 } from "@/components/ui/sheet";
 import {
   assignFreightComponents,
+  getScopedFreightComponents,
   setShipmentNotNeeded,
   saveShipmentArrivals,
 } from "@/lib/actions/logistics";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { canRecordShipmentArrival } from "@/lib/logistics/arrival-status";
 import { formatFreightAge, normalizeFreightNumber } from "@/lib/logistics/freight";
+import {
+  eligibleUnassignedKeys,
+  FREIGHT_COMPONENT_LIMIT,
+  freightAssignmentPayload,
+  freightComponentKey,
+  retainedScopedKeys,
+  type ScopedFreightOrder,
+} from "@/lib/logistics/freight-scope";
 import {
   SHIPMENT_CATEGORY_LABELS,
   type ShipmentCategory,
@@ -55,12 +65,22 @@ export type FreightComponent = {
 
 type FreightManagerContextValue = {
   openFreight: (freightNumber?: string, search?: string, target?: Pick<FreightComponent, "orderId" | "category">) => void;
+  /**
+   * Scoped bulk mode: the sheet shows only the chosen orders' components —
+   * existing freight members outside the selection never enter the manifest.
+   * `onSaved` runs after a successful scoped save (e.g. clearing selection).
+   */
+  openScopedFreight: (orderIds: string[], onSaved?: () => void) => void;
 };
 
 const FreightManagerContext = createContext<FreightManagerContextValue | null>(null);
 
+export function useFreightManager() {
+  return useContext(FreightManagerContext);
+}
+
 function componentKey(component: Pick<FreightComponent, "orderId" | "category">) {
-  return `${component.orderId}:${component.category}`;
+  return freightComponentKey(component.orderId, component.category);
 }
 
 function selectionForCode(components: FreightComponent[], freightNumber: string) {
@@ -100,6 +120,23 @@ export function FreightManagerProvider({
   const [confirmReassign, setConfirmReassign] = useState(false);
   const [pending, startTransition] = useTransition();
   const [arrivalPending, startArrivalTransition] = useTransition();
+  // Scoped bulk mode: null means the ordinary global flow.
+  const [scope, setScope] = useState<{ orderIds: string[]; onSaved?: () => void } | null>(null);
+  const [scopedOrders, setScopedOrders] = useState<ScopedFreightOrder[] | null>(null);
+  const [missingOrderIds, setMissingOrderIds] = useState<string[]>([]);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  // Stale-load guard: only the latest scoped fetch may write results.
+  const scopeSeqRef = useRef(0);
+
+  const resetScope = useCallback(() => {
+    scopeSeqRef.current += 1;
+    setScope(null);
+    setScopedOrders(null);
+    setMissingOrderIds([]);
+    setScopeLoading(false);
+    setScopeError(null);
+  }, []);
 
   const openFreight = useCallback((number = "", initialSearch = "", target?: Pick<FreightComponent, "orderId" | "category">) => {
     const normalized = normalizeFreightNumber(number);
@@ -107,6 +144,7 @@ export function FreightManagerProvider({
     const targetKey = target && components.some((component) =>
       componentKey(component) === componentKey(target))
       ? componentKey(target) : null;
+    resetScope();
     setAssignmentTarget(targetKey);
     setFreightNumber(normalized);
     setSelected(new Set([...initial, ...(targetKey && components.find((component) => componentKey(component) === targetKey)?.assignable ? [targetKey] : [])]));
@@ -114,7 +152,73 @@ export function FreightManagerProvider({
     setSearch(initialSearch);
     setConfirmReassign(false);
     setOpen(true);
-  }, [components]);
+  }, [components, resetScope]);
+
+  const loadScoped = useCallback((orderIds: string[], preservePicks = false) => {
+    const seq = ++scopeSeqRef.current;
+    setScopeLoading(true);
+    setScopeError(null);
+    getScopedFreightComponents({ orderIds })
+      .then((result) => {
+        if (scopeSeqRef.current !== seq) return;
+        setScopedOrders(result.orders);
+        setMissingOrderIds(result.missingOrderIds);
+        setScopeLoading(false);
+        if (!preservePicks) return;
+        // A reload keeps the typed code and every pick still assignable under
+        // the fresh facts; a stale reassign confirmation never carries over.
+        setConfirmReassign(false);
+        setSelected((current) => {
+          const { kept, dropped } = retainedScopedKeys(
+            result.orders,
+            current,
+            freightNumber,
+          );
+          if (dropped > 0) {
+            toast.error(
+              `${dropped} selected component${dropped === 1 ? " is" : "s are"} no longer available — removed from this draft. Review before saving.`,
+            );
+          }
+          return kept;
+        });
+      })
+      .catch((error) => {
+        if (scopeSeqRef.current !== seq) return;
+        // A reload failure keeps the existing manifest visible, but the save
+        // stays blocked until facts refresh — stale data is never trusted.
+        if (!preservePicks) {
+          setScopedOrders(null);
+          setMissingOrderIds([]);
+        }
+        setScopeError(error instanceof Error ? error.message : "Could not load the selected orders");
+        setScopeLoading(false);
+      });
+  }, [freightNumber]);
+
+  const openScopedFreight = useCallback((orderIds: string[], onSaved?: () => void) => {
+    const uniqueIds = [...new Set(orderIds)];
+    if (!uniqueIds.length) return;
+    // Components deliberately start unchecked — picking them is the point of
+    // the scoped sheet, not a copy of whatever code they already carry.
+    setScope({ orderIds: uniqueIds, onSaved });
+    setScopedOrders(null);
+    setMissingOrderIds([]);
+    setAssignmentTarget(null);
+    setFreightNumber("");
+    setSelected(new Set());
+    setSavedSelection(new Set());
+    setSearch("");
+    setConfirmReassign(false);
+    setOpen(true);
+    loadScoped(uniqueIds);
+  }, [loadScoped]);
+
+  // Explicit refresh inside the scoped sheet: re-fetches the orders' freight
+  // facts while preserving picks that are still eligible, and doubles as the
+  // Retry path after a failed load.
+  const reloadScoped = useCallback(() => {
+    if (scope) loadScoped(scope.orderIds, true);
+  }, [scope, loadScoped]);
 
   const targetComponent = components.find((component) => componentKey(component) === assignmentTarget);
   function toggleNeeded() {
@@ -135,15 +239,22 @@ export function FreightManagerProvider({
   }
 
   const normalizedFreight = normalizeFreightNumber(freightNumber);
+  // The scoped pool is only the chosen orders' components — the global list
+  // (and therefore other members of the typed code) is never consulted here.
+  const scopedFlat = useMemo(
+    () => scopedOrders?.flatMap((order) => order.components) ?? null,
+    [scopedOrders],
+  );
   const currentMembers = useMemo(
-    () => components.filter((component) =>
+    () => scope ? [] : components.filter((component) =>
       component.freightNumber &&
       normalizeFreightNumber(component.freightNumber) === normalizedFreight),
-    [components, normalizedFreight],
+    [components, normalizedFreight, scope],
   );
   const selectedComponents = useMemo(
-    () => components.filter((component) => selected.has(componentKey(component))),
-    [components, selected],
+    () => (scope ? scopedFlat ?? [] : components).filter((component) =>
+      selected.has(componentKey(component))),
+    [components, scopedFlat, selected, scope],
   );
   const reassignments = selectedComponents.filter((component) =>
     component.freightNumber &&
@@ -196,6 +307,12 @@ export function FreightManagerProvider({
 
   function changeFreightNumber(value: string) {
     setFreightNumber(value);
+    // Scoped mode keeps the user's component picks while the code changes —
+    // the code is what they type, not a driver of the manifest.
+    if (scope) {
+      setConfirmReassign(false);
+      return;
+    }
     const existing = selectionForCode(components, value);
     setSelected(new Set([...existing, ...(assignmentTarget && components.find((component) => componentKey(component) === assignmentTarget)?.assignable ? [assignmentTarget] : [])]));
     setSavedSelection(new Set(existing));
@@ -213,21 +330,43 @@ export function FreightManagerProvider({
     setConfirmReassign(false);
   }
 
+  function selectAllEligibleUnassigned() {
+    if (!scopedOrders) return;
+    setSelected((current) => new Set([...current, ...eligibleUnassignedKeys(scopedOrders)]));
+  }
+
+  function clearPickedComponents() {
+    setSelected(new Set());
+    setConfirmReassign(false);
+  }
+
   function saveAssignments() {
     startTransition(async () => {
       try {
+        // Scoped saves submit only the chosen components and the freight code
+        // each carried at load time — the server fails the whole save if a
+        // code moved underneath the confirmation.
+        const payload = scope && scopedOrders
+          ? freightAssignmentPayload(scopedOrders, selected)
+          : selectedComponents.map(({ orderId, category }) => ({
+              orderId,
+              category,
+            }));
         await assignFreightComponents({
           freightNumber: normalizedFreight,
-          components: selectedComponents.map(({ orderId, category }) => ({
-            orderId,
-            category,
-          })),
+          components: payload,
           confirmReassign,
         });
-        setSavedSelection(new Set(selected));
         toast.success(
-          `${normalizedFreight} assigned to ${selected.size} component${selected.size === 1 ? "" : "s"}`,
+          `${normalizedFreight} assigned to ${payload.length} component${payload.length === 1 ? "" : "s"}`,
         );
+        if (scope) {
+          scope.onSaved?.();
+          resetScope();
+          setOpen(false);
+        } else {
+          setSavedSelection(new Set(selected));
+        }
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not save freight assignments");
@@ -292,28 +431,56 @@ export function FreightManagerProvider({
     });
   }
 
+  // Scoped search: order-level hits keep every component; otherwise only the
+  // matching components show — never silently dropping a picked order.
+  const filteredScopedOrders = useMemo(() => {
+    if (!scopedOrders) return [];
+    const needle = search.trim().toLowerCase();
+    if (!needle) return scopedOrders;
+    return scopedOrders.flatMap((order) => {
+      const orderMatch = [order.orderIdentifier, order.customerName, order.development]
+        .some((value) => value?.toLowerCase().includes(needle));
+      if (orderMatch) return [order];
+      const components = order.components.filter((component) =>
+        [SHIPMENT_CATEGORY_LABELS[component.category], component.freightNumber]
+          .some((value) => value?.toLowerCase().includes(needle)));
+      return components.length ? [{ ...order, components }] : [];
+    });
+  }, [scopedOrders, search]);
+
+  const eligibleUnassignedCount = useMemo(
+    () => (scopedOrders ? eligibleUnassignedKeys(scopedOrders).size : 0),
+    [scopedOrders],
+  );
+
   const dirty = !sameSelection(selected, savedSelection);
+  const overLimit = selected.size > FREIGHT_COMPONENT_LIMIT;
   const canSave = canManage && Boolean(normalizedFreight) && selected.size > 0 &&
-    dirty && (reassignments.length === 0 || confirmReassign);
+    dirty && (reassignments.length === 0 || confirmReassign) &&
+    !overLimit &&
+    (!scope || (Boolean(scopedOrders) && !scopeLoading && !scopeError));
 
   return (
-    <FreightManagerContext.Provider value={{ openFreight }}>
+    <FreightManagerContext.Provider value={{ openFreight, openScopedFreight }}>
       {children}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent className="!w-full gap-0 sm:!w-[640px] sm:!max-w-[640px] [&_button]:min-h-11 [&_button]:min-w-11 [&_input:not([type=checkbox])]:min-h-11 [&_input]:text-base sm:[&_input]:text-sm">
           <SheetHeader className="border-b border-slate-200 px-5 py-4 pr-14">
             <SheetTitle className="flex items-center gap-2 text-lg">
-              <Truck className="size-5 text-teal-700" /> Manage overseas freight
+              <Truck className="size-5 text-teal-700" />{" "}
+              {scope ? "Assign freight to selected orders" : "Manage overseas freight"}
             </SheetTitle>
             <SheetDescription>
-              Enter one code, then link all order components travelling together.
+              {scope
+                ? `Enter one code, then link components from the ${scope.orderIds.length} selected order${scope.orderIds.length === 1 ? "" : "s"}.`
+                : "Enter one code, then link all order components travelling together."}
             </SheetDescription>
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto">
             <div className={`space-y-4 p-5 ${normalizedFreight ? "border-b border-slate-200" : ""}`}>
               <div className="space-y-1.5">
-                {targetComponent && canManage && !targetComponent.freightNumber && !targetComponent.arrivedCheckedAt && (
+                {targetComponent && canManage && !scope && !targetComponent.freightNumber && !targetComponent.arrivedCheckedAt && (
                   <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-sm font-medium">{targetComponent.orderIdentifier} · {SHIPMENT_CATEGORY_LABELS[targetComponent.category]}</p>
                     <p className="mt-1 text-xs text-slate-600">{targetComponent.notNeeded ? "This shipment is not needed. Restore it to assign freight." : "If this shipment is not required for the order, mark it Not needed."}</p>
@@ -372,13 +539,15 @@ export function FreightManagerProvider({
                 </div>
               )}
 
-              {normalizedFreight && (
+              {(normalizedFreight || (scope && Boolean(scopedOrders))) && (
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-slate-700">
                     Order components
                   </p>
                   <p className="text-xs text-slate-500">
-                    Choose every curtain, blind or track travelling under this code.
+                    {scope
+                      ? "Choose every curtain, blind or track travelling under this code — only the selected orders are listed."
+                      : "Choose every curtain, blind or track travelling under this code."}
                   </p>
                   <label htmlFor="freight-component-search" className="block pt-2 text-xs font-medium text-slate-600">
                     Filter orders <span className="font-normal text-slate-400">(optional)</span>
@@ -397,7 +566,130 @@ export function FreightManagerProvider({
               )}
             </div>
 
-            {normalizedFreight && <div className="space-y-3 p-5">
+            {scope ? <div className="space-y-3 p-5">
+              {scopeLoading && (
+                <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                  Loading shipment components for {scope.orderIds.length} selected order{scope.orderIds.length === 1 ? "" : "s"}…
+                </p>
+              )}
+              {scopeError && (
+                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+                  <p>{scopeError}</p>
+                  <button
+                    type="button"
+                    onClick={reloadScoped}
+                    disabled={scopeLoading}
+                    className="mt-2 inline-flex h-11 items-center rounded-lg border border-red-300 bg-white px-3 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+              {!scopeLoading && !scopeError && scopedOrders && <>
+                {missingOrderIds.length > 0 && (
+                  <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {missingOrderIds.length} selected order{missingOrderIds.length === 1 ? "" : "s"} could not be loaded — they may have been deleted. Clear the selection to pick again.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllEligibleUnassigned}
+                    disabled={!canManage || !eligibleUnassignedCount}
+                    className="inline-flex h-11 items-center rounded-lg border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800 hover:bg-teal-50 disabled:opacity-50"
+                  >
+                    Select all eligible unassigned{eligibleUnassignedCount ? ` (${eligibleUnassignedCount})` : ""}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearPickedComponents}
+                    disabled={!canManage || !selected.size}
+                    className="inline-flex h-11 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    Clear components
+                  </button>
+                  <button
+                    type="button"
+                    onClick={reloadScoped}
+                    disabled={scopeLoading}
+                    className="inline-flex h-11 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`size-3.5 ${scopeLoading ? "animate-spin" : ""}`} />
+                    {scopeLoading ? "Reloading…" : "Reload orders"}
+                  </button>
+                </div>
+                {filteredScopedOrders.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
+                    No order components match this filter.
+                  </div>
+                ) : filteredScopedOrders.map((order) => (
+                  <section key={order.orderId} className="overflow-hidden rounded-lg border border-slate-200">
+                    <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="font-semibold text-slate-900">Order {order.orderIdentifier}</p>
+                        <p className="truncate text-xs text-slate-500">{order.customerName}</p>
+                      </div>
+                      {order.development && <p className="mt-0.5 truncate text-xs text-slate-500">{order.development}</p>}
+                    </div>
+                    {order.components.length === 0 ? (
+                      <p className="px-3 py-3 text-sm text-slate-500">
+                        No shipment components — review the vendor orders first.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {order.components.map((component) => {
+                          const key = freightComponentKey(component.orderId, component.category);
+                          const belongsToCurrent = Boolean(
+                            normalizedFreight && component.freightNumber &&
+                            normalizeFreightNumber(component.freightNumber) === normalizedFreight,
+                          );
+                          return (
+                            <div key={key} className="flex items-center gap-3 px-3 py-3">
+                              <label className="-my-2 inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  checked={belongsToCurrent || selected.has(key)}
+                                  disabled={!canManage || !component.assignable || belongsToCurrent}
+                                  aria-label={`Assign ${SHIPMENT_CATEGORY_LABELS[component.category]} from order ${component.orderIdentifier}`}
+                                  className="h-5 w-5 accent-teal-600"
+                                  onChange={() => toggleComponent(component)}
+                                />
+                              </label>
+                              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${shipmentCategoryTone(component.category).dot}`} />
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-slate-800">{SHIPMENT_CATEGORY_LABELS[component.category]}</p>
+                                {belongsToCurrent && (
+                                  <p className="mt-0.5 text-xs text-slate-500">Already on this code</p>
+                                )}
+                                {component.freightNumber && !belongsToCurrent && (
+                                  component.assignable ? (
+                                    <p className="mt-0.5 text-xs text-red-600">
+                                      Currently {component.freightNumber} · selecting will reassign
+                                    </p>
+                                  ) : (
+                                    <p className="mt-0.5 text-xs text-slate-500">
+                                      Current freight: {component.freightNumber}
+                                    </p>
+                                  )
+                                )}
+                                {!component.assignable && component.unavailableReason && (
+                                  <p className="mt-0.5 text-xs text-slate-500">{component.unavailableReason}</p>
+                                )}
+                              </div>
+                              {component.arrivedCheckedAt && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
+                                  <Check className="size-3" /> Arrived
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </>}
+            </div> : normalizedFreight && <div className="space-y-3 p-5">
               {grouped.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
                   No order components match this filter.
@@ -471,7 +763,12 @@ export function FreightManagerProvider({
             </div>}
           </div>
 
-          {normalizedFreight && <SheetFooter className="border-t border-slate-200 bg-white px-5 py-4">
+          {(normalizedFreight || scope) && <SheetFooter className="border-t border-slate-200 bg-white px-5 py-4">
+            {scope && overLimit && (
+              <p role="alert" className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                Select at most {FREIGHT_COMPONENT_LIMIT} components per assignment — deselect {selected.size - FREIGHT_COMPONENT_LIMIT} to continue. The save is never split into partial batches.
+              </p>
+            )}
             {reassignments.length > 0 && (
               <label className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 <input
@@ -484,12 +781,12 @@ export function FreightManagerProvider({
               </label>
             )}
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-slate-600">
+              <p aria-live="polite" className="text-xs text-slate-600">
                 <span className="font-semibold text-slate-900">{selected.size}</span> component{selected.size === 1 ? "" : "s"} across{" "}
                 <span className="font-semibold text-slate-900">{selectedOrderCount}</span> order{selectedOrderCount === 1 ? "" : "s"}
               </p>
               <Button type="button" disabled={!canSave || pending} onClick={saveAssignments}>
-                {pending ? "Saving…" : currentMembers.length > 0 ? "Save assignments" : `Create ${normalizedFreight || "freight"}`}
+                {pending ? "Saving…" : scope ? "Assign freight" : currentMembers.length > 0 ? "Save assignments" : `Create ${normalizedFreight || "freight"}`}
               </Button>
             </div>
           </SheetFooter>}

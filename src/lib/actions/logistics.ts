@@ -16,10 +16,17 @@ import {
   usableFreightNumber,
 } from "@/lib/logistics/freight";
 import {
+  freightUnavailableReason,
+  isFreightAssignable,
+  type ScopedFreightComponent,
+  type ScopedFreightOrder,
+} from "@/lib/logistics/freight-scope";
+import {
   hasExactShipmentCategories,
   requiresLocalDelivery,
   SHIPMENT_CATEGORIES,
 } from "@/lib/logistics/shipments";
+import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { statusIndex } from "@/lib/status-flow";
 
 const optionalNumber = z.string().max(200).nullable()
@@ -143,6 +150,11 @@ export async function saveDeliveryNumbers(input: unknown): Promise<void> {
 const freightComponentSchema = z.object({
   orderId: z.string().uuid(),
   category: z.enum(SHIPMENT_CATEGORIES),
+  // Optional expected-state: the usable freight code the caller saw at load
+  // time. When present, a component whose code moved under the caller — for
+  // example after a reassign was confirmed against an older code — fails the
+  // whole save instead of being moved under a stale confirmation.
+  expectedFreightNumber: z.string().max(200).nullable().optional(),
 });
 
 const freightAssignmentSchema = z.object({
@@ -198,6 +210,10 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
       freightComponentKey(row.order_id, row.category),
       row,
     ]));
+    const expected = new Map(parsed.components.map((component) => [
+      freightComponentKey(component.orderId, component.category),
+      component.expectedFreightNumber,
+    ]));
     const now = new Date();
     const affected = new Set<string>();
 
@@ -205,6 +221,26 @@ export async function assignFreightComponents(input: unknown): Promise<void> {
       if (row.not_needed) throw new Error("This shipment is marked Not needed. Restore it before assigning freight.");
       const existingNumber = usableFreightNumber(row.overseas_freight_number) ?? "";
       const existingNormalized = normalizeFreightNumber(existingNumber);
+      const expectedNumber = expected.get(freightComponentKey(row.order_id, row.category));
+      if (
+        expectedNumber !== undefined &&
+        existingNormalized !== normalizeFreightNumber(usableFreightNumber(expectedNumber) ?? "")
+      ) {
+        throw new Error(
+          "A shipment's freight code changed since you loaded it. Reload the selected orders and try again.",
+        );
+      }
+      // Expected-state callers loaded a scoped manifest — guard the whole
+      // eligibility window, not just the code: an order that advanced past
+      // shipping under the stale UI must fail here, not get a new code.
+      if (
+        expectedNumber !== undefined &&
+        statusIndex(row.current_status) > statusIndex("shipping_sg")
+      ) {
+        throw new Error(
+          "An order moved past the freight stage since you loaded it. Reload the selected orders and try again.",
+        );
+      }
       const belongsToThisCode = existingNormalized === freightNumber;
       const changesNumber = existingNormalized !== freightNumber;
 
@@ -474,4 +510,106 @@ export async function setShipmentNotNeeded(input: unknown): Promise<void> {
   });
   revalidatePath("/orders");
   revalidatePath(`/orders/${parsed.orderId}`);
+}
+
+const scopedFreightSchema = z.object({
+  orderIds: z.array(z.string().uuid()).min(1, "Select at least one order.").max(250),
+});
+
+/**
+ * Fresh shipment facts for a hand-picked set of orders — the bulk "Assign
+ * freight" sheet loads only these rows, so members of a freight code outside
+ * the selection can never leak into the scoped manifest. Orders with no
+ * shipment rows come back with an empty component list rather than being
+ * silently dropped; orders that vanished entirely are reported by id.
+ */
+export async function getScopedFreightComponents(
+  input: unknown,
+): Promise<{ orders: ScopedFreightOrder[]; missingOrderIds: string[] }> {
+  await requireRole(["ops", "admin"]);
+  const parsed = scopedFreightSchema.parse(input);
+  const orderIds = [...new Set(parsed.orderIds)];
+
+  const rows = await db
+    .selectFrom("orders")
+    .innerJoin("customers", "customers.id", "orders.customer_id")
+    .leftJoin("order_shipments", "order_shipments.order_id", "orders.id")
+    .select([
+      "orders.id as order_id",
+      "orders.display_id",
+      "orders.order_reference",
+      "orders.current_status",
+      "orders.development",
+      "customers.name as customer_name",
+      "order_shipments.category",
+      "order_shipments.not_needed",
+      "order_shipments.overseas_freight_number",
+      "order_shipments.overseas_freight_assigned_at",
+      "order_shipments.arrived_checked_at",
+      "order_shipments.updated_at",
+    ])
+    .where("orders.id", "in", orderIds)
+    .execute();
+
+  const categoryOrder = new Map(
+    SHIPMENT_CATEGORIES.map((category, index) => [category, index]),
+  );
+  const byOrder = new Map<string, ScopedFreightOrder>();
+  for (const row of rows) {
+    let order = byOrder.get(row.order_id);
+    if (!order) {
+      order = {
+        orderId: row.order_id,
+        orderIdentifier: primaryOrderIdentifier(row.order_reference, row.display_id),
+        customerName: row.customer_name,
+        development: row.development,
+        currentStatus: row.current_status,
+        components: [],
+      };
+      byOrder.set(row.order_id, order);
+    }
+    if (!row.category) continue; // left-join null: no shipment components yet
+    const facts = {
+      currentStatus: row.current_status,
+      arrivedCheckedAt: row.arrived_checked_at
+        ? new Date(row.arrived_checked_at).toISOString()
+        : null,
+      notNeeded: row.not_needed ?? false,
+    };
+    const component: ScopedFreightComponent = {
+      orderId: row.order_id,
+      orderIdentifier: order.orderIdentifier,
+      customerName: order.customerName,
+      development: order.development,
+      category: row.category,
+      notNeeded: facts.notNeeded,
+      freightNumber: usableFreightNumber(row.overseas_freight_number),
+      freightAssignedAt: row.overseas_freight_assigned_at
+        ? new Date(row.overseas_freight_assigned_at).toISOString()
+        : null,
+      arrivedCheckedAt: facts.arrivedCheckedAt,
+      updatedAt: new Date(row.updated_at ?? 0).toISOString(),
+      currentStatus: row.current_status,
+      assignable: isFreightAssignable(facts),
+      unavailableReason: freightUnavailableReason(facts),
+    };
+    order.components.push(component);
+  }
+
+  const orders = [...byOrder.values()];
+  for (const order of orders) {
+    order.components.sort(
+      (a, b) =>
+        (categoryOrder.get(a.category) ?? 99) -
+        (categoryOrder.get(b.category) ?? 99),
+    );
+  }
+  orders.sort((a, b) =>
+    a.orderIdentifier.localeCompare(b.orderIdentifier, undefined, {
+      numeric: true,
+    }),
+  );
+
+  const missingOrderIds = orderIds.filter((id) => !byOrder.has(id));
+  return { orders, missingOrderIds };
 }

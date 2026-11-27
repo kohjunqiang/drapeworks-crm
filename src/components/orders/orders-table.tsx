@@ -10,6 +10,10 @@ import {
 import { StatusBadge } from "./status-badge";
 import { DeleteOrderDialog } from "./delete-order-dialog";
 import { OrderShipmentItems } from "./order-shipment-items";
+import {
+  OrderSelectCheckbox,
+  SelectPageCheckbox,
+} from "./order-select-controls";
 
 export type OrderRow = {
   id: string;
@@ -40,6 +44,7 @@ export type OrderRow = {
 type Props = {
   orders: OrderRow[];
   canDelete?: boolean;
+  canSelect?: boolean;
   sort?: "identifier" | "status";
   direction?: "asc" | "desc";
   sortHrefs?: { identifier: string; status: string };
@@ -97,15 +102,21 @@ function SortableHeader({
 export function OrdersTable({
   orders,
   canDelete = false,
+  canSelect = false,
   sort,
   direction = "asc",
   sortHrefs = { identifier: "/orders?sort=identifier&dir=asc", status: "/orders?sort=status&dir=asc" },
 }: Props) {
   return (
     <div className="hidden overflow-x-auto rounded-lg border border-slate-200 bg-white md:block">
-      <table className="w-full min-w-[1360px] text-sm">
+      <table className={`w-full ${canSelect ? "min-w-[1408px]" : "min-w-[1360px]"} text-sm`}>
         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
           <tr>
+            {canSelect && (
+              <th className="w-12 px-1 py-3" aria-label="Select orders for freight">
+                <SelectPageCheckbox />
+              </th>
+            )}
             <SortableHeader
               label="Order / PO #"
               active={sort === "identifier"}
@@ -132,6 +143,16 @@ export function OrdersTable({
         <tbody className="divide-y divide-slate-100">
           {orders.map((o) => (
             <tr key={o.id} className="hover:bg-slate-50">
+              {canSelect && (
+                <td className="px-1 py-3 align-middle">
+                  <OrderSelectCheckbox
+                    order={{
+                      id: o.id,
+                      label: primaryOrderIdentifier(o.order_reference, o.display_id),
+                    }}
+                  />
+                </td>
+              )}
               <td className="px-4 py-3 font-mono text-xs text-slate-500">
                 <Link
                   href={`/orders/${o.id}`}

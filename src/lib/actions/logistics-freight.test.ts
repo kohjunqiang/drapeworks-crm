@@ -181,3 +181,79 @@ it("requires confirmation to move a component from another code", async () => {
   ).rejects.toThrow("Confirm the components");
   expect(mocks.reconcile).not.toHaveBeenCalled();
 });
+
+it("fails the whole save when a component's code moved after the confirm was taken", async () => {
+  const { updates } = setup([
+    freightRow({ overseas_freight_number: "OLD-2" }),
+    freightRow({ order_id: ORDER_B, category: "blinds" }),
+  ]);
+  await expect(
+    assignFreightComponents({
+      freightNumber: "FR-9",
+      components: [
+        { orderId: ORDER_A, category: "curtains", expectedFreightNumber: "OLD-1" },
+        { orderId: ORDER_B, category: "blinds", expectedFreightNumber: null },
+      ],
+      confirmReassign: true,
+    }),
+  ).rejects.toThrow("changed since you loaded");
+  expect(updates).toEqual([]);
+  expect(mocks.reconcile).not.toHaveBeenCalled();
+});
+
+it("treats a null expected code as 'currently unassigned'", async () => {
+  setup([freightRow({ overseas_freight_number: "OLD-1" })]);
+  await expect(
+    assignFreightComponents({
+      freightNumber: "FR-9",
+      components: [
+        { orderId: ORDER_A, category: "curtains", expectedFreightNumber: null },
+      ],
+      confirmReassign: true,
+    }),
+  ).rejects.toThrow("changed since you loaded");
+  expect(mocks.reconcile).not.toHaveBeenCalled();
+});
+
+it("moves the component when the expected code still matches (case-insensitive)", async () => {
+  const { updates } = setup([
+    freightRow({ overseas_freight_number: "old-1" }),
+  ]);
+  await assignFreightComponents({
+    freightNumber: "FR-9",
+    components: [
+      { orderId: ORDER_A, category: "curtains", expectedFreightNumber: "OLD-1" },
+    ],
+    confirmReassign: true,
+  });
+  expect(updates).toHaveLength(1);
+  expect(mocks.reconcile).toHaveBeenCalledTimes(1);
+});
+
+it("rejects a scoped pick whose order advanced past the freight stage after load", async () => {
+  const { updates } = setup([
+    freightRow({ current_status: "delivered_checked" }),
+  ]);
+  await expect(
+    assignFreightComponents({
+      freightNumber: "FR-9",
+      components: [
+        { orderId: ORDER_A, category: "curtains", expectedFreightNumber: null },
+      ],
+    }),
+  ).rejects.toThrow("past the freight stage");
+  expect(updates).toEqual([]);
+  expect(mocks.reconcile).not.toHaveBeenCalled();
+});
+
+it("keeps the legacy contract for callers without expected state", async () => {
+  const { updates } = setup([
+    freightRow({ current_status: "delivered_checked" }),
+  ]);
+  await assignFreightComponents({
+    freightNumber: "FR-9",
+    components: [{ orderId: ORDER_A, category: "curtains" }],
+  });
+  expect(updates).toHaveLength(1);
+  expect(mocks.reconcile).toHaveBeenCalledTimes(1);
+});

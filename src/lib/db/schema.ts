@@ -844,6 +844,7 @@ export interface ManufactureAllowances {
 export interface ManufactureMeasurements {
   confirmed_at: Generated<Timestamp>;
   confirmed_by: string | null;
+  curtain_height_preference: string | null;
   height_delta_cm: number;
   id: Generated<string>;
   is_overridden: Generated<boolean>;
@@ -1454,6 +1455,7 @@ export interface Windows {
   blind_type_id: string | null;
   combo_id: string | null;
   created_at: Generated<Timestamp>;
+  curtain_height_preference: string | null;
   day_curtain_type_id: string | null;
   day_track_required: Generated<boolean>;
   draw: DrawDirection | null;

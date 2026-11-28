@@ -22,6 +22,7 @@ function line(over: Partial<ReconLine> = {}): ReconLine {
     mfgHeightCm: 256,
     sFold: false,
     draw: null,
+    heightBasisLabel: null,
     ...over,
   };
 }

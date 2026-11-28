@@ -111,6 +111,13 @@ export function RoomCard({
         setValue(`rooms.${roomIndex}.windows.${i}.combo_id`, "", {
           shouldDirty: false,
         });
+        // The saved drop is a curtain setting — a blind builds on the blind
+        // allowance only.
+        setValue(
+          `rooms.${roomIndex}.windows.${i}.curtain_height_preference`,
+          null,
+          { shouldDirty: false },
+        );
         // "Double" is a curtain pull direction with no blind equivalent.
         if (getValues(`rooms.${roomIndex}.windows.${i}.draw`) === "Double") {
           setValue(`rooms.${roomIndex}.windows.${i}.draw`, undefined, {
@@ -177,6 +184,7 @@ export function RoomCard({
             side_installation: false,
             no_installation: false,
             overlap_tracks_attachment: false,
+            curtain_height_preference: "default",
           },
     );
   }

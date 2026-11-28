@@ -5,6 +5,7 @@ import { ConsultationForm } from "@/components/orders/consultation-form";
 import { MeshConsultationForm } from "@/components/orders/mesh-form";
 import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import { requireRole } from "@/lib/auth/require-role";
+import type { CurtainHeightPreference } from "@/lib/curtain-height-preference";
 import { loadActiveCombos } from "@/lib/db/combos";
 import { loadActiveCurtainTypeOptions } from "@/lib/db/curtain-types";
 import { loadActivePromotions } from "@/lib/db/promotions";
@@ -131,6 +132,7 @@ export default async function EditOrderPage({
             "split_left_cm",
             "split_right_cm",
             "combo_id",
+            "curtain_height_preference",
           ])
           .where("room_id", "in", roomIds)
           .orderBy("position", "asc")
@@ -440,6 +442,10 @@ export default async function EditOrderPage({
             day_track_required: w.day_track_required,
             night_track_required: w.night_track_required,
             combo_id: w.combo_id ?? "",
+            // NULL stays null — the legacy window keeps the configured
+            // allowance (the "Standard allowance" select option).
+            curtain_height_preference:
+              w.curtain_height_preference as CurtainHeightPreference | null,
             addon_ids: persistedAddonIdsByWindow[w.id] ?? [],
           };
         }),

@@ -9,6 +9,7 @@ import "server-only";
 
 import type { Kysely, Transaction } from "kysely";
 
+import type { CurtainHeightPreference } from "@/lib/curtain-height-preference";
 import { formatCurtainOptionLabel } from "@/lib/curtain-types/series";
 import { db } from "@/lib/db/kysely";
 import type { DB, DrawDirection } from "@/lib/db/schema";
@@ -52,6 +53,13 @@ export type ManufactureLine = {
    * only a curtain can take S-fold runners.
    */
   sFold: boolean;
+  /**
+   * The window's saved curtain drop, shared by its day and night curtains.
+   * When set it REPLACES the configured curtain height allowance (see
+   * effectiveAllowance). Null on a legacy window, a blind, a track-only
+   * rail, or a mesh panel — those keep the configured allowance.
+   */
+  curtainHeightPreference: CurtainHeightPreference | null;
 };
 
 // "Series #index · Page — Label", or null when nothing is selected. Same helper
@@ -121,6 +129,7 @@ export async function loadManufactureLines(
       splitRightCm: null,
       draw: null,
       sFold: false,
+      curtainHeightPreference: null,
     }));
   }
 
@@ -148,6 +157,7 @@ export async function loadManufactureLines(
       "windows.split_left_cm as split_left_cm",
       "windows.split_right_cm as split_right_cm",
       "windows.draw as draw",
+      "windows.curtain_height_preference as curtain_height_preference",
       "rooms.label as room_label",
       "rooms.position as room_position",
       "day_ct.label as day_curtain_label",
@@ -249,6 +259,14 @@ export async function loadManufactureLines(
         resolveTrackOptions({
           addonKeys: addonKeysByWindow.get(w.id) ?? [],
         }).s_fold,
+      // Neither a blind nor a bare rail carries a drop — the column is nulled
+      // for both — but belt-and-suspenders keeps a stray value from quietly
+      // replacing the blind allowance or putting a curtain deduction on a
+      // window with no fabric.
+      curtainHeightPreference:
+        isBlind || w.track_only
+          ? null
+          : (w.curtain_height_preference as CurtainHeightPreference | null),
     };
   });
 }

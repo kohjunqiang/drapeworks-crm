@@ -18,6 +18,7 @@ import { STATUS_LABELS } from "@/lib/status-flow";
 import {
   applyAllowance,
   applyTrackAllowance,
+  effectiveAllowance,
   isManufacturable,
   resolveAllowance,
   type AllowanceBook,
@@ -96,7 +97,8 @@ export function checkConfirmPreconditions(
     }
 
     // A track-only rail confirms on width alone: there is no fabric panel to
-    // cut, so a missing height must not block the order's other lines.
+    // cut, so a missing height must not block the order's other lines — and
+    // no curtain drop reaches it either.
     if (line.trackOnly) {
       const appliedTrack = applyTrackAllowance(
         { widthCm: line.widthCm, heightCm: line.heightCm },
@@ -121,9 +123,13 @@ export function checkConfirmPreconditions(
       continue;
     }
 
+    // The window's saved curtain drop REPLACES the configured height delta —
+    // the same effectiveAllowance the screen and the confirm action use, so
+    // the check cannot refuse a number the action would have accepted.
     const applied = applyAllowance(
       { widthCm: line.widthCm, heightCm: line.heightCm },
-      allowance,
+      effectiveAllowance(line.line, line.curtainHeightPreference, allowance)
+        .allowance,
     );
     if (!applied) {
       reasons.push(

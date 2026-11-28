@@ -130,6 +130,9 @@ function makeWindow(roomType: RoomType, position: number) {
     label: "",
     client_key: crypto.randomUUID(),
     combo_id: "",
+    // New curtain windows select the Default drop (−4 cm); only windows saved
+    // before the field existed stay on the configured allowance.
+    curtain_height_preference: "default" as const,
     addon_ids: [] as string[],
     side_installation: false,
     no_installation: false,

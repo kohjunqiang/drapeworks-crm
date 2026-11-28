@@ -38,6 +38,12 @@ export type FrozenLine = {
   beadCount: number | null;
   beadLeft: number | null;
   beadRight: number | null;
+  /**
+   * Where the stored height delta came from — the snapshotted drop
+   * ("Touch (−2 cm)") or "Standard allowance (−8 cm)" on a legacy window.
+   * Null on blinds and mesh panels.
+   */
+  heightBasisLabel: string | null;
   isOverridden: boolean;
   overrideReason: string | null;
 };
@@ -125,6 +131,12 @@ export function FrozenMeasurements({ rooms }: { rooms: FrozenRoom[] }) {
                   </span>
                 )}
               </div>
+              {line.heightBasisLabel && (
+                <div className="mb-3 inline-flex flex-wrap items-center gap-x-2 rounded border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-medium text-teal-900">
+                  <span>Curtain height preference</span>
+                  <span>{line.heightBasisLabel}</span>
+                </div>
+              )}
               {line.sourceSplitLeftCm != null &&
                 line.sourceSplitRightCm != null &&
                 line.mfgSplitLeftCm != null &&

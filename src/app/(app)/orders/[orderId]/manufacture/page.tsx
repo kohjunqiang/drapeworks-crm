@@ -43,9 +43,21 @@ import {
   railShipmentKind,
 } from "@/lib/po/track-options";
 import { loadTrackOrder } from "@/lib/po/track-order-load";
-import { applyAllowance, applyTrackAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import {
+  applyAllowance,
+  applyTrackAllowance,
+  effectiveAllowance,
+  resolveAllowance,
+} from "@/lib/manufacture/allowance";
 import { windowLabel } from "@/lib/orders/window-label";
 import type { AllowanceLine } from "@/lib/manufacture/allowance";
+import {
+  CURTAIN_HEIGHT_PREFERENCES,
+  curtainHeightOptionLabel,
+  recordedAdjustmentLabel,
+  standardAllowanceLabel,
+  type CurtainHeightPreference,
+} from "@/lib/curtain-height-preference";
 import {
   loadAllowanceBook,
   loadManufactureLines,
@@ -466,7 +478,16 @@ async function EditableView({
     const allowance = resolveAllowance(book, line.line);
     if (!allowance) continue;
     // A track-only rail confirms on width alone — the same rule the confirm
-    // action enforces in preconditions.ts.
+    // action enforces in preconditions.ts — and no curtain drop applies to a
+    // window with no fabric. Every other line derives its height from the
+    // window's saved drop, which replaces the configured height delta — same
+    // effectiveAllowance the action and the precondition check use, so the
+    // screen cannot show a number the action would reject.
+    const effective = effectiveAllowance(
+      line.line,
+      line.trackOnly ? null : line.curtainHeightPreference,
+      allowance,
+    );
     const applied = line.trackOnly
       ? applyTrackAllowance(
           { widthCm: line.widthCm, heightCm: line.heightCm },
@@ -474,7 +495,7 @@ async function EditableView({
         )
       : applyAllowance(
           { widthCm: line.widthCm, heightCm: line.heightCm },
-          allowance,
+          effective.allowance,
         );
     if (!applied) {
       blockers.push({
@@ -502,6 +523,15 @@ async function EditableView({
       splitRightCm: line.splitRightCm,
       sFold: line.sFold,
       draw: line.draw,
+      // What produced the height delta — the saved drop, or the configured
+      // allowance on a legacy window. Only covered curtains carry the label;
+      // blinds, mesh and track-only rails never gain a preference.
+      heightBasisLabel:
+        line.line === "curtain" && !line.trackOnly
+          ? effective.heightPreference
+            ? curtainHeightOptionLabel(effective.heightPreference)
+            : standardAllowanceLabel(effective.allowance.heightDeltaCm)
+          : null,
     });
   }
 
@@ -582,6 +612,7 @@ async function FrozenView({
       "is_overridden",
       "override_reason",
       "confirmed_at",
+      "curtain_height_preference",
     ])
     .where("order_id", "=", orderId)
     .execute();
@@ -617,6 +648,24 @@ async function FrozenView({
       beadCount: row.sfold_bead_count,
       beadLeft: row.sfold_bead_count_left,
       beadRight: row.sfold_bead_count_right,
+      // The snapshotted drop, not the window's current one — a frozen row
+      // explains where ITS height came from. Null on a curtain window means
+      // the configured allowance produced the stored delta — unless the row
+      // was manually overridden, in which case the delta is a recorded
+      // adjustment and calling it "standard" would misdescribe history.
+      heightBasisLabel:
+        line.line === "curtain" && !line.trackOnly
+          ? row.curtain_height_preference &&
+              (CURTAIN_HEIGHT_PREFERENCES as readonly string[]).includes(
+                row.curtain_height_preference,
+              )
+            ? curtainHeightOptionLabel(
+                row.curtain_height_preference as CurtainHeightPreference,
+              )
+            : row.is_overridden
+              ? recordedAdjustmentLabel(row.height_delta_cm)
+              : standardAllowanceLabel(row.height_delta_cm)
+          : null,
       isOverridden: row.is_overridden,
       overrideReason: row.override_reason,
     };

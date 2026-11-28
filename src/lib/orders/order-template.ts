@@ -1,5 +1,9 @@
 import "server-only";
 
+import {
+  CURTAIN_HEIGHT_PREFERENCES,
+  type CurtainHeightPreference,
+} from "@/lib/curtain-height-preference";
 import { db } from "@/lib/db/kysely";
 import { signRoomPhotoUrls, signWindowPhotoUrls } from "@/lib/db/photos";
 import { loadWindowAddonIds } from "@/lib/db/window-addons";
@@ -157,6 +161,7 @@ export async function loadCurtainOrderTemplate(
           "day_curtain_type_id",
           "night_curtain_type_id",
           "blind_type_id",
+          "curtain_height_preference",
           "draw",
           "split_left_cm",
           "split_right_cm",
@@ -254,6 +259,14 @@ export async function loadCurtainOrderTemplate(
             overlap_tracks_attachment: window.overlap_tracks_attachment,
             day_track_required: window.day_track_required,
             night_track_required: window.night_track_required,
+            // Any stored value outside the current enum degrades to null —
+            // "no saved drop, use the configured allowance" — instead of
+            // failing the copied consultation.
+            curtain_height_preference: (
+              CURTAIN_HEIGHT_PREFERENCES as readonly string[]
+            ).includes(window.curtain_height_preference ?? "")
+              ? (window.curtain_height_preference as CurtainHeightPreference)
+              : null,
             combo_id: window.combo_id ?? "",
             addon_ids: addonIdsByWindow.get(window.id) ?? [],
           };

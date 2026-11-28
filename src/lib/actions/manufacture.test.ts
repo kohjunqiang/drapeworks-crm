@@ -155,6 +155,7 @@ function windowLine(
     splitRightCm: null,
     draw: null,
     sFold: false,
+    curtainHeightPreference: null,
     ...over,
   };
 }
@@ -174,6 +175,7 @@ function meshLine(lineId: string, position = 0): ManufactureLine {
     splitRightCm: null,
     draw: null,
     sFold: false,
+    curtainHeightPreference: null,
   };
 }
 
@@ -226,6 +228,7 @@ describe("confirmManufactureMeasurements re-confirmation upsert", () => {
       "height_delta_cm",
       "mfg_width_cm",
       "mfg_height_cm",
+      "curtain_height_preference",
       "mfg_split_left_cm",
       "mfg_split_right_cm",
       "is_overridden",
@@ -255,6 +258,37 @@ describe("confirmManufactureMeasurements re-confirmation upsert", () => {
     expect(
       (statusEvent as RecordedInsert).values,
     ).toMatchObject({ order_id: orderId, status: "po_ready" });
+  });
+
+  it("derives height from the saved drop — replacing, never stacking with, the configured allowance", async () => {
+    // Book: curtain +10/−5. A "touch" window manufactures at measured −2 and
+    // snapshots the preference; a legacy-null window keeps the configured −5
+    // and snapshots null, so the frozen row still explains its delta.
+    const lines = [
+      windowLine(windowId1, 0, { curtainHeightPreference: "touch" }),
+      windowLine(windowId2, 1),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements(payloadFor(lines));
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({
+      window_id: windowId1,
+      mfg_width_cm: 210,
+      mfg_height_cm: 248,
+      height_delta_cm: -2,
+      curtain_height_preference: "touch",
+    });
+    expect(rows[1]).toMatchObject({
+      window_id: windowId2,
+      mfg_width_cm: 210,
+      mfg_height_cm: 245,
+      height_delta_cm: -5,
+      curtain_height_preference: null,
+    });
   });
 
   it("writes a mesh-panel row with the mesh_panel_id conflict target", async () => {
@@ -547,6 +581,64 @@ describe("confirmManufactureMeasurements — track-only rails", () => {
       confirmManufactureMeasurements(payloadFor(lines)),
     ).rejects.toThrow(/no measured width/);
     expect(writes).toEqual([]);
+  });
+
+  it("never lets a stray curtain drop reach a rail — configured delta, null snapshot", async () => {
+    // Defence in depth: loadManufactureLines nulls the preference on a rail,
+    // and the action must too. A stray value applies neither the preference
+    // delta to a measured height nor lands on the frozen row.
+    const lines = [
+      windowLine(windowId1, 0, {
+        trackOnly: true,
+        heightCm: 250,
+        curtainHeightPreference: "more_sweep",
+      }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements(payloadFor(lines));
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    // Configured −5, NOT more_sweep +2 — and the snapshot stays null.
+    expect(rows[0]).toMatchObject({
+      mfg_height_cm: 245,
+      height_delta_cm: -5,
+      curtain_height_preference: null,
+    });
+  });
+
+  it("confirms a rail and a preferred curtain in the same order", async () => {
+    // The two features coexist on one order: the rail freezes on width alone
+    // while the curtain's saved drop replaces the configured −5 with 0.
+    const lines = [
+      windowLine(windowId1, 0, {
+        trackOnly: true,
+        heightCm: null,
+        description: "Track only — double track",
+      }),
+      windowLine(windowId2, 1, { curtainHeightPreference: "sweep" }),
+    ];
+    mocks.loadManufactureLines.mockResolvedValue(lines);
+    const { writes } = setupOrder();
+
+    await confirmManufactureMeasurements(payloadFor(lines));
+
+    const rows = measurementInserts(writes)[0]
+      .values as Record<string, unknown>[];
+    expect(rows[0]).toMatchObject({
+      window_id: windowId1,
+      mfg_width_cm: 210,
+      mfg_height_cm: 0,
+      curtain_height_preference: null,
+    });
+    expect(rows[1]).toMatchObject({
+      window_id: windowId2,
+      mfg_height_cm: 250,
+      height_delta_cm: 0,
+      curtain_height_preference: "sweep",
+    });
   });
 });
 

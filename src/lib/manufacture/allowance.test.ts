@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import type { CurtainHeightPreference } from "@/lib/curtain-height-preference";
+
 import {
   applyAllowance,
+  effectiveAllowance,
   isManufacturable,
   type Allowance,
   type AllowanceBook,
@@ -63,6 +66,58 @@ describe("applyAllowance", () => {
   it("returns null when a source dimension is not positive", () => {
     expect(applyAllowance({ widthCm: 0, heightCm: 240 }, curtain)).toBeNull();
     expect(applyAllowance({ widthCm: 300, heightCm: -5 }, curtain)).toBeNull();
+  });
+});
+
+describe("effectiveAllowance — a saved drop replaces the height allowance", () => {
+  // A deliberately unusual configured delta: if any of these results picked
+  // up −8 the substitution is not happening.
+  const CONFIGURED: Allowance = { widthDeltaCm: -8, heightDeltaCm: -8 };
+
+  it.each([
+    ["default", 246],
+    ["touch", 248],
+    ["sweep", 250],
+    ["more_sweep", 252],
+    // Cover track is its OWN −2 cm — never an extra −2 on Touch or on the
+    // configured allowance.
+    ["cover_track", 248],
+  ] as [CurtainHeightPreference, number][])(
+    "a 250 cm opening manufactures at %s → %i cm",
+    (preference, expected) => {
+      const effective = effectiveAllowance("curtain", preference, CONFIGURED);
+      const applied = applyAllowance(
+        { widthCm: 300, heightCm: 250 },
+        effective.allowance,
+      );
+      expect(applied).not.toBeNull();
+      expect(applied!.mfgHeightCm).toBe(expected);
+      expect(applied!.heightDeltaCm).toBe(expected - 250);
+      // Width is untouched by the preference.
+      expect(applied!.mfgWidthCm).toBe(292);
+      expect(effective.heightSource).toBe("preference");
+      expect(effective.heightPreference).toBe(preference);
+    },
+  );
+
+  it("keeps the configured allowance verbatim on a null (legacy) preference", () => {
+    const effective = effectiveAllowance("curtain", null, CONFIGURED);
+    expect(effective.allowance).toBe(CONFIGURED);
+    expect(effective.heightSource).toBe("configured");
+    expect(effective.heightPreference).toBeNull();
+    const applied = applyAllowance(
+      { widthCm: 300, heightCm: 250 },
+      effective.allowance,
+    );
+    expect(applied!.mfgHeightCm).toBe(242);
+  });
+
+  it("ignores a stray preference on blind and mesh lines — the drop is curtain-only", () => {
+    for (const line of ["blind", "mesh"] as const) {
+      const effective = effectiveAllowance(line, "touch", CONFIGURED);
+      expect(effective.allowance).toBe(CONFIGURED);
+      expect(effective.heightPreference).toBeNull();
+    }
   });
 });
 

@@ -1,3 +1,4 @@
+import type { CurtainHeightPreference } from "@/lib/curtain-height-preference";
 import type { DRAW_DIRECTION_VALUES } from "@/lib/validation/order";
 
 type DrawDirection = (typeof DRAW_DIRECTION_VALUES)[number];
@@ -27,6 +28,7 @@ export type WindowLike = {
   split_right_cm?: number | null;
   combo_id?: string;
   track_kind?: "single" | "double";
+  curtain_height_preference?: CurtainHeightPreference | null;
 };
 
 // Every column on public.windows that the shape trigger cares about. A uniform
@@ -53,6 +55,7 @@ export type WindowColumnValues = {
   split_left_cm: number | null;
   split_right_cm: number | null;
   combo_id: string | null;
+  curtain_height_preference: CurtainHeightPreference | null;
 };
 
 export function windowValues(
@@ -90,6 +93,9 @@ export function windowValues(
       split_left_cm: null,
       split_right_cm: null,
       combo_id: null,
+      // A rail has no fabric panel: a stale drop must never reach it, and the
+      // nulled column is also what keeps manufacturing on the plain allowance.
+      curtain_height_preference: null,
     };
   }
 
@@ -111,6 +117,7 @@ export function windowValues(
       split_left_cm: null,
       split_right_cm: null,
       combo_id: null,
+      curtain_height_preference: null,
     };
   }
 
@@ -128,5 +135,8 @@ export function windowValues(
     split_left_cm: win.draw === "Double" ? (win.split_left_cm ?? null) : null,
     split_right_cm: win.draw === "Double" ? (win.split_right_cm ?? null) : null,
     combo_id: win.combo_id ?? null,
+    // NULL is "use the configured allowance" — preserved, never coerced, so a
+    // legacy window keeps manufacturing at its historic basis.
+    curtain_height_preference: win.curtain_height_preference ?? null,
   };
 }

@@ -46,6 +46,12 @@ export type ReconLine = {
   sFold: boolean;
   /** The window's draw direction; decides one bead count or a left/right pair. */
   draw: DrawDirection | null;
+  /**
+   * What produced the height delta, for display only — e.g. "Touch (−2 cm)"
+   * on a saved drop, "Standard allowance (−8 cm)" on a legacy window that
+   * still uses the configured allowance. Null on blinds and mesh panels.
+   */
+  heightBasisLabel: string | null;
 };
 
 /** What a person has typed into one row. Seeded from the computed candidate. */
@@ -393,6 +399,7 @@ function AxisRow({
   deltaInvalid,
   adjusted,
   disabled,
+  basisCaption,
   onSize,
   onDelta,
 }: {
@@ -407,6 +414,8 @@ function AxisRow({
   deltaInvalid: boolean;
   adjusted: boolean;
   disabled: boolean;
+  /** Where the seeded delta came from — a saved drop or the standard allowance. */
+  basisCaption?: string | null;
   onSize: (v: string) => void;
   onDelta: (v: string) => void;
 }) {
@@ -428,17 +437,26 @@ function AxisRow({
         <span className="sm:hidden w-14 shrink-0 text-xs text-slate-500">
           Allowance
         </span>
-        <input
-          id={`${lineId}-${lower}-delta`}
-          inputMode="text"
-          aria-label={`${pieceLabel} ${lower} allowance in cm`}
-          aria-invalid={deltaInvalid}
-          disabled={disabled}
-          value={delta}
-          onChange={(e) => onDelta(e.target.value)}
-          className={`w-16 text-center ${INPUT_BASE} ${deltaInvalid ? "border-rose-400 bg-rose-50 text-rose-900" : deltaTone(delta)}`}
-        />
-        <span className="text-xs text-slate-400">cm</span>
+        <span className="flex flex-col gap-0.5">
+          <span className="flex items-center gap-1.5">
+            <input
+              id={`${lineId}-${lower}-delta`}
+              inputMode="text"
+              aria-label={`${pieceLabel} ${lower} allowance in cm`}
+              aria-invalid={deltaInvalid}
+              disabled={disabled}
+              value={delta}
+              onChange={(e) => onDelta(e.target.value)}
+              className={`w-16 text-center ${INPUT_BASE} ${deltaInvalid ? "border-rose-400 bg-rose-50 text-rose-900" : deltaTone(delta)}`}
+            />
+            <span className="text-xs text-slate-400">cm</span>
+          </span>
+          {basisCaption && (
+            <span className="text-[11px] leading-tight text-slate-400">
+              {basisCaption}
+            </span>
+          )}
+        </span>
       </div>
 
       <div className="flex items-center gap-1.5 sm:justify-end">
@@ -629,6 +647,7 @@ export function ReconciliationRow({
             deltaInvalid={state.heightDeltaInvalid}
             adjusted={state.heightOverridden}
             disabled={disabled}
+            basisCaption={line.heightBasisLabel}
             onSize={(height) => onChange({ height })}
             onDelta={(heightDelta) => onChange({ heightDelta })}
           />

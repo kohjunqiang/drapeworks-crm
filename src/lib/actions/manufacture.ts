@@ -9,7 +9,12 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { userMessage } from "@/lib/errors";
-import { applyAllowance, applyTrackAllowance, resolveAllowance } from "@/lib/manufacture/allowance";
+import {
+  applyAllowance,
+  applyTrackAllowance,
+  effectiveAllowance,
+  resolveAllowance,
+} from "@/lib/manufacture/allowance";
 import { scaleDoubleDrawSplit } from "@/lib/manufacture/double-draw-split";
 import { beadShapeFor, defaultBeads } from "@/lib/manufacture/sfold-beads";
 import {
@@ -182,17 +187,32 @@ export async function confirmManufactureMeasurements(
 
       const rows = lines.map((line) => {
         const allowance = resolveAllowance(book, line.line);
-        const applied = allowance
-          ? line.trackOnly
+        // A track-only rail freezes on width alone: there is no fabric panel
+        // to cut, so no curtain drop applies to it and its snapshot preference
+        // stays null. Every other line derives its height from the window's
+        // saved drop, which replaces the configured height delta; the same
+        // effectiveAllowance the screen and preconditions used, so the frozen
+        // row is the number the human was shown.
+        const effective = allowance
+          ? effectiveAllowance(
+              line.line,
+              line.trackOnly ? null : line.curtainHeightPreference,
+              allowance,
+            )
+          : null;
+        const applied = line.trackOnly
+          ? allowance
             ? applyTrackAllowance(
                 { widthCm: line.widthCm, heightCm: line.heightCm },
                 allowance,
               )
-            : applyAllowance(
+            : null
+          : effective
+            ? applyAllowance(
                 { widthCm: line.widthCm, heightCm: line.heightCm },
-                allowance,
+                effective.allowance,
               )
-          : null;
+            : null;
         // Unreachable: the precondition check above rejects both cases. It
         // stays because the alternative is a non-null assertion that would go
         // quietly wrong if the two ever drifted apart.
@@ -308,6 +328,10 @@ export async function confirmManufactureMeasurements(
           height_delta_cm: mfgHeightCm - applied.sourceHeightCm,
           mfg_width_cm: mfgWidthCm,
           mfg_height_cm: mfgHeightCm,
+          // The preference that produced the height — null for a legacy window
+          // on the configured allowance. Snapshotted so the frozen row still
+          // explains its own delta after the window can no longer be read.
+          curtain_height_preference: effective?.heightPreference ?? null,
           mfg_split_left_cm: override?.mfgSplitLeftCm ?? null,
           mfg_split_right_cm: override?.mfgSplitRightCm ?? null,
           ...beadColumns,
@@ -350,6 +374,9 @@ export async function confirmManufactureMeasurements(
                     height_delta_cm: eb.ref("excluded.height_delta_cm"),
                     mfg_width_cm: eb.ref("excluded.mfg_width_cm"),
                     mfg_height_cm: eb.ref("excluded.mfg_height_cm"),
+                    curtain_height_preference: eb.ref(
+                      "excluded.curtain_height_preference",
+                    ),
                     mfg_split_left_cm: eb.ref("excluded.mfg_split_left_cm"),
                     mfg_split_right_cm: eb.ref("excluded.mfg_split_right_cm"),
                     sfold_bead_count: eb.ref("excluded.sfold_bead_count"),

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { CURTAIN_HEIGHT_PREFERENCES } from "@/lib/curtain-height-preference";
 import { canonicalizePhone } from "@/lib/phone";
 
 const ROOM_TYPES = [
@@ -59,6 +60,15 @@ export const optionalTypeId = z.preprocess(
   z.string().uuid().optional(),
 );
 
+// One saved curtain drop per curtain window. "" (an unchosen select), an
+// absent key and an explicit null all normalise to null — "no saved drop, use
+// the configured allowance" — so a legacy window round-trips its historic
+// basis instead of silently gaining a preference.
+const curtainHeightPreference = z.preprocess(
+  (v) => (v === "" || v === undefined || v === null ? null : v),
+  z.enum(CURTAIN_HEIGHT_PREFERENCES).nullable(),
+);
+
 const baseWindow = z.object({
   position: z.number().int().min(0),
   // When the consultation was seeded from a previous order, the window whose
@@ -99,6 +109,9 @@ const regularWindow = baseWindow.extend({
   overlap_tracks_attachment: z.boolean().default(false),
   day_track_required: z.boolean().optional(),
   night_track_required: z.boolean().optional(),
+  // One drop shared by the day and night curtains on this window; null keeps
+  // the configured manufacturing allowance (legacy windows).
+  curtain_height_preference: curtainHeightPreference,
 });
 
 // A blind's chain/control side. "Double" is a curtain concept — two leaves
@@ -364,6 +377,7 @@ const draftWindow = baseWindow.extend({
   overlap_tracks_attachment: z.boolean().default(false),
   day_track_required: z.boolean().optional(),
   night_track_required: z.boolean().optional(),
+  curtain_height_preference: curtainHeightPreference,
 });
 
 const draftRoom = z.object({

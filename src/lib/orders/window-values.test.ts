@@ -42,6 +42,7 @@ describe("windowValues — regular window", () => {
       split_left_cm: null,
       split_right_cm: null,
       combo_id: null,
+      curtain_height_preference: null,
     });
   });
 
@@ -99,6 +100,7 @@ describe("windowValues — blind window", () => {
       split_left_cm: null,
       split_right_cm: null,
       combo_id: null,
+      curtain_height_preference: null,
     });
   });
 
@@ -238,6 +240,40 @@ describe("windowValues — no installation", () => {
   });
 });
 
+describe("windowValues — curtain height preference", () => {
+  it("persists the saved drop on a curtain window", () => {
+    expect(
+      windowValues(
+        { variant: "regular", curtain_height_preference: "cover_track" },
+        0,
+      ).curtain_height_preference,
+    ).toBe("cover_track");
+  });
+
+  it("clears the field when the window is switched to a blind", () => {
+    // Mid-switch form state can carry a stale drop; the column must end up
+    // null — a blind manufactures on the blind allowance only.
+    expect(
+      windowValues(
+        { variant: "blind", blind_type_id: BLIND, curtain_height_preference: "touch" },
+        0,
+      ).curtain_height_preference,
+    ).toBeNull();
+  });
+
+  it("defaults to null when the input omits the field — the legacy state", () => {
+    expect(
+      windowValues({ variant: "regular" }, 0).curtain_height_preference,
+    ).toBeNull();
+    expect(
+      windowValues(
+        { variant: "regular", curtain_height_preference: null },
+        0,
+      ).curtain_height_preference,
+    ).toBeNull();
+  });
+});
+
 describe("window track requirements", () => {
   it("persists independent day/night choices and defaults existing inputs to new tracks", () => {
     expect(windowValues({ variant: "regular", day_track_required: false, night_track_required: true }, 0))
@@ -276,6 +312,7 @@ describe("windowValues — track-only window", () => {
       split_left_cm: null,
       split_right_cm: null,
       combo_id: null,
+      curtain_height_preference: null,
     });
   });
 
@@ -314,6 +351,23 @@ describe("windowValues — track-only window", () => {
       windowValues({ variant: "track", overlap_tracks_attachment: true }, 0)
         .overlap_tracks_attachment,
     ).toBe(true);
+  });
+
+  it("drops a stale curtain drop — a rail has no fabric for it to apply to", () => {
+    // The shape a covering switch leaves behind: the discriminated union
+    // strips the field on a full save, but the draft schema keeps it, so
+    // windowValues must null it rather than persist a deduction onto a
+    // window with no curtains.
+    expect(
+      windowValues(
+        {
+          variant: "track",
+          track_kind: "single",
+          curtain_height_preference: "touch",
+        },
+        0,
+      ).curtain_height_preference,
+    ).toBeNull();
   });
 });
 

@@ -27,6 +27,7 @@ function line(over: Partial<ManufactureLine> = {}): ManufactureLine {
     heightCm: 260,
     draw: null,
     sFold: false,
+    curtainHeightPreference: null,
     ...over,
   };
 }
@@ -188,6 +189,42 @@ describe("checkConfirmPreconditions", () => {
     expect(result.reasons).toHaveLength(2);
   });
 
+  it("accepts a line whose saved drop replaces the configured height allowance", () => {
+    // heightCm 4 + configured −4 would be 0 — unbuildable. With the "sweep"
+    // drop the height delta is 0, so the line is fine. The preference
+    // replaces the allowance; it never stacks with it.
+    const result = checkConfirmPreconditions(
+      [line({ heightCm: 4, curtainHeightPreference: "sweep" })],
+      BOOK,
+      "deposit_received",
+      overrides(),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("still refuses a saved drop that leaves an unbuildable height", () => {
+    const result = checkConfirmPreconditions(
+      [line({ heightCm: 3, curtainHeightPreference: "default" })],
+      BOOK,
+      "deposit_received",
+      overrides(),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("keeps a null preference on the configured allowance — no silent change to legacy windows", () => {
+    // heightCm 4 + configured −4 = 0 on a legacy (null-preference) window,
+    // but the same window is buildable on "sweep" — the two differ, which is
+    // the point: null must not behave like a preference.
+    const legacy = checkConfirmPreconditions(
+      [line({ heightCm: 4 })],
+      BOOK,
+      "deposit_received",
+      overrides(),
+    );
+    expect(legacy.ok).toBe(false);
+  });
+
   it("names a mesh panel as a panel, not a window", () => {
     const result = checkConfirmPreconditions(
       [
@@ -266,6 +303,25 @@ describe("checkConfirmPreconditions — track-only rails", () => {
       BOOK,
       "deposit_received",
       overrides([["line-1", { overrideWidthCm: 298 }]]),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("ignores a stray curtain drop on a rail — no fabric means no deduction", () => {
+    // A saved drop only ever reaches manufacturing through effectiveAllowance
+    // on a covered line. A rail short-circuits to its width before that path,
+    // so a stale value must neither gate nor move the confirmation.
+    const result = checkConfirmPreconditions(
+      [
+        line({
+          trackOnly: true,
+          curtainHeightPreference: "more_sweep",
+          heightCm: null,
+        }),
+      ],
+      BOOK,
+      "deposit_received",
+      overrides(),
     );
     expect(result).toEqual({ ok: true });
   });

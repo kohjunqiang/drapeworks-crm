@@ -4,6 +4,11 @@ import { useEffect, useRef } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 
 import { FormSelect } from "@/components/ui/app-select";
+import {
+  CURTAIN_HEIGHT_PREFERENCES,
+  curtainHeightOptionLabel,
+  type CurtainHeightPreference,
+} from "@/lib/curtain-height-preference";
 import type { ActiveCombo } from "@/lib/db/combos";
 import { formatSGD } from "@/lib/money";
 import type { AddonRule } from "@/lib/orders/window-addons";
@@ -12,6 +17,7 @@ import type { OrderEditInput } from "@/lib/validation/order";
 import { AddonCheckboxes } from "./addon-checkboxes";
 import {
   drawAfterCoveringChange,
+  dropAfterCoveringChange,
   type WindowDraw,
 } from "./covering-transition";
 
@@ -206,6 +212,14 @@ export function WindowFields({
   const rememberedCurtainDraw = useRef<WindowDraw | undefined>(
     variant === "regular" ? (getValues(`${base}.draw`) ?? "Double") : undefined,
   );
+  // The saved drop is a curtain setting: cleared on a blind, remembered so an
+  // accidental toggle back to curtain restores it rather than resetting to
+  // Default. Same pattern as the curtain draw above.
+  const rememberedDrop = useRef<CurtainHeightPreference | null | undefined>(
+    variant === "regular"
+      ? (getValues(`${base}.curtain_height_preference`) ?? null)
+      : undefined,
+  );
   const splitLeftError = getFieldState(
     `${base}.split_left_cm`,
     formState,
@@ -222,6 +236,10 @@ export function WindowFields({
   // blind control side. Remember the curtain value independently so a blind
   // choice cannot silently change it; Double is temporarily unset on a blind.
   function setCovering(next: "curtain" | "blind") {
+    // Clicking the already-active covering must be a no-op — running the
+    // transitions would rewrite the remembered curtain state (e.g. stamp a
+    // null memory onto a starting blind and block its first Default).
+    if ((next === "blind") === isBlind) return;
     // Add-ons that no longer apply are dropped on the switch, mirroring how the
     // day/night selections already are. The resolver would hide them by scope
     // anyway, but leaving them in form state means resubmitting them on every
@@ -234,6 +252,20 @@ export function WindowFields({
       rememberedCurtainDraw.current,
     );
     rememberedCurtainDraw.current = transition.rememberedCurtainDraw;
+    // A remembered NULL drop (legacy "Standard allowance") and "no curtain
+    // state ever" (undefined) are different states: the helper restores null
+    // verbatim and only applies Default when nothing was ever remembered.
+    const dropTransition = dropAfterCoveringChange(
+      next,
+      getValues(`${base}.curtain_height_preference`),
+      rememberedDrop.current,
+    );
+    rememberedDrop.current = dropTransition.rememberedDrop;
+    setValue(
+      `${base}.curtain_height_preference`,
+      dropTransition.curtainHeightPreference,
+      { shouldDirty: true },
+    );
     if (next === "blind") {
       setValue(`${base}.variant`, "blind", { shouldDirty: true });
       if (transition.draw !== currentDraw) {
@@ -289,6 +321,10 @@ export function WindowFields({
   const blindId = useWatch({ control, name: `${base}.blind_type_id` });
   const comboId = useWatch({ control, name: `${base}.combo_id` });
   const draw = useWatch({ control, name: `${base}.draw` });
+  const heightPreference = useWatch({
+    control,
+    name: `${base}.curtain_height_preference`,
+  });
 
   // Drafts saved by the old toggle bug can hold a regular curtain with no draw
   // value. The select then looks like its first option (Double), but the split
@@ -517,6 +553,28 @@ export function WindowFields({
           type="number"
           className={INPUT_CLS}
           {...register(`${base}.height_cm`)}
+        />
+        {/* One drop per window, shared by its day and night curtains. It
+            REPLACES the configured curtain height allowance at manufacturing.
+            "Standard allowance" is shown only while the window is still the
+            legacy-null state — once a drop is picked the five approved
+            choices are the whole list, never a sixth "back to null". */}
+        <label
+          htmlFor={`window-${roomIndex}-${windowIndex}-height-preference`}
+          className="mt-1.5 block text-xs font-medium text-slate-600 mb-1"
+        >
+          Curtain height preference
+        </label>
+        <FormSelect
+          control={control}
+          name={`${base}.curtain_height_preference`}
+          id={`window-${roomIndex}-${windowIndex}-height-preference`}
+          noneLabel={!heightPreference ? "Standard allowance" : undefined}
+          triggerClassName="w-full"
+          options={CURTAIN_HEIGHT_PREFERENCES.map((p) => ({
+            value: p,
+            label: curtainHeightOptionLabel(p),
+          }))}
         />
       </div>
       <div className="col-span-2 sm:col-span-2">

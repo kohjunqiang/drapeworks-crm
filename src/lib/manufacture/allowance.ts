@@ -1,3 +1,7 @@
+import {
+  CURTAIN_HEIGHT_DELTA_CM,
+  type CurtainHeightPreference,
+} from "@/lib/curtain-height-preference";
 import type { CurtainProductLine } from "@/lib/db/schema";
 
 // The three lines an allowance can be configured for. Curtains and blinds are
@@ -18,6 +22,45 @@ export function resolveAllowance(
   line: AllowanceLine,
 ): Allowance | null {
   return book[line] ?? null;
+}
+
+export type LineAllowance = {
+  /** The allowance to apply — height delta already substituted when a preference governs it. */
+  allowance: Allowance;
+  /** What produced the height delta: the window's saved drop, or the configured allowance. */
+  heightSource: "preference" | "configured";
+  heightPreference: CurtainHeightPreference | null;
+};
+
+/**
+ * The allowance a line item actually manufactures to.
+ *
+ * A saved curtain height preference REPLACES the configured curtain height
+ * delta — manufacturing height is measured + preference, never
+ * measured + allowance + preference. Width is untouched, and so are blinds
+ * and mesh: a preference only exists on a curtain window. A null preference
+ * (any window saved before the field) keeps the configured delta verbatim, so
+ * the three call sites — the reconciliation screen, the precondition check
+ * and the confirm action — all see the same effective allowance.
+ */
+export function effectiveAllowance(
+  line: AllowanceLine,
+  heightPreference: CurtainHeightPreference | null | undefined,
+  allowance: Allowance,
+): LineAllowance {
+  const preference =
+    line === "curtain" ? (heightPreference ?? null) : null;
+  if (preference == null) {
+    return { allowance, heightSource: "configured", heightPreference: null };
+  }
+  return {
+    allowance: {
+      widthDeltaCm: allowance.widthDeltaCm,
+      heightDeltaCm: CURTAIN_HEIGHT_DELTA_CM[preference],
+    },
+    heightSource: "preference",
+    heightPreference: preference,
+  };
 }
 
 export type SourceDims = {

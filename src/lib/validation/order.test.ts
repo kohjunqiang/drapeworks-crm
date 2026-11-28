@@ -45,6 +45,76 @@ describe("windowSchema — curtain type ids (option A)", () => {
     ).toEqual([]);
   });
 
+  it("accepts each saved curtain drop on a regular window", () => {
+    for (const preference of [
+      "default",
+      "touch",
+      "sweep",
+      "more_sweep",
+      "cover_track",
+    ]) {
+      const parsed = windowSchema.parse({
+        variant: "regular",
+        position: 0,
+        curtain_height_preference: preference,
+      });
+      expect(parsed).toMatchObject({ curtain_height_preference: preference });
+    }
+  });
+
+  it("rejects a curtain drop outside the enum", () => {
+    const r = windowSchema.safeParse({
+      variant: "regular",
+      position: 0,
+      curtain_height_preference: "puddle",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("normalises an empty string, absent key and explicit null to the legacy null", () => {
+    for (const curtain_height_preference of ["", undefined, null]) {
+      const parsed = windowSchema.parse({
+        variant: "regular",
+        position: 0,
+        curtain_height_preference,
+      });
+      expect(parsed).toMatchObject({ curtain_height_preference: null });
+    }
+  });
+
+  it("drops the field on a blind window — the blind schema carries no drop", () => {
+    const parsed = windowSchema.parse({
+      variant: "blind",
+      position: 0,
+      curtain_height_preference: "touch",
+    });
+    expect(parsed).not.toHaveProperty("curtain_height_preference");
+  });
+
+  it("preserves the drop through the relaxed draft window schema", () => {
+    const parsed = orderDraftSchema.parse({
+      customer: { name: "A" },
+      order: {},
+      rooms: [
+        {
+          type: "Living Room",
+          label: "Living",
+          position: 0,
+          windows: [
+            {
+              variant: "regular",
+              position: 0,
+              curtain_height_preference: "more_sweep",
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.rooms[0].windows[0]).toMatchObject({
+      curtain_height_preference: "more_sweep",
+    });
+  });
+
   it("treats an empty-string select value as no selection", () => {
     const parsed = windowSchema.parse({
       variant: "regular",

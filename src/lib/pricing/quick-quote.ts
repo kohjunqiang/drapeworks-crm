@@ -1,8 +1,8 @@
 import type { ActiveCombo } from "@/lib/db/combos";
 import type { CurtainPackageRow } from "@/lib/db/product-pricing-settings";
 import { resolveWindowAddons, toCalcAddons } from "@/lib/orders/window-addons";
-import { newCalculatorWindow, pricingCalculatorSchema, type CalculatorValues, type CalculatorWindow } from "@/lib/validation/pricing-calculator";
-import { computeQuote, marginBps, type CalcWindow } from "./calculator";
+import { newCalculatorWindow, pricingCalculatorSchema, calculatorDefaults, type CalculatorRoom, type CalculatorValues, type CalculatorWindow } from "@/lib/validation/pricing-calculator";
+import { computeQuote, marginBps, windowQuote, type CalcWindow } from "./calculator";
 import { makePackageContext } from "./curtain-package-rules";
 import type { CalcConfig } from "./order-quote";
 
@@ -39,6 +39,25 @@ export function newQuickQuoteWindow(id: string, options: readonly QuickQuoteOpti
     nightId: usesNight(covering) ? essentialOptionId(options, "Night") : "" };
 }
 
+export const PRESET_ROOMS = ["Living Room", "Master Bedroom", "Bedroom 1", "Bedroom 2", "Bedroom 3", "Master Toilet", "Common Toilet", "Kitchen", "Study Room", "Balcony", "Service Yard"];
+export function newWorksheet(options: readonly QuickQuoteOption[]): CalculatorValues {
+  return { ...calculatorDefaults, rooms: PRESET_ROOMS.map((label, index) => ({
+    id: `preset-${index}`, label, preset: true,
+    windows: [{ ...newQuickQuoteWindow(`preset-${index}-window`, options, label.includes("Toilet") ? "blind" : "both"), active: false }],
+  })) };
+}
+export function editWorksheetWindow(window: CalculatorWindow, patch: Partial<CalculatorWindow>): CalculatorWindow {
+  return { ...window, ...patch, active: true };
+}
+export function clearWorksheetRoom(room: CalculatorRoom, options: readonly QuickQuoteOption[]): CalculatorRoom {
+  return { ...room, windows: [{ ...newQuickQuoteWindow(`${room.id}-window`, options, (room.preset ? ["preset-5", "preset-6"].includes(room.id) : room.label.includes("Toilet")) ? "blind" : "both"), active: false }] };
+}
+// Missing flags are legacy drafts: their existing coverings remain included.
+export function activeCalculatorRooms(values: CalculatorValues): CalculatorRoom[] {
+  return values.rooms.map((room) => ({ ...room, windows: room.windows.filter((window) => window.active !== false) }))
+    .filter((room) => room.windows.length > 0 || (!room.preset && room.windows.length === 0));
+}
+
 /** Exact decimal parsing: reject partial junk, exponents and fractions of a cent. */
 export function decimalCents(raw: string): number | null {
   if (!/^\d+(?:\.\d{0,2})?$/.test(raw.trim())) return null;
@@ -72,11 +91,13 @@ export function quickQuote(values: CalculatorValues, data: QuickQuoteData) {
   const extraCents = decimalCents(values.extraInstallation);
   if (discountBps === null || discountBps > 10000) issues.push({ severity: "error", kind: "invalid_discount", message: "Discount must be between 0 and 100%, with at most two decimal places." });
   if (extraCents === null) issues.push({ severity: "error", kind: "invalid_installation", message: "Additional installation must be a valid non-negative SGD amount." });
-  if (!values.rooms.length) issues.push({ severity: "pending", kind: "empty_rooms", message: "Add a room to start your quote." });
-  const windows: CalcWindow[] = values.rooms.flatMap((room, roomIndex) => {
+  const activeRooms = activeCalculatorRooms(values);
+  if (!activeRooms.length) issues.push({ severity: "pending", kind: "empty_rooms", message: "Add a room to start your quote." });
+  const windows: CalcWindow[] = activeRooms.flatMap((room, roomIndex) => {
     if (!room.windows.length) issues.push({ severity: "pending", kind: "missing_covering", roomId: room.id, message: `${room.label}: Add a covering to calculate.` });
     return room.windows.map((window, index) => {
-      const at = `${room.label || `Room ${roomIndex + 1}`} · Window ${index + 1}`;
+      const originalIndex = values.rooms.find((original) => original.id === room.id)?.windows.findIndex((original) => original.id === window.id) ?? index;
+      const at = `${room.label || `Room ${roomIndex + 1}`} · Window ${originalIndex + 1}`;
       const issue = (kind: QuoteIssue["kind"], message: string, severity: QuoteIssue["severity"] = "error") => issues.push({ severity, kind, roomId: room.id, windowId: window.id, message: `${at}: ${message}` });
       const widthCm = measurement(window.width);
       if (window.width.trim() === "") issue("missing_width", "Enter width to calculate.", "pending");
@@ -121,5 +142,12 @@ export function quickQuote(values: CalculatorValues, data: QuickQuoteData) {
   if (!issues.some((issue) => issue.severity === "pending")) {
     for (const message of quote.pricingIssues ?? []) issues.push({ severity: "error", kind: "package_pricing", message });
   }
-  return { quote, issues, complete: issues.length === 0, windows, packageContext };
+  const activeInputs = activeRooms.flatMap((room) => room.windows);
+  const items = windows.map((window, index) => ({
+    windowId: activeInputs[index].id,
+    includedInPackage: packageContext !== null && window.covering === "curtain",
+    subtotalCents: issues.some((issue) => issue.windowId === activeInputs[index].id) ? null : windowQuote(window, data.config.assumptions).saleSgdCents,
+  }));
+  return { quote, issues, complete: issues.length === 0, windows, packageContext, items,
+    roomCount: activeRooms.length, coveringCount: windows.length };
 }

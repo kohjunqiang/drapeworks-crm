@@ -35,3 +35,16 @@ describe("unsaved calculator tab memory", () => {
     expect(() => clearQuickQuoteDraft("server-user")).not.toThrow();
   });
 });
+
+it("round-trips explicit worksheet inclusion without converting cleared active inputs to unused", () => {
+  const memory = createQuickQuoteDraftStore();
+  const input = draft();
+  input.values.rooms[0].windows = [
+    { ...newCalculatorWindow("unused"), active: false },
+    { ...newCalculatorWindow("cleared"), active: true },
+    { ...newCalculatorWindow("legacy"), width: "321" },
+  ];
+  memory.write("consultant", input);
+  expect(memory.read("consultant")?.values.rooms[0].windows.map((window) => window.active)).toEqual([false, true, undefined]);
+  expect(memory.read("consultant")?.override).toBe("987");
+});

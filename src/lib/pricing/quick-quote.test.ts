@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { linksForRole } from "@/components/nav/links";
 import { calculatorDefaults, newCalculatorWindow, type CalculatorValues } from "@/lib/validation/pricing-calculator";
-import { computeQuote, type CalcAssumptions } from "./calculator";
+import { computeQuote, windowQuote, type CalcAssumptions } from "./calculator";
 import { CURTAIN_RATE_KEYS, makePackageContext, type CurtainRates } from "./curtain-package-rules";
-import { changeCovering, decimalCents, essentialOptionId, finalQuoteMetrics, newQuickQuoteWindow, quickQuote, type QuickQuoteData } from "./quick-quote";
+import { newWorksheet, editWorksheetWindow, clearWorksheetRoom, changeCovering, decimalCents, essentialOptionId, finalQuoteMetrics, newQuickQuoteWindow, quickQuote, type QuickQuoteData } from "./quick-quote";
 const assumptions: CalcAssumptions = {
   fxSgdToRmb: 53000, gstBps: 900, otherCostBps: 1000, groupbuyDiscountBps: 1500, styleMultiplier: 20000,
   handymanSingleSgdCents: 6000, handymanDoubleSgdCents: 10000, handymanBlindsSgdCents: 8000,
@@ -173,5 +173,58 @@ describe("quick-entry defaults and neutral pending inputs", () => {
     const input = values(); input.packageId = data.packages[0].id; input.rooms[0].windows[0].width = "";
     const result = quickQuote(input, data); expect(result.complete).toBe(false);
     expect(result.issues.every((issue) => issue.severity === "pending")).toBe(true);
+  });
+});
+
+describe("worksheet inclusion and item pricing", () => {
+  it("starts all eleven preset rooms untouched with blank dimensions and no quote contributions", () => {
+    const input = newWorksheet(data.options);
+    expect(input.rooms).toHaveLength(11);
+    expect(input.rooms.slice(0, 5).map((room) => room.label)).toEqual(["Living Room", "Master Bedroom", "Bedroom 1", "Bedroom 2", "Bedroom 3"]);
+    expect(input.rooms.every((room) => room.windows.every((window) => window.active === false && window.width === "" && window.height === ""))).toBe(true);
+    expect(input.rooms[5].windows[0]).toMatchObject({ covering: "blind", blindId: "" });
+    const result = quickQuote(input, data);
+    expect(result).toMatchObject({ roomCount: 0, coveringCount: 0, complete: false, windows: [], items: [] });
+    expect(result.issues.map((issue) => issue.kind)).toEqual(["empty_rooms"]);
+  });
+  it("activates on deliberate edits, retains activity when cleared, and restores untouched presets explicitly", () => {
+    const input = newWorksheet(data.options);
+    input.rooms[0].windows[0] = editWorksheetWindow(input.rooms[0].windows[0], { width: "300", nightId: "night" });
+    const valid = quickQuote(input, data);
+    expect(valid).toMatchObject({ roomCount: 1, coveringCount: 1, complete: true });
+    expect(valid.quote).toEqual(quickQuote(values(), data).quote);
+    expect(valid.items[0].subtotalCents).toBe(windowQuote(valid.windows[0], assumptions).saleSgdCents);
+    input.rooms[0].windows[0] = editWorksheetWindow(input.rooms[0].windows[0], { width: "" });
+    const pending = quickQuote(input, data);
+    expect(pending).toMatchObject({ roomCount: 1, coveringCount: 1, complete: false });
+    expect(finalQuoteMetrics(pending.quote.discountedSaleSgdCents, pending.quote.netCostSgdCents, "987", pending.complete).margin).toBeNull();
+    input.rooms[0] = clearWorksheetRoom(input.rooms[0], data.options);
+    expect(input.rooms).toHaveLength(11);
+    expect(quickQuote(input, data).roomCount).toBe(0);
+  });
+  it("includes extra coverings independently without activating their untouched sibling", () => {
+    const input = newWorksheet(data.options);
+    input.rooms[0].windows.push({ ...newQuickQuoteWindow("extra", data.options), active: true });
+    expect(quickQuote(input, data)).toMatchObject({ roomCount: 1, coveringCount: 1, complete: false });
+    input.rooms[0].windows.pop();
+    expect(quickQuote(input, data).coveringCount).toBe(0);
+  });
+  it("preserves legacy windows without activity flags and keeps whole-order adjustments out of item subtotals", () => {
+    const input = values(); input.discount = "20"; input.extraInstallation = "100";
+    const result = quickQuote(input, data);
+    expect(result.coveringCount).toBe(1);
+    expect(result.items[0].subtotalCents).toBe(windowQuote(result.windows[0], assumptions).saleSgdCents);
+    const undiscounted = quickQuote(values(), data);
+    expect(result.items).toEqual(undiscounted.items);
+  });
+  it("untouched presets do not alter package eligibility or package totals", () => {
+    const input = values(); input.packageId = data.packages[0].id;
+    input.rooms = [0, 1, 2].map((i) => ({ ...input.rooms[0], id: `active-${i}`, windows: input.rooms[0].windows.map((window) => ({ ...window, id: `active-window-${i}` })) }));
+    const expected = quickQuote(input, data);
+    input.rooms.push(...newWorksheet(data.options).rooms);
+    const actual = quickQuote(input, data);
+    expect(actual.quote).toEqual(expected.quote);
+    expect(actual).toMatchObject({ roomCount: 3, coveringCount: 3, complete: true });
+    expect(actual.items.every((item) => item.includedInPackage)).toBe(true);
   });
 });

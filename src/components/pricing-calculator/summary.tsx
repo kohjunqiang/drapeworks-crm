@@ -31,16 +31,16 @@ export function FinalPrice({ result, values, data, override, onOverride, id, com
   const floorMessage = belowFloor ? `Below the ${values.channel === "carousell" ? "Carousell " : ""}${pct(floor)} margin floor — review before quoting.` : "";
   const compactErrors = [invalidMessage, incompleteMessage, floorMessage].filter(Boolean).join(" ");
   const compactFeedback = compactErrors || pendingMessage;
-  return <div className={`rounded-lg bg-teal-50 ${compact ? "p-2" : "p-4"}`}>
+  return <div className={`rounded-lg bg-teal-50 ${compact ? "p-2 lg:flex lg:items-center lg:gap-3" : "p-4"}`}>
     <div className="flex items-center justify-between gap-2"><label htmlFor={`final-${id}`} className="text-sm font-semibold text-slate-900">Final quote (SGD)</label>{override !== null && <span className="text-xs text-teal-700">Manually adjusted</span>}</div>
-    <div className={`grid items-center ${compact ? "mt-1 grid-cols-[minmax(0,1fr)_auto] gap-2" : "mt-2 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"}`}>
+    <div className={`grid items-center ${compact ? "mt-1 grid-cols-[minmax(0,1fr)_auto] gap-2 lg:mt-0 lg:flex-1" : "mt-2 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]"}`}>
       <div className="relative min-w-0"><span aria-hidden="true" className="absolute left-3 top-3 text-lg text-slate-700">S$</span><input id={`final-${id}`} aria-invalid={override !== null && !metrics.valid} aria-describedby={`final-help-${id}`} inputMode="decimal" className={cn(FIELD, "mt-0 pl-11 text-xl font-semibold sm:text-xl")} value={value} onChange={(e) => onOverride(e.target.value)} /></div>
       <dl aria-live="polite" aria-atomic="true" className={`flex gap-4 ${compact ? "text-xs" : "text-sm sm:flex-col sm:gap-2"}`}>
-        {!compact && <div><dt className="text-slate-600">Profit</dt><dd className="font-semibold">{metrics.profitCents === null ? "—" : formatSGD(metrics.profitCents)}</dd></div>}
+        {<div><dt className="text-slate-600">Profit</dt><dd className="font-semibold">{metrics.profitCents === null ? "—" : formatSGD(metrics.profitCents)}</dd></div>}
         <div><dt className="text-slate-600">Margin</dt><dd className={`font-semibold ${belowFloor ? "text-red-600" : "text-teal-800"}`}>{metrics.margin === null ? "—" : pct(metrics.margin)}</dd></div>
       </dl>
     </div>
-    {compact ? <p id={`final-help-${id}`} className={compactFeedback ? `mt-1 line-clamp-2 text-xs font-medium ${compactErrors ? "text-red-600" : "text-slate-500"}` : "sr-only"}>{compactFeedback || "Profit and margin update as you type. Open pricing to use the calculated price."}</p> : <>
+    {compact ? <p id={`final-help-${id}`} className={compactFeedback ? `mt-1 line-clamp-2 text-xs font-medium lg:mt-0 lg:max-w-[240px] ${compactErrors ? "text-red-600" : "text-slate-500"}` : "sr-only"}>{compactFeedback || "Profit and margin update as you type. Open pricing to use the calculated price."}</p> : <>
       <p id={`final-help-${id}`} className={`mt-2 text-xs ${invalidMessage ? "text-red-600" : "text-slate-600"}`}>{invalidMessage || pendingMessage || "Profit and margin update as you type."}</p>
       {override !== null && <Button type="button" variant="ghost" className="mt-1 min-h-11 px-0 text-teal-700" onClick={() => onOverride(null)}>Use calculated price</Button>}
       {incompleteMessage && <p className="mt-2 text-xs font-medium text-red-600">{incompleteMessage}</p>}
@@ -56,10 +56,10 @@ export function QuoteSummary(props: SummaryProps) {
   const pending = issues.filter((issue) => issue.severity === "pending");
   const rows = [["Standard", quote.saleSgdCents], ["Groupbuy", quote.groupbuySgdCents], ["Discounted", quote.discountedSaleSgdCents]] as const;
   return <div className="min-w-0 space-y-4">
-    <div><h2 className="text-lg font-semibold">Quote summary</h2><p className="mt-1 text-sm text-slate-500">{values.rooms.length} rooms · {values.rooms.reduce((n, r) => n + r.windows.length, 0)} coverings</p></div>
+    <div><h2 className="text-lg font-semibold">Quote summary</h2><p className="mt-1 text-sm text-slate-500">{result.roomCount} rooms · {result.coveringCount} coverings</p></div>
     {errors.length > 0 && <div role="status" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700"><p className="font-medium">Estimate incomplete</p><ul className="mt-1 space-y-1">{errors.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul></div>}
     {pending.length > 0 && <ul className="space-y-1 text-sm text-slate-500" aria-label="Inputs needed to calculate">{pending.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>}
-    {values.rooms.length === 0 && issues.length === 0 && <p className="text-sm text-slate-500">Start with a room to see your quote.</p>}
+    {result.roomCount === 0 && issues.length === 0 && <p className="text-sm text-slate-500">Enter a room width to see your quote.</p>}
     <div><h3 className="mb-2 text-sm font-semibold">Price comparison</h3><table className="w-full table-fixed text-right text-xs sm:text-sm"><thead><tr className="border-b border-slate-200 bg-slate-50"><th className="w-[28%] py-2 text-left"><span className="sr-only">Price type</span></th><th className="py-2">Price (S$)</th><th className="py-2">Profit (S$)</th><th className="py-2">Margin</th></tr></thead><tbody>{rows.map(([label, sale]) => <tr key={label} className="border-b border-slate-100"><th scope="row" className="py-3 text-left font-medium">{label}</th><td>{complete ? (sale / 100).toFixed(2) : "—"}</td><td>{complete ? ((sale - quote.netCostSgdCents) / 100).toFixed(2) : "—"}</td><td>{complete ? pct(marginBps(quote.netCostSgdCents, sale)) : "—"}</td></tr>)}</tbody></table>{values.packageId && <p className="mt-2 text-xs text-slate-500">Package pricing already includes its groupbuy offer; no additional groupbuy discount applies.</p>}</div>
     <label htmlFor={`discount-${id}`} className="block text-sm font-medium">Discount (%)<input id={`discount-${id}`} className={FIELD} inputMode="decimal" value={values.discount} onChange={(e) => onDiscount(e.target.value)} /></label>
     <FinalPrice result={result} values={values} data={data} override={override} onOverride={onOverride} id={id} />

@@ -3,13 +3,14 @@ import { z } from "zod";
 // Strings preserve unfinished edits (including an empty manual quote). Nothing is
 // saved: validity is checked before presenting a complete monetary result.
 export const calculatorWindowSchema = z.object({
+  active: z.boolean().optional(),
   id: z.string(), covering: z.enum(["day", "night", "both", "blind"]),
   width: z.string(), height: z.string(), dayId: z.string(), nightId: z.string(), blindId: z.string(),
   addonIds: z.array(z.string()), dayTrack: z.boolean(), nightTrack: z.boolean(),
   noInstallation: z.boolean(), comboId: z.string(),
 });
 export const pricingCalculatorSchema = z.object({
-  rooms: z.array(z.object({ id: z.string(), label: z.string(), windows: z.array(calculatorWindowSchema) })),
+  rooms: z.array(z.object({ id: z.string(), label: z.string(), preset: z.boolean().optional(), windows: z.array(calculatorWindowSchema) })),
   packageId: z.string(), packageTier: z.enum(["essential", "tier2"]), singleLayer: z.enum(["day", "night"]),
   discount: z.string(), freight: z.enum(["air", "sea"]), channel: z.enum(["standard", "carousell"]), extraInstallation: z.string(),
 });

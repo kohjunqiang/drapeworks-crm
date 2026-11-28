@@ -113,6 +113,41 @@ export function clearCreateFormDrafts(product: "curtain" | "mesh"): void {
   }
 }
 
+// One-shot customer-picker notice. Written when a returning-customer pick
+// turns out to be stale (deposit recorded since the page rendered): the picker
+// still navigates to a safe, re-gated form, so a toast would vanish with the
+// reload. The notice is stashed in sessionStorage, surfaced once on the next
+// mount, then discarded. Product-scoped like the drafts.
+const NOTICE_PREFIX = "drapeworks:customer-notice:";
+
+export function customerNoticeKey(product: "curtain" | "mesh"): string {
+  return `${NOTICE_PREFIX}${product}`;
+}
+
+export function stashCustomerNotice(
+  product: "curtain" | "mesh",
+  message: string,
+): void {
+  try {
+    sessionStorage.setItem(customerNoticeKey(product), message);
+  } catch {
+    /* storage unavailable — the reload still lands on a safe form */
+  }
+}
+
+export function popCustomerNotice(
+  product: "curtain" | "mesh",
+): string | null {
+  try {
+    const key = customerNoticeKey(product);
+    const message = sessionStorage.getItem(key);
+    if (message !== null) sessionStorage.removeItem(key);
+    return message;
+  } catch {
+    return null;
+  }
+}
+
 export function useFormDraft<T extends FieldValues>(
   form: UseFormReturn<T>,
   key: string,

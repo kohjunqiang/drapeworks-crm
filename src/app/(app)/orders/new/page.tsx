@@ -25,7 +25,16 @@ import {
   loadCurtainOrderTemplate,
   loadMeshOrderTemplate,
 } from "@/lib/orders/order-template";
-import { consultationCustomerCookie } from "@/lib/orders/consultation-selection";
+import {
+  consultationCustomerCookie,
+  type ConsultationProduct,
+} from "@/lib/orders/consultation-selection";
+import {
+  loadConsultationLeadRows,
+  loadRepeatCustomerRows,
+  loadUnpaidCustomerPrefill,
+  overlayAppointmentOntoDefaults,
+} from "@/lib/orders/consultation-customers";
 import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +65,7 @@ async function loadAppointmentPrefill(
   appointmentId: string | undefined,
   leadId: string | undefined,
   customerId: string | undefined,
+  product: ConsultationProduct,
 ): Promise<AppointmentPrefill | undefined> {
   if (appointmentId && UUID_RE.test(appointmentId)) {
     const booked = await db
@@ -146,34 +156,10 @@ async function loadAppointmentPrefill(
   }
 
   if (!customerId || !UUID_RE.test(customerId)) return undefined;
-  const existingCustomer = await db
-    .selectFrom("customers")
-    .innerJoin("orders", "orders.customer_id", "customers.id")
-    .select([
-      "customers.id",
-      "customers.name",
-      "customers.salutation",
-      "customers.mobile",
-      "customers.email",
-      "orders.development",
-      "orders.site_address",
-    ])
-    .where("customers.id", "=", customerId)
-    .orderBy("orders.updated_at", "desc")
-    .executeTakeFirst();
-  if (!existingCustomer) return undefined;
-
-  return {
-    customerId: existingCustomer.id,
-    customer: {
-      name: existingCustomer.name,
-      salutation: existingCustomer.salutation ?? undefined,
-      mobile: existingCustomer.mobile,
-      email: existingCustomer.email ?? undefined,
-    },
-    development: existingCustomer.development,
-    address: existingCustomer.site_address,
-  };
+  // Cookie-remembered returning customer. Only pre-deposit orders qualify, so
+  // a customer whose orders have all since taken a deposit resolves to a
+  // brand-new form instead of resurrecting the stale cookie.
+  return loadUnpaidCustomerPrefill(customerId, product);
 }
 
 export default async function NewConsultationPage({
@@ -184,32 +170,18 @@ export default async function NewConsultationPage({
   const session = await requireRole(["consultant", "admin"]);
   const { product, appointmentId, leadId } = await searchParams;
   const cookieStore = await cookies();
+  const sessionProduct: ConsultationProduct =
+    product === "mesh" ? "mesh" : "curtain";
   const sessionCustomerId = product === "mesh" || product === "curtain"
-    ? cookieStore.get(consultationCustomerCookie(product))?.value
+    ? cookieStore.get(consultationCustomerCookie(sessionProduct))?.value
     : undefined;
   const appointment = await loadAppointmentPrefill(
     appointmentId,
     leadId,
     appointmentId || leadId ? undefined : sessionCustomerId,
+    sessionProduct,
   );
-  const consultationLeads = await db.selectFrom("leads")
-    .leftJoin("orders", "orders.lead_id", "leads.id")
-    .innerJoin("appointments", (join) => join
-      .onRef("appointments.lead_id", "=", "leads.id")
-      .on("appointments.status", "=", "scheduled"))
-    .innerJoin("customers", "customers.id", "appointments.customer_id")
-    .select([
-      "leads.id as lead_id", "leads.name as lead_name",
-      "customers.id as customer_id",
-      "customers.mobile as customer_mobile",
-      "appointments.development as appointment_development",
-      "leads.development as lead_development",
-    ])
-    .where("leads.is_archived", "=", false)
-    .where("leads.funnel_stage", "=", ATTEND_APPOINTMENT_STAGE)
-    .where("orders.id", "is", null)
-    .orderBy("leads.updated_at", "desc")
-    .execute();
+  const consultationLeads = await loadConsultationLeadRows();
   const leadOptions: CustomerLeadOption[] = consultationLeads.map(item => ({
     leadId: item.lead_id,
     leadName: item.lead_name,
@@ -217,19 +189,7 @@ export default async function NewConsultationPage({
     development: item.appointment_development ?? item.lead_development,
   }));
   const leadCustomerIds = new Set(consultationLeads.map(item => item.customer_id));
-  const repeatCustomers = await db
-    .selectFrom("customers")
-    .innerJoin("orders", "orders.customer_id", "customers.id")
-    .select([
-      "customers.id as customer_id",
-      "customers.name as customer_name",
-      "customers.mobile as customer_mobile",
-      "orders.development",
-    ])
-    .distinctOn("customers.id")
-    .orderBy("customers.id")
-    .orderBy("orders.updated_at", "desc")
-    .execute();
+  const repeatCustomers = await loadRepeatCustomerRows();
   const customerOptions: ExistingCustomerOption[] = repeatCustomers
     .filter(item => !leadCustomerIds.has(item.customer_id))
     .map(item => ({
@@ -392,6 +352,13 @@ async function CurtainConsultation({
           }),
     })),
   } : undefined;
+  // The template supplies rooms and measurements; the booked appointment (or
+  // remembered customer) supplies the current identity and address so the new
+  // consultation isn't silently pointed at the old order's site.
+  const mergedDefaults =
+    templateDefaults && appointment
+      ? overlayAppointmentOntoDefaults(templateDefaults, appointment)
+      : templateDefaults;
 
   return (
     <>
@@ -412,7 +379,7 @@ async function CurtainConsultation({
         appointment={appointment}
         leadOptions={leadOptions}
         customerOptions={customerOptions}
-        defaultValues={templateDefaults}
+        defaultValues={mergedDefaults}
         roomPhotos={template?.roomPhotos}
         windowPhotos={template?.windowPhotos}
       />
@@ -470,6 +437,12 @@ async function MeshConsultation({
       })),
     })),
   } : undefined;
+  // Same overlay as the curtain form: booked identity/address wins over the
+  // template order's, while the template's panels and measurements carry over.
+  const mergedDefaults =
+    templateDefaults && appointment
+      ? overlayAppointmentOntoDefaults(templateDefaults, appointment)
+      : templateDefaults;
 
   return (
     <>
@@ -489,7 +462,7 @@ async function MeshConsultation({
         appointment={appointment}
         leadOptions={leadOptions}
         customerOptions={customerOptions}
-        defaultValues={templateDefaults}
+        defaultValues={mergedDefaults}
         roomPhotos={template?.roomPhotos}
       />
     </>
@@ -506,8 +479,8 @@ function TemplateNotice({
   return (
     <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900">
       {sourceDisplayId
-        ? `Rooms and measurements copied from ${sourceDisplayId}. Review the options, adjust what changed, and save to create a separate order.`
-        : `Customer details loaded. No previous ${productLabel} order was found, so add the new measurements below.`}
+        ? `Rooms and measurements copied from ${sourceDisplayId}, the latest unpaid ${productLabel} consultation. Review the options, adjust what changed, and save to create a separate order.`
+        : `Customer details loaded. No unpaid ${productLabel} consultation was found, so add the new measurements below.`}
     </div>
   );
 }

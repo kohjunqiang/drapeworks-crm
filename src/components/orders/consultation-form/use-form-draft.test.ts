@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearCreateFormDrafts,
   clearDraftKey,
+  customerNoticeKey,
   draftChildKey,
   formDraftKey,
   mergeFormDraft,
+  popCustomerNotice,
+  stashCustomerNotice,
 } from "./use-form-draft";
 
 // vitest runs in a node environment, so the browser global is stubbed with
@@ -122,6 +125,41 @@ describe("draft lifecycle clearing", () => {
     clearCreateFormDrafts("curtain");
 
     expect(storage.getItem(meshPhone)).toBe("MY");
+  });
+});
+
+// The stale-pick notice survives the navigation it triggers (sessionStorage,
+// like the drafts) but is consumed exactly once.
+describe("customer notice", () => {
+  it("stashes a message that pops once and is gone", () => {
+    stubSessionStorage();
+    stashCustomerNotice("curtain", "No longer awaiting deposit");
+
+    expect(popCustomerNotice("curtain")).toBe("No longer awaiting deposit");
+    expect(popCustomerNotice("curtain")).toBeNull();
+  });
+
+  it("is scoped to the product whose pick went stale", () => {
+    stubSessionStorage();
+    stashCustomerNotice("mesh", "Gone paid");
+
+    expect(popCustomerNotice("curtain")).toBeNull();
+    expect(popCustomerNotice("mesh")).toBe("Gone paid");
+  });
+
+  it("is not swept up by create-draft clearing", () => {
+    stubSessionStorage();
+    stashCustomerNotice("curtain", "Gone paid");
+
+    clearCreateFormDrafts("curtain");
+
+    expect(popCustomerNotice("curtain")).toBe("Gone paid");
+  });
+
+  it("exposes the same key the stash writes so a reload finds it", () => {
+    const storage = stubSessionStorage();
+    stashCustomerNotice("curtain", "Gone paid");
+    expect(storage.getItem(customerNoticeKey("curtain"))).toBe("Gone paid");
   });
 });
 

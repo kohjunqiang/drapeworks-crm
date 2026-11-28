@@ -11,6 +11,8 @@ import type { UploaderPhoto } from "@/components/orders/photo-uploader";
 import type { MeshOrderEditInput } from "@/lib/validation/mesh";
 import { isToiletRoom, type OrderEditInput } from "@/lib/validation/order";
 
+import { PRE_DEPOSIT_ORDER_STATUSES } from "./consultation-selection";
+
 type TemplateResult<T> = {
   sourceDisplayId: string;
   defaults: T;
@@ -91,6 +93,11 @@ async function loadTemplateOrder(
     ])
     .where("orders.customer_id", "=", customerId)
     .where("orders.product_line", "=", productLine)
+    // Measurements copy forward only from a consultation still awaiting
+    // deposit. A paid order's rooms belong to a committed job; cloning them
+    // would misquote the new site. A newer paid order therefore never eclipses
+    // an older unpaid one of the same product.
+    .where("orders.current_status", "in", PRE_DEPOSIT_ORDER_STATUSES)
     .where("orders.is_draft", "=", false)
     .orderBy("orders.updated_at", "desc")
     .executeTakeFirst();

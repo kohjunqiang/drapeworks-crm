@@ -1,15 +1,21 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Controller, useFormContext, useWatch } from "react-hook-form";
+import { toast } from "sonner";
 
 import { PhoneInput } from "@/components/forms/phone-input";
 import { FormSelect } from "@/components/ui/app-select";
 import { setConsultationCustomer } from "@/lib/actions/consultation-selection";
 
 import type { ConsultationShellShape } from "./form-shapes";
-import { clearCreateFormDrafts, draftChildKey } from "./use-form-draft";
+import {
+  clearCreateFormDrafts,
+  draftChildKey,
+  popCustomerNotice,
+  stashCustomerNotice,
+} from "./use-form-draft";
 
 export type CustomerLeadOption = {
   leadId: string;
@@ -146,6 +152,19 @@ export function CustomerSection({
     ? "loaded-customer"
     : "brand-new";
   const product = searchParams.get("product") === "mesh" ? "mesh" : "curtain";
+  // One-shot explanation surfaced after the safe reload that follows a stale
+  // pick — a toast fired before navigation would never be seen. Consumed after
+  // mount (never during SSR/hydration, where sessionStorage is absent) and
+  // inside the scheduled callback: a StrictMode-cancelled first effect must
+  // not have already eaten the stored notice.
+  const [customerNotice, setCustomerNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const message = popCustomerNotice(product);
+      if (message) setCustomerNotice(message);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [product]);
 
   function confirmReset(): boolean {
     return !isDirty || window.confirm("Changing customer will reset this consultation. Continue?");
@@ -154,7 +173,6 @@ export function CustomerSection({
   function selectCustomer(value: string) {
     if (!confirmReset()) return;
 
-    clearCreateFormDrafts(product);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("appointmentId");
     params.delete("leadId");
@@ -162,12 +180,24 @@ export function CustomerSection({
     if (value.startsWith("lead:")) params.set("leadId", value.slice(5));
     const customerId = value.startsWith("customer:") ? value.slice(9) : null;
     startCustomerChange(async () => {
-      await setConsultationCustomer({ product, customerId });
-      const query = params.toString();
-      const target = query ? `/orders/new?${query}` : "/orders/new";
-      const current = `${window.location.pathname}${window.location.search}`;
-      if (current === target) window.location.reload();
-      else window.location.assign(target);
+      try {
+        const result = await setConsultationCustomer({ product, customerId });
+        // A customer can turn ineligible between render and pick (deposit just
+        // recorded). The action already cleared the cookie; stash the reason so
+        // it survives the reload that re-gates the form.
+        if (result && !result.ok) stashCustomerNotice(product, result.error);
+        // Draft clearing is destructive — only run it once the pick actually
+        // went through and navigation is about to happen. A failed action
+        // keeps every in-progress draft.
+        clearCreateFormDrafts(product);
+        const query = params.toString();
+        const target = query ? `/orders/new?${query}` : "/orders/new";
+        const current = `${window.location.pathname}${window.location.search}`;
+        if (current === target) window.location.reload();
+        else window.location.assign(target);
+      } catch {
+        toast.error("Couldn't update the customer selection. Please try again.");
+      }
     });
   }
 
@@ -228,8 +258,13 @@ export function CustomerSection({
                 )}
                 <option value="brand-new">Brand new customer</option>
               </select>
+              {customerNotice && (
+                <p role="alert" className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {customerNotice}
+                </p>
+              )}
               <p id="customer-picker-hint" className="mt-1 text-xs text-slate-500">
-                Choose a booked lead, reuse a customer from a recorded order, or add a new customer. Choosing the loaded customer again refreshes their latest saved order.
+                Choose a booked lead, reuse a customer whose order is still awaiting deposit, or add a new customer. Choosing the loaded customer again refreshes their latest consultation.
               </p>
               <div className="mt-2">
                 <label htmlFor="customer-name" className="block text-xs font-medium text-slate-600 mb-1">

@@ -21,6 +21,9 @@ scripts/seed-arrival-reconcile-local.ts
 scripts/repair-order-fulfilment-status.ts
 
 .next-priority
+.next-deposit-picker
 scripts/seed-pricing-calculator-local.ts
 scripts/set-pricing-calculator-role-local.ts
+scripts/qa-deposit-picker.cjs
+scripts/start-deposit-picker-local.mjs
 scripts/seed-day-labels-local.ts

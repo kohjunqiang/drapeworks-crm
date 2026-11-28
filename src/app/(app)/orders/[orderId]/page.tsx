@@ -33,6 +33,12 @@ import { canScheduleInstallation } from "@/lib/fulfilment/status";
 import { loadOrderShipmentState } from "@/lib/logistics/load";
 import { requiresLocalDelivery } from "@/lib/logistics/shipments";
 import { loadRoomSummaries } from "@/lib/orders/load-room-summaries";
+import {
+  earliestStatusEventAt,
+  orderDayCounter,
+  orderDayCounterLabel,
+} from "@/lib/orders/day-counter";
+import { todayInSingapore } from "@/lib/leads/sg-date";
 import { formatSGD } from "@/lib/money";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { panelBillableArea } from "@/lib/pricing/mesh-calculator";
@@ -233,13 +239,20 @@ export default async function OrderDetailPage({
     (session.profile.role === "admin" ||
       order.consultant_id === session.user.id);
   const lockedAt = locked
-    ? (events
-        .filter((e) => e.status === "sent_to_vendor")
-        .reduce<Date | null>((earliest, e) => {
-          const at = new Date(e.created_at);
-          return earliest && earliest <= at ? earliest : at;
-        }, null) ?? null)
+    ? earliestStatusEventAt(events, "sent_to_vendor")
     : null;
+
+  // Quiet day counter under the status badge: days since payment until the PO
+  // is sent, then days since it went out. Gated on the CURRENT status so an
+  // admin revert hides a clock whose events still exist.
+  const statusCounter = orderDayCounterLabel(
+    orderDayCounter({
+      currentStatus: order.current_status,
+      depositReceivedAt: earliestStatusEventAt(events, "deposit_received"),
+      sentToVendorAt: earliestStatusEventAt(events, "sent_to_vendor"),
+      today: todayInSingapore(),
+    }),
+  );
 
   const completionPhotoRows = await db
     .selectFrom("order_completion_photos")
@@ -278,7 +291,14 @@ export default async function OrderDetailPage({
             <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
               {order.customer_name}
             </h1>
-            <StatusBadge status={order.current_status} />
+            <div>
+              <StatusBadge status={order.current_status} />
+              {statusCounter && (
+                <div className="mt-1 text-xs text-slate-600">
+                  {statusCounter}
+                </div>
+              )}
+            </div>
           </div>
           <div className="text-sm text-slate-500 mt-1">
             {[order.development, order.unit_type]

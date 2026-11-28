@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { PriorityBadge } from "@/components/leads/priority";
 import { QuickEditLead } from "@/components/leads/phase16-forms";
 import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
+import { FollowUpLabel } from "@/components/leads/follow-up-label";
 import { archiveLead } from "@/lib/actions/leads";
 import type { FunnelStage } from "@/lib/leads/funnel-types";
 import { useBatchEdit, batchRowDomId } from "@/components/leads/batch-edit-context";
@@ -23,9 +24,9 @@ type LeadRow = import("@/lib/leads/priority").PriorityInput & import("@/lib/lead
   closure_reason?: string | null; assigned_consultant_id: string | null; owner_id: string | null;
 };
 
-export function EditableLeadRow({ lead, consultants, variant, ownerName, actionLabel, moveInDisplay, lastContactText, dueLabel }: {
+export function EditableLeadRow({ lead, consultants, variant, ownerName, actionLabel, moveInDisplay, lastContactText, dueLabel, followUpLabel }: {
   lead: LeadRow; consultants: { id: string; full_name: string | null }[]; variant: "work" | "all";
-  ownerName: string; actionLabel?: string; moveInDisplay?: string; lastContactText?: string; dueLabel?: string;
+  ownerName: string; actionLabel?: string; moveInDisplay?: string; lastContactText?: string; dueLabel?: string; followUpLabel?: string | null;
 }) {
   const batch = useBatchEdit();
   const entry = batch?.entries[lead.id];
@@ -35,7 +36,7 @@ export function EditableLeadRow({ lead, consultants, variant, ownerName, actionL
   const priority = <td className="px-2 py-2"><Link href={`/leads/${lead.id}#lead-priority`} aria-label={`View priority breakdown for ${lead.name}`} className="inline-flex rounded hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-600"><PriorityBadge lead={lead} compact/></Link></td>;
   // Single-row edit/archive compete with an in-flight batch save — disable them.
   const actions = <div inert={batch?.saving || undefined} className={`flex items-center justify-end gap-1.5 ${batch?.saving ? "opacity-50" : ""}`}><QuickEditLead lead={lead} consultants={consultants} trigger="edit"/><ArchiveLeadButton leadId={lead.id} leadName={lead.name}/></div>;
-  if (variant === "work") return <tr className="border-b last:border-b-0 hover:bg-slate-50/70"><td className="px-2 py-3"><span inert={batch?.saving || undefined} className={batch?.saving ? "opacity-50" : ""}><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></span><div className="text-xs text-slate-500">{lead.lead_ref}</div></td><td className="px-2 py-3 font-medium">{actionLabel}</td><td className="px-2 py-3"><FunnelStagePill stage={lead.funnel_stage}/></td><td className="max-w-64 p-3 text-slate-600">{lead.action_detail ?? "—"}</td><td className="px-2 py-3">{lead.next_action_date_text ?? "—"}</td>{priority}<td className="px-2 py-3">{moveInDisplay ?? "—"}</td><td className="px-2 py-3">{lead.latest_quote_cents ? `$${(lead.latest_quote_cents / 100).toLocaleString("en-SG", { minimumFractionDigits: 2 })}` : "—"}</td><td className="px-2 py-3">{lastContactText ?? "—"}</td><td className="px-2 py-3">{ownerName}</td><td className="px-2 py-3">{actions}</td></tr>;
+  if (variant === "work") return <tr className="border-b last:border-b-0 hover:bg-slate-50/70"><td className="px-2 py-3"><span inert={batch?.saving || undefined} className={batch?.saving ? "opacity-50" : ""}><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></span><div className="text-xs text-slate-500">{lead.lead_ref}</div><FollowUpLabel label={followUpLabel}/></td><td className="px-2 py-3 font-medium">{actionLabel}</td><td className="px-2 py-3"><FunnelStagePill stage={lead.funnel_stage}/></td><td className="max-w-64 p-3 text-slate-600">{lead.action_detail ?? "—"}</td><td className="px-2 py-3">{lead.next_action_date_text ?? "—"}</td>{priority}<td className="px-2 py-3">{moveInDisplay ?? "—"}</td><td className="px-2 py-3">{lead.latest_quote_cents ? `$${(lead.latest_quote_cents / 100).toLocaleString("en-SG", { minimumFractionDigits: 2 })}` : "—"}</td><td className="px-2 py-3">{lastContactText ?? "—"}</td><td className="px-2 py-3">{ownerName}</td><td className="px-2 py-3">{actions}</td></tr>;
   const selectCell = <td className="px-1 py-2 align-middle">{batch && <LeadSelectCheckbox lead={{ id: lead.id, name: lead.name }}/>}</td>;
   if (selected && batch) {
     const expanded = entry.expanded;
@@ -43,7 +44,7 @@ export function EditableLeadRow({ lead, consultants, variant, ownerName, actionL
     return <>
       <tr id={batchRowDomId(lead.id, "table")} tabIndex={-1} className="border-b last:border-b-0 bg-teal-50/40">
         {selectCell}
-        <td className="px-2 py-2"><BatchField leadId={lead.id} field="name" variant="table" compact/><div className="mt-1 text-xs text-slate-500">{lead.lead_ref}</div></td>
+        <td className="px-2 py-2"><BatchField leadId={lead.id} field="name" variant="table" compact/><div className="mt-1 text-xs text-slate-500">{lead.lead_ref}</div><FollowUpLabel label={followUpLabel}/></td>
         <td className="px-2 py-2"><BatchField leadId={lead.id} field="inbound_outbound" variant="table" compact/></td>
         <td className="truncate px-2 py-2" title={lead.initiated_date_text ?? undefined}>{lead.initiated_date_text ?? "—"}</td>
         <td className="truncate px-2 py-2" title={lead.last_contact_date_text ?? undefined}>{lead.last_contact_date_text ?? "—"}</td>
@@ -70,7 +71,7 @@ export function EditableLeadRow({ lead, consultants, variant, ownerName, actionL
   }
   return <tr id={batch ? batchRowDomId(lead.id, "table") : undefined} tabIndex={batch ? -1 : undefined} className="border-b last:border-b-0 hover:bg-slate-50/70">
     {selectCell}
-    <td className="px-2 py-2"><span inert={batch?.saving || undefined} className={batch?.saving ? "opacity-50" : ""}><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></span></td>
+    <td className="px-2 py-2"><span inert={batch?.saving || undefined} className={batch?.saving ? "opacity-50" : ""}><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></span><FollowUpLabel label={followUpLabel}/></td>
     {[lead.inbound_outbound, lead.initiated_date_text, lead.last_contact_date_text].map((value, index) => <td key={index} className="truncate px-2 py-2" title={value ?? undefined}>{value ?? "—"}</td>)}
     <td className="px-2 py-2"><FunnelStagePill stage={lead.funnel_stage}/></td>
     <td className="truncate px-2 py-2" title={lead.lead_status}>{lead.lead_status}</td>

@@ -34,6 +34,15 @@ export function todayInSingapore(): SgDate {
   return toSgDate(new Date());
 }
 
+/** Whole calendar days from `from` to `to` (negative when `from` is after `to`). */
+export function diffSgDays(from: SgDate, to: SgDate): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round(
+    (Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000,
+  );
+}
+
 /** `date` shifted by `days`, which may be negative. */
 export function addDays(date: SgDate, days: number): SgDate {
   // Anchored at noon UTC so that adding days can never trip over a DST or

@@ -4,12 +4,14 @@ import { notFound } from "next/navigation";
 import { sql } from "kysely";
 
 import { AppointmentCard } from "@/components/leads/appointment-card";
+import { FollowUpLabel } from "@/components/leads/follow-up-label";
 import { LeadDetailPanels } from "@/components/leads/lead-detail-panels";
 import { RecommendationBanner } from "@/components/leads/phase16-forms";
 import { requireRole } from "@/lib/auth/require-role";
 import { isCalendarConfigured } from "@/lib/calendar/google";
 import { db } from "@/lib/db/kysely";
 import { deriveLead } from "@/lib/leads/funnel-engine";
+import { leadFollowUpLabel } from "@/lib/leads/follow-up";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +42,15 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     .where("appointments.lead_id", "=", id)
     .orderBy("appointments.created_at", "desc")
     .executeTakeFirst();
+  // Separate from the appointment card query above: the label counts days
+  // from the latest ATTENDED consultation, whatever the newest appointment's
+  // status is.
+  const lastCompleted = await db.selectFrom("appointments")
+    .select(sql<Date | null>`max(scheduled_at)`.as("last_at"))
+    .where("lead_id", "=", id)
+    .where("status", "=", "completed")
+    .executeTakeFirst();
+  const followUpLabel = leadFollowUpLabel({ funnelStage: lead.funnel_stage, isArchived: lead.is_archived, lastCompletedAt: lastCompleted?.last_at ?? null, today: todayInSingapore() });
   const consultants = profiles.filter(profile => profile.is_active && (profile.role === "consultant" || profile.role === "admin")).map(profile => ({ id: profile.id, full_name: profile.full_name }));
   const stats = [["Status", lead.lead_status], ["Action", derived.actionRequired], ["Due", derived.dueStatus], ["Funnel readiness", derived.buyingReadiness ?? "—"], ["Owner", derived.currentOwnerId ? names.get(derived.currentOwnerId) ?? "Unknown" : "Unassigned"], ["Follow-ups", String(lead.unanswered_followups)]];
 
@@ -48,7 +59,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
       href={justCreated ? `/leads?view=all&created=${id}` : "/leads?view=work"}
       className="mb-4 inline-flex text-sm font-medium text-slate-500 hover:text-slate-900"
     >{justCreated ? "← Back to All Leads" : "← Back to Active Queue"}</Link>
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><h1 className="break-words text-2xl font-bold">{lead.name}</h1><p className="text-slate-500">{lead.lead_ref} · {lead.mobile ?? "No mobile"}</p></div><Link href={`/leads/${id}/edit`} className="inline-flex h-10 w-fit shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">Edit details</Link></div>
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><h1 className="break-words text-2xl font-bold">{lead.name}</h1><p className="text-slate-500">{lead.lead_ref} · {lead.mobile ?? "No mobile"}</p><FollowUpLabel label={followUpLabel}/></div><Link href={`/leads/${id}/edit`} className="inline-flex h-10 w-fit shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">Edit details</Link></div>
     <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">{stats.map(([label, value]) => <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" key={label}><div className="text-xs font-medium text-slate-500">{label}</div><div className="mt-1 break-words text-sm font-semibold text-slate-900">{value}</div></div>)}</div>
     <PriorityBreakdown lead={lead}/>
     {derived.recommendations.length > 0 && <div className="mb-4 space-y-2">{derived.recommendations.map(recommendation => <RecommendationBanner key={recommendation.code} leadId={id} recommendation={recommendation}/>)}</div>}

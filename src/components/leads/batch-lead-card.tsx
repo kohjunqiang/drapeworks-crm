@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { PriorityBadge } from "@/components/leads/priority";
 import { QuickEditLead } from "@/components/leads/phase16-forms";
 import { FunnelStagePill } from "@/components/leads/funnel-stage-pill";
+import { FollowUpLabel } from "@/components/leads/follow-up-label";
 import { ArchiveLeadButton } from "@/components/leads/editable-lead-row";
 import { useBatchEdit, batchRowDomId } from "@/components/leads/batch-edit-context";
 import { BatchExpandedFields, BatchField, LeadSelectCheckbox } from "@/components/leads/batch-edit-fields";
@@ -29,9 +30,9 @@ const READONLY_ITEMS = (lead: CardLead, actionLabel: string, dueLabel: string) =
   ["Due Status", dueLabel],
 ] as const;
 
-export function BatchLeadCard({ lead, consultants, actionLabel, dueLabel }: {
+export function BatchLeadCard({ lead, consultants, actionLabel, dueLabel, followUpLabel }: {
   lead: CardLead; consultants: { id: string; full_name: string | null }[];
-  actionLabel: string; dueLabel: string;
+  actionLabel: string; dueLabel: string; followUpLabel?: string | null;
 }) {
   const batch = useBatchEdit();
   const entry = batch?.entries[lead.id];
@@ -48,6 +49,7 @@ export function BatchLeadCard({ lead, consultants, actionLabel, dueLabel }: {
       </div>
       <div className="mt-2"><BatchField leadId={lead.id} field="name" variant="card"/></div>
       <div className="mt-1 text-xs text-slate-500">{lead.lead_ref}</div>
+      <FollowUpLabel label={followUpLabel}/>
       <PriorityBadge lead={lead} compact/>
       <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
         {READONLY_ITEMS(lead, actionLabel, dueLabel).map(([label, value]) => <div key={label} className="min-w-0 break-words">
@@ -75,7 +77,7 @@ export function BatchLeadCard({ lead, consultants, actionLabel, dueLabel }: {
       {batch && <LeadSelectCheckbox lead={{ id: lead.id, name: lead.name }}/>}
       <span inert={batch?.saving || undefined} className={batch?.saving ? "opacity-50" : ""}><QuickEditLead lead={lead} consultants={consultants} trigger="name"/></span>
     </div>
-    <div className="mt-1 text-xs text-slate-500">{lead.lead_ref}</div><PriorityBadge lead={lead} compact/>
+    <div className="mt-1 text-xs text-slate-500">{lead.lead_ref}</div><FollowUpLabel label={followUpLabel}/><PriorityBadge lead={lead} compact/>
     <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">{[
       ["Inbound / Outbound", lead.inbound_outbound ?? "—"],
       ["Initiated Date", lead.initiated_date_text ?? "—"],

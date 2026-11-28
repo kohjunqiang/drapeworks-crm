@@ -39,6 +39,8 @@ export type OrderRow = {
   // True when the calculator has drifted from the locked quote — a nudge to
   // re-quote on the order detail page.
   isStale?: boolean;
+  // Quiet "N days since payment / PO sent" line under the status badge.
+  statusCounter?: string | null;
 };
 
 type Props = {
@@ -183,6 +185,11 @@ export function OrdersTable({
               </td>
               <td className="px-4 py-3">
                 <StatusBadge status={o.current_status} />
+                {o.statusCounter && (
+                  <div className="mt-1 text-xs text-slate-600">
+                    {o.statusCounter}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3 text-right font-medium">
                 <span className="inline-flex items-center gap-1.5">

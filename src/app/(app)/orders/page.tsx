@@ -23,6 +23,12 @@ import {
 } from "@/lib/logistics/freight";
 import { primaryOrderIdentifier } from "@/lib/orders/reference";
 import { ORDER_PAGE_SIZE, orderPagination, orderSearch } from "@/lib/orders/list-query";
+import {
+  loadOrderMilestoneDates,
+  orderDayCounter,
+  orderDayCounterLabel,
+} from "@/lib/orders/day-counter";
+import { todayInSingapore } from "@/lib/leads/sg-date";
 import { STATUS_FLOW } from "@/lib/status-flow";
 import type { FulfilmentStatus } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/require-role";
@@ -310,6 +316,14 @@ export default async function OrdersDashboardPage({
   // batched sweep, not a per-row recompute).
   const staleFlags = await orderStaleFlags(rows.map((r) => r.id));
 
+  // First-payment / first-send-to-vendor milestones for the quiet day counter
+  // under each status badge — one grouped query over the visible page.
+  const milestoneDates = await loadOrderMilestoneDates(
+    db,
+    rows.map((r) => r.id),
+  );
+  const today = todayInSingapore();
+
   const orders: OrderRow[] = rows.map((r) => ({
     id: r.id,
     display_id: r.display_id,
@@ -327,6 +341,15 @@ export default async function OrdersDashboardPage({
     shipments: shipmentsByOrder.get(r.id) ?? [],
     hasFreightComponents: freightRows.some((shipment) => shipment.order_id === r.id),
     isStale: staleFlags.get(r.id) ?? false,
+    statusCounter: orderDayCounterLabel(
+      orderDayCounter({
+        currentStatus: r.current_status,
+        depositReceivedAt:
+          milestoneDates.get(r.id)?.depositReceivedAt ?? null,
+        sentToVendorAt: milestoneDates.get(r.id)?.sentToVendorAt ?? null,
+        today,
+      }),
+    ),
   }));
 
   const freightComponents: FreightComponent[] = freightRows.map((shipment) => ({

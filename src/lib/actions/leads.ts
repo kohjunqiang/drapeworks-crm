@@ -6,6 +6,7 @@ import { sql } from "kysely";
 import { requireRole } from "@/lib/auth/require-role";
 import { db } from "@/lib/db/kysely";
 import { deriveRecommendations, deriveBuyingReadiness, deriveDaysToMoveIn, deriveActionRequired, deriveDueStatus } from "@/lib/leads/funnel-engine";
+import { leadFollowUpLabel } from "@/lib/leads/follow-up";
 import { todayInSingapore, toSgDate, type SgDate } from "@/lib/leads/sg-date";
 import { unsyncAppointment } from "@/lib/calendar/sync";
 import { isCalendarConfigured } from "@/lib/calendar/google";
@@ -26,7 +27,7 @@ export async function getLeadModalData(id: string) {
     sql<string | null>`next_action_date::text`.as("next_action_date_text"),
     sql<string | null>`move_in_date::text`.as("move_in_date_text"),
   ]).where("id", "=", id).executeTakeFirstOrThrow();
-  const [interactions, profiles, appointment] = await Promise.all([
+  const [interactions, profiles, appointment, lastCompletedAppointment] = await Promise.all([
     db.selectFrom("lead_interactions").leftJoin("profiles", "profiles.id", "lead_interactions.created_by")
       .select(["lead_interactions.id", "occurred_at", "interaction_type", "direction", "channel", "note", "profiles.full_name"])
       .where("lead_id", "=", id).orderBy("occurred_at", "desc").orderBy("lead_interactions.id", "desc").execute(),
@@ -40,6 +41,13 @@ export async function getLeadModalData(id: string) {
       .where("appointments.lead_id", "=", id)
       .orderBy("appointments.created_at", "desc")
       .executeTakeFirst(),
+    // Separate lookup: the label counts days from the latest ATTENDED
+    // consultation, whatever the newest appointment's status is.
+    db.selectFrom("appointments")
+      .select(sql<Date | null>`max(scheduled_at)`.as("last_at"))
+      .where("lead_id", "=", id)
+      .where("status", "=", "completed")
+      .executeTakeFirst(),
   ]);
   const date = (value: Date | string | null) => value ? toSgDate(new Date(value)) : null;
   const actionRequired = deriveActionRequired({ ...lead, next_action_date: lead.next_action_date_text }, todayInSingapore());
@@ -49,6 +57,7 @@ export async function getLeadModalData(id: string) {
     buying_readiness: deriveBuyingReadiness(lead.funnel_stage),
     days_to_move_in: deriveDaysToMoveIn(lead.move_in_date_text, todayInSingapore()),
     action_required: actionRequired, due_status: deriveDueStatus(actionRequired, lead.next_action_date_text, todayInSingapore()),
+    follow_up_label: leadFollowUpLabel({ funnelStage: lead.funnel_stage, isArchived: lead.is_archived, lastCompletedAt: lastCompletedAppointment?.last_at ?? null, today: todayInSingapore() }),
   }, interactions, appointment: appointment ?? null, calendarConfigured: isCalendarConfigured(), ownerName: profiles.find(person => person.id === (lead.assigned_consultant_id ?? lead.owner_id))?.full_name ?? "Unassigned",
     consultants: profiles.filter(person => person.is_active && (person.role === "admin" || person.role === "consultant")),
   };
